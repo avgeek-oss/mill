@@ -16,6 +16,10 @@
     "react-dom": "19.3.0",
     "clsx": "2.1.1",
     "tailwind-merge": "3.7.0",
-    "tailwindcss": "4.2.4"
+    "tailwindcss": "4.2.4",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@hugeicons/core-free-icons": "4.3.0",
+    "@hugeicons/react": "1.1.10",
+    "react-aria-components": "1.21.1"
   }
 }

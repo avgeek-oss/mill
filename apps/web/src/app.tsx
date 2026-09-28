@@ -6,36 +6,66 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type ComponentProps,
 } from "react";
 import {
+  AppLayout,
+  AppShell,
+  ApplicationSidebar,
   Button,
   Choice,
   Dialog,
-  Drawer,
+  EmptyState,
   ErrorMessage,
+  FooterIdentity,
+  Navbar,
   TextField,
+  ThemeSwitcher,
+  usePersistentAppSidebar,
+  type ShellLinkConfig,
 } from "@mill/web-design-system";
 import {
-  Bell,
-  ChevronDown,
-  ChevronRight,
-  Columns3,
-  LogOut,
-  Menu,
-  Moon,
-  Plus,
-  Settings,
-  Sun,
-  Users,
-  X,
-  KeyRound,
-  Shield,
-  Download,
-  ScrollText,
-} from "lucide-react";
+  Add01Icon,
+  ArrowDown01Icon,
+  ArrowRight01Icon,
+  Audit01Icon,
+  Download01Icon,
+  KanbanIcon,
+  Key01Icon,
+  Notification01Icon,
+  Settings01Icon,
+  UserGroupIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { Board, Member } from "../../../packages/contracts/src/index.js";
 import { ErrorPage } from "./error-page.js";
 import { api, errorText, navigate, type Session } from "./api.js";
+
+function iconComponent(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
+  return function Icon(
+    props: Omit<ComponentProps<typeof HugeiconsIcon>, "icon">,
+  ) {
+    return (
+      <HugeiconsIcon
+        aria-hidden="true"
+        size={16}
+        className="shrink-0"
+        {...props}
+        icon={icon}
+      />
+    );
+  };
+}
+const Bell = iconComponent(Notification01Icon);
+const ChevronDown = iconComponent(ArrowDown01Icon);
+const ChevronRight = iconComponent(ArrowRight01Icon);
+const Columns3 = iconComponent(KanbanIcon);
+const Plus = iconComponent(Add01Icon);
+const Settings = iconComponent(Settings01Icon);
+const Users = iconComponent(UserGroupIcon);
+const KeyRound = iconComponent(Key01Icon);
+const Download = iconComponent(Download01Icon);
+const ScrollText = iconComponent(Audit01Icon);
 const Auth = lazy(() => import("./auth.js").then((m) => ({ default: m.Auth })));
 const BoardPage = lazy(() =>
   import("./board.js").then((m) => ({ default: m.BoardPage })),
@@ -78,19 +108,7 @@ export function App() {
   const [boards, setBoards] = useState<Board[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
-  const [mobileMenu, setMobileMenu] = useState(false);
-  const [isMobile, setIsMobile] = useState(
-    window.matchMedia("(max-width:700px)").matches,
-  );
-  useEffect(() => {
-    const media = window.matchMedia("(max-width:700px)");
-    const change = () => {
-      setIsMobile(media.matches);
-      if (!media.matches) setMobileMenu(false);
-    };
-    media.addEventListener("change", change);
-    return () => media.removeEventListener("change", change);
-  }, []);
+  const sidebarState = usePersistentAppSidebar();
   const [boardsExpanded, setBoardsExpanded] = useState(
     localStorage.getItem("mill:boards-expanded") !== "false",
   );
@@ -181,7 +199,6 @@ export function App() {
     }
   }, [session?.user.id, boardState]);
   useEffect(() => {
-    setMobileMenu(false);
     if (session && path.startsWith("/settings/"))
       document.title = `${path.split("/").pop()?.replaceAll("-", " ")} · Mill`;
     if (session && path === "/notifications") document.title = "Inbox · Mill";
@@ -245,88 +262,81 @@ export function App() {
     "audit",
     "data",
   ];
-  function nav(label: string, url: string, icon: ReactNode) {
-    return (
-      <a
-        href={url}
-        className={`nav-item ${path === url ? "active" : ""}`}
-        onClick={(e) => {
-          e.preventDefault();
-          navigate(url);
-        }}
-      >
-        {icon}
-        <span>{label}</span>
-        {url === "/notifications" && notificationCount > 0 && (
-          <span className="unread-badge">{notificationCount}</span>
-        )}
-      </a>
-    );
+  function nav(label: string, url: string, icon: ReactNode): ShellLinkConfig {
+    return {
+      id: url,
+      href: url,
+      label,
+      icon,
+      active: path === url,
+      ...(url === "/notifications" && notificationCount > 0
+        ? {
+            badge: {
+              value: notificationCount,
+              label: `${notificationCount} unread notifications`,
+            },
+          }
+        : {}),
+    };
   }
   const admin = session.user.role === "admin";
   const sidebar = (
-    <aside className={`sidebar ${mobileMenu ? "open" : ""}`}>
-      <div className="sidebar-brand">
-        <a
-          className="brand"
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            navigate("/");
-          }}
-        >
-          <span className="mark">M</span>Mill
-        </a>
-        <Button
-          variant="ghost"
-          className="mobile-close"
-          autoFocus={isMobile}
-          aria-label="Close navigation"
-          onPress={() => setMobileMenu(false)}
-        >
-          <X />
-        </Button>
-      </div>
-      <div className="workspace-name" title={session.workspace.name}>
-        {session.workspace.name}
-      </div>
-      <nav aria-label="Workspace navigation">
-        {nav("Inbox", "/notifications", <Bell />)}
-        <div className="sidebar-section">
-          <div className="sidebar-section-header">
-            <Button
-              variant="ghost"
-              className="section-toggle"
-              aria-expanded={boardsExpanded}
-              onPress={() => {
-                setBoardsExpanded(!boardsExpanded);
-                localStorage.setItem(
-                  "mill:boards-expanded",
-                  String(!boardsExpanded),
-                );
-              }}
-            >
-              {boardsExpanded ? <ChevronDown /> : <ChevronRight />}
-              <span>Boards</span>
-            </Button>
-            {session.user.role !== "viewer" && (
-              <Button
-                variant="ghost"
-                aria-label="Create board"
-                onPress={() => {
-                  setNewBoard(true);
-                  setCreateError("");
-                }}
+    <ApplicationSidebar
+      config={{
+        accessibleLabel: "Workspace navigation",
+        homeHref: "/",
+        brand: {
+          title: "Mill",
+          logo: (
+            <span className="grid size-8 place-items-center rounded-lg bg-accent text-base font-semibold text-accent-foreground">
+              M
+            </span>
+          ),
+        },
+        groups: [
+          { id: "inbox", items: [nav("Inbox", "/notifications", <Bell />)] },
+          {
+            id: "boards",
+            header: (
+              <div className="flex min-w-0 items-center justify-between gap-1">
+                <Button
+                  variant="ghost"
+                  className="h-auto min-h-9 min-w-0 flex-1 justify-start gap-3 rounded-2xl px-2 py-1.5 text-sm font-normal text-muted"
+                  aria-expanded={boardsExpanded}
+                  onPress={() => {
+                    setBoardsExpanded(!boardsExpanded);
+                    localStorage.setItem(
+                      "mill:boards-expanded",
+                      String(!boardsExpanded),
+                    );
+                  }}
+                >
+                  {boardsExpanded ? <ChevronDown /> : <ChevronRight />}
+                  <span>Boards</span>
+                </Button>
+                {session.user.role !== "viewer" && (
+                  <Button
+                    variant="ghost"
+                    isIconOnly
+                    aria-label="Create board"
+                    onPress={() => {
+                      setNewBoard(true);
+                      setCreateError("");
+                    }}
+                  >
+                    <Plus />
+                  </Button>
+                )}
+              </div>
+            ),
+            content: boardsExpanded ? (
+              <div
+                id="sidebar-board-collection"
+                className="grid min-w-0 gap-2 px-2 py-1"
               >
-                <Plus />
-              </Button>
-            )}
-          </div>
-          {boardsExpanded && (
-            <>
-              <div className="sidebar-board-filter">
                 <Choice
                   label="Board collection"
+                  variant="secondary"
                   value={boardState}
                   onChange={setBoardState}
                   items={[
@@ -335,67 +345,47 @@ export function App() {
                     { id: "deleted", name: "Deleted boards" },
                   ]}
                 />
+                {!boards.length && (
+                  <p className="text-xs text-muted">No {boardState} boards.</p>
+                )}
               </div>
-              {boards.map((board) => (
-                <a
-                  key={board.id}
-                  href={`/boards/${board.id}`}
-                  className={`nav-item ${activeBoardId === board.id ? "active" : ""}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigate(`/boards/${board.id}`);
-                  }}
-                >
-                  <Columns3 />
-                  <span>{board.name}</span>
-                </a>
-              ))}
-              {!boards.length && (
-                <p className="sidebar-empty muted small">
-                  No {boardState} boards.
-                </p>
-              )}
-            </>
-          )}
-        </div>
-        <div className="sidebar-section settings-nav">
-          <span className="sidebar-label">Workspace</span>
-          {admin && nav("People", "/settings/members", <Users />)}
-          {nav("Agent access", "/settings/agents", <KeyRound />)}
-          {admin &&
-            nav("Workspace settings", "/settings/workspace", <Settings />)}
-          {admin && nav("Export and import", "/settings/data", <Download />)}
-          {admin && nav("Audit history", "/settings/audit", <ScrollText />)}
-        </div>
-      </nav>
-      <div className="sidebar-bottom">
-        {nav("Account security", "/settings/security", <Shield />)}
-        <a
-          href="/settings/profile"
-          className={`profile-link ${settingsSection === "profile" ? "active" : ""}`}
-          onClick={(e) => {
-            e.preventDefault();
-            navigate("/settings/profile");
-          }}
-        >
-          <span className="avatar">{session.user.name.slice(0, 1)}</span>
-          <span>
-            <strong>{session.user.name}</strong>
-            <small>{session.user.role}</small>
-          </span>
-        </a>
-        <div className="row space-between">
-          <Button
-            variant="ghost"
-            aria-label={theme === "dark" ? "Use light theme" : "Use dark theme"}
-            onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? <Sun /> : <Moon />}
-          </Button>
-          <Button
-            variant="ghost"
-            aria-label="Sign out"
-            onPress={() =>
+            ) : undefined,
+            items: boardsExpanded
+              ? boards.map((board) => ({
+                  id: board.id,
+                  href: `/boards/${board.id}`,
+                  label: board.name,
+                  icon: <Columns3 />,
+                  active: activeBoardId === board.id,
+                }))
+              : [],
+          },
+          {
+            id: "workspace",
+            label: "Workspace",
+            items: [
+              ...(admin ? [nav("People", "/settings/members", <Users />)] : []),
+              nav("Agent access", "/settings/agents", <KeyRound />),
+              ...(admin
+                ? [
+                    nav(
+                      "Workspace settings",
+                      "/settings/workspace",
+                      <Settings />,
+                    ),
+                    nav("Export and import", "/settings/data", <Download />),
+                    nav("Audit history", "/settings/audit", <ScrollText />),
+                  ]
+                : []),
+            ],
+          },
+        ],
+        footerContent: (
+          <FooterIdentity
+            name={session.user.name}
+            email={session.user.email}
+            workspaceName={session.workspace.name}
+            onLogout={() =>
               void api("/auth/logout", {})
                 .then(() => {
                   setSession(null);
@@ -404,108 +394,152 @@ export function App() {
                 })
                 .catch((e) => setError(errorText(e)))
             }
-          >
-            <LogOut />
-          </Button>
-        </div>
-      </div>
-    </aside>
+          />
+        ),
+      }}
+    />
   );
+  const settingsTitles: Record<string, string> = {
+    profile: "Profile",
+    security: "Account security",
+    members: "People",
+    agents: "Agent access",
+    workspace: "Workspace",
+    audit: "Audit history",
+    data: "Export and import",
+  };
+  const navbarTitle = activeBoardId
+    ? (boards.find((board) => board.id === activeBoardId)?.name ?? "Board")
+    : path === "/notifications"
+      ? "Inbox"
+      : settingsSection && knownSettings.includes(settingsSection)
+        ? settingsTitles[settingsSection]
+        : path === "/oauth/consent"
+          ? "Connect an agent"
+          : path === "/"
+            ? "Boards"
+            : "Page not found";
   return (
-    <div className="app-shell">
-      <div className="mobile-topbar">
-        <Button
-          variant="ghost"
-          aria-label="Open navigation"
-          onPress={() => setMobileMenu(true)}
-        >
-          <Menu />
-        </Button>
-        <span className="brand">
-          <span className="mark">M</span>Mill
-        </span>
-        <Button
-          variant="ghost"
-          aria-label="Open notifications"
-          onPress={() => navigate("/notifications")}
-        >
-          <Bell />
-          {notificationCount > 0 && <span className="unread-dot" />}
-        </Button>
-      </div>
-      {isMobile ? (
-        <Drawer open={mobileMenu} onClose={() => setMobileMenu(false)}>
-          {sidebar}
-        </Drawer>
-      ) : (
-        sidebar
-      )}
-      <main className="workspace-main">
-        <Suspense
-          fallback={
-            <div className="loading-state" role="status">
-              Loading…
-            </div>
-          }
-        >
-          {error && <ErrorMessage>{error}</ErrorMessage>}
-          {activeBoardId ? (
-            <BoardPage
-              key={activeBoardId}
-              boardId={activeBoardId}
-              boards={boards}
-              user={session.user}
-              members={members}
-              onBoardsChanged={() => {
-                void loadBoards();
-                void refresh();
-              }}
-              path={path}
-            />
-          ) : path === "/notifications" ? (
-            <Inbox
-              timeZone={session.user.timeZone}
-              userId={session.user.id}
-              onRead={() => void refresh()}
-            />
-          ) : settingsSection && knownSettings.includes(settingsSection) ? (
-            <SettingsPage
-              key={settingsSection}
-              section={settingsSection}
-              session={session}
-              members={members}
-              boards={boards}
-              onRefresh={() => {
-                void refresh();
-                void loadBoards();
-              }}
-            />
-          ) : path === "/oauth/consent" ? (
-            <Consent boards={boards} />
-          ) : path === "/" ? (
-            <div className="empty-state welcome">
-              <span className="mark large">M</span>
-              <h1>Your work starts here</h1>
-              <p className="muted">
-                Create a board, give it a few tasks, and make the next step
-                clear.
-              </p>
-              {session.user.role !== "viewer" ? (
-                <Button onPress={() => setNewBoard(true)}>
-                  <Plus />
-                  Create your first board
+    <AppShell contentWidth="full">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-background focus:px-4 focus:py-2 focus:ring-2 focus:ring-focus"
+      >
+        Skip to content
+      </a>
+      <AppLayout
+        navigate={navigate}
+        path={path}
+        sidebar={sidebar}
+        toggleShortcut
+        {...sidebarState}
+        navbar={
+          <Navbar
+            title={navbarTitle}
+            sidebarOpen={sidebarState.sidebarOpen}
+            onSidebarToggle={() =>
+              sidebarState.onSidebarOpenChange(!sidebarState.sidebarOpen)
+            }
+            actions={
+              <>
+                <Button
+                  variant="ghost"
+                  isIconOnly
+                  className="relative"
+                  aria-label="Open notifications"
+                  onPress={() => navigate("/notifications")}
+                >
+                  <Bell />
+                  {notificationCount > 0 && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute end-1 top-1 size-1.5 rounded-full bg-accent"
+                    />
+                  )}
                 </Button>
-              ) : (
-                <p className="muted small">
-                  Ask a member or administrator to create a board.
-                </p>
-              )}
-            </div>
-          ) : (
-            <ErrorPage code="404" />
-          )}
-        </Suspense>
-      </main>
+                <ThemeSwitcher
+                  size="small"
+                  theme={theme}
+                  onThemeChange={setTheme}
+                />
+              </>
+            }
+          />
+        }
+      >
+        <AppShell.Content>
+          <Suspense
+            fallback={
+              <div className="loading-state" role="status">
+                Loading…
+              </div>
+            }
+          >
+            {error && <ErrorMessage>{error}</ErrorMessage>}
+            {activeBoardId ? (
+              <BoardPage
+                key={activeBoardId}
+                boardId={activeBoardId}
+                boards={boards}
+                user={session.user}
+                members={members}
+                onBoardsChanged={() => {
+                  void loadBoards();
+                  void refresh();
+                }}
+                path={path}
+              />
+            ) : path === "/notifications" ? (
+              <Inbox
+                timeZone={session.user.timeZone}
+                userId={session.user.id}
+                onRead={() => void refresh()}
+              />
+            ) : settingsSection && knownSettings.includes(settingsSection) ? (
+              <SettingsPage
+                key={settingsSection}
+                section={settingsSection}
+                session={session}
+                members={members}
+                boards={boards}
+                onRefresh={() => {
+                  void refresh();
+                  void loadBoards();
+                }}
+              />
+            ) : path === "/oauth/consent" ? (
+              <Consent boards={boards} />
+            ) : path === "/" ? (
+              <EmptyState>
+                <EmptyState.Media>
+                  <Columns3 size={32} />
+                </EmptyState.Media>
+                <EmptyState.Header>
+                  <EmptyState.Title>Your work starts here</EmptyState.Title>
+                  <EmptyState.Description>
+                    Create a board, give it a few tasks, and make the next step
+                    clear.
+                  </EmptyState.Description>
+                </EmptyState.Header>
+                <EmptyState.Content>
+                  {session.user.role !== "viewer" ? (
+                    <Button onPress={() => setNewBoard(true)}>
+                      <Plus />
+                      Create your first board
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-muted">
+                      Ask a member or administrator to create a board.
+                    </p>
+                  )}
+                </EmptyState.Content>
+              </EmptyState>
+            ) : (
+              <ErrorPage code="404" />
+            )}
+          </Suspense>
+        </AppShell.Content>
+      </AppLayout>
       <Dialog
         open={newBoard}
         onClose={() => setNewBoard(false)}
@@ -563,7 +597,7 @@ export function App() {
           <ErrorMessage>{createError}</ErrorMessage>
         </form>
       </Dialog>
-    </div>
+    </AppShell>
   );
 }
 function Inbox({

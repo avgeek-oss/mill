@@ -1,0 +1,539 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { Avatar, Drawer, Dropdown } from "@heroui/react";
+import {
+  Logout03Icon,
+  Menu01Icon,
+  Moon02Icon,
+  SecurityCheckIcon,
+  Sun03Icon,
+  UserAccountIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "./button.js";
+import { cn } from "./utils.js";
+
+export type ContentWidth = "small" | "compact" | "relaxed" | "broad" | "full";
+const widths: Record<ContentWidth, string> = {
+  small: "max-w-3xl",
+  compact: "max-w-5xl",
+  relaxed: "max-w-6xl",
+  broad: "max-w-7xl",
+  full: "max-w-none",
+};
+const ContentWidthContext = createContext<ContentWidth>("relaxed");
+
+function Root({
+  children,
+  contentWidth = "relaxed",
+  className,
+  ...props
+}: ComponentProps<"div"> & { contentWidth?: ContentWidth }) {
+  return (
+    <ContentWidthContext.Provider value={contentWidth}>
+      <div className={cn("min-h-dvh", className)} {...props}>
+        {children}
+      </div>
+    </ContentWidthContext.Provider>
+  );
+}
+
+function Content({
+  className,
+  variant,
+  ...props
+}: ComponentProps<"div"> & { variant?: ContentWidth }) {
+  const contentWidth = useContext(ContentWidthContext);
+  return (
+    <div
+      className={cn(
+        "mx-auto min-h-full w-full min-w-0 px-4 py-3 sm:px-6 sm:py-6 lg:px-8",
+        widths[variant ?? contentWidth],
+        className,
+      )}
+      {...props}
+    />
+  );
+}
+
+export const AppShell = Object.assign(Root, { Content, Root });
+
+const desktopQuery = "(min-width: 64rem)";
+const subscribeToViewport = (callback: () => void) => {
+  const query = window.matchMedia(desktopQuery);
+  query.addEventListener("change", callback);
+  return () => query.removeEventListener("change", callback);
+};
+const isDesktopViewport = () => window.matchMedia(desktopQuery).matches;
+const serverViewport = () => false;
+
+const NavigationContext = createContext<{
+  path: string;
+  navigate: (href: string) => void;
+  close: () => void;
+}>({ path: "/", navigate: () => {}, close: () => {} });
+
+export function usePersistentAppSidebar(storageKey = "mill:sidebar-open") {
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (!isDesktopViewport()) return false;
+    try {
+      return localStorage.getItem(storageKey) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    const query = window.matchMedia(desktopQuery);
+    const restore = () => {
+      let open = query.matches;
+      try {
+        if (open) open = localStorage.getItem(storageKey) !== "false";
+      } catch {
+        open = query.matches;
+      }
+      setSidebarOpen(open);
+    };
+    restore();
+    query.addEventListener("change", restore);
+    return () => query.removeEventListener("change", restore);
+  }, [storageKey]);
+  const onSidebarOpenChange = useCallback(
+    (open: boolean) => {
+      setSidebarOpen(open);
+      if (isDesktopViewport()) {
+        try {
+          localStorage.setItem(storageKey, String(open));
+        } catch {
+          // Navigation stays available when browser storage is unavailable.
+        }
+      }
+    },
+    [storageKey],
+  );
+  return { sidebarOpen, onSidebarOpenChange };
+}
+
+export type AppLayoutProps = {
+  children: ReactNode;
+  className?: string;
+  navbar: ReactNode;
+  navigate: (href: string) => void;
+  onSidebarOpenChange: (open: boolean) => void;
+  path: string;
+  sidebar: ReactNode;
+  sidebarOpen: boolean;
+  toggleShortcut?: boolean;
+};
+
+export function AppLayout({
+  children,
+  className,
+  navbar,
+  navigate,
+  onSidebarOpenChange,
+  path,
+  sidebar,
+  sidebarOpen,
+  toggleShortcut = false,
+}: AppLayoutProps) {
+  const previousPath = useRef(path);
+  const isDesktop = useSyncExternalStore(
+    subscribeToViewport,
+    isDesktopViewport,
+    serverViewport,
+  );
+
+  useEffect(() => {
+    const routeChanged = previousPath.current !== path;
+    previousPath.current = path;
+    if (routeChanged && !isDesktopViewport()) onSidebarOpenChange(false);
+  }, [onSidebarOpenChange, path]);
+
+  useEffect(() => {
+    if (!toggleShortcut) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() === "b" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        onSidebarOpenChange(!sidebarOpen);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onSidebarOpenChange, sidebarOpen, toggleShortcut]);
+
+  return (
+    <NavigationContext.Provider
+      value={{
+        path,
+        navigate,
+        close: () => {
+          if (!isDesktop) onSidebarOpenChange(false);
+        },
+      }}
+    >
+      <div
+        className={cn(
+          "min-h-dvh",
+          sidebarOpen && "lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]",
+          className,
+        )}
+      >
+        {sidebarOpen && isDesktop ? (
+          <aside
+            id="application-navigation"
+            className="sticky top-0 h-dvh w-60 overflow-hidden border-r border-separator bg-background"
+          >
+            {sidebar}
+          </aside>
+        ) : null}
+        <div className="grid min-h-dvh min-w-0 grid-cols-1 grid-rows-[auto_1fr]">
+          {navbar}
+          <main id="main-content" className="min-w-0" tabIndex={-1}>
+            {children}
+          </main>
+        </div>
+      </div>
+      <Drawer.Backdrop
+        isOpen={sidebarOpen && !isDesktop}
+        onOpenChange={onSidebarOpenChange}
+      >
+        <Drawer.Content placement="left">
+          <Drawer.Dialog
+            id="application-navigation"
+            aria-label="Workspace navigation"
+            className="grid w-72 max-w-[calc(100vw-1rem)] grid-cols-1 overflow-hidden bg-background p-0 sm:w-72"
+          >
+            <div
+              className="relative h-full min-h-0 min-w-0"
+              data-slot="drawer-body"
+            >
+              {sidebar}
+              <Drawer.CloseTrigger
+                autoFocus
+                aria-label="Close navigation"
+                className="end-3 top-2.5 size-11 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
+              />
+            </div>
+          </Drawer.Dialog>
+        </Drawer.Content>
+      </Drawer.Backdrop>
+    </NavigationContext.Provider>
+  );
+}
+
+export type ShellLinkConfig = {
+  id: string;
+  href: string;
+  label: string;
+  icon?: ReactNode;
+  active?: boolean;
+  trailing?: ReactNode;
+  badge?: { value: number; label: string };
+};
+export type SidebarGroupConfig = {
+  id: string;
+  label?: string;
+  header?: ReactNode;
+  content?: ReactNode;
+  items: ShellLinkConfig[];
+};
+export type SidebarConfig = {
+  accessibleLabel: string;
+  brand: { title: string; logo: ReactNode };
+  homeHref: string;
+  groups: SidebarGroupConfig[];
+  footerContent?: ReactNode;
+};
+
+function RoutedLink({
+  item,
+  className,
+  children,
+}: {
+  item: ShellLinkConfig;
+  className?: string;
+  children?: ReactNode;
+}) {
+  const { navigate, close } = useContext(NavigationContext);
+  const onClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
+    event.preventDefault();
+    navigate(item.href);
+    close();
+  };
+  return (
+    <a
+      aria-current={item.active ? "page" : undefined}
+      className={className}
+      href={item.href}
+      onClick={onClick}
+    >
+      {children ?? item.label}
+    </a>
+  );
+}
+
+export function ApplicationSidebar({ config }: { config: SidebarConfig }) {
+  const { path } = useContext(NavigationContext);
+  return (
+    <nav
+      aria-label={config.accessibleLabel}
+      className="flex h-full min-h-0 flex-col overflow-hidden"
+    >
+      <RoutedLink
+        className="inline-flex min-h-16 min-w-0 shrink-0 items-center gap-2.5 border-b border-separator px-4"
+        item={{ id: "home", href: config.homeHref, label: config.brand.title }}
+      >
+        <span className="inline-flex min-w-0 items-center gap-2.5">
+          <span
+            aria-hidden="true"
+            className="inline-grid size-8 shrink-0 place-items-center"
+          >
+            {config.brand.logo}
+          </span>
+          <span className="truncate text-base font-medium">
+            {config.brand.title}
+          </span>
+        </span>
+      </RoutedLink>
+      <div className="grid min-h-0 flex-1 content-start gap-1 overflow-y-auto overscroll-contain px-3 py-4">
+        {config.groups.map((group) => (
+          <section className="grid gap-1 [&+&]:mt-2" key={group.id}>
+            {group.header ??
+              (group.label ? (
+                <h2 className="px-2 py-1.5 text-xs font-medium text-muted">
+                  {group.label}
+                </h2>
+              ) : null)}
+            {group.content}
+            <div className="grid gap-0.5">
+              {group.items.map((item) => {
+                const active =
+                  item.active ??
+                  (path === item.href ||
+                    (item.href !== "/" && path.startsWith(`${item.href}/`)));
+                return (
+                  <RoutedLink
+                    className={cn(
+                      "flex min-h-9 min-w-0 items-center gap-3 rounded-2xl px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus",
+                      active
+                        ? "bg-default font-medium text-foreground"
+                        : "font-normal text-muted hover:bg-default/60 hover:text-foreground",
+                    )}
+                    item={{ ...item, active }}
+                    key={item.id}
+                  >
+                    {item.icon}
+                    <span className="min-w-0 flex-1 break-words">
+                      {item.label}
+                    </span>
+                    {item.trailing}
+                    {item.badge ? (
+                      <span
+                        aria-label={item.badge.label}
+                        title={item.badge.label}
+                        className="ms-auto min-w-4 shrink-0 text-end font-mono text-xs tabular-nums text-muted lg:min-w-5"
+                      >
+                        {item.badge.value}
+                      </span>
+                    ) : null}
+                  </RoutedLink>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+      {config.footerContent ? (
+        <div className="shrink-0 border-t border-separator pb-[env(safe-area-inset-bottom)]">
+          {config.footerContent}
+        </div>
+      ) : null}
+    </nav>
+  );
+}
+
+export type NavbarProps = {
+  title: ReactNode;
+  actions?: ReactNode;
+  sidebarOpen: boolean;
+  onSidebarToggle: () => void;
+};
+
+export function Navbar({
+  title,
+  actions,
+  sidebarOpen,
+  onSidebarToggle,
+}: NavbarProps) {
+  return (
+    <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-5 border-b border-separator bg-background/90 px-4 backdrop-blur">
+      <div className="flex min-w-0 items-center gap-2">
+        <Button
+          aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+          aria-expanded={sidebarOpen}
+          aria-controls={sidebarOpen ? "application-navigation" : undefined}
+          className="size-11 min-h-11 min-w-11 shrink-0 lg:size-10 lg:min-h-10 lg:min-w-10"
+          isIconOnly
+          onPress={onSidebarToggle}
+          variant="ghost"
+        >
+          <HugeiconsIcon
+            aria-hidden="true"
+            className="size-[22px] lg:size-5"
+            icon={Menu01Icon}
+          />
+        </Button>
+        <span className="truncate text-sm font-medium">{title}</span>
+      </div>
+      {actions ? (
+        <div className="flex shrink-0 items-center gap-2">{actions}</div>
+      ) : null}
+    </header>
+  );
+}
+
+export const ApplicationNavbar = Navbar;
+
+export type ThemeSwitcherProps = Omit<
+  ComponentProps<"button">,
+  "children" | "onClick" | "type"
+> & {
+  theme: string;
+  onThemeChange: (theme: "light" | "dark") => void;
+  label?: string;
+  size?: "default" | "small";
+};
+
+export function ThemeSwitcher({
+  className,
+  label = "Appearance",
+  size = "default",
+  theme,
+  onThemeChange,
+  ...props
+}: ThemeSwitcherProps) {
+  const nextTheme = theme === "dark" ? "light" : "dark";
+  return (
+    <button
+      aria-label={`${label}: switch to ${nextTheme} theme`}
+      className={cn(
+        "relative isolate grid shrink-0 cursor-pointer touch-manipulation place-items-center rounded-full bg-default text-muted outline-none transition-[color,background-color,transform] hover:bg-default/80 hover:text-foreground active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none",
+        size === "small" ? "size-8" : "size-10",
+        className,
+      )}
+      data-slot="theme-switcher"
+      title={`Switch to ${nextTheme} theme`}
+      type="button"
+      onClick={() => onThemeChange(nextTheme)}
+      {...props}
+    >
+      <HugeiconsIcon
+        aria-hidden="true"
+        className="size-4"
+        icon={theme === "dark" ? Moon02Icon : Sun03Icon}
+      />
+    </button>
+  );
+}
+
+export type FooterIdentityProps = {
+  name: string;
+  email: string;
+  workspaceName: string;
+  onLogout: () => void;
+};
+
+export function FooterIdentity({
+  name,
+  email,
+  workspaceName,
+  onLogout,
+}: FooterIdentityProps) {
+  const { navigate, close } = useContext(NavigationContext);
+  return (
+    <Dropdown>
+      <Dropdown.Trigger
+        aria-label={`Account menu for ${name}`}
+        className="sidebar-identity flex min-h-16 w-full min-w-0 items-center gap-2.5 px-4 py-3 text-start text-sm"
+      >
+        <Avatar aria-hidden="true" className="size-9 shrink-0" size="md">
+          <Avatar.Fallback>{name.slice(0, 1).toUpperCase()}</Avatar.Fallback>
+        </Avatar>
+        <span className="grid min-w-0 flex-1 gap-0.25">
+          <span className="truncate font-medium">{name}</span>
+          <span className="truncate text-xs text-foreground/70">
+            {workspaceName}
+          </span>
+        </span>
+      </Dropdown.Trigger>
+      <Dropdown.Popover
+        className="w-60 max-w-[calc(100vw-2rem)] rounded-2xl border border-separator"
+        placement="top start"
+      >
+        <div className="grid gap-0.25 border-b border-separator px-3 py-3">
+          <div className="truncate text-sm font-medium">{name}</div>
+          <div className="truncate text-xs text-muted">{email}</div>
+        </div>
+        <Dropdown.Menu
+          aria-label="Account menu"
+          onAction={(key) => {
+            if (key === "logout") onLogout();
+            else if (key === "profile" || key === "security")
+              navigate(`/settings/${key}`);
+            close();
+          }}
+        >
+          <Dropdown.Section aria-label="Account">
+            <Dropdown.Item id="profile" textValue="Profile">
+              <HugeiconsIcon
+                aria-hidden="true"
+                className="size-4 text-muted"
+                icon={UserAccountIcon}
+              />
+              Profile
+            </Dropdown.Item>
+            <Dropdown.Item id="security" textValue="Account security">
+              <HugeiconsIcon
+                aria-hidden="true"
+                className="size-4 text-muted"
+                icon={SecurityCheckIcon}
+              />
+              Account security
+            </Dropdown.Item>
+          </Dropdown.Section>
+          <Dropdown.Section
+            aria-label="Session"
+            className="mt-1.5 w-full border-t border-separator pt-1.5"
+          >
+            <Dropdown.Item id="logout" textValue="Sign out" variant="danger">
+              <HugeiconsIcon
+                aria-hidden="true"
+                className="size-4 text-danger"
+                icon={Logout03Icon}
+              />
+              <span className="text-danger">Sign out</span>
+            </Dropdown.Item>
+          </Dropdown.Section>
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown>
+  );
+}

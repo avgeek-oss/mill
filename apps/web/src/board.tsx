@@ -6,6 +6,13 @@ import {
   Dialog,
   ErrorMessage,
   TextField,
+  SearchField,
+  Widget,
+  EmptyState,
+  TypographyText,
+  Table,
+  Link,
+  TooltipText,
 } from "@mill/web-design-system";
 import {
   ArrowDown,
@@ -14,8 +21,8 @@ import {
   List,
   Plus,
   Settings2,
-  Search,
-} from "lucide-react";
+} from "./icons.js";
+import { PageHeading } from "./page-heading.js";
 import type {
   Board,
   Column,
@@ -240,6 +247,25 @@ export function BoardPage({
       );
     });
   }
+  const hasFilters = !!(
+    q ||
+    filters.assigneeId ||
+    filters.priority ||
+    filters.label ||
+    filters.columnId ||
+    filters.state !== "active"
+  );
+  function clearFilters() {
+    setQuery("");
+    setFilters({
+      assigneeId: "",
+      priority: "",
+      label: "",
+      columnId: "",
+      sort: "position",
+      state: "active",
+    });
+  }
   const visibleTasks = tasks.filter((task) =>
     filters.state === "deleted"
       ? !!task.deletedAt
@@ -247,53 +273,110 @@ export function BoardPage({
         ? task.archived && !task.deletedAt
         : !task.archived && !task.deletedAt,
   );
+  function emptyTasks() {
+    const propertyFilters = !!(
+      q ||
+      filters.assigneeId ||
+      filters.priority ||
+      filters.label ||
+      filters.columnId
+    );
+    const collection =
+      filters.state === "archived"
+        ? "archived"
+        : filters.state === "deleted"
+          ? "deleted"
+          : null;
+    return (
+      <EmptyState>
+        <EmptyState.Header>
+          <EmptyState.Title>
+            {propertyFilters
+              ? "No tasks match these filters"
+              : collection
+                ? `No ${collection} tasks`
+                : "No tasks yet"}
+          </EmptyState.Title>
+          <EmptyState.Description>
+            {propertyFilters
+              ? "Adjust or clear your filters to see existing tasks."
+              : collection
+                ? `Tasks you ${collection === "archived" ? "archive" : "delete"} appear here.`
+                : writable
+                  ? "Create the first task on this board."
+                  : "Tasks created by your team will appear here."}
+          </EmptyState.Description>
+        </EmptyState.Header>
+        <EmptyState.Content>
+          {hasFilters ? (
+            <Button variant="secondary" onPress={clearFilters}>
+              {propertyFilters ? "Clear filters" : "View active tasks"}
+            </Button>
+          ) : (
+            writable && (
+              <Button onPress={() => choose({ columnId: columns[0]?.id })}>
+                Create task
+              </Button>
+            )
+          )}
+        </EmptyState.Content>
+      </EmptyState>
+    );
+  }
   function card(task: Task) {
     const member = members.find((m) => m.id === task.assigneeId);
     return (
-      <button
-        key={task.id}
-        className="task-card"
-        onClick={() => choose({ id: task.id })}
-      >
-        <div className="row space-between">
-          <span className="task-id">{task.identifier}</span>
-          {task.priority !== "none" && (
-            <span className={`priority priority-${task.priority}`}>
-              {task.priority}
-            </span>
-          )}
-        </div>
-        <span className="task-title">{task.title}</span>
-        <div className="task-meta">
-          {task.labels.map((label) => (
-            <Chip key={label}>{label}</Chip>
-          ))}
-          {task.dueDate && (
-            <time
-              className={
-                new Date(task.dueDate).getTime() < Date.now() ? "overdue" : ""
-              }
-            >
-              {new Date(task.dueDate).toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                timeZone: "UTC",
-              })}
-            </time>
-          )}
-          {task.checklist.length > 0 && (
-            <span className="muted small">
-              {task.checklist.filter((i) => i.done).length}/
-              {task.checklist.length}
-            </span>
-          )}
-          {member && (
-            <span title={member.name} className="avatar">
-              {member.name.slice(0, 1).toUpperCase()}
-            </span>
-          )}
-        </div>
-      </button>
+      <Widget.Content key={task.id} className="m-0 p-0">
+        <button
+          className="task-card p-4 text-sm text-foreground"
+          onClick={() => choose({ id: task.id })}
+        >
+          <div className="row space-between">
+            <span className="task-id">{task.identifier}</span>
+            {task.priority !== "none" && (
+              <span className={`priority priority-${task.priority}`}>
+                {task.priority}
+              </span>
+            )}
+          </div>
+          <TypographyText
+            textRole="body"
+            className="task-title text-sm"
+            weight="medium"
+          >
+            {task.title}
+          </TypographyText>
+          <div className="task-meta">
+            {task.labels.map((label) => (
+              <Chip key={label}>{label}</Chip>
+            ))}
+            {task.dueDate && (
+              <time
+                className={
+                  new Date(task.dueDate).getTime() < Date.now() ? "overdue" : ""
+                }
+              >
+                {new Date(task.dueDate).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  timeZone: "UTC",
+                })}
+              </time>
+            )}
+            {task.checklist.length > 0 && (
+              <span className="muted small">
+                {task.checklist.filter((i) => i.done).length}/
+                {task.checklist.length}
+              </span>
+            )}
+            {member && (
+              <span title={member.name} className="avatar">
+                {member.name.slice(0, 1).toUpperCase()}
+              </span>
+            )}
+          </div>
+        </button>
+      </Widget.Content>
     );
   }
   if (!loading && errorStatus >= 500)
@@ -311,70 +394,75 @@ export function BoardPage({
     );
   return (
     <>
-      <header className="board-header">
-        <div>
-          <div className="row">
-            <h1>{board?.name ?? "Loading board…"}</h1>
+      <PageHeading
+        title={board?.name ?? "Loading board…"}
+        icon={<Columns3 />}
+        description={board?.description ?? undefined}
+        actions={
+          <div className="flex flex-wrap items-center gap-3">
             {board?.archived && <Chip>Archived</Chip>}
             {board?.deletedAt && <Chip color="danger">Deleted</Chip>}
+            <div className="segmented">
+              <Button
+                aria-label="Kanban view"
+                isIconOnly
+                variant={view === "board" ? "secondary" : "ghost"}
+                onPress={() => {
+                  setView("board");
+                  localStorage.setItem("mill:view", "board");
+                }}
+              >
+                <Columns3 />
+              </Button>
+              <Button
+                aria-label="List view"
+                isIconOnly
+                variant={view === "list" ? "secondary" : "ghost"}
+                onPress={() => {
+                  setView("list");
+                  localStorage.setItem("mill:view", "list");
+                }}
+              >
+                <List />
+              </Button>
+            </div>
+            {user.role !== "viewer" && (
+              <Button
+                variant="ghost"
+                aria-label="Board settings"
+                isIconOnly
+                onPress={() => setSettings(true)}
+              >
+                <Settings2 />
+              </Button>
+            )}
+            {writable && !board?.deletedAt && (
+              <Button onPress={() => choose({ columnId: columns[0]?.id })}>
+                <Plus />
+                New task
+              </Button>
+            )}
           </div>
-          {board?.description && (
-            <p className="muted board-description">{board.description}</p>
-          )}
-        </div>
-        <div className="row">
-          <div className="segmented">
-            <Button
-              aria-label="Kanban view"
-              variant={view === "board" ? "secondary" : "ghost"}
-              onPress={() => {
-                setView("board");
-                localStorage.setItem("mill:view", "board");
-              }}
-            >
-              <Columns3 />
-            </Button>
-            <Button
-              aria-label="List view"
-              variant={view === "list" ? "secondary" : "ghost"}
-              onPress={() => {
-                setView("list");
-                localStorage.setItem("mill:view", "list");
-              }}
-            >
-              <List />
-            </Button>
-          </div>
-          {user.role !== "viewer" && (
-            <Button
-              variant="ghost"
-              aria-label="Board settings"
-              onPress={() => setSettings(true)}
-            >
-              <Settings2 />
-            </Button>
-          )}
-          {writable && !board?.deletedAt && (
-            <Button onPress={() => choose({ columnId: columns[0]?.id })}>
-              <Plus />
-              New task
-            </Button>
-          )}
-        </div>
-      </header>
+        }
+      />
       <div className={`board-toolbar ${mobileFilters ? "filters-open" : ""}`}>
-        <div className="board-search">
-          <Search aria-hidden="true" />
-          <input
-            id="board-search"
-            aria-label="Search tasks"
-            placeholder="Search tasks…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            maxLength={200}
-          />
-          <kbd>/</kbd>
-        </div>
+        <SearchField
+          aria-label="Search tasks"
+          variant="secondary"
+          className="board-search"
+          value={query}
+          onChange={setQuery}
+        >
+          <SearchField.Group>
+            <SearchField.SearchIcon />
+            <SearchField.Input
+              id="board-search"
+              placeholder="Search tasks…"
+              maxLength={200}
+            />
+            <SearchField.ClearButton aria-label="Clear task search" />
+          </SearchField.Group>
+        </SearchField>
         <Button
           className="mobile-filter-trigger"
           variant="secondary"
@@ -384,92 +472,102 @@ export function BoardPage({
           <Settings2 />
           Filters
         </Button>
-        <Choice
-          label="Assignee filter"
-          value={filters.assigneeId}
-          onChange={(v) => setFilters({ ...filters, assigneeId: v })}
-          items={[
-            { id: "", name: "All assignees" },
-            { id: "unassigned", name: "Unassigned" },
-            ...members,
-          ]}
-          search
-        />
-        <Choice
-          label="Priority filter"
-          value={filters.priority}
-          onChange={(v) => setFilters({ ...filters, priority: v })}
-          items={[
-            { id: "", name: "All priorities" },
-            ...["urgent", "high", "medium", "low", "none"].map((id) => ({
-              id,
-              name: id === "none" ? "No priority" : id,
-            })),
-          ]}
-        />
-        <Choice
-          label="Status filter"
-          value={filters.columnId}
-          onChange={(v) => setFilters({ ...filters, columnId: v })}
-          items={[{ id: "", name: "All statuses" }, ...columns]}
-        />
-        <TextField
-          label="Label filter"
-          placeholder="Label"
-          value={filters.label}
-          onChange={(e) => setFilters({ ...filters, label: e.target.value })}
-        />
-        <Choice
-          label="Sort"
-          value={filters.sort}
-          onChange={(v) => setFilters({ ...filters, sort: v })}
-          items={[
-            { id: "position", name: "Board order" },
-            { id: "createdAt", name: "Newest first" },
-            { id: "updatedAt", name: "Recently updated" },
-            { id: "dueDate", name: "Due date" },
-            { id: "priority", name: "Priority" },
-          ]}
-        />
-        <Choice
-          label="Task view"
-          value={filters.state}
-          onChange={(v) => setFilters({ ...filters, state: v })}
-          items={[
-            { id: "active", name: "Active tasks" },
-            { id: "archived", name: "Archived tasks" },
-            { id: "deleted", name: "Deleted tasks" },
-          ]}
-        />
-        {(q ||
-          filters.assigneeId ||
-          filters.priority ||
-          filters.label ||
-          filters.columnId ||
-          filters.state !== "active") && (
-          <Button
-            variant="ghost"
-            onPress={() => {
-              setQuery("");
-              setFilters({
-                assigneeId: "",
-                priority: "",
-                label: "",
-                columnId: "",
-                sort: "position",
-                state: "active",
-              });
-            }}
-          >
-            Clear filters
-          </Button>
-        )}
+        <div className="board-filter-slot">
+          <Choice
+            variant="secondary"
+            label="Assignee filter"
+            value={filters.assigneeId}
+            onChange={(v) => setFilters({ ...filters, assigneeId: v })}
+            items={[
+              { id: "", name: "All assignees" },
+              { id: "unassigned", name: "Unassigned" },
+              ...members,
+            ]}
+            search
+          />
+        </div>
+        <div className="board-filter-slot">
+          <Choice
+            variant="secondary"
+            label="Priority filter"
+            value={filters.priority}
+            onChange={(v) => setFilters({ ...filters, priority: v })}
+            items={[
+              { id: "", name: "All priorities" },
+              ...["urgent", "high", "medium", "low", "none"].map((id) => ({
+                id,
+                name: id === "none" ? "No priority" : id,
+              })),
+            ]}
+          />
+        </div>
+        <div className="board-filter-slot">
+          <Choice
+            variant="secondary"
+            label="Status filter"
+            value={filters.columnId}
+            onChange={(v) => setFilters({ ...filters, columnId: v })}
+            items={[{ id: "", name: "All statuses" }, ...columns]}
+          />
+        </div>
+        <div className="board-label-slot">
+          <TextField
+            variant="secondary"
+            label="Label filter"
+            className="min-w-0 w-full"
+            placeholder="Label"
+            value={filters.label}
+            onChange={(e) => setFilters({ ...filters, label: e.target.value })}
+          />
+        </div>
+        <div className="board-filter-slot">
+          <Choice
+            variant="secondary"
+            label="Sort"
+            value={filters.sort}
+            onChange={(v) => setFilters({ ...filters, sort: v })}
+            items={[
+              { id: "position", name: "Board order" },
+              { id: "createdAt", name: "Newest first" },
+              { id: "updatedAt", name: "Recently updated" },
+              { id: "dueDate", name: "Due date" },
+              { id: "priority", name: "Priority" },
+            ]}
+          />
+        </div>
+        <div className="board-filter-slot">
+          <Choice
+            variant="secondary"
+            label="Task view"
+            value={filters.state}
+            onChange={(v) => setFilters({ ...filters, state: v })}
+            items={[
+              { id: "active", name: "Active tasks" },
+              { id: "archived", name: "Archived tasks" },
+              { id: "deleted", name: "Deleted tasks" },
+            ]}
+          />
+        </div>
+        <div className="board-clear-slot">
+          {(q ||
+            filters.assigneeId ||
+            filters.priority ||
+            filters.label ||
+            filters.columnId ||
+            filters.state !== "active") && (
+            <Button variant="ghost" onPress={clearFilters}>
+              Clear filters
+            </Button>
+          )}
+        </div>
       </div>
       <ErrorMessage>{error}</ErrorMessage>
       {loading ? (
         <div className="loading-state" role="status">
           Loading tasks…
         </div>
+      ) : !visibleTasks.length ? (
+        emptyTasks()
       ) : view === "board" ? (
         <>
           <div className="mobile-column">
@@ -485,20 +583,21 @@ export function BoardPage({
           </div>
           <div className="kanban" aria-label="Task board">
             {columns.map((column) => (
-              <section
+              <Widget
                 key={column.id}
                 className={`kanban-column ${mobileColumn === column.id ? "mobile-selected" : ""}`}
                 aria-label={column.name}
+                role="region"
               >
-                <header className="column-header">
+                <Widget.Header className="column-header">
                   <div className="row">
                     <span
                       className="status-dot"
                       style={{
-                        backgroundColor: `var(--status-${column.color},var(--mill-muted))`,
+                        backgroundColor: `var(--status-${column.color},var(--muted))`,
                       }}
                     />
-                    <h2>{column.name}</h2>
+                    <Widget.Title help={false}>{column.name}</Widget.Title>
                     <span className="muted small">
                       {
                         visibleTasks.filter((t) => t.columnId === column.id)
@@ -509,76 +608,104 @@ export function BoardPage({
                   {writable && filters.state === "active" && (
                     <Button
                       variant="ghost"
+                      isIconOnly
                       aria-label={`Add task to ${column.name}`}
                       onPress={() => choose({ columnId: column.id })}
                     >
                       <Plus />
                     </Button>
                   )}
-                </header>
+                </Widget.Header>
                 <div className="column-tasks">
                   {visibleTasks
                     .filter((t) => t.columnId === column.id)
                     .map(card)}
                   {!visibleTasks.some((t) => t.columnId === column.id) && (
-                    <div className="column-empty">
-                      <p>No tasks here.</p>
-                      {writable && filters.state === "active" && (
-                        <Button
-                          variant="ghost"
-                          onPress={() => choose({ columnId: column.id })}
-                        >
-                          Add a task
-                        </Button>
-                      )}
-                    </div>
+                    <Widget.Content className="m-0 p-0">
+                      <EmptyState className="px-4 py-8">
+                        <EmptyState.Header>
+                          <EmptyState.Description>
+                            No tasks here.
+                          </EmptyState.Description>
+                        </EmptyState.Header>
+                        {writable && filters.state === "active" && (
+                          <Button
+                            variant="ghost"
+                            onPress={() => choose({ columnId: column.id })}
+                          >
+                            Add a task
+                          </Button>
+                        )}
+                      </EmptyState>
+                    </Widget.Content>
                   )}
                 </div>
-              </section>
+              </Widget>
             ))}
           </div>
         </>
       ) : (
-        <div className="task-table" role="table" aria-label="Task list">
-          <div className="task-table-heading" role="row">
-            <span>Task</span>
-            <span>Status</span>
-            <span>Assignee</span>
-            <span>Priority</span>
-          </div>
-          {visibleTasks.map((task) => (
-            <button
-              className="task-table-row"
-              role="row"
-              key={task.id}
-              onClick={() => choose({ id: task.id })}
-            >
-              <span>
-                <span className="task-id">{task.identifier}</span>
-                <span className="task-title">{task.title}</span>
-              </span>
-              <span>{columns.find((c) => c.id === task.columnId)?.name}</span>
-              <span>
-                {members.find((m) => m.id === task.assigneeId)?.name ??
-                  "Unassigned"}
-              </span>
-              <span className={`priority priority-${task.priority}`}>
-                {task.priority}
-              </span>
-            </button>
-          ))}
-          {!visibleTasks.length && (
-            <div className="empty-state">
-              <h2>No tasks match this view</h2>
-              <p className="muted">
-                Change your filters or add the first task.
-              </p>
-              {writable && (
-                <Button onPress={() => choose({})}>Create task</Button>
-              )}
-            </div>
+        <>
+          {visibleTasks.length ? (
+            <Table>
+              <Table.ScrollContainer>
+                <Table.Content aria-label="Task list">
+                  <Table.Header>
+                    <Table.Column isRowHeader>Task</Table.Column>
+                    <Table.Column>Status</Table.Column>
+                    <Table.Column>Assignee</Table.Column>
+                    <Table.Column>Priority</Table.Column>
+                  </Table.Header>
+                  <Table.Body>
+                    {visibleTasks.map((task) => (
+                      <Table.Row
+                        key={task.id}
+                        id={task.id}
+                        href={`/boards/${boardId}/tasks/${task.id}`}
+                      >
+                        <Table.Cell>
+                          <Link
+                            href={`/boards/${boardId}/tasks/${task.id}`}
+                            className="inline-flex min-w-0 items-center gap-3 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                          >
+                            <span className="task-id">{task.identifier}</span>
+                            <TypographyText
+                              textRole="label"
+                              className="text-sm"
+                            >
+                              <TooltipText
+                                className="inline-block max-w-xs truncate align-middle"
+                                tooltip={task.title}
+                              >
+                                {task.title}
+                              </TooltipText>
+                            </TypographyText>
+                          </Link>
+                        </Table.Cell>
+                        <Table.Cell>
+                          {columns.find((c) => c.id === task.columnId)?.name}
+                        </Table.Cell>
+                        <Table.Cell>
+                          {members.find((m) => m.id === task.assigneeId)
+                            ?.name ?? "Unassigned"}
+                        </Table.Cell>
+                        <Table.Cell>
+                          <span
+                            className={`priority priority-${task.priority}`}
+                          >
+                            {task.priority}
+                          </span>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table.Content>
+              </Table.ScrollContainer>
+            </Table>
+          ) : (
+            emptyTasks()
           )}
-        </div>
+        </>
       )}
       {nextCursor && (
         <div className="load-more">

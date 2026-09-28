@@ -7,13 +7,16 @@ Towbar, Copyright Avgeek, Inc., licensed under the Apache License, Version 2.0.
 Source: https://github.com/avgeek-inc/towbar
 
 Third-party dependencies keep their own license notices in the installed
-packages. HeroUI, React, Hono, and Lucide use permissive open-source licenses.
-Inter font software is licensed under the SIL Open Font License, Version 1.1.
+packages. HeroUI, React, Hono, Lucide, and Hugeicons free icons use permissive
+open-source licenses. React Aria Components, Copyright 2019 Adobe, is licensed
+under the Apache License, Version 2.0. Inter and Geist Mono font
+software are licensed under the SIL Open Font License, Version 1.1.
 No private component package or paid asset is required to build or run Mill.
 
-Bundled Inter font copyright and license:
+Bundled font copyrights and license:
 
 Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter) Inter-Italic[opsz,wght].ttf: Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
+Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git) GeistMono-Italic[wght].ttf: Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font.git)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

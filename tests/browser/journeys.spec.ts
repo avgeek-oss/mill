@@ -145,7 +145,9 @@ test("first installation and complete board/task workflow", async ({
     fullPage: true,
     animations: "disabled",
   });
-  await page.getByRole("button", { name: "Use dark theme" }).click();
+  await page
+    .getByRole("button", { name: "Appearance: switch to dark theme" })
+    .click();
   await page.screenshot({
     path: "docs/screenshots/desktop-dark.png",
     fullPage: true,
@@ -180,27 +182,84 @@ test("keyboard task movement, filters, mobile columns, and overlay search scroll
   await page.getByLabel("Search tasks").fill("recovery");
   await expect(page.locator(".task-card")).toHaveCount(1);
   await page.getByRole("button", { name: "List view" }).click();
-  await expect(page.getByRole("table", { name: "Task list" })).toContainText(
+  await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
     "Prepare the release and recovery checklist",
   );
-  await page.getByRole("button", { name: "Clear filters" }).click();
-  await expect(page.getByRole("table", { name: "Task list" })).toContainText(
+  const taskLink = page
+    .getByRole("grid", { name: "Task list" })
+    .getByRole("link")
+    .filter({ hasText: "Prepare the release and recovery checklist" });
+  await expect(taskLink).toHaveAttribute(
+    "href",
+    `/boards/${boardId}/tasks/${taskId}`,
+  );
+  await taskLink.click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByLabel("Search tasks")).toHaveValue("recovery");
+  await expect(page.getByRole("grid", { name: "Task list" })).not.toContainText(
     "Test database restore",
   );
+  await taskLink.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("dialog")).not.toBeVisible();
+  await expect(page.getByLabel("Search tasks")).toHaveValue("recovery");
+  await expect(page.getByRole("grid", { name: "Task list" })).toBeVisible();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
+    "Test database restore",
+  );
+  for (const view of ["List view", "Kanban view"]) {
+    await page.getByRole("button", { name: view, exact: true }).click();
+    const before = await page.locator(".board-toolbar").boundingBox();
+    await page.getByLabel("Search tasks").fill("nonexistent-filter-result");
+    await expect(
+      page.getByRole("heading", {
+        name: "No tasks match these filters",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Adjust or clear your filters to see existing tasks.", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    const filtered = await page.locator(".board-toolbar").boundingBox();
+    expect(filtered?.height).toBe(before?.height);
+    expect(filtered?.y).toBe(before?.y);
+    await page
+      .getByRole("button", { name: "Clear filters", exact: true })
+      .last()
+      .click();
+    if (view === "List view")
+      await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
+        "Test database restore",
+      );
+    else
+      await expect(
+        page.locator(".task-card").filter({ hasText: "Test database restore" }),
+      ).toBeVisible();
+    const restored = await page.locator(".board-toolbar").boundingBox();
+    expect(restored?.height).toBe(before?.height);
+  }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Kanban view" }).click();
   await choose(page, "Board column", "Done (1)");
   await page.getByRole("button", { name: "Open navigation" }).click();
   await expect(
-    page.getByRole("button", { name: "Close navigation" }),
+    page
+      .getByRole("dialog", { name: "Workspace navigation" })
+      .getByRole("button", { name: "Close navigation" }),
   ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(
     page.getByRole("button", { name: "Open navigation" }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("button", { name: "Use dark theme" }).click();
-  await page.getByRole("button", { name: "Close navigation" }).click();
+  await page
+    .getByRole("button", { name: "Appearance: switch to dark theme" })
+    .click();
   await expect(page.getByRole("region", { name: "Done" })).toBeVisible();
   await page.screenshot({
     path: "docs/screenshots/mobile-dark.png",
@@ -208,12 +267,20 @@ test("keyboard task movement, filters, mobile columns, and overlay search scroll
     animations: "disabled",
   });
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("link", { name: "Account security" }).click();
+  await page
+    .getByRole("button", { name: `Account menu for ${account.name}` })
+    .click();
+  await page
+    .getByRole("menuitem", { name: "Account security", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Account security" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("link", { name: account.name }).click();
+  await page
+    .getByRole("button", { name: `Account menu for ${account.name}` })
+    .click();
+  await page.getByRole("menuitem", { name: "Profile", exact: true }).click();
   await page.getByRole("button", { name: /Time zone$/ }).click();
   const menu = page.getByRole("listbox");
   await expect(menu).toBeVisible();
@@ -466,14 +533,13 @@ test("long content, many statuses, tablet/phone themes and operational errors", 
     [390, 844, "dark", "mobile-dark"],
   ] as const) {
     await page.setViewportSize({ width, height });
-    if (width < 700)
-      await page.getByRole("button", { name: "Open navigation" }).click();
     const toggle = page.getByRole("button", {
-      name: theme === "light" ? "Use light theme" : "Use dark theme",
+      name:
+        theme === "light"
+          ? "Appearance: switch to light theme"
+          : "Appearance: switch to dark theme",
     });
     if (await toggle.isVisible()) await toggle.click();
-    if (width < 700)
-      await page.getByRole("button", { name: "Close navigation" }).click();
     if (width < 700) await choose(page, "Board column", "Done (1)");
     await page.screenshot({
       path: `docs/screenshots/${name}.png`,

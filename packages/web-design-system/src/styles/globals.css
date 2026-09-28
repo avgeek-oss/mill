@@ -2,7 +2,7 @@
 @import "@heroui/styles";
 
 @theme {
-  --font-mono: ui-monospace, monospace;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
   --text-xs: 0.72rem;
   --text-xs--line-height: calc(1 / 0.72);
   --text-md: 1rem;
@@ -244,4 +244,158 @@ a {
     --button-bg-pressed: var(--warning-soft-hover);
     --button-fg: var(--warning-soft-foreground);
   }
+
+  .sidebar-identity {
+    background: transparent;
+    transform: none !important;
+    transition-property: background-color, box-shadow;
+    --sidebar-identity-gradient: linear-gradient(
+      135deg,
+      color-mix(in oklch, var(--color-yellow-300) 16%, transparent) 0%,
+      color-mix(in oklch, var(--color-yellow-300) 8%, transparent) 50%,
+      color-mix(in oklch, var(--color-yellow-300) 2%, transparent) 100%
+    );
+  }
+
+  .dark .sidebar-identity {
+    --sidebar-identity-gradient: linear-gradient(
+      135deg,
+      color-mix(in oklch, var(--color-yellow-900) 16%, transparent) 0%,
+      color-mix(in oklch, var(--color-yellow-900) 8%, transparent) 50%,
+      color-mix(in oklch, var(--color-yellow-900) 2%, transparent) 100%
+    );
+  }
+
+  @media (min-width: 64rem) {
+    .sidebar-identity[aria-expanded="true"] {
+      background: var(--sidebar-identity-gradient);
+    }
+  }
+
+  @media (min-width: 64rem) and (hover: hover) {
+    .sidebar-identity:hover {
+      background: var(--sidebar-identity-gradient);
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .sidebar-identity:is(:hover, [aria-expanded="true"]) {
+      background: var(--surface);
+    }
+  }
+
+  /* Let prefixed fields shrink with narrow form columns instead of using the
+     input element's intrinsic width. Keep text inside the editable area. */
+  .input-group {
+    @apply min-w-0 max-w-full;
+  }
+
+  .input-group__input {
+    @apply min-w-0 w-0;
+  }
+
+  .input-group__input[data-slot="input-group-input"] {
+    text-overflow: ellipsis;
+  }
+
+  .input-group__input[data-slot="input-group-input"]:focus {
+    text-overflow: clip;
+  }
+
+  .input-group__prefix,
+  .input-group__suffix {
+    @apply shrink-0;
+  }
+
+  .tabs__tab:focus-visible,
+  .tabs__tab[data-focus-visible="true"] {
+    box-shadow: none !important;
+    outline: none !important;
+  }
+
+  /* Keep sibling cards, sections, and form fields 16px apart on both axes. */
+  .content-grid {
+    @apply grid gap-4;
+  }
+
+  .widget {
+    @apply bg-surface-secondary flex flex-col overflow-hidden rounded-2xl;
+  }
+
+  .widget__header {
+    @apply mt-0.5 flex min-h-8 items-center justify-between gap-3 px-4;
+  }
+
+  .widget__header :is(button, .button) {
+    @apply h-5.5! min-h-5.5!;
+  }
+
+  .widget__title {
+    @apply text-muted text-sm font-semibold;
+  }
+
+  .widget__content {
+    @apply bg-surface mx-1.5 mb-1.5 flex-1 overflow-hidden rounded-xl p-4;
+    box-shadow:
+      0 0 0 1px oklch(0 0 0 / 0.03),
+      0 1px 2px oklch(0 0 0 / 0.04);
+  }
+
+  .widget__content:first-child {
+    @apply mt-1.5;
+  }
+
+  .widget:has(> .widget__footer) > .widget__content {
+    margin-bottom: calc(var(--spacing) * 0.5);
+  }
+
+  .widget__footer {
+    @apply flex min-h-7 flex-wrap items-center gap-3 px-[17px] pt-1 pb-[7px];
+  }
+
+  .widget__legend {
+    @apply flex items-center gap-3;
+  }
+
+  .widget__legend-item {
+    @apply flex items-center gap-1.5;
+  }
+
+  .widget__legend-item-dot {
+    @apply size-2.5 shrink-0 rounded-full;
+  }
+
+  .widget__legend-item-label {
+    @apply text-muted text-xs;
+  }
+
+  @media (pointer: coarse) {
+    .button.button--sm {
+      min-height: 44px;
+    }
+
+    .button.button--sm.button--icon-only {
+      min-width: 44px;
+    }
+
+    [data-slot="theme-switcher"] {
+      min-width: 44px;
+      min-height: 44px;
+    }
+
+    .widget__header :is(.button.button--sm, [data-slot="theme-switcher"]) {
+      min-height: 44px !important;
+    }
+  }
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+.theme-changing *,
+.theme-changing *::before,
+.theme-changing *::after {
+  transition: none !important;
 }

@@ -12,8 +12,14 @@ import {
   Dialog,
   ErrorMessage,
   TextField,
+  Widget,
+  FieldGroup,
+  FieldLabel,
+  Input,
 } from "@mill/web-design-system";
 import { Download, KeyRound, Plus, Shield, Trash2 } from "lucide-react";
+import { Settings2, Save } from "./icons.js";
+import { PageHeading } from "./page-heading.js";
 import type {
   Activity,
   Board,
@@ -230,16 +236,20 @@ export function SettingsPage({
   }
   return (
     <section className="settings-page">
-      <header>
-        <h1>{title}</h1>
-        <p className="muted">
-          {section === "agents"
-            ? "Connect external agents with scoped, revocable credentials."
-            : section === "members"
-              ? "Give each person the access they need."
-              : "Manage your workspace and account."}
-        </p>
-      </header>
+      {section === "workspace" ? (
+        <PageHeading title={title} icon={<Settings2 />} />
+      ) : (
+        <header>
+          <h1>{title}</h1>
+          <p className="muted">
+            {section === "agents"
+              ? "Connect external agents with scoped, revocable credentials."
+              : section === "members"
+                ? "Give each person the access they need."
+                : "Manage your workspace and account."}
+          </p>
+        </header>
+      )}
       <ErrorMessage>{error}</ErrorMessage>
       {notice && (
         <p role="status" className="success-message">
@@ -835,33 +845,56 @@ export function SettingsPage({
           )}
         </>
       )}
-      {section === "workspace" &&
-        block(
-          "Workspace name",
-          "A familiar name helps your team find the right place.",
-          <form
-            className="stack narrow"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const data = new FormData(e.currentTarget);
-              void run(async () => {
-                await api("/workspace", { name: data.get("name") }, "PATCH");
-                setNotice("Workspace updated.");
-              });
-            }}
-          >
-            <TextField
-              label="Name"
-              name="name"
-              defaultValue={session.workspace.name}
-              required
-              maxLength={120}
-            />
-            <Button type="submit" isDisabled={busy}>
-              Save workspace
-            </Button>
-          </form>,
-        )}
+      {section === "workspace" && (
+        <div className="content-grid lg:grid-cols-2 lg:items-start">
+          <Widget>
+            <Widget.Header>
+              <Widget.Title icon={<Settings2 />} help={false}>
+                Workspace details
+              </Widget.Title>
+            </Widget.Header>
+            <Widget.Content>
+              <form
+                className="content-grid"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const data = new FormData(e.currentTarget);
+                  void run(async () => {
+                    await api(
+                      "/workspace",
+                      { name: data.get("name") },
+                      "PATCH",
+                    );
+                    setNotice("Workspace updated.");
+                  });
+                }}
+              >
+                <FieldGroup>
+                  <div className="grid w-full gap-1.5">
+                    <FieldLabel htmlFor="workspace-name" isRequired>
+                      Name
+                    </FieldLabel>
+                    <Input
+                      id="workspace-name"
+                      name="name"
+                      defaultValue={session.workspace.name}
+                      required
+                      maxLength={120}
+                      variant="secondary"
+                    />
+                  </div>
+                </FieldGroup>
+                <div className="flex items-center gap-3">
+                  <Button type="submit" isDisabled={busy}>
+                    <Save />
+                    Update
+                  </Button>
+                </div>
+              </form>
+            </Widget.Content>
+          </Widget>
+        </div>
+      )}
       {section === "audit" && (
         <ol className="activity-list">
           {audit.map((a) => (

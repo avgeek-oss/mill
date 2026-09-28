@@ -71,11 +71,18 @@ async function choose(page: Page, label: string, value: string) {
   await page.getByRole("button", { name: new RegExp(`${label}$`) }).click();
   await page.getByRole("option", { name: value, exact: true }).click();
 }
-async function signOut(page: Page) {
+async function accountAction(
+  page: Page,
+  action: "Profile" | "Account security" | "Sign out",
+) {
+  await page.getByRole("button", { name: /^Account menu for / }).click();
   await page
-    .getByRole("button", { name: "Sign out", exact: true })
-    .last()
+    .getByRole("menu")
+    .getByRole("menuitem", { name: action, exact: true })
     .click();
+}
+async function signOut(page: Page) {
+  await accountAction(page, "Sign out");
   await expect(
     page.getByRole("heading", { name: "Sign in to Mill" }),
   ).toBeVisible();
@@ -137,7 +144,7 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   page,
 }) => {
   await login(page, admin);
-  await page.getByRole("link", { name: admin.name }).click();
+  await accountAction(page, "Profile");
   await page.getByLabel("Name", { exact: true }).click();
   await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
   await choose(page, "Time zone", "UTC");
@@ -158,9 +165,7 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
     mentions: true,
   });
   expect(profile.user.timeZone).toBe("UTC");
-  await page
-    .getByRole("link", { name: "Account security", exact: true })
-    .click();
+  await accountAction(page, "Account security");
   await page
     .getByLabel("Current password", { exact: true })
     .fill("An incorrect password");
@@ -206,9 +211,7 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
       },
     },
   );
-  await page
-    .getByRole("link", { name: "Account security", exact: true })
-    .click();
+  await accountAction(page, "Account security");
   await page.getByRole("button", { name: "Add passkey", exact: true }).click();
   await confirmPassword(page);
   await expect(page.getByRole("status")).toContainText("Passkey added");
@@ -398,7 +401,9 @@ test("assignment and mention notifications open the correct task and preferences
     body: `Please review this @${recipient.email}.`,
   });
   await login(page, recipient);
-  await page.getByRole("link", { name: /^Inbox(?: \d+)?$/ }).click();
+  await page
+    .getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ })
+    .click();
   await expect(page.locator("article.notification.unread")).toHaveCount(2);
   await expect(page.locator("article.notification")).toContainText([
     /mentioned you/i,
@@ -415,14 +420,16 @@ test("assignment and mention notifications open the correct task and preferences
     "Review notification delivery",
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
-  await page.getByRole("link", { name: /^Inbox(?: \d+)?$/ }).click();
+  await page
+    .getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ })
+    .click();
   await expect(page.locator("article.notification.unread")).toHaveCount(1);
   await page.getByRole("button", { name: "Mark all read" }).click();
   await page.getByRole("button", { name: "Unread", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "You’re all caught up" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: recipient.name }).click();
+  await accountAction(page, "Profile");
   await page.getByLabel("Task assignments", { exact: true }).uncheck();
   await page.getByRole("button", { name: "Save preferences" }).click();
   await expect(page.getByRole("status")).toContainText("Preferences saved");
@@ -431,7 +438,9 @@ test("assignment and mention notifications open the correct task and preferences
     title: "Assignment preference excludes this alert",
     assigneeId: recipient.id,
   });
-  await page.getByRole("link", { name: /^Inbox(?: \d+)?$/ }).click();
+  await page
+    .getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ })
+    .click();
   await page.getByRole("button", { name: "Unread", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "You’re all caught up" }),
@@ -590,9 +599,7 @@ test("session management revokes another browser without signing out the current
   const { context, page: other } = await contextPage(browser);
   try {
     await login(other, account);
-    await page
-      .getByRole("link", { name: "Account security", exact: true })
-      .click();
+    await accountAction(page, "Account security");
     const sessionSection = page.locator(".settings-section").filter({
       has: page.getByRole("heading", { name: "Sessions", exact: true }),
     });
