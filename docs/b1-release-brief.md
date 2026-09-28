@@ -1,0 +1,39 @@
+# Mill B1 release brief
+
+## Objective
+
+Build a complete open-source, self-hosted task board for humans and agents under avgeek-inc/mill. The repository remains private during implementation and review. B1 means the first usable beta release candidate (proposed tag v1.0.0-beta.1), with the full scope below implemented and verified. Do not publish a work-in-progress product or substitute a scaffold for the release.
+
+## Prior decisions
+
+The original Mill proposal was an agent team platform. It later became a company workspace with a co-founder agent, shared board, knowledge base, skills, and MCP connections. The final direction before it was paused was a simple task/Kanban board because the broader platform space felt crowded. The earlier starter repository was deleted. The naming discussion emphasized minimal UX and a board usable by both people and agents. Ground Tasks is historical workflow context, not an instruction to transplant its entire platform.
+
+Mill now resumes as an Avgeek OSS sibling of Towbar. Keep the board central. External agents can participate through a complete, permissioned API and MCP interface. Mill does not need an LLM provider key or a hosted agent runtime to perform ordinary task management.
+
+## Complete product scope
+
+1. First-install setup, secure sign-in/sign-out, team invitations and membership, Admin/Member/Viewer access, profile preferences, time zones, session management, and account recovery. Match Towbar's relevant passkey and authenticator behavior, including automatically preferring an available passkey with a fallback. Avoid unsafe default credentials.
+2. Multiple boards in one workspace, editable columns/statuses, predictable board and task ordering, board settings, archiving and reversible deletion where appropriate. Show the board directly without a dashboard full of invented statistics.
+3. Complete task lifecycle: create, view, edit, move, assign, prioritize, label, set due dates, add subtasks/checklists, archive, restore, and delete with appropriate confirmation. Provide useful stable human-facing task identifiers and deep links. Handle concurrent edits and moves without silent lost updates or duplicate ranks.
+4. Task descriptions with a safe Markdown edit/preview experience; comments, mentions, activity history, and links or attachments with protected access and bounded size if included. Do not expose dangerous HTML or untrusted URL protocols.
+5. Usable Kanban and list views, search, combined filters, sorting, and stable pagination or bounded rendering for larger boards. Preserve the current context after editing. Provide keyboard/touch alternatives to drag-and-drop and a practical mobile board navigation model.
+6. Notifications for assignments and mentions with clear preferences and meaningful unread state. If email is supported, configure and test it without making email credentials a prerequisite for a local installation; explain the unavailable state clearly.
+7. Complete documented REST API and remote MCP access for external agents, permissioned authentication, scoped/revocable API credentials, human/agent attribution in activity, idempotent mutations where retries can duplicate actions, rate limits, bounded responses, and audit history. Support the applicable HTTPS OAuth flow and security protections proven in Towbar rather than inventing a weaker agent-access mechanism. Verify actual tool calls against a running Mill instance.
+8. Workspace and administrative settings, member management, audit history, health/readiness endpoints, understandable operational errors, consistent empty/loading/error states, and dedicated 404/500 views using shared actions. No dead navigation or fake data in production.
+9. Self-hosting: clean-checkout local setup and a production Docker Compose installation, validated environment configuration, one-time setup, database migrations, persistent data, HTTPS/reverse-proxy guidance, health checks, upgrade procedure, backup and tested restore, and portable data export/import. A new user should be able to install it from the instructions without private Avgeek access.
+10. OSS delivery: Apache-2.0 license and attribution, README, contribution/security/conduct/maintainer documents, issue/PR templates, dependency updates, pinned/reproducible toolchain and installs, complete CI, vulnerability audit, production image build/release workflow, changelog, B1 release notes, and release artifacts ready for publication. Keep private artifacts private until publication is authorized.
+11. Beginner-ready documentation for installation, first board/task, team and permission model, everyday workflows, agents/API/MCP, configuration, operations, backup/recovery, upgrades, and troubleshooting. Use code groups for related files, short titles, accurate links, and clean screenshots of the current implementation.
+
+The implementation owner may resolve routine choices and organize parallel work. Record architectural decisions and the exact supported behavior; do not silently remove requirements to obtain a smaller passing product. Raise a material scope conflict to the coordinator with evidence while continuing other useful work.
+
+## Towbar standards and review evidence
+
+Study the current /Users/praveen/Repositories/towbar code before borrowing patterns. In particular: packages/web-design-system, the app shell, shared Button/Select/Modal/Widget/Chip primitives, authentication, API/MCP scopes, migrations, verification tooling, Docker packaging, docs, and .github workflows.
+
+Carry forward the screenshot-directed improvements from Towbar: restrained typography and plain copy; correct logo aspect ratios and stable icons; no sidebar accordion collapse on navigation; working wheel/touch scrolling in overlay selects; compact search-box padding; stable responsive layouts; symmetric separator rows; smaller secondary text; existing buttons on error pages; meaningful status colors; progress, success, and failure in the initiating modal. Keep dialogs minimal and preserve their focus/keyboard behavior. Do not show internal operation identifiers or recovery procedures in normal user flows.
+
+Review UI and UX on actual running routes in light/dark themes at desktop, tablet, and phone widths. Include long titles, many tasks and members, scrolled dropdowns inside a task dialog, mobile column navigation, keyboard-only task movement, empty boards, permission-denied behavior, expired sessions, network errors, and reload/back navigation. Use Mobbin references where its tools are available to study relevant board and task-detail patterns, while retaining the established Towbar component system.
+
+Maintain docs/b1-verification.md as a requirement-by-requirement evidence matrix: implementation paths, exact test or runtime evidence, rendered route/screenshot, CI run, and remaining gaps. Include fresh installation and upgrade from an earlier local schema, backup/restore with task/comment/member data, cross-role and cross-board access tests, API/MCP calls, and concurrent edits/moves. Tests must actually exercise the requirement they claim to prove.
+
+B1 is ready only when the complete scope works, the production container and documented installation are verified, CI passes on the reviewed commit, no material security/correctness/UI/UX issue remains, and the coordinating task has independently reviewed the actual product. Documentation or an implementation report alone cannot establish completion.
