@@ -10,8 +10,8 @@ function record(value: unknown, key: string) {
 function version(value: unknown) {
   return typeof value === "number" && Number.isInteger(value) && value > 0;
 }
-function nullableString(value: unknown) {
-  return value === null || typeof value === "string";
+export function hasOkResponse(value: unknown) {
+  return isResponseObject(value) && value.ok === true;
 }
 export function hasBoardResponse(value: unknown) {
   const board = record(value, "board");
@@ -23,9 +23,7 @@ export function hasBoardResponse(value: unknown) {
     typeof board.description === "string" &&
     typeof board.position === "number" &&
     Number.isFinite(board.position) &&
-    version(board.version) &&
-    typeof board.archived === "boolean" &&
-    nullableString(board.deletedAt)
+    version(board.version)
   );
 }
 export function hasBoardsResponse(value: unknown) {
@@ -34,7 +32,9 @@ export function hasBoardsResponse(value: unknown) {
     Array.isArray(value.items) &&
     value.items.every((board) => hasBoardResponse({ board })) &&
     typeof value.hasMore === "boolean" &&
-    nullableString(value.nextCursor)
+    (value.hasMore
+      ? typeof value.nextCursor === "string" && value.nextCursor.length > 0
+      : value.nextCursor === null)
   );
 }
 export function hasTaskResponse(value: unknown) {

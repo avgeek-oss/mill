@@ -233,7 +233,7 @@ function ConsentRequest({
   const write = scopes.includes("write");
   const canWrite =
     details?.user.role !== "viewer" && session.user.role !== "viewer";
-  const choices = directory.boards.filter((board) => !board.deletedAt);
+  const choices = directory.boards;
   const selectedAvailable =
     !boardId || choices.some((board) => board.id === boardId);
   const allowAvailable =
@@ -372,7 +372,7 @@ function ConsentRequest({
                 { id: "", name: "All boards" },
                 ...choices.map((board) => ({
                   id: board.id,
-                  name: `${board.name}${board.archived ? " (archived)" : ""}`,
+                  name: board.name,
                 })),
               ]}
               search

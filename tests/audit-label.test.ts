@@ -26,7 +26,9 @@ test("every emitted audit action has plain workspace wording without task-detail
     ))
       actions.add(match[1]);
   }
-  assert.equal(actions.size, 41);
+  assert.equal(actions.size, 39);
+  assert.ok(!actions.has("board.restored"));
+  assert.ok(!actions.has("task.restored"));
   for (const action of actions) {
     const label = auditActionLabel({ action, detail: {} });
     assert.notEqual(label, "Recorded workspace activity", action);

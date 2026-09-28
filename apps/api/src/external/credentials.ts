@@ -3,6 +3,8 @@ import type postgres from "postgres";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest } from "../http.js";
+import { HTTPException } from "hono/http-exception";
+import type { Tx } from "../domain/helpers.js";
 import { digest, mcpResource, secret } from "./protocol.js";
 
 export type Credential = {
@@ -52,28 +54,34 @@ export async function listCredentials(
   const hasMore = rows.length > limit;
   return { items, hasMore, nextCursor: hasMore ? items.at(-1)!.id : null };
 }
-export async function validateBoards(boardIds: string[] | undefined) {
+export async function validateBoards(boardIds: string[] | undefined, tx: Tx) {
   if (boardIds === undefined) return;
   const boards =
-    await sql`SELECT id FROM boards WHERE id = ANY(${boardIds}::uuid[]) AND deleted_at IS NULL`;
+    await tx`SELECT id FROM boards WHERE id = ANY(${boardIds}::uuid[]) ORDER BY id FOR SHARE`;
   if (boards.length !== boardIds.length)
     throw new Error("Choose existing boards");
 }
 export async function createCredential(a: Actor, input: CredentialInput) {
-  if (a.role === "viewer" && input.scopes.includes("write"))
-    throw new Error("Viewer accounts can only grant read access");
-  await validateBoards(input.boardIds);
-  const token = `mill_${secret()}`;
-  const [credential] = await sql<
-    Credential[]
-  >`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,board_ids,expires_at) VALUES(${a.userId},${input.name},${digest(token)},${token.slice(0, 12)},${input.scopes},${input.boardIds ?? null},${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
-  await externalAudit(a, "credential.created", {
-    credentialId: credential!.id,
-    name: input.name,
-    scopes: input.scopes,
-    boardIds: input.boardIds ?? null,
+  return sql.begin(async (tx) => {
+    await validateBoards(input.boardIds, tx);
+    const [owner] = await tx<
+      { role: Role; name: string }[]
+    >`SELECT role,name FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
+    if (!owner || a.kind !== "human")
+      throw new HTTPException(403, {
+        message: "Your membership no longer permits this action",
+      });
+    if (owner.role === "viewer" && input.scopes.includes("write"))
+      throw new HTTPException(403, {
+        message: "Viewer accounts can only grant read access",
+      });
+    const token = `mill_${secret()}`;
+    const [credential] = await tx<
+      Credential[]
+    >`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,board_ids,expires_at) VALUES(${a.userId},${input.name},${digest(token)},${token.slice(0, 12)},${input.scopes},${input.boardIds ?? null},${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
+    await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${owner.name},'human','credential.created',${tx.json({ credentialId: credential!.id, name: input.name, scopes: input.scopes, boardIds: input.boardIds ?? null })})`;
+    return { credential: credential!, token };
   });
-  return { credential: credential!, token };
 }
 export async function revokeCredential(a: Actor, id: string) {
   const [credential] =

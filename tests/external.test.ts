@@ -25,8 +25,6 @@ type TaskResult = {
     title: string;
     description: string;
     version: number;
-    archived: boolean;
-    deletedAt: string | null;
     checklist: unknown[];
     parentId: string | null;
   };
@@ -341,7 +339,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
       },
     );
     await t.test(
-      "installed MCP SDK creates, edits, orders, comments, archives, restores, deletes and retries against a live HTTP server",
+      "installed MCP SDK creates, edits, orders, comments, permanently deletes and retries against a live HTTP server",
       async () => {
         const server = serve({
           fetch: app.fetch,
@@ -491,31 +489,40 @@ test("External credentials and actual MCP task workflows enforce current permiss
             filter.items.map((item) => item.id),
             [task.task.id],
           );
-          task = await result<TaskResult>(client, "update_task", {
-            taskId: task.task.id,
-            version: task.task.version,
-            archived: true,
-          });
-          assert.equal(task.task.archived, true);
-          task = await result<TaskResult>(client, "update_task", {
-            taskId: task.task.id,
-            version: task.task.version,
-            archived: false,
-          });
-          task = await result<TaskResult>(client, "delete_task", {
-            taskId: task.task.id,
-            version: task.task.version,
-          });
-          assert(task.task.deletedAt);
-          task = await result<TaskResult>(client, "restore_task", {
-            taskId: task.task.id,
-            version: task.task.version,
-          });
-          assert.equal(task.task.deletedAt, null);
           await result(client, "delete_comment", {
             commentId: edited.comment.id,
             version: edited.comment.version,
           });
+          const deletion = await result<{ ok: boolean }>(
+            client,
+            "delete_task",
+            {
+              taskId: task.task.id,
+              version: task.task.version,
+              idempotencyKey: "mcp-permanent-task-delete",
+            },
+          );
+          assert.equal(deletion.ok, true);
+          assert.equal(
+            (await sql`SELECT id FROM tasks WHERE id=${task.task.id}`).length,
+            0,
+          );
+          const replayed = await result<{ ok: boolean }>(
+            client,
+            "delete_task",
+            {
+              taskId: task.task.id,
+              version: task.task.version,
+              idempotencyKey: "mcp-permanent-task-delete",
+            },
+          );
+          assert.equal(replayed.ok, true);
+          assert.equal(
+            (await client.listTools()).tools.some(
+              (tool) => tool.name === "restore_task",
+            ),
+            false,
+          );
           const cols = await result<{
             items: { id: string; version: number }[];
           }>(client, "list_columns", { boardId: first.board.id });

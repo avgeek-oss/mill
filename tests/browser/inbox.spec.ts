@@ -91,23 +91,31 @@ async function seed(
 async function login(page: Page, who: Account) {
   if (who.fixture) {
     await authenticateBrowserFixture(page, who.fixture);
-    await page.goto("/");
   } else {
     await page.goto("/");
     await page.getByLabel("Email", { exact: true }).fill(who.email);
     await page.getByLabel("Password", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
   }
+  await page.goto(`/boards/${boardId}`);
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),
   ).toBeVisible();
-  await page.goto("/notifications");
-  await expect(
-    page.getByRole("heading", { name: "Inbox", exact: true }),
-  ).toBeVisible();
+  await openNotifications(page);
+}
+async function openNotifications(page: Page) {
+  await page
+    .getByRole("button", { name: "Open notifications", exact: true })
+    .click();
+  await expect(inbox(page)).toBeVisible();
 }
 function inbox(page: Page) {
-  return page.getByRole("region", { name: "Notifications", exact: true });
+  return page.getByRole("dialog", { name: "Notifications", exact: true });
+}
+function taskDialog(page: Page) {
+  return page.getByRole("dialog").filter({
+    has: page.getByLabel("Title", { exact: true }),
+  });
 }
 function rows(page: Page) {
   return inbox(page).getByRole("listitem");
@@ -203,10 +211,13 @@ test("server unread filtering reaches older notifications and marks refresh the 
   const popup = await popupPromise;
   await popup.waitForURL(`**/boards/${boardId}/tasks/${task.id}`);
   await popup.close();
-  await expect(page).toHaveURL(/\/notifications$/);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   await expect(
     page.getByLabel("120 unread notifications", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByLabel("Open notifications", { exact: true }),
+  ).toHaveAccessibleDescription("120 unread notifications");
   await oldest
     .getByRole("button", {
       name: "Mark notification from Older Inbox teammate 1 read",
@@ -217,6 +228,9 @@ test("server unread filtering reaches older notifications and marks refresh the 
   await expect(
     page.getByLabel("119 unread notifications", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByLabel("Open notifications", { exact: true }),
+  ).toHaveAccessibleDescription("119 unread notifications");
   const [marked] =
     await database`SELECT read_at FROM notifications WHERE user_id=${who.id} AND actor_name='Older Inbox teammate 1'`;
   expect(marked.readAt).not.toBeNull();
@@ -229,6 +243,9 @@ test("server unread filtering reaches older notifications and marks refresh the 
   await expect(
     page.getByLabel("119 unread notifications", { exact: true }),
   ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Open notifications", { exact: true }),
+  ).toHaveAccessibleDescription("");
   const [counts] =
     await database`SELECT count(*) FILTER (WHERE user_id=${who.id} AND read_at IS NULL)::int AS own,count(*) FILTER (WHERE user_id=${other.id} AND read_at IS NULL)::int AS other FROM notifications`;
   expect(counts).toMatchObject({ own: 0, other: 1 });
@@ -266,7 +283,7 @@ test("Viewer members can read their own inbox and read-only agent credentials ca
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
   await expect(
-    page.getByRole("dialog").getByLabel("Title", { exact: true }),
+    taskDialog(page).getByLabel("Title", { exact: true }),
   ).toBeDisabled();
 });
 
@@ -291,8 +308,8 @@ test("opening an unread task marks its notification read and read links do not m
   try {
     await settled(page);
     expect((await json(who.api, "/notifications")).unreadCount).toBe(2);
-    await expect(page).toHaveURL(/\/notifications$/);
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+    await expect(taskDialog(page)).toHaveCount(0);
     await expect(
       row(page, "Opening Inbox teammate 2").getByText("Unread", {
         exact: true,
@@ -305,7 +322,7 @@ test("opening an unread task marks its notification read and read links do not m
   await expect(page).toHaveURL(
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(taskDialog(page)).toBeVisible();
   await expect(
     page.getByLabel("1 unread notifications", { exact: true }),
   ).toBeVisible();
@@ -314,21 +331,24 @@ test("opening an unread task marks its notification read and read links do not m
     await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
   expect(marked.readAt).not.toBeNull();
   await page.goBack();
-  await expect(page).toHaveURL(/\/notifications$/);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+  await openNotifications(page);
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await expect(rows(page)).toHaveCount(2);
   const read = row(page, "Opening Inbox teammate 2");
   await expect(read.getByText("Read", { exact: true })).toBeVisible();
   await read.getByRole("link").click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(taskDialog(page)).toBeVisible();
   await settled(page);
   expect(marks).toBe(1);
-  await page.goto("/notifications");
+  await page.goto(`/boards/${boardId}`);
+  await openNotifications(page);
   await page.getByRole("tab", { name: "Unread", exact: true }).click();
   await expect(rows(page)).toHaveCount(1);
   await expect(row(page, "Opening Inbox teammate 1")).toBeVisible();
   expect((await json(who.api, "/notifications")).unreadCount).toBe(1);
   await row(page, "Opening Inbox teammate 1").getByRole("link").press("Enter");
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(taskDialog(page)).toBeVisible();
   expect((await json(who.api, "/notifications")).unreadCount).toBe(0);
   expect(marks).toBe(2);
 });
@@ -346,8 +366,8 @@ test("failed task opening retains its row error and retries the original mark be
   const latest = row(page, "Open retry Inbox teammate 2");
   await latest.getByRole("link").click();
   await expect(latest.getByRole("alert")).toContainText("could not be reached");
-  await expect(page).toHaveURL(/\/notifications$/);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+  await expect(taskDialog(page)).toHaveCount(0);
   const [unchanged] =
     await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
   expect(unchanged.readAt).toBeNull();
@@ -372,8 +392,8 @@ test("failed task opening retains its row error and retries the original mark be
       .click();
     await requested;
     await expect(latest.getByRole("status")).toHaveText("Opening task…");
-    await expect(page).toHaveURL(/\/notifications$/);
-    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+    await expect(taskDialog(page)).toHaveCount(0);
     await expect(
       latest.getByRole("button", {
         name: "Mark notification from Open retry Inbox teammate 2 read",
@@ -387,7 +407,7 @@ test("failed task opening retains its row error and retries the original mark be
   await expect(page).toHaveURL(
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(taskDialog(page)).toBeVisible();
   await expect(
     page.getByLabel("1 unread notifications", { exact: true }),
   ).toBeVisible();
@@ -440,8 +460,8 @@ test("pending task opening cannot navigate after an obsolete filter cycle or a c
       exact: true,
     }),
   ).toBeVisible();
-  await expect(page).toHaveURL(/\/notifications$/);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+  await expect(taskDialog(page)).toHaveCount(0);
   pending = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -465,8 +485,8 @@ test("pending task opening cannot navigate after an obsolete filter cycle or a c
     await page.unrouteAll({ behavior: "wait" });
   }
   await settled(page);
-  await expect(page).toHaveURL(/\/notifications$/);
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+  await expect(taskDialog(page)).toHaveCount(0);
   await expect(
     row(page, "Other open Inbox teammate 1").getByText("Unread", {
       exact: true,
@@ -616,6 +636,7 @@ test("pending, pagination failure and mark failure retain their owning retry sta
       : route.continue(),
   );
   await page.reload();
+  await openNotifications(page);
   await expect(
     inbox(page).getByText("Notifications could not be loaded", { exact: true }),
   ).toBeVisible();
@@ -680,7 +701,119 @@ test("a delayed real unread continuation cannot replace or append to the newer A
   }
 });
 
-test("Inbox shared rows fit desktop and phone in both themes with native sibling actions", async ({
+test("notifications stay on the board with bounded wheel scrolling and keyboard dismissal", async ({
+  page,
+}) => {
+  const who = await account("Popover navigation");
+  await seed(who, 120);
+  await login(page, who);
+  await expect(rows(page)).toHaveCount(100);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+  await expect(
+    page.getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ }),
+  ).toHaveCount(0);
+  const trigger = page.getByRole("button", {
+    name: "Open notifications",
+    exact: true,
+  });
+  for (const width of [1440, 375]) {
+    await page.setViewportSize({ width, height: width === 375 ? 844 : 1000 });
+    const scroller = inbox(page).locator(
+      '.scroll-shadow[data-orientation="vertical"]',
+    );
+    await expect
+      .poll(async () => {
+        const bounds = await inbox(page).boundingBox();
+        return bounds ? bounds.x + bounds.width : Infinity;
+      })
+      .toBeLessThanOrEqual(width - 11);
+    const bounds = await inbox(page).boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.x).toBeGreaterThanOrEqual(11);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 11);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(
+      width === 375 ? 833 : 989,
+    );
+    await scroller.hover();
+    await page.mouse.wheel(0, 600);
+    await expect
+      .poll(() => scroller.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(
+      inbox(page).getByRole("heading", { name: "Notifications", exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(inbox(page)).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+    await trigger.press("Enter");
+    await expect(inbox(page)).toBeVisible();
+    await expect(rows(page)).toHaveCount(100);
+    expect(
+      await inbox(page).evaluate((element) =>
+        element.contains(document.activeElement),
+      ),
+    ).toBe(true);
+  }
+  await page.mouse.click(12, 120);
+  await expect(inbox(page)).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+});
+
+test("dismissing a pending task opening keeps the acknowledged read without delayed navigation", async ({
+  page,
+}) => {
+  const who = await account("Dismissed opening");
+  const fixture = await seed(who, 1);
+  await login(page, who);
+  await expect(rows(page)).toHaveCount(1);
+  let release!: () => void;
+  let started!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requested = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let marks = 0;
+  await page.route("**/api/notifications", async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    marks++;
+    const response = await route.fetch();
+    started();
+    await pending;
+    await route.fulfill({ response });
+  });
+  try {
+    await row(page, "Dismissed opening teammate 1").getByRole("link").click();
+    await requested;
+    await page.keyboard.press("Escape");
+    await expect(inbox(page)).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Open notifications", exact: true }),
+    ).toBeFocused();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+  await settled(page);
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+  await expect(taskDialog(page)).toHaveCount(0);
+  const [marked] =
+    await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
+  expect(marked.readAt).not.toBeNull();
+  await openNotifications(page);
+  const read = row(page, "Dismissed opening teammate 1");
+  await expect(read.getByText("Read", { exact: true })).toBeVisible();
+  await read.getByRole("link").press("Enter");
+  await expect(taskDialog(page)).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
+  );
+  expect(marks).toBe(1);
+});
+
+test("notification popover rows fit desktop and phone in both themes with native sibling actions", async ({
   page,
 }) => {
   const who = await account("Layout Inbox");
@@ -699,8 +832,16 @@ test("Inbox shared rows fit desktop and phone in both themes with native sibling
         theme,
       );
       await page.reload();
+      await openNotifications(page);
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await expect(rows(page)).toHaveCount(2);
+      const headerAction = inbox(page).getByRole("button", {
+        name: "Mark all read",
+        exact: true,
+      });
+      await expect
+        .poll(async () => (await headerAction.boundingBox())?.height ?? 0)
+        .toBeGreaterThanOrEqual(44);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
       ).toBeLessThanOrEqual(width + 1);
@@ -727,9 +868,49 @@ test("Inbox shared rows fit desktop and phone in both themes with native sibling
       expect(layout.nested).toBe(false);
       expect(layout.siblings).toBe(true);
       await page.screenshot({
-        path: `tmp/inbox-preview/inbox-${width}-${theme}.png`,
+        path: `tmp/notifications-preview/notifications-${width}-${theme}.png`,
         fullPage: true,
         animations: "disabled",
       });
     }
+  await page.evaluate(() => localStorage.setItem("mill:theme", "light"));
+  await page.reload();
+  await openNotifications(page);
+  await page.getByRole("tab", { name: "Unread", exact: true }).click();
+  await expect(rows(page)).toHaveCount(2);
+  await inbox(page)
+    .getByRole("button", { name: "Mark all read", exact: true })
+    .click();
+  await expect(
+    inbox(page).getByRole("heading", { name: "You’re all caught up" }),
+  ).toBeVisible();
+  await expect(inbox(page).locator('[data-slot="widget"]')).toHaveCount(1);
+  await expect(
+    inbox(page).getByRole("tab", { name: "Unread", exact: true }),
+  ).toBeFocused();
+  await page.screenshot({
+    path: "tmp/notifications-preview/notifications-empty-375-light.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.route("**/api/notifications?**", (route) =>
+    new URL(route.request().url()).searchParams.get("limit") === "100"
+      ? route.abort()
+      : route.continue(),
+  );
+  await page.keyboard.press("Escape");
+  await openNotifications(page);
+  await expect(
+    inbox(page).getByRole("heading", {
+      name: "Notifications could not be loaded",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(inbox(page).locator('[data-slot="widget"]')).toHaveCount(1);
+  await page.screenshot({
+    path: "tmp/notifications-preview/notifications-error-375-light.png",
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.unroute("**/api/notifications?**");
 });

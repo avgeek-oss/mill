@@ -330,6 +330,7 @@ test("export downloads real portable data and import validates the file before c
   const download = await exported;
   const payload = JSON.parse(await readFile((await download.path())!, "utf8"));
   expect(payload.format).toBe("mill-portable");
+  expect(payload.version).toBe(2);
   expect(JSON.stringify(payload)).not.toMatch(
     /password_hash|token_hash|encrypted_secret/,
   );
@@ -359,7 +360,7 @@ test("export downloads real portable data and import validates the file before c
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await input.setInputFiles(file({ format: "other" }, "wrong-format.json"));
   await expect(
-    page.getByText("Choose a Mill export file in version 1 format.", {
+    page.getByText("Choose a Mill export file in version 1 or 2 format.", {
       exact: true,
     }),
   ).toBeVisible();

@@ -63,7 +63,7 @@ async function createTask(
   ).task;
 }
 
-test("task lifecycle persists identifiers, edits, checklist, relationships, move, archive, deletion and restore", async () => {
+test("task lifecycle persists identifiers, edits, checklist, relationships, move and permanent deletion", async () => {
   const { cookie, board, columns } = await fixture();
   const teammate = await member(cookie, "teammate@example.test");
   let parent = await createTask(cookie, board.id, "Ship B1", {
@@ -119,51 +119,26 @@ test("task lifecycle persists identifiers, edits, checklist, relationships, move
       }),
     )
   ).task;
-  parent = (
-    await json(
-      await request(`/api/tasks/${parent.id}`, {
-        method: "PATCH",
-        cookie,
-        body: { version: parent.version, archived: true },
-      }),
-    )
-  ).task;
-  assert.equal(
-    (
-      await json(await request(`/api/boards/${board.id}/tasks`, { cookie }))
-    ).items.some((t: { id: string }) => t.id === parent.id),
-    false,
-  );
-  parent = (
+  assert.deepEqual(
     await json(
       await request(`/api/tasks/${parent.id}`, {
         method: "DELETE",
         cookie,
         body: { version: parent.version },
       }),
-    )
-  ).task;
-  const deleted = await json(
-    await request(`/api/boards/${board.id}/tasks?deleted=true`, { cookie }),
+    ),
+    { ok: true },
   );
-  assert.equal(deleted.items[0].id, parent.id);
-  parent = (
-    await json(
-      await request(`/api/tasks/${parent.id}/restore`, {
-        cookie,
-        body: { version: parent.version },
-      }),
-    )
-  ).task;
-  assert.equal(parent.deletedAt, null);
-  assert.equal(parent.archived, false);
-  assert.equal(parent.identifier, "ENG-1");
   assert.equal(
-    (
-      await json(await request(`/api/tasks/${parent.id}/activity`, { cookie }))
-    ).items.some((a: { action: string }) => a.action === "task.restored"),
-    true,
+    (await request(`/api/tasks/${parent.id}`, { cookie })).status,
+    404,
   );
+  assert.equal(
+    (await request(`/api/tasks/${subtask.id}`, { cookie })).status,
+    404,
+  );
+  const next = await createTask(cookie, board.id, "Continue work");
+  assert.equal(next.identifier, "ENG-3");
 });
 
 test("all board/task/comment/admin endpoints enforce roles and board credential restrictions", async () => {
@@ -755,59 +730,54 @@ test("invalid imports fail before changing data and live task relations cannot c
   );
 });
 
-test("board archive and reversible deletion remain findable and reject task mutation until restored", async () => {
+test("archive fields, deleted filters and restore routes are rejected", async () => {
   const { cookie, board } = await fixture();
-  let row = (
-    await json(
-      await request(`/api/boards/${board.id}`, {
-        method: "PATCH",
+  const task = await createTask(cookie, board.id);
+  for (const field of ["archived", "deleted"])
+    assert.equal(
+      (
+        await request(`/api/boards/${board.id}`, {
+          cookie,
+          method: "PATCH",
+          body: { version: board.version, [field]: true },
+        })
+      ).status,
+      400,
+    );
+  assert.equal(
+    (
+      await request(`/api/tasks/${task.id}`, {
         cookie,
-        body: { version: board.version, archived: true },
-      }),
-    )
-  ).board;
+        method: "PATCH",
+        body: { version: task.version, archived: true },
+      })
+    ).status,
+    400,
+  );
   assert.equal(
     (
       await request(`/api/boards/${board.id}/tasks`, {
         cookie,
-        body: { title: "Denied archive" },
+        body: { title: "Archived", archived: true },
       })
     ).status,
-    409,
+    400,
   );
-  row = (
-    await json(
-      await request(`/api/boards/${board.id}`, {
-        method: "PATCH",
-        cookie,
-        body: { version: row.version, deleted: true },
-      }),
-    )
-  ).board;
-  assert.equal(
-    (await json(await request("/api/boards?deleted=true", { cookie }))).items[0]
-      .id,
-    board.id,
-  );
-  row = (
-    await json(
-      await request(`/api/boards/${board.id}/restore`, {
-        cookie,
-        body: { version: row.version },
-      }),
-    )
-  ).board;
-  assert.equal(row.archived, false);
-  assert.equal(row.deletedAt, null);
-  assert.equal(
-    (
-      await request(`/api/boards/${board.id}/tasks`, {
-        cookie,
-        body: { title: "After restore" },
-      })
-    ).status,
-    201,
-  );
+  for (const path of [
+    "/api/boards?archived=true",
+    "/api/boards?deleted=false",
+    `/api/boards/${board.id}/tasks?archived=false`,
+    `/api/boards/${board.id}/tasks?deleted=true`,
+  ])
+    assert.equal((await request(path, { cookie })).status, 400);
+  for (const path of [
+    `/api/boards/${board.id}/restore`,
+    `/api/tasks/${task.id}/restore`,
+  ])
+    assert.equal(
+      (await request(path, { cookie, body: { version: 1 } })).status,
+      404,
+    );
 });
 
 test("exports remain internally consistent while tasks and comments are concurrently created", async () => {
@@ -940,7 +910,7 @@ test("bounded input validation rejects invalid sorts, impossible relations and o
   );
 });
 
-test("portable data round-trips archived/deleted records and every accepted account email length", async () => {
+test("portable data excludes permanently deleted work and preserves accepted account email lengths and task numbering", async () => {
   const email =
     "x".repeat(64) +
     "@" +
@@ -956,71 +926,41 @@ test("portable data round-trips archived/deleted records and every accepted acco
   const created = await json(
     await request("/api/boards", {
       cookie,
-      body: { name: "Portable archive", prefix: "PAR" },
+      body: { name: "Portable work", prefix: "PAR" },
     }),
     201,
   );
-  const archived = await createTask(
+  const surviving = await createTask(
     cookie,
     created.board.id,
-    "Archived record",
-    { archived: true },
+    "Surviving record",
   );
-  let deleted = await createTask(cookie, created.board.id, "Deleted record");
-  deleted = (
-    await json(
-      await request(`/api/tasks/${deleted.id}`, {
-        cookie,
-        method: "DELETE",
-        body: { version: deleted.version },
-      }),
-    )
-  ).task;
-  const archivedBoard = (
-    await json(
-      await request(`/api/boards/${created.board.id}`, {
-        cookie,
-        method: "PATCH",
-        body: { version: created.board.version, archived: true },
-      }),
-    )
-  ).board;
+  const deleted = await createTask(cookie, created.board.id, "Deleted record");
   await json(
-    await request(`/api/boards/${archivedBoard.id}`, {
+    await request(`/api/tasks/${deleted.id}`, {
       cookie,
-      method: "PATCH",
-      body: { version: archivedBoard.version, deleted: true },
+      method: "DELETE",
+      body: { version: deleted.version },
     }),
   );
   const exported = await json(await request("/api/export", { cookie }));
+  assert.equal(exported.version, 2);
   assert.equal(exported.members[0].email, email);
-  assert.equal(exported.boards[0].archived, true);
-  assert.ok(exported.boards[0].deletedAt);
-  assert.ok(
-    exported.tasks.find((t: { id: string }) => t.id === deleted.id).deletedAt,
-  );
-  assert.equal(
-    exported.tasks.find((t: { id: string }) => t.id === archived.id).archived,
-    true,
-  );
+  assert.equal(exported.boards[0].nextNumber, 3);
+  assert.equal(exported.tasks.length, 1);
+  assert.equal(exported.tasks[0].id, surviving.id);
+  for (const row of [...exported.boards, ...exported.tasks]) {
+    assert.equal(Object.hasOwn(row, "archived"), false);
+    assert.equal(Object.hasOwn(row, "deletedAt"), false);
+  }
   const imported = await json(
     await request("/api/import", { cookie, body: exported }),
     201,
   );
-  const [restored] =
-    await sql`SELECT archived,deleted_at FROM boards WHERE id=${imported.imported.boardIds[0]}`;
-  assert.equal(restored.archived, true);
-  assert.ok(restored.deletedAt);
-  assert.equal(
-    (
-      await sql`SELECT * FROM tasks WHERE board_id=${imported.imported.boardIds[0]} AND archived=true`
-    ).length,
-    1,
+  const next = await createTask(
+    cookie,
+    imported.imported.boardIds[0],
+    "Next imported task",
   );
-  assert.equal(
-    (
-      await sql`SELECT * FROM tasks WHERE board_id=${imported.imported.boardIds[0]} AND deleted_at IS NOT NULL`
-    ).length,
-    1,
-  );
+  assert.match(next.identifier, /-3$/);
 });

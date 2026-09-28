@@ -73,6 +73,38 @@ export const rateLimit: MiddlewareHandler<Env> = async (c, next) => {
   }
   await next();
 };
+function responseResources(path: string, response: unknown) {
+  const boardIds = new Set<string>();
+  const taskIds = new Set<string>();
+  const validId = (value: unknown): value is string =>
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value,
+    );
+  const boardId = path.match(/^\/api\/boards\/([^/]+)/)?.[1];
+  const taskId = path.match(/^\/api\/tasks\/([^/]+)/)?.[1];
+  if (validId(boardId)) boardIds.add(boardId);
+  if (validId(taskId)) taskIds.add(taskId);
+  function visit(value: unknown, parent?: string) {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, parent);
+    } else if (value && typeof value === "object") {
+      for (const [key, item] of Object.entries(value)) {
+        if (key === "boardId" && validId(item)) boardIds.add(item);
+        if (key === "taskId" && validId(item)) taskIds.add(item);
+        if (key === "id" && validId(item)) {
+          if (parent === "board" || parent === "boards") boardIds.add(item);
+          if (parent === "task" || parent === "tasks") taskIds.add(item);
+        }
+        if (key === "boardIds" && Array.isArray(item))
+          for (const id of item) if (validId(id)) boardIds.add(id);
+        visit(item, key);
+      }
+    }
+  }
+  visit(response);
+  return { boardIds: [...boardIds], taskIds: [...taskIds] };
+}
 export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
   const key = c.req.header("idempotency-key");
   if (
@@ -113,6 +145,17 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
         });
       }
       c.header("Idempotency-Replayed", "true");
+      if (existing.invalidationReason)
+        return c.json(
+          {
+            error:
+              existing.invalidationReason === "deleted"
+                ? "This work was permanently deleted. Its changes cannot be retried."
+                : "This retry was invalidated by an upgrade. Reload Mill before making a new change.",
+            code: "retry_invalidated",
+          },
+          410,
+        );
       if ([204, 205, 304].includes(existing.status))
         return c.body(null, existing.status);
       return c.json(decryptResponse(existing.response), existing.status);
@@ -123,7 +166,8 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
       .json()
       .catch(() => null);
     if (c.res.status >= 400) throw new RetryTransactionRollback();
-    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status} WHERE actor_key=${actorKey} AND key=${key}`;
+    const resources = responseResources(c.req.path, response);
+    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds} WHERE actor_key=${actorKey} AND key=${key}`;
   }).catch((error) => {
     if (!(error instanceof RetryTransactionRollback)) throw error;
   });

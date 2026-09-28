@@ -331,6 +331,10 @@ a {
     @apply h-5.5! min-h-5.5!;
   }
 
+  .widget__header--touch-targets :is(button, .button) {
+    @apply h-11! min-h-11!;
+  }
+
   .widget__title {
     @apply text-muted text-sm font-semibold;
   }

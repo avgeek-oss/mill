@@ -19,7 +19,7 @@ test.describe.configure({ mode: "serial" });
 let origin: string;
 let admin: APIRequestContext;
 let board: { id: string; name: string };
-let archived: { id: string; name: string };
+let planning: { id: string; name: string };
 let scenarioOwner: { id: string; baseline: string[] } | null = null;
 async function json(
   api: APIRequestContext,
@@ -106,18 +106,12 @@ test.beforeAll(async ({ baseURL }) => {
       prefix: "ARP",
     })
   ).board;
-  archived = (
+  planning = (
     await json(admin, "/boards", {
-      name: "Agent archived plans",
+      name: "Agent project plans",
       prefix: "AAP",
     })
   ).board;
-  await json(
-    admin,
-    `/boards/${archived.id}`,
-    { version: 1, archived: true },
-    "PATCH",
-  );
 });
 test.afterAll(async () => {
   await admin?.dispose();
@@ -201,7 +195,7 @@ test("initial loading, failed loading, empty list and board lookup retry remain 
   await expect(
     dialog.getByRole("button", { name: "Create credential", exact: true }),
   ).toBeEnabled();
-  await choose(page, "Board access", `${archived.name} (archived)`);
+  await choose(page, "Board access", planning.name);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
@@ -814,7 +808,7 @@ test("incomplete creation responses preserve unresolved keys when a draft is cha
   }
 });
 
-test("one complete directory survives state transitions and retains deleted labels without granting them", async ({
+test("one complete directory refreshes after rename, deletion and creation while empty scopes stay revoked", async ({
   page,
 }) => {
   await account(page);
@@ -826,15 +820,15 @@ test("one complete directory survives state transitions and retains deleted labe
   } finally {
     await fixture.sql.end();
   }
-  const restoredArchived = (
+  const renamed = (
     await json(admin, "/boards", {
-      name: "Restored archived grant board",
+      name: "Original grant board name",
       prefix: "RAG",
     })
   ).board;
-  const restoredDeleted = (
+  const removed = (
     await json(admin, "/boards", {
-      name: "Restored deleted grant board",
+      name: "Removed during directory lookup",
       prefix: "RDG",
     })
   ).board;
@@ -844,71 +838,93 @@ test("one complete directory survives state transitions and retains deleted labe
       prefix: "HDS",
     })
   ).board;
-  await json(
-    admin,
-    `/boards/${restoredArchived.id}`,
-    { version: 1, archived: true },
-    "PATCH",
-  );
-  await json(
-    admin,
-    `/boards/${restoredDeleted.id}`,
-    { version: 1, deleted: true },
-    "PATCH",
-  );
-  await json(page.request, "/credentials", {
+  const restricted = await json(page.request, "/credentials", {
     name: "Historical scope reader",
     scopes: ["read"],
     boardIds: [historical.id],
     expiresInDays: 30,
   });
-  await json(
-    admin,
-    `/boards/${historical.id}`,
-    { version: 1, deleted: true },
-    "PATCH",
-  );
+  expect(
+    await json(admin, `/boards/${historical.id}`, { version: 1 }, "DELETE"),
+  ).toEqual({ ok: true });
+  expect(
+    (
+      await page.request.get("/api/boards", {
+        headers: { Authorization: `Bearer ${restricted.token}` },
+      })
+    ).status(),
+  ).toBe(401);
+  const renamedName = "Current grant board name";
+  let created: { id: string; name: string } | null = null;
   let transitioned = false;
   await page.route("**/api/boards?directory=true&cursor=*", async (route) => {
     if (transitioned) return route.continue();
     transitioned = true;
+    const currentRenamed = (await json(admin, `/boards/${renamed.id}`)).board;
+    const currentRemoved = (await json(admin, `/boards/${removed.id}`)).board;
     await json(
       admin,
-      `/boards/${restoredArchived.id}`,
-      { version: 2, archived: false },
+      `/boards/${renamed.id}`,
+      { version: currentRenamed.version, name: renamedName },
       "PATCH",
     );
-    await json(admin, `/boards/${restoredDeleted.id}/restore`, { version: 2 });
+    expect(
+      await json(
+        admin,
+        `/boards/${removed.id}`,
+        { version: currentRemoved.version },
+        "DELETE",
+      ),
+    ).toEqual({ ok: true });
+    created = (
+      await json(admin, "/boards", {
+        name: "Created during directory lookup",
+        prefix: "CDL",
+      })
+    ).board;
     const response = await route.fetch();
     expect(response.status()).toBe(409);
     expect((await response.json()).code).toBe("board_list_changed");
     await route.fulfill({ response });
   });
   await openAgents(page);
-  const dialog = await createDialog(page, "Restored board assistant");
+  const dialog = await createDialog(page, "Current board assistant");
   expect(transitioned).toBe(true);
-  await expect(
-    page.getByRole("row", { name: /Historical scope reader/ }),
-  ).toContainText(historical.name);
+  const revoked = page.getByRole("row", { name: /Historical scope reader/ });
+  await expect(revoked).toContainText("No boards");
+  await expect(revoked).toContainText("Revoked");
+  await expect(revoked).not.toContainText("All boards");
+  await expect(revoked).not.toContainText(historical.name);
+  await expect(revoked.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
   await page.getByRole("button", { name: /Board access$/ }).click();
   await expect(
-    page.getByRole("option", { name: restoredArchived.name, exact: true }),
+    page.getByRole("option", { name: renamedName, exact: true }),
   ).toHaveCount(1);
   await expect(
-    page.getByRole("option", { name: restoredDeleted.name, exact: true }),
+    page.getByRole("option", { name: created!.name, exact: true }),
   ).toHaveCount(1);
   await expect(
-    page.getByRole("option", {
-      name: `${restoredArchived.name} (archived)`,
-      exact: true,
-    }),
+    page.getByRole("option", { name: renamed.name, exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("option", { name: removed.name, exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByRole("option", { name: historical.name, exact: true }),
   ).toHaveCount(0);
   await page
-    .getByRole("option", { name: restoredArchived.name, exact: true })
-    .click();
+    .getByRole("searchbox", { name: "Search board access" })
+    .fill("Transition directory fixture 105");
+  await expect(
+    page.getByRole("option", {
+      name: "Transition directory fixture 105",
+      exact: true,
+    }),
+  ).toHaveCount(1);
+  await page
+    .getByRole("searchbox", { name: "Search board access" })
+    .fill(renamedName);
+  await page.getByRole("option", { name: renamedName, exact: true }).click();
   await dialog
     .getByRole("button", { name: "Create credential", exact: true })
     .click();
@@ -922,7 +938,12 @@ test("one complete directory survives state transitions and retains deleted labe
   const records = (await json(page.request, "/credentials")).items;
   expect(
     records.find(
-      (item: { name: string }) => item.name === "Restored board assistant",
+      (item: { name: string }) => item.name === "Current board assistant",
     ).boardIds,
-  ).toEqual([restoredArchived.id]);
+  ).toEqual([renamed.id]);
+  const emptyScope = records.find(
+    (item: { name: string }) => item.name === "Historical scope reader",
+  );
+  expect(emptyScope.boardIds).toEqual([]);
+  expect(emptyScope.revokedAt).not.toBeNull();
 });

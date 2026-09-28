@@ -22,6 +22,8 @@ export {
   Avatar,
   Switch,
   Spinner,
+  Popover,
+  ScrollShadow,
   Autocomplete,
 } from "@heroui/react";
 export { cn } from "./utils.js";

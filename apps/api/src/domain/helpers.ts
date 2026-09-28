@@ -58,7 +58,6 @@ export const taskFields = {
   dueDate: z.iso.date().nullable(),
   checklist,
   parentId: uuid.nullable(),
-  archived: z.boolean(),
 };
 export async function body<T>(
   c: Context<Env>,
@@ -95,14 +94,11 @@ export async function board(
   boardId: string,
   min: "viewer" | "member" | "admin" = "viewer",
   tx?: Tx,
-  writable = false,
 ): Promise<BoardRow> {
   requireRole(c, min, boardId);
   const db = tx ?? sql;
   const [row] = await db<BoardRow[]>`SELECT * FROM boards WHERE id=${boardId}`;
   if (!row) missing("Board not found");
-  if (writable && (row.deletedAt || row.archived))
-    conflict("Restore this board before changing its tasks or statuses");
   return row;
 }
 export async function revalidateAuthority(
@@ -151,7 +147,6 @@ export async function lockBoard(
   tx: Tx,
   boardId: string,
   min: "member" | "admin" = "member",
-  writable = true,
 ): Promise<BoardRow> {
   requireRole(c, min, boardId);
   const [row] = await tx<
@@ -159,8 +154,6 @@ export async function lockBoard(
   >`SELECT * FROM boards WHERE id=${boardId} FOR UPDATE`;
   if (!row) missing("Board not found");
   await revalidateAuthority(c, tx, min, boardId);
-  if (writable && (row.deletedAt || row.archived))
-    conflict("Restore this board before changing its tasks or statuses");
   return row;
 }
 export async function task(
@@ -181,16 +174,14 @@ export async function lockedTask(
   tx: Tx,
   taskId: string,
   expected: number,
-  restore = false,
 ): Promise<TaskRow> {
   const original = await task(c, taskId, "member", tx);
   await lockBoard(c, tx, original.boardId);
   const [row] = await tx<
     TaskRow[]
   >`SELECT * FROM tasks WHERE id=${taskId} FOR UPDATE`;
+  if (!row) missing("Task not found");
   assertVersion(row, expected);
-  if (row.deletedAt && !restore)
-    conflict("Restore this task before changing it");
   return row;
 }
 export async function recordActivity(
@@ -260,7 +251,7 @@ export async function validateTaskRelations(
   if (parentId) {
     if (parentId === taskId) badRequest("A task cannot be its own parent");
     const [parent] =
-      await tx`SELECT id FROM tasks WHERE id=${parentId} AND board_id=${boardId} AND deleted_at IS NULL`;
+      await tx`SELECT id FROM tasks WHERE id=${parentId} AND board_id=${boardId}`;
     if (!parent) badRequest("Choose a parent task in this board");
     if (taskId) {
       const [cycle] =

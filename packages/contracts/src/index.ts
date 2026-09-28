@@ -15,8 +15,6 @@ export type Board = {
   description: string;
   position: number;
   version: number;
-  archived: boolean;
-  deletedAt: string | null;
 };
 export type Column = {
   id: string;
@@ -42,8 +40,6 @@ export type Task = {
   parentId: string | null;
   position: number;
   version: number;
-  archived: boolean;
-  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };

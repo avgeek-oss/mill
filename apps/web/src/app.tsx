@@ -13,7 +13,6 @@ import {
   AppShell,
   ApplicationSidebar,
   Button,
-  Choice,
   Dialog,
   EmptyState,
   ErrorMessage,
@@ -26,13 +25,10 @@ import {
 } from "@mill/web-design-system";
 import {
   Add01Icon,
-  ArrowDown01Icon,
-  ArrowRight01Icon,
   Audit01Icon,
   Download01Icon,
   KanbanIcon,
   Key01Icon,
-  Notification01Icon,
   Settings01Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
@@ -65,9 +61,6 @@ function iconComponent(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
     );
   };
 }
-const Bell = iconComponent(Notification01Icon);
-const ChevronDown = iconComponent(ArrowDown01Icon);
-const ChevronRight = iconComponent(ArrowRight01Icon);
 const Columns3 = iconComponent(KanbanIcon);
 const Plus = iconComponent(Add01Icon);
 const Settings = iconComponent(Settings01Icon);
@@ -82,8 +75,8 @@ const BoardPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./settings.js").then((m) => ({ default: m.SettingsPage })),
 );
-const Inbox = lazy(() =>
-  import("./inbox.js").then((m) => ({ default: m.Inbox })),
+const NotificationsPopover = lazy(() =>
+  import("./inbox.js").then((m) => ({ default: m.NotificationsPopover })),
 );
 const AppConsent = lazy(() =>
   import("./app-consent.js").then((m) => ({ default: m.AppConsent })),
@@ -109,11 +102,8 @@ export function App() {
   const [error, setError] = useState("");
   const [expired, setExpired] = useState(false);
   const [boards, setBoards] = useState<Board[]>([]);
-  const [boardsMore, setBoardsMore] = useState(false);
-  const [boardsCursor, setBoardsCursor] = useState<string | null>(null);
   const [boardsPending, setBoardsPending] = useState(false);
   const [boardsError, setBoardsError] = useState("");
-  const [boardsRestart, setBoardsRestart] = useState(false);
   const [routeBoard, setRouteBoard] = useState<Pick<
     Board,
     "id" | "name"
@@ -121,10 +111,6 @@ export function App() {
   const [members, setMembers] = useState<Member[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const sidebarState = usePersistentAppSidebar();
-  const [boardsExpanded, setBoardsExpanded] = useState(
-    localStorage.getItem("mill:boards-expanded") !== "false",
-  );
-  const [boardState, setBoardState] = useState("active");
   const [newBoard, setNewBoard] = useState(false);
   const [boardName, setBoardName] = useState("");
   const [boardPrefix, setBoardPrefix] = useState("");
@@ -178,94 +164,82 @@ export function App() {
       setError(errorText(e));
     }
   }
-  async function loadBoards({
-    append = false,
-    collection = boardState,
-  }: { append?: boolean; collection?: string } = {}) {
-    if (append && (boardsPending || !boardsCursor)) return;
-    const req = ++lastBoardsRequest.current;
+  async function loadBoards() {
+    const request = ++lastBoardsRequest.current;
     setBoardsPending(true);
     setBoardsError("");
-    setBoardsRestart(false);
-    if (!append) {
-      setBoards([]);
-      setBoardsMore(false);
-      setBoardsCursor(null);
-    }
     try {
-      const params = new URLSearchParams({ limit: "100" });
-      if (collection !== "active")
-        params.set(collection === "deleted" ? "deleted" : "archived", "true");
-      if (append && boardsCursor) params.set("cursor", boardsCursor);
-      const result = await api<{
-        items: Board[];
-        hasMore: boolean;
-        nextCursor: string | null;
-      }>(`/boards?${params}`, undefined, "GET", {
-        validateResponse: hasBoardsResponse,
-      });
-      if (req !== lastBoardsRequest.current) return;
-      let created = recentlyCreatedBoard.current;
-      if (created) {
-        const fresh = result.items.find((board) => board.id === created?.id);
-        if (fresh) {
-          recentlyCreatedBoard.current = null;
-          created = null;
-        } else {
-          try {
-            const current = await api<{ board: Board }>(
-              `/boards/${created.id}`,
-              undefined,
-              "GET",
-              { validateResponse: hasBoardResponse },
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const directory = new Map<string, Board>();
+          const cursors = new Set<string>();
+          let cursor: string | null = null;
+          do {
+            const params = new URLSearchParams({
+              directory: "true",
+              limit: "100",
+            });
+            if (cursor) params.set("cursor", cursor);
+            const result = await api<{
+              items: Board[];
+              hasMore: boolean;
+              nextCursor: string | null;
+            }>(`/boards?${params}`, undefined, "GET", {
+              validateResponse: hasBoardsResponse,
+            });
+            if (request !== lastBoardsRequest.current) return;
+            for (const board of result.items) directory.set(board.id, board);
+            const created = recentlyCreatedBoard.current;
+            setBoards((previous) =>
+              [
+                ...new Map([
+                  ...previous.map((board) => [board.id, board] as const),
+                  ...directory,
+                  ...(created ? [[created.id, created] as const] : []),
+                ]).values(),
+              ].sort(
+                (a, b) => a.position - b.position || a.id.localeCompare(b.id),
+              ),
             );
-            if (req !== lastBoardsRequest.current) return;
-            created = current.board;
-            recentlyCreatedBoard.current = current.board;
-          } catch (e) {
-            if (req !== lastBoardsRequest.current) return;
-            if (e instanceof ApiError && [403, 404].includes(e.status)) {
-              recentlyCreatedBoard.current = null;
-              created = null;
-            } else throw e;
-          }
+            cursor = result.nextCursor;
+            if (cursor) {
+              if (cursors.has(cursor))
+                throw new Error(
+                  "The board list could not be completed. Try again.",
+                );
+              cursors.add(cursor);
+            }
+          } while (cursor);
+          recentlyCreatedBoard.current = null;
+          setBoards(
+            [...directory.values()].sort(
+              (a, b) => a.position - b.position || a.id.localeCompare(b.id),
+            ),
+          );
+          return;
+        } catch (cause) {
+          if (!(
+            cause instanceof ApiError &&
+            cause.status === 409 &&
+            attempt < 2
+          ))
+            throw cause;
+          if (request !== lastBoardsRequest.current) return;
         }
       }
-      const include =
-        created &&
-        (collection === "deleted"
-          ? !!created.deletedAt
-          : collection === "archived"
-            ? created.archived && !created.deletedAt
-            : !created.archived && !created.deletedAt)
-          ? created
-          : null;
-      setBoards((current) => {
-        const items = [
-          ...(append ? current : []),
-          ...result.items,
-          ...(include ? [include] : []),
-        ];
-        return Array.from(
-          new Map(items.map((board) => [board.id, board])).values(),
-        ).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
-      });
-      setBoardsMore(result.hasMore);
-      setBoardsCursor(result.nextCursor);
-    } catch (e) {
-      if (req === lastBoardsRequest.current) {
-        setBoardsError(errorText(e));
-        setBoardsRestart(
-          append && e instanceof ApiError && [400, 409].includes(e.status),
-        );
-      }
+    } catch (cause) {
+      if (request === lastBoardsRequest.current)
+        setBoardsError(errorText(cause));
     } finally {
-      if (req === lastBoardsRequest.current) setBoardsPending(false);
+      if (request === lastBoardsRequest.current) setBoardsPending(false);
     }
   }
   useEffect(() => {
     void initial();
     const listener = () => {
+      lastBoardsRequest.current++;
+      recentlyCreatedBoard.current = null;
+      setBoards([]);
       setSession(null);
       setExpired(true);
     };
@@ -285,15 +259,14 @@ export function App() {
       );
       return () => clearInterval(timer);
     }
-  }, [session?.user.id, boardState]);
+  }, [session?.user.id]);
   useEffect(() => {
     if (session && path.startsWith("/settings/"))
       document.title = `${path.split("/").pop()?.replaceAll("-", " ")} · Mill`;
-    if (session && path === "/notifications") document.title = "Inbox · Mill";
     if (session && path === "/") document.title = "Boards · Mill";
   }, [path, session?.user.id]);
   useEffect(() => {
-    if (session && path === "/" && boards.length)
+    if (session && (path === "/" || path === "/notifications") && boards.length)
       navigate(`/boards/${boards[0].id}`);
   }, [session, path, boards]);
   if (!ready)
@@ -360,14 +333,6 @@ export function App() {
       label,
       icon,
       active: path === url,
-      ...(url === "/notifications" && notificationCount > 0
-        ? {
-            badge: {
-              value: notificationCount,
-              label: `${notificationCount} unread notifications`,
-            },
-          }
-        : {}),
     };
   }
   const admin = session.user.role === "admin";
@@ -385,98 +350,48 @@ export function App() {
           ),
         },
         groups: [
-          { id: "inbox", items: [nav("Inbox", "/notifications", <Bell />)] },
           {
             id: "boards",
-            header: (
-              <div className="flex min-w-0 items-center justify-between gap-1">
-                <Button
-                  variant="ghost"
-                  className="h-auto min-h-9 min-w-0 flex-1 justify-start gap-3 rounded-2xl px-2 py-1.5 text-sm font-normal text-muted"
-                  aria-expanded={boardsExpanded}
-                  onPress={() => {
-                    setBoardsExpanded(!boardsExpanded);
-                    localStorage.setItem(
-                      "mill:boards-expanded",
-                      String(!boardsExpanded),
-                    );
-                  }}
-                >
-                  {boardsExpanded ? <ChevronDown /> : <ChevronRight />}
-                  <span>Boards</span>
-                </Button>
+            label: "Boards",
+            items: boards.map((board) => ({
+              id: board.id,
+              href: `/boards/${board.id}`,
+              label: board.name,
+              icon: <Columns3 />,
+              active: activeBoardId === board.id,
+            })),
+            footerContent: (
+              <div className="grid min-w-0 gap-1">
+                <ErrorMessage>{boardsError}</ErrorMessage>
+                {boardsPending && (
+                  <p className="px-2 py-1.5 text-xs text-muted" role="status">
+                    Loading boards…
+                  </p>
+                )}
+                {boardsError && (
+                  <Button
+                    variant="secondary"
+                    isDisabled={boardsPending}
+                    onPress={() => void loadBoards()}
+                  >
+                    Retry loading boards
+                  </Button>
+                )}
                 {session.user.role !== "viewer" && (
                   <Button
                     variant="ghost"
-                    isIconOnly
-                    aria-label="Create board"
+                    className="min-h-11 w-full justify-start gap-3 rounded-2xl px-2 text-sm font-normal text-muted"
                     onPress={() => {
                       setNewBoard(true);
                       setCreateError("");
                     }}
                   >
                     <Plus />
+                    Create Project
                   </Button>
                 )}
               </div>
             ),
-            content: boardsExpanded ? (
-              <div
-                id="sidebar-board-collection"
-                className="grid min-w-0 gap-2 px-2 py-1"
-              >
-                <Choice
-                  label="Board collection"
-                  variant="secondary"
-                  value={boardState}
-                  onChange={setBoardState}
-                  items={[
-                    { id: "active", name: "Active boards" },
-                    { id: "archived", name: "Archived boards" },
-                    { id: "deleted", name: "Deleted boards" },
-                  ]}
-                />
-                {!boards.length && !boardsPending && !boardsError && (
-                  <p className="text-xs text-muted">No {boardState} boards.</p>
-                )}
-              </div>
-            ) : undefined,
-            items: boardsExpanded
-              ? boards.map((board) => ({
-                  id: board.id,
-                  href: `/boards/${board.id}`,
-                  label: board.name,
-                  icon: <Columns3 />,
-                  active: activeBoardId === board.id,
-                }))
-              : [],
-            footerContent: boardsExpanded ? (
-              <div className="grid min-w-0 gap-2 px-2 py-1">
-                <ErrorMessage>{boardsError}</ErrorMessage>
-                {boardsPending && (
-                  <p className="text-sm text-muted" role="status">
-                    Loading boards…
-                  </p>
-                )}
-                {(boardsMore || boardsError) && (
-                  <Button
-                    variant="secondary"
-                    isDisabled={boardsPending}
-                    onPress={() =>
-                      void loadBoards({
-                        append: !!boardsCursor && !boardsRestart,
-                      })
-                    }
-                  >
-                    {boardsError
-                      ? boardsRestart
-                        ? "Reload boards"
-                        : "Retry loading boards"
-                      : "Load more boards"}
-                  </Button>
-                )}
-              </div>
-            ) : undefined,
           },
           {
             id: "workspace",
@@ -506,6 +421,8 @@ export function App() {
             onLogout={() =>
               void api("/auth/logout", {})
                 .then(() => {
+                  lastBoardsRequest.current++;
+                  recentlyCreatedBoard.current = null;
                   setSession(null);
                   setBoards([]);
                   navigate("/");
@@ -529,15 +446,13 @@ export function App() {
   const navbarTitle = activeBoardId
     ? (boards.find((board) => board.id === activeBoardId)?.name ??
       (routeBoard?.id === activeBoardId ? routeBoard.name : "Board"))
-    : path === "/notifications"
-      ? "Inbox"
-      : settingsSection && knownSettings.includes(settingsSection)
-        ? settingsTitles[settingsSection]
-        : path === "/oauth/consent"
-          ? "Connect an agent"
-          : path === "/"
-            ? "Boards"
-            : "Page not found";
+    : settingsSection && knownSettings.includes(settingsSection)
+      ? settingsTitles[settingsSection]
+      : path === "/oauth/consent"
+        ? "Connect an agent"
+        : path === "/"
+          ? "Boards"
+          : "Page not found";
   return (
     <AppShell contentWidth="full">
       <a
@@ -561,21 +476,15 @@ export function App() {
             }
             actions={
               <>
-                <Button
-                  variant="ghost"
-                  isIconOnly
-                  className="relative"
-                  aria-label="Open notifications"
-                  onPress={() => navigate("/notifications")}
-                >
-                  <Bell />
-                  {notificationCount > 0 && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute end-1 top-1 size-1.5 rounded-full bg-accent"
-                    />
-                  )}
-                </Button>
+                <Suspense fallback={null}>
+                  <NotificationsPopover
+                    key={session.user.id}
+                    userId={session.user.id}
+                    timeZone={session.user.timeZone}
+                    unreadCount={notificationCount}
+                    onRead={() => void refresh()}
+                  />
+                </Suspense>
                 <ThemeSwitcher
                   size="small"
                   theme={theme}
@@ -601,17 +510,18 @@ export function App() {
                 boards={boards}
                 user={session.user}
                 members={members}
-                onBoardsChanged={() => {
+                onBoardsChanged={(removedBoardId?: string) => {
+                  if (removedBoardId) {
+                    if (recentlyCreatedBoard.current?.id === removedBoardId)
+                      recentlyCreatedBoard.current = null;
+                    setBoards((previous) =>
+                      previous.filter((board) => board.id !== removedBoardId),
+                    );
+                  }
                   void loadBoards();
                   void refresh();
                 }}
                 path={path}
-              />
-            ) : path === "/notifications" ? (
-              <Inbox
-                timeZone={session.user.timeZone}
-                userId={session.user.id}
-                onRead={() => void refresh()}
               />
             ) : settingsSection && knownSettings.includes(settingsSection) ? (
               <SettingsPage
@@ -725,8 +635,7 @@ export function App() {
                 setNewBoard(false);
                 setBoardName("");
                 setBoardPrefix("");
-                setBoardState("active");
-                void loadBoards({ collection: "active" });
+                void loadBoards();
                 navigate(`/boards/${result.board.id}`);
               })
               .catch((e) => setCreateError(errorText(e)))

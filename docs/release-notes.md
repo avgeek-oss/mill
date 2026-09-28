@@ -4,17 +4,17 @@ The proposed tag is `v1.0.0-beta.1`. The repository and build artifacts remain p
 
 ## Task board
 
-Mill centers on boards with ordered statuses, Kanban and list views, task detail links, combined search/filtering, and keyboard/touch task movement. Tasks support assignments, priorities, labels, due dates, checklists, safe Markdown, comments, mentions, and activity. Archived or deleted work has a restore path. Concurrent edits use versions and return an explicit conflict.
+Mill centers on boards with ordered statuses, Kanban and list views, task detail links, combined search/filtering, and keyboard/touch task movement. Tasks support assignments, priorities, labels, due dates, checklists, safe Markdown, comments, mentions, and activity. The fixed Boards list loads every board and places Create Project last. Deleting a task permanently removes its descendant subtasks and comments; a human administrator can permanently delete a board and all its work. There are no archive or restore states. Concurrent edits use versions and return an explicit conflict.
 
 ## Team and agents
 
-The first installation creates its administrator once. Teams use Admin, Member, and Viewer roles, invitations, profiles, time zones, session controls, passkeys, authenticator verification, and recovery. B1 uses in-app assignment/mention notifications and private invitation links. Email delivery is unavailable.
+The first installation creates its administrator once. Teams use Admin, Member, and Viewer roles, invitations, profiles, time zones, session controls, passkeys, authenticator verification, and recovery. B1 uses a notification bell for in-app assignment/mention notifications and private invitation links. Email delivery is unavailable.
 
 External agents use scoped, revocable credentials or OAuth with REST and remote MCP. Restrictions apply across boards and resource IDs; human-only administrative actions stay unavailable to agent credentials. Retry-sensitive mutations support idempotency and bounded rate limits. Activity and audit history identify human and agent actions.
 
 ## Self-hosting
 
-The production image runs the web application and API as a non-root process. Docker Compose requires PostgreSQL only, persists its data, validates configuration, and applies checked migrations at startup. Full backup/restore and portable work export/import cover different recovery needs. Installation, team workflows, agents, operations, and contributor documentation are included.
+The production image runs the web application and API as a non-root process. Docker Compose requires PostgreSQL only, persists its data, validates configuration, and applies checked migrations at startup. Full backup/restore and portable work export/import cover different recovery needs. Portable export version 2 omits archive/deletion state and preserves board task numbering; older exports skip deleted work and import archived work as ordinary work. Installation, team workflows, agents, operations, and contributor documentation are included.
 
 ## Review and publication
 

@@ -280,7 +280,7 @@ function ProfileSettings({
             }}
           >
             <p className="text-sm text-muted">
-              Choose which updates appear in your inbox.
+              Choose which notifications you receive.
             </p>
             <div className="grid gap-3">
               <Checkbox

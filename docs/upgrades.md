@@ -2,6 +2,14 @@
 
 Read the new version's release notes and verification evidence before changing an installation. Record your current source commit or immutable image digest, then make and test a [full backup](backup.md).
 
+## Permanent deletion migration
+
+Migration `005_permanent_deletion.sql` removes archiving and soft deletion for boards and tasks. Existing archived work becomes ordinary work. Previously deleted boards and tasks are permanently removed, together with their subtasks, statuses, comments, notifications, and activity. Deleting a board removes it from agent scopes and revokes credentials whose last permitted board was removed. Completed retry responses from the earlier schema are cleared because they may contain deleted content. Their keys remain until normal expiry: an exact retry returns `410` and cannot repeat the earlier mutation. Reload Mill and check the current work before making a new change.
+
+Review this change and save a full backup before starting the new application against an existing installation. Once this migration runs, the old application cannot use the new schema. Recover old deleted work from the pre-upgrade backup in a separate installation before upgrading if you need to keep it.
+
+Portable exports now use version 2 and preserve each board's next task number. Version 1 imports remain supported: archived work becomes ordinary work, and deleted work and its descendants are omitted. Importing an old export does not provide a restore path for deleted work.
+
 ## Upgrade a source installation
 
 ```sh

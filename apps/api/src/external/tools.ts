@@ -29,7 +29,6 @@ const taskFields = {
   dueDate: domainTaskFields.dueDate.optional(),
   checklist: checklist.optional(),
   parentId: domainTaskFields.parentId.optional(),
-  archived: domainTaskFields.archived.optional(),
 };
 const query = {
   q: z.string().max(300).optional(),
@@ -37,8 +36,6 @@ const query = {
   assigneeId: z.union([id, z.literal("unassigned")]).optional(),
   priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
   label: z.string().max(40).optional(),
-  archived: z.boolean().optional(),
-  deleted: z.boolean().optional(),
   sort: z
     .enum([
       "position",
@@ -77,8 +74,6 @@ export const tools: Tool[] = [
     "GET",
     "/api/boards",
     {
-      archived: z.boolean().optional(),
-      deleted: z.boolean().optional(),
       limit: z.number().int().min(1).max(100).optional(),
       cursor: z.string().max(2048).optional(),
     },
@@ -108,7 +103,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "update_board",
-    "Edit board settings, reorder before a board (null moves to end), or archive it. Send the current version to protect concurrent edits.",
+    "Edit board settings or reorder before a board (null moves to end). Send the current version to protect concurrent edits.",
     "PATCH",
     "/api/boards/:boardId",
     {
@@ -116,7 +111,6 @@ export const tools: Tool[] = [
       version,
       name: z.string().min(1).max(100).optional(),
       description: z.string().max(10000).optional(),
-      archived: z.boolean().optional(),
       beforeId: id.nullable().optional(),
       ...retry,
     },
@@ -164,7 +158,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_tasks",
-    "Search and filter tasks in one board. Combine q, columnId, assigneeId, priority, label, archived/deleted and sort. Maximum 100 results.",
+    "Search and filter tasks in one board. Combine q, columnId, assigneeId, priority, label and sort. Maximum 100 results.",
     "GET",
     "/api/boards/:boardId/tasks",
     { ...board, ...query },
@@ -201,7 +195,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "update_task",
-    "Edit a task, change its status/order atomically, or archive/unarchive it using the current version. A stale version returns a conflict.",
+    "Edit a task or change its status/order atomically using the current version. A stale version returns a conflict.",
     "PATCH",
     "/api/tasks/:taskId",
     {
@@ -233,18 +227,11 @@ export const tools: Tool[] = [
   ),
   tool(
     "delete_task",
-    "Reversibly delete a task. Confirm with the user before deleting their work.",
+    "Permanently delete a task, its subtasks and discussion. Confirm with the user before deleting their work.",
     "DELETE",
     "/api/tasks/:taskId",
     { ...task, version, ...retry },
     { destructive: true },
-  ),
-  tool(
-    "restore_task",
-    "Restore a deleted task.",
-    "POST",
-    "/api/tasks/:taskId/restore",
-    { ...task, version, ...retry },
   ),
   tool(
     "list_comments",

@@ -35,8 +35,12 @@ function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function validatePortable(value: unknown): Counts {
-  if (!object(value) || value.format !== "mill-portable" || value.version !== 1)
-    throw new Error("Choose a Mill export file in version 1 format.");
+  if (
+    !object(value) ||
+    value.format !== "mill-portable" ||
+    (value.version !== 1 && value.version !== 2)
+  )
+    throw new Error("Choose a Mill export file in version 1 or 2 format.");
   if (
     !object(value.workspace) ||
     typeof value.workspace.name !== "string" ||

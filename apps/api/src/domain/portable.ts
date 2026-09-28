@@ -32,8 +32,7 @@ const portableBoard = z.object({
   prefix: z.string().regex(/^[A-Z][A-Z0-9]{1,9}$/),
   description: z.string().max(10000),
   position: z.number().int().nonnegative(),
-  archived: z.boolean(),
-  deletedAt: timestamp.nullable(),
+  nextNumber: z.number().int().positive().max(2147483647),
 });
 const portableColumn = z.object({
   id: uuid,
@@ -49,7 +48,6 @@ const portableTask = z.object({
   columnId: uuid,
   identifier: z.string().max(100),
   position: z.number().int().nonnegative(),
-  deletedAt: timestamp.nullable(),
   createdBy: uuid,
   createdAt: timestamp,
   updatedAt: timestamp,
@@ -65,7 +63,7 @@ const portableComment = z.object({
 const portable = z
   .object({
     format: z.literal("mill-portable"),
-    version: z.literal(1),
+    version: z.literal(2),
     exportedAt: timestamp,
     workspace: z.object({ name: z.string().trim().min(1).max(100) }),
     members: z.array(portableMember).max(10000),
@@ -76,6 +74,78 @@ const portable = z
   })
   .strict();
 
+const portableV1 = portable.extend({
+  version: z.literal(1),
+  boards: z
+    .array(
+      portableBoard
+        .omit({ nextNumber: true })
+        .extend({ archived: z.boolean(), deletedAt: timestamp.nullable() }),
+    )
+    .max(100),
+  tasks: z
+    .array(
+      portableTask.extend({
+        archived: z.boolean(),
+        deletedAt: timestamp.nullable(),
+      }),
+    )
+    .max(50000),
+});
+const portableImport = z.discriminatedUnion("version", [portable, portableV1]);
+function currentData(
+  data: z.infer<typeof portableImport>,
+): z.infer<typeof portable> {
+  if (data.version === 2) return data;
+  const boardIds = new Set(
+    data.boards.filter((board) => !board.deletedAt).map((board) => board.id),
+  );
+  const removedTaskIds = new Set(
+    data.tasks
+      .filter((task) => task.deletedAt || !boardIds.has(task.boardId))
+      .map((task) => task.id),
+  );
+  const children = new Map<string, string[]>();
+  const nextNumbers = new Map<string, number>();
+  for (const task of data.tasks) {
+    if (task.parentId) {
+      const siblings = children.get(task.parentId) ?? [];
+      siblings.push(task.id);
+      children.set(task.parentId, siblings);
+    }
+    const number = Number(task.identifier.match(/-(\d+)$/)?.[1]);
+    if (Number.isSafeInteger(number) && number > 0 && number < 2147483647)
+      nextNumbers.set(
+        task.boardId,
+        Math.max(nextNumbers.get(task.boardId) ?? 1, number + 1),
+      );
+  }
+  const pending = [...removedTaskIds];
+  for (let index = 0; index < pending.length; index++)
+    for (const childId of children.get(pending[index]!) ?? [])
+      if (!removedTaskIds.has(childId)) {
+        removedTaskIds.add(childId);
+        pending.push(childId);
+      }
+  return {
+    ...data,
+    version: 2,
+    boards: data.boards
+      .filter((board) => boardIds.has(board.id))
+      .map(({ archived: _archived, deletedAt: _deletedAt, ...board }) => ({
+        ...board,
+        nextNumber: nextNumbers.get(board.id) ?? 1,
+      })),
+    columns: data.columns.filter((column) => boardIds.has(column.boardId)),
+    tasks: data.tasks
+      .filter((task) => !removedTaskIds.has(task.id))
+      .map(({ archived: _archived, deletedAt: _deletedAt, ...task }) => task),
+    comments: data.comments.filter(
+      (comment) => !removedTaskIds.has(comment.taskId),
+    ),
+  };
+}
+
 function assertUnique(items: { id: string }[], name: string) {
   if (new Set(items.map((item) => item.id)).size !== items.length)
     badRequest(`${name} contain duplicate IDs`);
@@ -85,7 +155,7 @@ function mapped(map: Map<string, string>, value: string, kind: string) {
   if (!result) badRequest(`The import references a missing ${kind}`);
   return result;
 }
-function validateReferences(data: z.infer<typeof portable>) {
+function validateReferences(data: z.infer<typeof portableImport>) {
   for (const [name, items] of Object.entries({
     members: data.members,
     boards: data.boards,
@@ -178,16 +248,16 @@ export function installPortableRoutes(routes: Hono<Env>) {
       const members =
         await tx`SELECT id,name,email,role,time_zone,(disabled_at IS NOT NULL) AS disabled FROM users ORDER BY created_at,id`;
       const boards =
-        await tx`SELECT id,name,prefix,description,position,archived,deleted_at FROM boards ORDER BY position,id`;
+        await tx`SELECT id,name,prefix,description,position,next_number FROM boards ORDER BY position,id`;
       const columns =
         await tx`SELECT id,board_id,name,color,position FROM columns ORDER BY board_id,position,id`;
       const tasks =
-        await tx`SELECT id,board_id,column_id,identifier,title,description,assignee_id,priority,labels,due_date,checklist,parent_id,position,archived,deleted_at,created_by,created_at,updated_at FROM tasks ORDER BY board_id,column_id,position,id`;
+        await tx`SELECT id,board_id,column_id,identifier,title,description,assignee_id,priority,labels,due_date,checklist,parent_id,position,created_by,created_at,updated_at FROM tasks ORDER BY board_id,column_id,position,id`;
       const comments =
         await tx`SELECT id,task_id,author_id,body,created_at,updated_at FROM comments ORDER BY created_at,id`;
       const result = {
         format: "mill-portable",
-        version: 1,
+        version: 2,
         exportedAt: new Date().toISOString(),
         workspace,
         members,
@@ -215,8 +285,9 @@ export function installPortableRoutes(routes: Hono<Env>) {
   });
   routes.post("/import", async (c) => {
     const a = requireRole(c, "admin");
-    const data = await body(c, portable);
-    validateReferences(data);
+    const source = await body(c, portableImport);
+    validateReferences(source);
+    const data = currentData(source);
     const result = await sql.begin(async (tx) => {
       await tx`SELECT id FROM workspace FOR UPDATE`;
       const [workspace] = await tx`SELECT id FROM workspace`;
@@ -245,7 +316,7 @@ export function installPortableRoutes(routes: Hono<Env>) {
         let suffix = 1;
         while ((await tx`SELECT id FROM boards WHERE prefix=${prefix}`).length)
           prefix = `${board.prefix.slice(0, 7)}${++suffix}`;
-        await tx`INSERT INTO boards (id,workspace_id,name,prefix,description,position,archived,deleted_at) VALUES (${boardId},${workspace.id},${board.name},${prefix},${board.description},${count.total + offset},${board.archived},${board.deletedAt})`;
+        await tx`INSERT INTO boards (id,workspace_id,name,prefix,description,position,next_number) VALUES (${boardId},${workspace.id},${board.name},${prefix},${board.description},${count.total + offset},${board.nextNumber})`;
         boardMap.set(board.id, boardId);
         prefixMap.set(board.id, prefix);
       }
@@ -260,7 +331,9 @@ export function installPortableRoutes(routes: Hono<Env>) {
         }
       }
       for (const task of data.tasks) taskMap.set(task.id, newId());
-      const nextNumbers = new Map<string, number>();
+      const nextNumbers = new Map(
+        data.boards.map((board) => [board.id, board.nextNumber]),
+      );
       const identifiers = new Set<string>();
       for (const col of data.columns) {
         const tasks = data.tasks
@@ -281,7 +354,7 @@ export function installPortableRoutes(routes: Hono<Env>) {
             task.boardId,
             Math.max(nextNumbers.get(task.boardId) ?? 1, number + 1),
           );
-          await tx`INSERT INTO tasks (id,board_id,column_id,identifier,title,description,assignee_id,priority,labels,due_date,checklist,parent_id,position,archived,deleted_at,created_by,created_at,updated_at) VALUES (${mapped(taskMap, task.id, "task")},${mapped(boardMap, task.boardId, "board")},${mapped(columnMap, task.columnId, "status")},${prefix + "-" + number},${task.title},${task.description},${task.assigneeId ? mapped(memberMap, task.assigneeId, "member") : null},${task.priority},${task.labels},${task.dueDate},${tx.json(task.checklist)},NULL,${position},${task.archived},${task.deletedAt},${mapped(memberMap, task.createdBy, "member")},${task.createdAt},${task.updatedAt})`;
+          await tx`INSERT INTO tasks (id,board_id,column_id,identifier,title,description,assignee_id,priority,labels,due_date,checklist,parent_id,position,created_by,created_at,updated_at) VALUES (${mapped(taskMap, task.id, "task")},${mapped(boardMap, task.boardId, "board")},${mapped(columnMap, task.columnId, "status")},${prefix + "-" + number},${task.title},${task.description},${task.assigneeId ? mapped(memberMap, task.assigneeId, "member") : null},${task.priority},${task.labels},${task.dueDate},${tx.json(task.checklist)},NULL,${position},${mapped(memberMap, task.createdBy, "member")},${task.createdAt},${task.updatedAt})`;
         }
       }
       for (const task of data.tasks)

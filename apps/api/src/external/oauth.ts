@@ -1,7 +1,7 @@
 import { sql } from "../../../../packages/database/src/index.js";
 import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
 import { resolveClient } from "./clients.js";
-import { externalAudit, validateBoards } from "./credentials.js";
+import { validateBoards } from "./credentials.js";
 import {
   authorizationResponse,
   digest,
@@ -100,8 +100,14 @@ export async function decideConsent(
   allow: boolean,
   boardIds?: string[],
 ) {
-  await validateBoards(boardIds);
-  const redirect = await sql.begin(async (tx) => {
+  if (a.kind !== "human")
+    throw new OAuthError(
+      "access_denied",
+      "Consent requires a personal account",
+      403,
+    );
+  return sql.begin(async (tx) => {
+    await validateBoards(boardIds, tx);
     const [user] = await tx<
       { role: Role }[]
     >`SELECT role FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
@@ -121,6 +127,7 @@ export async function decideConsent(
       );
     if (!allow) {
       await tx`UPDATE oauth_requests SET consumed_at=now() WHERE id=${id}`;
+      await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${a.name},'human','oauth.denied',${tx.json({ requestId: id, boardIds: boardIds ?? null })})`;
       return authorizationResponse(grant, { error: "access_denied" });
     }
     if (user.role === "viewer" && grant.scope.includes("write"))
@@ -131,13 +138,9 @@ export async function decideConsent(
       );
     const code = secret();
     await tx`UPDATE oauth_requests SET user_id=${a.userId},board_ids=${boardIds ?? null},code_hash=${digest(code)},expires_at=${new Date(Date.now() + 120000)} WHERE id=${id}`;
+    await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${a.name},'human','oauth.consented',${tx.json({ requestId: id, boardIds: boardIds ?? null })})`;
     return authorizationResponse(grant, { code });
   });
-  await externalAudit(a, allow ? "oauth.consented" : "oauth.denied", {
-    requestId: id,
-    boardIds: boardIds ?? null,
-  });
-  return redirect;
 }
 export async function exchangeCode(
   clientId: string,

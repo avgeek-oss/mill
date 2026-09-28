@@ -24,9 +24,7 @@ function validDirectoryPage(value: unknown) {
         item.id.length > 0 &&
         typeof item.name === "string" &&
         typeof item.version === "number" &&
-        Number.isInteger(item.version) &&
-        typeof item.archived === "boolean" &&
-        (item.deletedAt === null || typeof item.deletedAt === "string"),
+        Number.isInteger(item.version),
     ) &&
     typeof value.hasMore === "boolean" &&
     (value.hasMore

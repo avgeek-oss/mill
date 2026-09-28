@@ -248,14 +248,10 @@ function CreateCredential({
             disabled={pending || boardsPending || Boolean(boardsError)}
             items={[
               { id: "all", name: "All boards" },
-              ...boards
-                .filter((board) => !board.deletedAt)
-                .map((board) => ({
-                  id: board.id,
-                  name: board.archived
-                    ? `${board.name} (archived)`
-                    : board.name,
-                })),
+              ...boards.map((board) => ({
+                id: board.id,
+                name: board.name,
+              })),
             ]}
           />
           {boardsPending && (
@@ -566,15 +562,18 @@ export function AgentSettings({
                             Revoke
                           </Button>
                         ) : null;
-                      const boardNames = credential.boardIds
-                        ? credential.boardIds
-                            .map(
-                              (id) =>
-                                knownBoards.find((board) => board.id === id)
-                                  ?.name ?? "Unavailable board",
-                            )
-                            .join(", ")
-                        : "All boards";
+                      const boardNames =
+                        credential.boardIds === null
+                          ? "All boards"
+                          : credential.boardIds.length
+                            ? credential.boardIds
+                                .map(
+                                  (id) =>
+                                    knownBoards.find((board) => board.id === id)
+                                      ?.name ?? "Unavailable board",
+                                )
+                                .join(", ")
+                            : "No boards";
                       return (
                         <Table.Row key={credential.id} id={credential.id}>
                           <Table.Cell className="whitespace-normal!">

@@ -31,7 +31,11 @@ import type {
 import { ApiError, api, createRetryKey, errorText, type User } from "./api.js";
 import { Markdown } from "./markdown.js";
 import { activityLabel } from "./activity-label.js";
-import { hasCommentResponse, hasTaskResponse } from "./responses.js";
+import {
+  hasCommentResponse,
+  hasOkResponse,
+  hasTaskResponse,
+} from "./responses.js";
 export type TaskSelection = {
   id?: string;
   columnId?: string;
@@ -99,6 +103,7 @@ export function TaskDialog({
   const [commentEdit, setCommentEdit] = useState<Comment | null>(null);
   const [taskCreateKey] = useState(createRetryKey);
   const [commentCreateKey] = useState(createRetryKey);
+  const [taskDeleteKey] = useState(createRetryKey);
   const [commentToDelete, setCommentToDelete] = useState<Comment | null>(null);
   const [preview, setPreview] = useState(!!selection.id);
   const [busy, setBusy] = useState(false);
@@ -112,7 +117,7 @@ export function TaskDialog({
   const [tab, setTab] = useState("comments");
   const [copyNotice, setCopyNotice] = useState("");
   const writable = user.role !== "viewer" && !readOnly;
-  const editable = writable && !detail?.task.deletedAt;
+  const editable = writable;
   function close() {
     if (busy) return;
     taskCreateKey.reset();
@@ -192,7 +197,7 @@ export function TaskDialog({
     } catch (e) {
       setError(errorText(e));
       setErrorAction(context);
-      if (context === "task")
+      if (context !== "discussion")
         setConflict(e instanceof ApiError && e.status === 409);
     } finally {
       setBusy(false);
@@ -353,37 +358,27 @@ export function TaskDialog({
       setActivityMore(activity.items.length === 100);
     }, "discussion");
   }
-  async function lifecycle(action: "archive" | "restore" | "delete") {
+  async function deleteTask() {
+    if (!detail) return;
     await run(async () => {
-      let result: { task: Task };
-      if (action === "delete")
-        result = await api<{ task: Task }>(
-          `/tasks/${detail!.task.id}`,
-          { version: detail!.task.version },
-          "DELETE",
-        );
-      else if (detail!.task.deletedAt)
-        result = await api<{ task: Task }>(
-          `/tasks/${detail!.task.id}/restore`,
-          {
-            version: detail!.task.version,
+      await api(
+        `/tasks/${detail.task.id}`,
+        { version: detail.task.version },
+        "DELETE",
+        {
+          validateResponse: hasOkResponse,
+          headers: {
+            "Idempotency-Key": taskDeleteKey.forRequest(
+              `/tasks/${detail.task.id}`,
+              { version: detail.task.version },
+              "DELETE",
+            ),
           },
-        );
-      else
-        result = await api<{ task: Task }>(
-          `/tasks/${detail!.task.id}`,
-          { version: detail!.task.version, archived: action === "archive" },
-          "PATCH",
-        );
-      setDetail((prev) => (prev ? { ...prev, task: result.task } : prev));
-      setConfirm(false);
-      setCopyNotice(
-        action === "delete"
-          ? "Task deleted. You can restore it here."
-          : action === "archive"
-            ? "Task archived."
-            : "Task restored.",
+        },
       );
+      taskDeleteKey.reset();
+      setConfirm(false);
+      onClose();
     }, "lifecycle");
   }
   const subtasks = detail
@@ -433,17 +428,15 @@ export function TaskDialog({
             <Button variant="secondary" onPress={close} isDisabled={busy}>
               Close
             </Button>
-            {writable &&
-              (!selection.id || detail) &&
-              !detail?.task.deletedAt && (
-                <Button
-                  isDisabled={busy || loading}
-                  type="submit"
-                  form="task-form"
-                >
-                  {detail ? "Save changes" : "Create task"}
-                </Button>
-              )}
+            {writable && (!selection.id || detail) && (
+              <Button
+                isDisabled={busy || loading}
+                type="submit"
+                form="task-form"
+              >
+                {detail ? "Save changes" : "Create task"}
+              </Button>
+            )}
           </div>
         </div>
       }
@@ -478,7 +471,7 @@ export function TaskDialog({
                 <Alert.Title>Your draft is preserved</Alert.Title>
                 <Alert.Description>
                   Another person changed this task. Reload the current version
-                  before saving again. Your draft stays here until you reload.
+                  before trying again. Your draft stays here until you reload.
                 </Alert.Description>
                 <Button
                   variant="secondary"
@@ -514,7 +507,7 @@ export function TaskDialog({
                 onChange={(e) => patch("title", e.target.value)}
                 required
                 maxLength={300}
-                disabled={!writable || !!detail?.task.deletedAt}
+                disabled={!writable}
                 autoFocus={
                   !selection.id &&
                   !window.matchMedia("(pointer: coarse)").matches
@@ -897,51 +890,17 @@ export function TaskDialog({
                     <LinkIcon />
                     Copy task link
                   </Button>
-                  {detail.task.archived && (
-                    <Chip variant="secondary" size="small">
-                      Archived
-                    </Chip>
-                  )}
-                  {detail.task.deletedAt && (
-                    <Chip variant="destructive" size="small">
-                      Deleted
-                    </Chip>
-                  )}
                   {writable && (
-                    <div className="stack compact">
-                      {detail.task.deletedAt ? (
-                        <Button
-                          variant="secondary"
-                          onPress={() => void lifecycle("restore")}
-                          isDisabled={busy}
-                        >
-                          Restore task
-                        </Button>
-                      ) : (
-                        <>
-                          <Button
-                            variant="secondary"
-                            onPress={() =>
-                              void lifecycle(
-                                detail.task.archived ? "restore" : "archive",
-                              )
-                            }
-                            isDisabled={busy}
-                          >
-                            {detail.task.archived
-                              ? "Restore from archive"
-                              : "Archive task"}
-                          </Button>
-                          <Button
-                            variant="danger-ghost"
-                            isDisabled={busy}
-                            onPress={() => setConfirm(true)}
-                          >
-                            Delete task
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                    <Button
+                      variant="danger-ghost"
+                      isDisabled={busy}
+                      onPress={() => {
+                        setError("");
+                        setConfirm(true);
+                      }}
+                    >
+                      Delete task
+                    </Button>
                   )}
                 </>
               )}
@@ -1067,7 +1026,7 @@ export function TaskDialog({
                         Load more comments
                       </Button>
                     )}
-                    {writable && !detail.task.deletedAt && (
+                    {writable && (
                       <form
                         className="content-grid min-w-0"
                         onSubmit={(e) => {
@@ -1189,19 +1148,31 @@ export function TaskDialog({
             </Button>
             <Button
               variant="danger"
-              onPress={() => void lifecycle("delete")}
-              isDisabled={busy}
+              onPress={() => void deleteTask()}
+              isPending={busy}
             >
               Delete task
             </Button>
           </>
         }
       >
-        <p>
-          This task moves to deleted tasks. You can restore it from the board’s
-          deleted view.
-        </p>
-        <ErrorMessage>{error}</ErrorMessage>
+        <TypographyParagraph size="sm">
+          Permanently delete this task, all of its subtasks, and their comments?
+          This cannot be undone. There is no restore.
+        </TypographyParagraph>
+        <ErrorMessage>{errorAction === "lifecycle" ? error : ""}</ErrorMessage>
+        {conflict && errorAction === "lifecycle" && (
+          <Button
+            variant="secondary"
+            isDisabled={busy}
+            onPress={() => {
+              setConfirm(false);
+              void load();
+            }}
+          >
+            Reload task
+          </Button>
+        )}
       </Dialog>
     </Dialog>
   );

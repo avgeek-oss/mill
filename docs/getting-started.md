@@ -4,13 +4,13 @@ Install Mill using [the installation guide](installation.md), then open its URL.
 
 ## Make a board
 
-Create a board with a short, recognizable name. New boards start with Backlog, In progress, and Done. Open board settings when you need to rename statuses, change their order, or archive the board.
+Choose **Create Project** at the end of the sidebar’s **Boards** list and give the board a short, recognizable name. New boards start with Backlog, In progress, and Done. Open board settings when you need to rename statuses, change their order, or permanently delete the board. Only a human administrator can delete a board.
 
 Create a task in Backlog, give it a clear title, and open its detail view. Add a Markdown description, assignment, priority, labels, due date, or checklist as needed. Preview the description before saving. Task links keep their stable identifier even when the title changes.
 
 Move the task to In progress using its status control. This works with a keyboard or touch and is an alternative to dragging. Leave a comment, then move it to Done. Reload the page to see the persisted result.
 
-Switch between Kanban and list view to find the layout that suits the work. Combine search with status, assignee, priority, and label filters. Opening and saving a task preserves the board context. See [everyday workflows](workflows.md) for archive, restore, and permission behavior.
+Switch between Kanban and list view to find the layout that suits the work. Combine search with status, assignee, priority, and label filters. Opening and saving a task preserves the board context. See [everyday workflows](workflows.md) for permanent deletion and permission behavior. Deleted boards, tasks, subtasks, and comments cannot be restored in Mill.
 
 ## Invite your team
 

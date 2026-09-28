@@ -40,8 +40,16 @@ import type {
   Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
-import { ApiError, api, errorText, navigate, type User } from "./api.js";
+import {
+  ApiError,
+  api,
+  createRetryKey,
+  errorText,
+  navigate,
+  type User,
+} from "./api.js";
 import type { TaskSelection } from "./task-dialog.js";
+import { hasOkResponse } from "./responses.js";
 const TaskDialog = lazy(() =>
   import("./task-dialog.js").then((m) => ({ default: m.TaskDialog })),
 );
@@ -61,7 +69,7 @@ export function BoardPage({
   boards: Board[];
   user: User;
   members: Member[];
-  onBoardsChanged: () => void;
+  onBoardsChanged: (removedBoardId?: string) => void;
   onBoardLoaded: (board: Board) => void;
   path: string;
 }) {
@@ -85,12 +93,11 @@ export function BoardPage({
     label: "",
     columnId: "",
     sort: "position",
-    state: "active",
   });
   const [selection, setSelection] = useState<TaskSelection | null>(null);
   const [mobileColumn, setMobileColumn] = useState("");
   const [confirmBoard, setConfirmBoard] = useState(false);
-  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [boardDeleteKey] = useState(createRetryKey);
   const [boardBefore, setBoardBefore] = useState("keep");
   const [settings, setSettings] = useState(false);
   const [columnDraft, setColumnDraft] = useState({ name: "", color: "gray" });
@@ -99,8 +106,7 @@ export function BoardPage({
   const [settingsError, setSettingsError] = useState("");
   const [settingsNotice, setSettingsNotice] = useState("");
   const latestLoad = useRef(0);
-  const writable =
-    !!board && user.role !== "viewer" && !board.archived && !board.deletedAt;
+  const writable = !!board && user.role !== "viewer";
   useEffect(() => {
     const timer = setTimeout(() => setQ(query), 250);
     return () => clearTimeout(timer);
@@ -110,8 +116,6 @@ export function BoardPage({
     if (q) params.set("q", q);
     for (const key of ["assigneeId", "priority", "label", "columnId"] as const)
       if (filters[key]) params.set(key, filters[key]);
-    if (filters.state === "archived") params.set("archived", "true");
-    if (filters.state === "deleted") params.set("deleted", "true");
     if (cursor) params.set("cursor", cursor);
     return params;
   }
@@ -187,7 +191,6 @@ export function BoardPage({
     filters.label,
     filters.columnId,
     filters.sort,
-    filters.state,
   ]);
   useEffect(() => {
     const taskId = path.match(/\/tasks\/([^/]+)/)?.[1];
@@ -274,6 +277,34 @@ export function BoardPage({
       setBusy(false);
     }
   }
+  async function deleteBoard() {
+    if (busy || !board || user.role !== "admin") return;
+    setBusy(true);
+    setSettingsError("");
+    try {
+      await api(`/boards/${board.id}`, { version: board.version }, "DELETE", {
+        validateResponse: hasOkResponse,
+        headers: {
+          "Idempotency-Key": boardDeleteKey.forRequest(
+            `/boards/${board.id}`,
+            { version: board.version },
+            "DELETE",
+          ),
+        },
+      });
+      boardDeleteKey.reset();
+      ++latestLoad.current;
+      setConfirmBoard(false);
+      setSettings(false);
+      onBoardsChanged(board.id);
+      const nextBoard = boards.find((item) => item.id !== board.id);
+      navigate(nextBoard ? `/boards/${nextBoard.id}` : "/");
+    } catch (e) {
+      setSettingsError(errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
   async function shiftColumn(column: Column, index: number, delta: number) {
     const ordered = [...columns];
     const target = index + delta;
@@ -293,8 +324,7 @@ export function BoardPage({
     filters.assigneeId ||
     filters.priority ||
     filters.label ||
-    filters.columnId ||
-    filters.state !== "active"
+    filters.columnId
   );
   function clearFilters() {
     setQuery("");
@@ -304,54 +334,28 @@ export function BoardPage({
       label: "",
       columnId: "",
       sort: "position",
-      state: "active",
     });
   }
-  const visibleTasks = tasks.filter((task) =>
-    filters.state === "deleted"
-      ? !!task.deletedAt
-      : filters.state === "archived"
-        ? task.archived && !task.deletedAt
-        : !task.archived && !task.deletedAt,
-  );
+  const visibleTasks = tasks;
   function emptyTasks() {
-    const propertyFilters = !!(
-      q ||
-      filters.assigneeId ||
-      filters.priority ||
-      filters.label ||
-      filters.columnId
-    );
-    const collection =
-      filters.state === "archived"
-        ? "archived"
-        : filters.state === "deleted"
-          ? "deleted"
-          : null;
     return (
       <EmptyState>
         <EmptyState.Header>
           <EmptyState.Title>
-            {propertyFilters
-              ? "No tasks match these filters"
-              : collection
-                ? `No ${collection} tasks`
-                : "No tasks yet"}
+            {hasFilters ? "No tasks match these filters" : "No tasks yet"}
           </EmptyState.Title>
           <EmptyState.Description>
-            {propertyFilters
+            {hasFilters
               ? "Adjust or clear your filters to see existing tasks."
-              : collection
-                ? `Tasks you ${collection === "archived" ? "archive" : "delete"} appear here.`
-                : writable
-                  ? "Create the first task on this board."
-                  : "Tasks created by your team will appear here."}
+              : writable
+                ? "Create the first task on this board."
+                : "Tasks created by your team will appear here."}
           </EmptyState.Description>
         </EmptyState.Header>
         <EmptyState.Content>
           {hasFilters ? (
             <Button variant="secondary" onPress={clearFilters}>
-              {propertyFilters ? "Clear filters" : "View active tasks"}
+              Clear filters
             </Button>
           ) : (
             writable && (
@@ -441,8 +445,6 @@ export function BoardPage({
         description={board?.description ?? undefined}
         actions={
           <div className="flex flex-wrap items-center gap-3">
-            {board?.archived && <Chip>Archived</Chip>}
-            {board?.deletedAt && <Chip color="danger">Deleted</Chip>}
             <div className="segmented">
               <Button
                 aria-label="Kanban view"
@@ -478,7 +480,7 @@ export function BoardPage({
                 <Settings2 />
               </Button>
             )}
-            {writable && !board?.deletedAt && (
+            {writable && (
               <Button onPress={() => choose({ columnId: columns[0]?.id })}>
                 <Plus />
                 New task
@@ -577,26 +579,8 @@ export function BoardPage({
             ]}
           />
         </div>
-        <div className="board-filter-slot">
-          <Choice
-            variant="secondary"
-            label="Task view"
-            value={filters.state}
-            onChange={(v) => setFilters({ ...filters, state: v })}
-            items={[
-              { id: "active", name: "Active tasks" },
-              { id: "archived", name: "Archived tasks" },
-              { id: "deleted", name: "Deleted tasks" },
-            ]}
-          />
-        </div>
         <div className="board-clear-slot">
-          {(q ||
-            filters.assigneeId ||
-            filters.priority ||
-            filters.label ||
-            filters.columnId ||
-            filters.state !== "active") && (
+          {hasFilters && (
             <Button variant="ghost" onPress={clearFilters}>
               Clear filters
             </Button>
@@ -645,7 +629,7 @@ export function BoardPage({
                       }
                     </span>
                   </div>
-                  {writable && filters.state === "active" && (
+                  {writable && (
                     <Button
                       variant="ghost"
                       isIconOnly
@@ -668,7 +652,7 @@ export function BoardPage({
                             No tasks here.
                           </EmptyState.Description>
                         </EmptyState.Header>
-                        {writable && filters.state === "active" && (
+                        {writable && (
                           <Button
                             variant="ghost"
                             onPress={() => choose({ columnId: column.id })}
@@ -874,54 +858,30 @@ export function BoardPage({
                   </form>
                 </Widget.Content>
               </Widget>
-              <Widget>
-                <Widget.Header>
-                  <Widget.Title help={false}>Archive and deletion</Widget.Title>
-                </Widget.Header>
-                <Widget.Content className="content-grid min-w-0">
-                  <TypographyParagraph size="sm" color="muted">
-                    Archived boards remain accessible. Deleted boards can be
-                    restored from the sidebar.
-                  </TypographyParagraph>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="secondary"
-                      isPending={busy}
-                      isDisabled={!!board.deletedAt}
-                      onPress={() => {
-                        if (board.archived)
-                          void settingsRun(async () => {
-                            await api(
-                              `/boards/${board.id}`,
-                              { version: board.version, archived: false },
-                              "PATCH",
-                            );
-                          }, "Board restored.");
-                        else setConfirmArchive(true);
-                      }}
-                    >
-                      {board.archived ? "Restore board" : "Archive board"}
-                    </Button>
-                    <Button
-                      variant={board.deletedAt ? "secondary" : "danger-ghost"}
-                      isPending={busy}
-                      onPress={() => {
-                        if (board.deletedAt)
-                          void settingsRun(async () => {
-                            await api(`/boards/${board.id}/restore`, {
-                              version: board.version,
-                            });
-                          }, "Board restored.");
-                        else setConfirmBoard(true);
-                      }}
-                    >
-                      {board.deletedAt
-                        ? "Restore deleted board"
-                        : "Delete board"}
-                    </Button>
-                  </div>
-                </Widget.Content>
-              </Widget>
+              {user.role === "admin" && (
+                <Widget>
+                  <Widget.Header>
+                    <Widget.Title help={false}>Delete board</Widget.Title>
+                  </Widget.Header>
+                  <Widget.Content className="content-grid min-w-0">
+                    <TypographyParagraph size="sm" color="muted">
+                      Permanently remove this board and all of its work.
+                    </TypographyParagraph>
+                    <div>
+                      <Button
+                        variant="danger-ghost"
+                        isDisabled={busy}
+                        onPress={() => {
+                          setSettingsError("");
+                          setConfirmBoard(true);
+                        }}
+                      >
+                        Delete board
+                      </Button>
+                    </div>
+                  </Widget.Content>
+                </Widget>
+              )}
             </div>
             <Widget className="min-w-0">
               <Widget.Header>
@@ -1013,47 +973,7 @@ export function BoardPage({
           </div>
         </Dialog>
       )}
-      {confirmArchive && board && (
-        <Dialog
-          isDismissDisabled={busy}
-          open
-          onClose={() => setConfirmArchive(false)}
-          title="Archive board?"
-          footer={
-            <>
-              <Button
-                variant="secondary"
-                onPress={() => setConfirmArchive(false)}
-                isPending={busy}
-              >
-                Keep active
-              </Button>
-              <Button
-                isPending={busy}
-                onPress={() =>
-                  void settingsRun(async () => {
-                    await api(
-                      `/boards/${board.id}`,
-                      { version: board.version, archived: true },
-                      "PATCH",
-                    );
-                    setConfirmArchive(false);
-                  }, "Board archived.")
-                }
-              >
-                Archive board
-              </Button>
-            </>
-          }
-        >
-          <TypographyParagraph size="sm">
-            The board stays accessible in archived boards. Restore it before
-            adding or editing tasks.
-          </TypographyParagraph>
-          <ErrorMessage>{settingsError}</ErrorMessage>
-        </Dialog>
-      )}
-      {confirmBoard && board && (
+      {confirmBoard && board && user.role === "admin" && (
         <Dialog
           isDismissDisabled={busy}
           open
@@ -1064,33 +984,24 @@ export function BoardPage({
               <Button
                 variant="secondary"
                 onPress={() => setConfirmBoard(false)}
-                isPending={busy}
+                isDisabled={busy}
               >
                 Keep board
               </Button>
               <Button
                 variant="danger"
                 isPending={busy}
-                onPress={() =>
-                  void settingsRun(async () => {
-                    await api(
-                      `/boards/${board.id}`,
-                      { version: board.version, deleted: true },
-                      "PATCH",
-                    );
-                    setConfirmBoard(false);
-                  })
-                }
+                onPress={() => void deleteBoard()}
               >
                 Delete board
               </Button>
             </>
           }
         >
-          <p>
-            The board and its tasks move to deleted boards. You can restore the
-            board from the sidebar.
-          </p>
+          <TypographyParagraph size="sm">
+            Permanently delete “{board.name}” and all of its statuses, tasks,
+            subtasks, and comments? This cannot be undone. There is no restore.
+          </TypographyParagraph>
           <ErrorMessage>{settingsError}</ErrorMessage>
         </Dialog>
       )}

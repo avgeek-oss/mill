@@ -57,8 +57,6 @@ const boardPatch = boardCreate
   .partial()
   .extend({
     version,
-    archived: z.boolean().optional(),
-    deleted: z.boolean().optional(),
     beforeId: uuid.nullable().optional(),
   })
   .strict();
@@ -106,10 +104,8 @@ type TaskSummary = Pick<
   | "parentId"
   | "position"
   | "version"
-  | "archived"
-  | "deletedAt"
 >;
-const summaryFields = sql`id,board_id,column_id,identifier,title,assignee_id,priority,due_date,parent_id,position,version,archived,deleted_at`;
+const summaryFields = sql`id,board_id,column_id,identifier,title,assignee_id,priority,due_date,parent_id,position,version`;
 
 function previewLimit(c: Parameters<typeof actor>[0], name: string) {
   const raw = c.req.query(name);
@@ -147,16 +143,11 @@ const boardListCursor = z
 domainRoutes.get("/boards", async (c) => {
   const a = requireRole(c);
   const directory = boolQuery(c, "directory");
-  const archived = boolQuery(c, "archived");
-  const deleted = boolQuery(c, "deleted");
   if (
-    directory &&
-    (c.req.query("archived") !== undefined ||
-      c.req.query("deleted") !== undefined)
+    c.req.query("archived") !== undefined ||
+    c.req.query("deleted") !== undefined
   )
-    badRequest(
-      "Board directory requests cannot include archived or deleted filters",
-    );
+    badRequest("Archive and deleted filters are no longer supported");
   const limit = pagination(c, 100);
   const rawCursor = c.req.query("cursor");
   let cursor: z.infer<typeof boardListCursor> | undefined;
@@ -173,19 +164,16 @@ domainRoutes.get("/boards", async (c) => {
   const filterKey = fingerprint({
     collection: directory ? "board_directory" : "boards",
     userId: a.userId,
-    archived: directory || deleted ? null : archived,
-    deleted: directory ? null : deleted,
     boardIds: a.boardIds ? [...a.boardIds].sort() : null,
   });
   if (cursor && cursor.filter !== filterKey)
     badRequest("This board cursor does not match the accessible board list");
-  const collectionFilter = directory
-    ? sql`true`
-    : sql`(deleted_at IS NOT NULL)=${deleted} ${deleted ? sql`` : sql`AND archived=${archived}`}`;
-  const filters = sql`${collectionFilter} ${a.boardIds ? (a.boardIds.length ? sql`AND id IN ${sql(a.boardIds)}` : sql`AND false`) : sql``}`;
-  const revisionFields = directory
-    ? sql`id::text||':'||position::text||':'||archived::text||':'||COALESCE(deleted_at::text,'')||':'||version::text`
-    : sql`id::text||':'||position::text`;
+  const filters = a.boardIds
+    ? a.boardIds.length
+      ? sql`id IN ${sql(a.boardIds)}`
+      : sql`false`
+    : sql`true`;
+  const revisionFields = sql`id::text||':'||position::text||':'||version::text`;
   const result = await sql.begin(
     "isolation level repeatable read read only",
     async (tx) => {
@@ -296,11 +284,10 @@ domainRoutes.patch("/boards/:id", async (c) => {
     );
   const result = await sql.begin(async (tx) => {
     await tx`SELECT id FROM workspace FOR UPDATE`;
-    const row = await lockBoard(c, tx, boardId, "member", false);
+    const row = await lockBoard(c, tx, boardId, "member");
     assertVersion(row, input.version);
     if (input.prefix && input.prefix !== row.prefix)
       badRequest("Task prefixes stay fixed so task identifiers remain useful");
-    if (input.deleted !== undefined) requireRole(c, "admin", boardId);
     if (input.beforeId !== undefined) {
       const rows = await tx`SELECT id FROM boards ORDER BY position,id`;
       const order = insertBefore(
@@ -313,11 +300,11 @@ domainRoutes.patch("/boards/:id", async (c) => {
       row.position = order.indexOf(boardId);
     }
     const [updated] =
-      await tx`UPDATE boards SET name=${input.name ?? row.name},description=${input.description ?? row.description},archived=${input.archived ?? row.archived},deleted_at=${input.deleted === undefined ? row.deletedAt : input.deleted ? new Date() : null},position=${row.position},version=version+1,updated_at=now() WHERE id=${boardId} RETURNING *`;
+      await tx`UPDATE boards SET name=${input.name ?? row.name},description=${input.description ?? row.description},position=${row.position},version=version+1,updated_at=now() WHERE id=${boardId} RETURNING *`;
     await recordActivity(
       tx,
       a,
-      input.deleted ? "board.deleted" : "board.updated",
+      "board.updated",
       { fields: Object.keys(input).filter((k) => k !== "version") },
       boardId,
     );
@@ -325,19 +312,21 @@ domainRoutes.patch("/boards/:id", async (c) => {
   });
   return c.json({ board: result });
 });
-domainRoutes.post("/boards/:id/restore", async (c) => {
+domainRoutes.delete("/boards/:id", async (c) => {
   const boardId = id(c.req.param("id"));
-  const a = requireRole(c, "admin", boardId);
+  const a = administrative(c, true);
   const input = await body(c, z.object({ version }).strict());
-  const result = await sql.begin(async (tx) => {
-    const row = await lockBoard(c, tx, boardId, "admin", false);
+  await sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
+    const row = await lockBoard(c, tx, boardId, "admin");
     assertVersion(row, input.version);
-    const [restored] =
-      await tx`UPDATE boards SET deleted_at=NULL,archived=false,version=version+1,updated_at=now() WHERE id=${boardId} RETURNING *`;
-    await recordActivity(tx, a, "board.restored", {}, boardId);
-    return restored;
+    await tx`DELETE FROM boards WHERE id=${boardId}`;
+    const rows = await tx`SELECT id FROM boards ORDER BY position,id`;
+    for (const [position, row] of rows.entries())
+      await tx`UPDATE boards SET position=${position},version=version+1,updated_at=now() WHERE id=${row.id} AND position<>${position}`;
+    await recordActivity(tx, a, "board.deleted", { boardId });
   });
-  return c.json({ board: result });
+  return c.json({ ok: true });
 });
 domainRoutes.get("/boards/:id/columns", async (c) => {
   const row = await board(c, id(c.req.param("id")));
@@ -474,8 +463,11 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
   const label = c.req.query("label");
   if (label && label.length > 40)
     badRequest("Labels are limited to 40 characters");
-  const archived = boolQuery(c, "archived");
-  const deleted = boolQuery(c, "deleted");
+  if (
+    c.req.query("archived") !== undefined ||
+    c.req.query("deleted") !== undefined
+  )
+    badRequest("Archive and deleted filters are no longer supported");
   const sort = c.req.query("sort") ?? "position";
   const sorts = {
     position: sql`lpad(columns.position::text,10,'0')||':'||lpad(tasks.position::text,10,'0')`,
@@ -495,8 +487,6 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     assigneeRaw,
     priority,
     label,
-    archived,
-    deleted,
     sort,
   });
   const cursor = decodeCursor(c.req.query("cursor"), cursorSchema);
@@ -504,7 +494,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     badRequest("This cursor belongs to a different search");
   const rows = await sql<
     (TaskRow & { sortKey: string })[]
-  >`SELECT tasks.*,${sortKey} AS sort_key FROM tasks JOIN columns ON columns.id=tasks.column_id WHERE tasks.board_id=${boardId} AND (tasks.deleted_at IS NOT NULL)=${deleted} ${deleted ? sql`` : sql`AND tasks.archived=${archived}`}
+  >`SELECT tasks.*,${sortKey} AS sort_key FROM tasks JOIN columns ON columns.id=tasks.column_id WHERE tasks.board_id=${boardId}
     ${q ? sql`AND (tasks.title ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.description ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.identifier ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"})` : sql``}
     ${columnId ? sql`AND tasks.column_id=${columnId}` : sql``}
     ${assigneeRaw === "unassigned" ? sql`AND tasks.assignee_id IS NULL` : assigneeId ? sql`AND tasks.assignee_id=${assigneeId}` : sql``}
@@ -553,7 +543,7 @@ domainRoutes.post("/boards/:id/tasks", async (c) => {
       await tx`SELECT count(*)::int AS total FROM tasks WHERE column_id=${column.id}`;
     const [created] = await tx<
       TaskRow[]
-    >`INSERT INTO tasks (board_id,column_id,identifier,title,description,assignee_id,priority,labels,due_date,checklist,parent_id,position,archived,created_by) VALUES (${boardId},${column.id},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.priority ?? "none"},${input.labels ?? []},${input.dueDate ?? null},${tx.json(input.checklist ?? [])},${input.parentId ?? null},${count.total},${input.archived ?? false},${a.userId}) RETURNING *`;
+    >`INSERT INTO tasks (board_id,column_id,identifier,title,description,assignee_id,priority,labels,due_date,checklist,parent_id,position,created_by) VALUES (${boardId},${column.id},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.priority ?? "none"},${input.labels ?? []},${input.dueDate ?? null},${tx.json(input.checklist ?? [])},${input.parentId ?? null},${count.total},${a.userId}) RETURNING *`;
     await tx`UPDATE boards SET next_number=next_number+1 WHERE id=${boardId}`;
     await recordActivity(
       tx,
@@ -590,7 +580,7 @@ domainRoutes.get("/tasks/:id", async (c) => {
   const subtasks = previewPage(
     await sql<
       TaskSummary[]
-    >`SELECT ${summaryFields} FROM tasks WHERE parent_id=${row.id} AND deleted_at IS NULL ORDER BY position,id LIMIT ${subtaskLimit + 1}`,
+    >`SELECT ${summaryFields} FROM tasks WHERE parent_id=${row.id} ORDER BY position,id LIMIT ${subtaskLimit + 1}`,
     subtaskLimit,
   );
   const [parent] = row.parentId
@@ -612,13 +602,13 @@ domainRoutes.get("/tasks/:id/subtasks", async (c) => {
   const limit = pagination(c);
   const cursor = c.req.query("cursor") ? id(c.req.query("cursor")) : null;
   const [anchor] = cursor
-    ? await sql`SELECT id FROM tasks WHERE id=${cursor} AND parent_id=${row.id} AND deleted_at IS NULL`
+    ? await sql`SELECT id FROM tasks WHERE id=${cursor} AND parent_id=${row.id}`
     : [];
   if (cursor && !anchor)
     badRequest("This subtask cursor does not belong to the task");
   const rows = await sql<
     TaskSummary[]
-  >`SELECT ${summaryFields} FROM tasks WHERE parent_id=${row.id} AND deleted_at IS NULL ${anchor ? sql`AND (position,id)>(SELECT position,id FROM tasks WHERE id=${anchor.id})` : sql``} ORDER BY position,id LIMIT ${limit + 1}`;
+  >`SELECT ${summaryFields} FROM tasks WHERE parent_id=${row.id} ${anchor ? sql`AND (position,id)>(SELECT position,id FROM tasks WHERE id=${anchor.id})` : sql``} ORDER BY position,id LIMIT ${limit + 1}`;
   const { items, page } = previewPage(rows, limit);
   return c.json({ items, ...page });
 });
@@ -648,8 +638,6 @@ domainRoutes.patch("/tasks/:id", async (c) => {
     }
     let ordered: string[] | undefined;
     if (input.beforeId !== undefined) {
-      if (input.archived ?? row.archived)
-        conflict("Restore this archived task before moving it");
       const tasks = await tx<
         TaskRow[]
       >`SELECT * FROM tasks WHERE column_id=${columnId} ORDER BY position,id`;
@@ -660,7 +648,7 @@ domainRoutes.patch("/tasks/:id", async (c) => {
       );
       position = ordered.indexOf(taskId);
     }
-    await tx`UPDATE tasks SET column_id=${columnId},position=${position},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},priority=${input.priority ?? row.priority},labels=${input.labels ?? row.labels},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},checklist=${tx.json(input.checklist ?? row.checklist)},parent_id=${input.parentId === undefined ? row.parentId : input.parentId},archived=${input.archived ?? row.archived},version=version+1,updated_at=now() WHERE id=${taskId}`;
+    await tx`UPDATE tasks SET column_id=${columnId},position=${position},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},priority=${input.priority ?? row.priority},labels=${input.labels ?? row.labels},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},checklist=${tx.json(input.checklist ?? row.checklist)},parent_id=${input.parentId === undefined ? row.parentId : input.parentId},version=version+1,updated_at=now() WHERE id=${taskId}`;
     if (ordered) await normalizeTasks(tx, columnId, ordered);
     if (columnId !== row.columnId) await normalizeTasks(tx, row.columnId);
     const [updated] = await tx<
@@ -699,7 +687,6 @@ domainRoutes.post("/tasks/:id/move", async (c) => {
   );
   const result = await sql.begin(async (tx) => {
     const row = await lockedTask(c, tx, taskId, input.version);
-    if (row.archived) conflict("Restore this archived task before moving it");
     const a = requireRole(c, "member", row.boardId);
     const [destination] = await tx<
       Column[]
@@ -738,30 +725,18 @@ domainRoutes.post("/tasks/:id/move", async (c) => {
 domainRoutes.delete("/tasks/:id", async (c) => {
   const taskId = id(c.req.param("id"));
   const input = await body(c, z.object({ version }).strict());
-  const result = await sql.begin(async (tx) => {
+  await sql.begin(async (tx) => {
     const row = await lockedTask(c, tx, taskId, input.version);
     const a = requireRole(c, "member", row.boardId);
-    const [updated] = await tx<
-      TaskRow[]
-    >`UPDATE tasks SET deleted_at=now(),version=version+1,updated_at=now() WHERE id=${taskId} RETURNING *`;
-    await recordActivity(tx, a, "task.deleted", {}, row.boardId, taskId);
-    return updated;
+    const affected = await tx<
+      { columnId: string }[]
+    >`WITH RECURSIVE descendants AS (SELECT id,column_id FROM tasks WHERE id=${taskId} UNION ALL SELECT t.id,t.column_id FROM tasks t JOIN descendants d ON t.parent_id=d.id) SELECT DISTINCT column_id FROM descendants`;
+    await tx`DELETE FROM tasks WHERE id=${taskId}`;
+    for (const affectedColumn of affected)
+      await normalizeTasks(tx, affectedColumn.columnId);
+    await recordActivity(tx, a, "task.deleted", { taskId }, row.boardId);
   });
-  return c.json({ task: result });
-});
-domainRoutes.post("/tasks/:id/restore", async (c) => {
-  const taskId = id(c.req.param("id"));
-  const input = await body(c, z.object({ version }).strict());
-  const result = await sql.begin(async (tx) => {
-    const row = await lockedTask(c, tx, taskId, input.version, true);
-    const a = requireRole(c, "member", row.boardId);
-    const [updated] = await tx<
-      TaskRow[]
-    >`UPDATE tasks SET deleted_at=NULL,archived=false,version=version+1,updated_at=now() WHERE id=${taskId} RETURNING *`;
-    await recordActivity(tx, a, "task.restored", {}, row.boardId, taskId);
-    return updated;
-  });
-  return c.json({ task: result });
+  return c.json({ ok: true });
 });
 domainRoutes.get("/tasks/:id/comments", async (c) => {
   const row = await task(c, id(c.req.param("id")));
@@ -788,7 +763,7 @@ domainRoutes.post("/tasks/:id/comments", async (c) => {
     const row = await task(c, taskId, "member", tx);
     await lockBoard(c, tx, row.boardId);
     const [fresh] = await tx<TaskRow[]>`SELECT * FROM tasks WHERE id=${taskId}`;
-    if (fresh.deletedAt) conflict("Restore this task before commenting");
+    if (!fresh) missing("Task not found");
     const a = requireRole(c, "member", row.boardId);
     const [created] =
       await tx`INSERT INTO comments (task_id,author_id,body) VALUES (${taskId},${a.userId},${input.body}) RETURNING *`;
@@ -827,8 +802,7 @@ async function changeComment(c: Parameters<typeof actor>[0], remove: boolean) {
     const [freshTask] = await tx<
       TaskRow[]
     >`SELECT * FROM tasks WHERE id=${row.id}`;
-    if (freshTask.deletedAt)
-      conflict("Restore this task before changing comments");
+    if (!freshTask) missing("Task not found");
     const [current] = await tx<
       Comment[]
     >`SELECT * FROM comments WHERE id=${commentId} FOR UPDATE`;

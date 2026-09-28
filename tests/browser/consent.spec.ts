@@ -20,7 +20,7 @@ const password = "Consent-browser-password-42";
 let origin: string;
 let admin: APIRequestContext;
 let active: { id: string; name: string; version: number };
-let archived: { id: string; name: string; version: number };
+let selected: { id: string; name: string; version: number };
 let deleted: { id: string; name: string; version: number };
 
 async function json(
@@ -130,18 +130,12 @@ test.beforeAll(async ({ baseURL }) => {
       prefix: "CA",
     })
   ).board;
-  archived = (
+  selected = (
     await json(admin, "/api/boards", {
-      name: "Consent archived board",
+      name: "Consent selected board",
       prefix: "CAR",
     })
   ).board;
-  await json(
-    admin,
-    `/api/boards/${archived.id}`,
-    { version: archived.version, archived: true },
-    "PATCH",
-  );
   deleted = (
     await json(admin, "/api/boards", {
       name: "Consent removed board",
@@ -151,8 +145,8 @@ test.beforeAll(async ({ baseURL }) => {
   await json(
     admin,
     `/api/boards/${deleted.id}`,
-    { version: deleted.version, deleted: true },
-    "PATCH",
+    { version: deleted.version },
+    "DELETE",
   );
 });
 test.afterAll(async () => {
@@ -225,13 +219,13 @@ test("delayed real details for request A cannot enable or replace request B and 
   }
 });
 
-test("a delayed old decision cannot redirect a new request and archived board consent grants only the selected board", async ({
+test("a delayed old decision cannot redirect a new request and scoped consent grants only the selected board", async ({
   page,
   playwright,
 }) => {
   const operator = await account(page);
   const a = await grant(operator.api, "Previous connection A");
-  const b = await grant(operator.api, "Archived board agent", "read write");
+  const b = await grant(operator.api, "Selected board agent", "read write");
   const hold = gate();
   const received = gate();
   try {
@@ -259,7 +253,7 @@ test("a delayed old decision cannot redirect a new request and archived board co
       window.dispatchEvent(new Event("mill:navigate"));
     }, b.url);
     await expect(
-      page.getByText("Archived board agent", { exact: true }),
+      page.getByText("Selected board agent", { exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
@@ -270,7 +264,7 @@ test("a delayed old decision cannot redirect a new request and archived board co
       page.getByRole("option", { name: deleted.name, exact: true }),
     ).toHaveCount(0);
     await page
-      .getByRole("option", { name: `${archived.name} (archived)`, exact: true })
+      .getByRole("option", { name: selected.name, exact: true })
       .click();
     const decided = page.waitForResponse(
       (response) =>
@@ -282,7 +276,7 @@ test("a delayed old decision cannot redirect a new request and archived board co
       .click();
     expect((await decided).request().postDataJSON()).toEqual({
       allow: true,
-      boardIds: [archived.id],
+      boardIds: [selected.id],
     });
     await page.waitForURL(/\/consent-return\?/);
     const returned = new URL(page.url());
@@ -316,18 +310,18 @@ test("a delayed old decision cannot redirect a new request and archived board co
       );
       const permitted = await sdk.callTool({
         name: "get_board",
-        arguments: { boardId: archived.id },
+        arguments: { boardId: selected.id },
       });
       expect(permitted.isError).toBe(false);
       expect(
         (permitted.structuredContent as { board: { id: string } }).board.id,
-      ).toBe(archived.id);
+      ).toBe(selected.id);
       const outside = await sdk.callTool({
         name: "get_board",
         arguments: { boardId: active.id },
       });
       expect(outside.isError).toBe(true);
-      expect((await agent.get(`/api/boards/${archived.id}`)).status()).toBe(
+      expect((await agent.get(`/api/boards/${selected.id}`)).status()).toBe(
         401,
       );
       expect((await agent.get("/api/auth/me")).status()).toBe(401);
@@ -337,6 +331,122 @@ test("a delayed old decision cannot redirect a new request and archived board co
     }
   } finally {
     hold.release();
+    await operator.api.dispose();
+  }
+});
+
+test("consent completes a coherent large directory after rename, deletion and creation invalidate its snapshot", async ({
+  page,
+}) => {
+  const operator = await account(page);
+  try {
+    const fixture = await database();
+    try {
+      await fixture.sql.unsafe(
+        `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix,position) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Consent directory fixture '||n,'CDF'||n,2000+n FROM generate_series(1,105)n`,
+      );
+    } finally {
+      await fixture.sql.end();
+    }
+    const renamed = (
+      await json(admin, "/api/boards", {
+        name: "Original consent board name",
+        prefix: "OCB",
+      })
+    ).board;
+    const removed = (
+      await json(admin, "/api/boards", {
+        name: "Removed during consent lookup",
+        prefix: "RCL",
+      })
+    ).board;
+    const renamedName = "Current consent board name";
+    let created: { id: string; name: string } | null = null;
+    let transitioned = false;
+    await page.route("**/api/boards?directory=true&cursor=*", async (route) => {
+      if (transitioned) return route.continue();
+      transitioned = true;
+      await json(
+        admin,
+        `/api/boards/${renamed.id}`,
+        { version: renamed.version, name: renamedName },
+        "PATCH",
+      );
+      expect(
+        await json(
+          admin,
+          `/api/boards/${removed.id}`,
+          { version: removed.version },
+          "DELETE",
+        ),
+      ).toEqual({ ok: true });
+      created = (
+        await json(admin, "/api/boards", {
+          name: "Created during consent lookup",
+          prefix: "CCL",
+        })
+      ).board;
+      const response = await route.fetch();
+      expect(response.status()).toBe(409);
+      expect((await response.json()).code).toBe("board_list_changed");
+      await route.fulfill({ response });
+    });
+    await clientCallback(page);
+    const connection = await grant(operator.api, "Complete directory agent");
+    await page.goto(connection.url);
+    await expect(
+      page.getByRole("button", { name: "Allow access", exact: true }),
+    ).toBeEnabled();
+    expect(transitioned).toBe(true);
+    await page.getByRole("button", { name: /Approved boards$/ }).click();
+    for (const name of [
+      active.name,
+      selected.name,
+      renamedName,
+      created!.name,
+    ]) {
+      await expect(page.getByRole("option", { name, exact: true })).toHaveCount(
+        1,
+      );
+    }
+    for (const name of [renamed.name, removed.name, deleted.name]) {
+      await expect(page.getByRole("option", { name, exact: true })).toHaveCount(
+        0,
+      );
+    }
+    const search = page.getByRole("searchbox", {
+      name: "Search approved boards",
+    });
+    await search.fill("Consent directory fixture 105");
+    await expect(
+      page.getByRole("option", {
+        name: "Consent directory fixture 105",
+        exact: true,
+      }),
+    ).toHaveCount(1);
+    await search.fill(created!.name);
+    await page
+      .getByRole("option", { name: created!.name, exact: true })
+      .click();
+    const decided = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/oauth/consent/${connection.id}`) &&
+        response.request().method() === "POST",
+    );
+    await page
+      .getByRole("button", { name: "Allow access", exact: true })
+      .click();
+    const response = await decided;
+    expect(response.status()).toBe(200);
+    expect(response.request().postDataJSON()).toEqual({
+      allow: true,
+      boardIds: [created!.id],
+    });
+    await page.waitForURL(/\/consent-return\?/);
+    const returned = new URL(page.url());
+    expect(returned.searchParams.get("state") === connection.state).toBe(true);
+    expect(returned.searchParams.has("code")).toBe(true);
+  } finally {
     await operator.api.dispose();
   }
 });
@@ -428,17 +538,17 @@ test("phone consent in both themes keeps long context readable and supports keyb
         await choice.focus();
         await mobile.keyboard.press("Enter");
         const option = mobile.getByRole("option", {
-          name: `${archived.name} (archived)`,
+          name: selected.name,
           exact: true,
         });
         await expect(option).toBeVisible();
         const search = mobile.getByLabel("Search approved boards", {
           exact: true,
         });
-        await search.fill(archived.name);
+        await search.fill(selected.name);
         await search.press("ArrowDown");
         await search.press("Enter");
-        await expect(choice).toContainText("archived");
+        await expect(choice).toContainText(selected.name);
         const summary = mobile.getByText("Connection details", { exact: true });
         await summary.focus();
         await mobile.keyboard.press("Enter");

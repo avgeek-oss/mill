@@ -507,8 +507,11 @@ test("assignment and mention notifications open the correct task and preferences
     body: `Please review this @${recipient.email}.`,
   });
   await login(page, recipient);
+  await expect(
+    page.getByRole("heading", { name: board.name, exact: true }),
+  ).toBeVisible();
   await page
-    .getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ })
+    .getByRole("button", { name: "Open notifications", exact: true })
     .click();
   const notificationsList = page.getByRole("list", {
     name: "Notification list",
@@ -518,11 +521,17 @@ test("assignment and mention notifications open the correct task and preferences
   const unreadItems = notificationItems.filter({
     has: page.getByText("Unread", { exact: true }),
   });
+  await expect(notificationItems).toHaveCount(2);
   await expect(unreadItems).toHaveCount(2);
   await expect(notificationItems).toContainText([
     /mentioned you/i,
     /assigned.*you/i,
   ]);
+  await page.screenshot({
+    path: "docs/screenshots/notifications.png",
+    fullPage: true,
+    animations: "disabled",
+  });
   await page.getByRole("tab", { name: "Unread", exact: true }).click();
   await page
     .getByRole("list", { name: "Notification list", exact: true })
@@ -536,14 +545,17 @@ test("assignment and mention notifications open the correct task and preferences
   );
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page
-    .getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ })
+    .getByRole("button", { name: "Open notifications", exact: true })
     .click();
   await expect(unreadItems).toHaveCount(1);
   await page.getByRole("button", { name: "Mark all read" }).click();
   await page.getByRole("tab", { name: "Unread", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "You’re all caught up" }),
+    page
+      .getByRole("dialog", { name: "Notifications", exact: true })
+      .getByRole("heading", { name: "You’re all caught up", exact: true }),
   ).toBeVisible();
+  await page.keyboard.press("Escape");
   await accountAction(page, "Profile");
   await expect(
     page.getByRole("checkbox", { name: "Task assignments", exact: true }),
@@ -566,21 +578,20 @@ test("assignment and mention notifications open the correct task and preferences
     assigneeId: recipient.id,
   });
   await page
-    .getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ })
+    .getByRole("button", { name: "Open notifications", exact: true })
     .click();
   await page.getByRole("tab", { name: "Unread", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "You’re all caught up" }),
+    page
+      .getByRole("dialog", { name: "Notifications", exact: true })
+      .getByRole("heading", { name: "You’re all caught up", exact: true }),
   ).toBeVisible();
   const notifications = await json(page.request, "/notifications");
   expect(notifications.items).toHaveLength(2);
   expect(notifications.unreadCount).toBe(0);
   await page.getByRole("tab", { name: "All", exact: true }).click();
-  await page.screenshot({
-    path: "docs/screenshots/inbox.png",
-    fullPage: true,
-    animations: "disabled",
-  });
+  await expect(notificationItems).toHaveCount(2);
+  await expect(unreadItems).toHaveCount(0);
 });
 
 test("a scoped credential created through the interface works on its board and loses access when revoked", async ({

@@ -22,6 +22,7 @@ async function request(
   data,
   expected = 200,
   jar = cookies,
+  extraHeaders = {},
 ) {
   const response = await fetch(`${origin}${path}`, {
     method,
@@ -29,6 +30,7 @@ async function request(
       Origin: origin,
       "Content-Type": "application/json",
       Cookie: [...jar].map(([name, value]) => `${name}=${value}`).join("; "),
+      ...extraHeaders,
     },
     body: data === undefined ? undefined : JSON.stringify(data),
     signal: AbortSignal.timeout(15_000),
@@ -213,3 +215,78 @@ assert.ok(
 pass(
   "Persisted task/comment/member data and credential-free portable export are readable",
 );
+if (process.env.MILL_VERIFY_UPGRADE_STATE) {
+  const upgrade = JSON.parse(
+    await readFile(process.env.MILL_VERIFY_UPGRADE_STATE, "utf8"),
+  );
+  for (const name of [
+    "archivedBoardId",
+    "deletedBoardId",
+    "archivedColumnId",
+    "deletedColumnId",
+    "archivedTaskId",
+    "deletedParentId",
+    "deletedChildId",
+    "deletedBoardTaskId",
+  ])
+    assert.match(
+      upgrade[name],
+      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,
+    );
+  assert.ok(
+    exported.boards.some(
+      (board) =>
+        board.id === upgrade.archivedBoardId &&
+        board.name === "Legacy archived board",
+    ),
+    "Previously archived board is ordinary exported work after migration",
+  );
+  assert.ok(
+    exported.tasks.some(
+      (item) =>
+        item.id === upgrade.archivedTaskId &&
+        item.title === "Legacy archived task",
+    ),
+    "Previously archived task is ordinary exported work after migration",
+  );
+  const archived = await request(`/api/tasks/${upgrade.archivedTaskId}`);
+  assert.equal(archived.task.title, "Legacy archived task");
+  assert.ok(
+    archived.comments.some(
+      (comment) => comment.body === "Legacy migration content",
+    ),
+  );
+  const deletedIds = [
+    upgrade.deletedParentId,
+    upgrade.deletedChildId,
+    upgrade.deletedBoardTaskId,
+  ];
+  assert.ok(
+    !exported.boards.some((board) => board.id === upgrade.deletedBoardId),
+  );
+  for (const id of deletedIds) {
+    assert.ok(!exported.tasks.some((item) => item.id === id));
+    assert.ok(!exported.comments.some((comment) => comment.taskId === id));
+    await request(`/api/tasks/${id}`, "GET", undefined, 404);
+  }
+  await request(`/api/boards/${upgrade.deletedBoardId}`, "GET", undefined, 404);
+  assert.match(upgrade.legacyRetry.key, /^[A-Za-z0-9._:-]{8,128}$/);
+  assert.deepEqual(upgrade.legacyRetry.body, {
+    name: "Legacy deleted board",
+    prefix: "DELUP",
+  });
+  const retry = await request(
+    "/api/boards",
+    "POST",
+    upgrade.legacyRetry.body,
+    410,
+    cookies,
+    { "Idempotency-Key": upgrade.legacyRetry.key },
+  );
+  assert.equal(retry.code, "retry_invalidated");
+  const afterRetry = await request("/api/export");
+  assert.ok(!afterRetry.boards.some((board) => board.prefix === "DELUP"));
+  pass(
+    "Migrated archived work remains usable; deleted work stays absent and its stale create retry returns terminal 410 without recreation",
+  );
+}

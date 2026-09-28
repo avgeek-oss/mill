@@ -17,8 +17,6 @@ type Page = {
   items: {
     id: string;
     position: number;
-    archived: boolean;
-    deletedAt: string | null;
   }[];
   hasMore: boolean;
   nextCursor: string | null;
@@ -120,9 +118,9 @@ test("board cursor ordering preserves tied integer positions and handles inserts
   assert.deepEqual(ids, [before.id, ...expected, after.id]);
 });
 
-test("board pagination keeps active, archived, deleted and credential scope filters on every page", async () => {
+test("board pagination keeps credential board restrictions on every page", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position,archived) SELECT workspace_id,'Filtered '||sequence,'F'||sequence,sequence,(sequence BETWEEN 4 AND 6 OR sequence=8) FROM users CROSS JOIN generate_series(1,9) sequence WHERE users.id=${user.id}`;
+  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Filtered '||sequence,'F'||sequence,sequence FROM users CROSS JOIN generate_series(1,9) sequence WHERE users.id=${user.id}`;
   const boards = await sql`SELECT id,position FROM boards ORDER BY position,id`;
   const allowedIds = [
     boards[0]!.id,
@@ -137,71 +135,31 @@ test("board pagination keeps active, archived, deleted and credential scope filt
     }),
     201,
   );
-  await sql`UPDATE boards SET deleted_at=now() WHERE position>=7`;
-  const active = await json(await request("/api/boards?limit=1", { cookie }));
-  const archived = await json(
-    await request("/api/boards?limit=1&archived=true", { cookie }),
-  );
-  const deleted = await json(
-    await request("/api/boards?limit=1&deleted=true", { cookie }),
-  );
+  const first = await json(await request("/api/boards?limit=1", { cookie }));
   const scoped = await json(
     await request("/api/boards?limit=1", { token: credential.token }),
   );
-  for (const [query, expected] of [
-    ["", boards.slice(0, 3).map((row) => row.id)],
-    ["&archived=true", boards.slice(3, 6).map((row) => row.id)],
-    ["&deleted=true", boards.slice(6).map((row) => row.id)],
-    ["&deleted=true&archived=true", boards.slice(6).map((row) => row.id)],
-  ] as const) {
-    const path = `/api/boards?limit=1${query}`;
-    assert.deepEqual(
-      await traversal(
-        path,
-        { cookie },
-        await json(await request(path, { cookie })),
-      ),
-      expected,
-    );
-    assert.deepEqual(
-      await traversal(
-        path,
-        { token: credential.token },
-        await json(await request(path, { token: credential.token })),
-      ),
-      expected.filter((boardId) => allowedIds.includes(boardId)),
-    );
-  }
-  for (const path of [
-    `/api/boards?archived=true&cursor=${active.nextCursor}`,
-    `/api/boards?cursor=${archived.nextCursor}`,
-    `/api/boards?cursor=${deleted.nextCursor}`,
-    `/api/boards?deleted=true&cursor=${archived.nextCursor}`,
-  ])
-    assert.equal((await request(path, { cookie })).status, 400);
+  assert.deepEqual(
+    await traversal("/api/boards?limit=1", { cookie }, first),
+    boards.map((board) => board.id),
+  );
+  assert.deepEqual(
+    await traversal("/api/boards?limit=1", { token: credential.token }, scoped),
+    allowedIds,
+  );
   assert.equal(
     (
-      await request(`/api/boards?cursor=${active.nextCursor}`, {
+      await request(`/api/boards?cursor=${first.nextCursor}`, {
         token: credential.token,
       })
     ).status,
     400,
   );
-  const deletedContinuation = await json(
-    await request(
-      `/api/boards?deleted=true&archived=true&cursor=${deleted.nextCursor}`,
-      { cookie },
-    ),
-  );
-  assert.deepEqual(
-    deletedContinuation.items.map((item: { id: string }) => item.id),
-    boards.slice(7).map((row) => row.id),
-  );
   await sql`UPDATE credentials SET board_ids=ARRAY[]::uuid[] WHERE id=${credential.credential.id}`;
-  const empty = await json(
-    await request("/api/boards", { token: credential.token }),
+  assert.deepEqual(
+    await json(await request("/api/boards", { token: credential.token })),
+    { items: [], hasMore: false, nextCursor: null },
   );
-  assert.deepEqual(empty, { items: [], hasMore: false, nextCursor: null });
   assert.equal(
     (
       await request(`/api/boards?cursor=${scoped.nextCursor}`, {
@@ -325,73 +283,22 @@ test("board cursors reject moved anchors and other reordered rows before a compl
   ]);
 });
 
-test("one board directory includes state metadata after a transition between separate collection reads", async () => {
+test("directory continuation reaches every board and rejects metadata or deletion changes", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position,archived,deleted_at) SELECT workspace_id,'Directory '||sequence,'DIR'||sequence,sequence,sequence=2,CASE WHEN sequence=3 THEN now() ELSE NULL END FROM users CROSS JOIN generate_series(1,3) sequence WHERE users.id=${user.id}`;
-  const boards = await sql`SELECT * FROM boards ORDER BY position,id`;
-  const activeBefore = await json(await request("/api/boards", { cookie }));
-  assert.deepEqual(
-    activeBefore.items.map((item: { id: string }) => item.id),
-    [boards[0]!.id],
-  );
-  const changed = await json(
-    await request(`/api/boards/${boards[1]!.id}`, {
-      cookie,
-      method: "PATCH",
-      body: { version: boards[1]!.version, archived: false },
-    }),
-  );
-  const archivedAfter = await json(
-    await request("/api/boards?archived=true", { cookie }),
-  );
-  assert.equal(archivedAfter.items.length, 0);
-  assert.ok(
-    ![...activeBefore.items, ...archivedAfter.items].some(
-      (item) => item.id === changed.board.id,
-    ),
-  );
-  const directory = await json(
-    await request("/api/boards?directory=true", { cookie }),
-  );
-  assert.deepEqual(
-    directory.items.map((item: { id: string }) => item.id),
-    boards.map((item) => item.id),
-  );
-  assert.equal(directory.hasMore, false);
-  assert.equal(directory.nextCursor, null);
-  assert.equal(directory.items[1].archived, false);
-  assert.equal(directory.items[1].version, changed.board.version);
-  assert.equal(directory.items[2].name, boards[2]!.name);
-  assert.ok(directory.items[2].deletedAt);
-  const normal = await json(
-    await request("/api/boards?directory=false", { cookie }),
-  );
-  assert.deepEqual(
-    normal.items.map((item: { id: string }) => item.id),
-    boards.slice(0, 2).map((item) => item.id),
-  );
-});
-
-test("directory continuation reaches all states and rejects state or metadata changes without order changes", async () => {
-  const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position,archived,deleted_at) SELECT workspace_id,'Whole directory '||sequence,'WHOLE'||sequence,sequence/4,sequence%2=1,CASE WHEN sequence%3=0 THEN now() ELSE NULL END FROM users CROSS JOIN generate_series(1,213) sequence WHERE users.id=${user.id}`;
-  const expected = (await sql`SELECT id FROM boards ORDER BY position,id`).map(
-    (item) => item.id,
-  );
+  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Whole directory '||sequence,'WHOLE'||sequence,sequence/4 FROM users CROSS JOIN generate_series(1,213) sequence WHERE users.id=${user.id}`;
   const path = "/api/boards?directory=true&limit=100";
+  const expected = (await sql`SELECT id FROM boards ORDER BY position,id`).map(
+    (board) => board.id,
+  );
   let first = await json(await request(path, { cookie }));
   assert.equal(first.items.length, 100);
-  assert.equal(first.hasMore, true);
   assert.deepEqual(await traversal(path, { cookie }, first), expected);
   const [unvisited] = await sql`SELECT * FROM boards WHERE prefix='WHOLE151'`;
-  assert.ok(
-    !first.items.some((item: { id: string }) => item.id === unvisited.id),
-  );
   await json(
     await request(`/api/boards/${unvisited.id}`, {
       cookie,
       method: "PATCH",
-      body: { version: unvisited.version, archived: false },
+      body: { version: unvisited.version, name: "Renamed board" },
     }),
   );
   let stale = await json(
@@ -399,44 +306,13 @@ test("directory continuation reaches all states and rejects state or metadata ch
     409,
   );
   assert.equal(stale.code, "board_list_changed");
-  assert.deepEqual(
-    (await sql`SELECT id FROM boards ORDER BY position,id`).map(
-      (item) => item.id,
-    ),
-    expected,
-  );
   first = await json(await request(path, { cookie }));
-  assert.deepEqual(await traversal(path, { cookie }, first), expected);
-  const [deleted] = await sql`SELECT * FROM boards WHERE prefix='WHOLE153'`;
+  const [removed] = await sql`SELECT * FROM boards WHERE prefix='WHOLE153'`;
   await json(
-    await request(`/api/boards/${deleted.id}/restore`, {
+    await request(`/api/boards/${removed.id}`, {
       cookie,
-      body: { version: deleted.version },
-    }),
-  );
-  stale = await json(
-    await request(`${path}&cursor=${first.nextCursor}`, { cookie }),
-    409,
-  );
-  assert.equal(stale.code, "board_list_changed");
-  first = await json(await request(path, { cookie }));
-  const [unchangedVersion] =
-    await sql`SELECT version FROM boards WHERE id=${unvisited.id}`;
-  await sql`UPDATE boards SET archived=true WHERE id=${unvisited.id}`;
-  const [stateChanged] =
-    await sql`SELECT version FROM boards WHERE id=${unvisited.id}`;
-  assert.equal(stateChanged.version, unchangedVersion.version);
-  stale = await json(
-    await request(`${path}&cursor=${first.nextCursor}`, { cookie }),
-    409,
-  );
-  assert.equal(stale.code, "board_list_changed");
-  first = await json(await request(path, { cookie }));
-  await json(
-    await request(`/api/boards/${unvisited.id}`, {
-      cookie,
-      method: "PATCH",
-      body: { version: stateChanged.version, name: "Renamed directory board" },
+      method: "DELETE",
+      body: { version: removed.version },
     }),
   );
   stale = await json(
@@ -445,12 +321,15 @@ test("directory continuation reaches all states and rejects state or metadata ch
   );
   assert.equal(stale.code, "board_list_changed");
   const reset = await json(await request(path, { cookie }));
-  assert.deepEqual(await traversal(path, { cookie }, reset), expected);
+  assert.deepEqual(
+    await traversal(path, { cookie }, reset),
+    expected.filter((id) => id !== removed.id),
+  );
 });
 
 test("directory pages preserve actor restrictions and reject cross-mode or ambiguous cursors", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position,archived) SELECT workspace_id,'Scoped directory '||sequence,'SCOPE'||sequence,sequence,sequence%2=0 FROM users CROSS JOIN generate_series(1,8) sequence WHERE users.id=${user.id}`;
+  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Scoped directory '||sequence,'SCOPE'||sequence,sequence FROM users CROSS JOIN generate_series(1,8) sequence WHERE users.id=${user.id}`;
   const boards = await sql`SELECT id FROM boards ORDER BY position,id`;
   const allowedIds = [
     boards[0]!.id,
@@ -469,7 +348,6 @@ test("directory pages preserve actor restrictions and reject cross-mode or ambig
     }),
     201,
   );
-  await sql`UPDATE boards SET deleted_at=now() WHERE id=${boards[7]!.id}`;
   const path = "/api/boards?directory=true&limit=1";
   const full = await json(await request(path, { cookie }));
   const scoped = await json(await request(path, { token: credential.token }));
