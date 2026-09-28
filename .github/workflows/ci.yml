@@ -40,6 +40,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+        env:
+          NODE_ENV: production
       - run: node tools/docs-check.mjs
       - run: node --test tools/*.test.mjs
       - run: bash -n tools/backup.sh tools/restore.sh
@@ -72,6 +74,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
+        env:
+          NODE_ENV: production
       - run: pnpm test:browser
       - name: Preserve browser reports and screenshots
         if: always()

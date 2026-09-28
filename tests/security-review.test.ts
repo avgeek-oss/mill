@@ -115,33 +115,22 @@ test("mixed accessible and inaccessible notification IDs fail without any update
 
 test("OAuth tokens must match the canonical MCP resource and cannot call REST directly", async () => {
   const { user } = await setupUser();
+  const baseUrl = new URL(process.env.MILL_BASE_URL!);
+  const resource = new URL("/mcp", baseUrl).href;
+  const restUrl = new URL("/api/boards", baseUrl);
   const token = `mill_${secret()}`;
   const [credential] =
     await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,resource,expires_at) VALUES(${user.id},'Wrong audience',${digest(token)},${token.slice(0, 12)},${["read"]},'oauth','https://old.example.test/mcp',now()+interval '1 day') RETURNING id`;
   const { credentialActor } =
     await import("../apps/api/src/external/credentials.js");
   const headers = { authorization: `Bearer ${token}` };
+  assert.equal(await credentialActor(new Request(resource, { headers })), null);
+  await sql`UPDATE credentials SET resource=${resource} WHERE id=${credential.id}`;
   assert.equal(
-    await credentialActor(
-      new Request("http://localhost:4321/mcp", { headers }),
-    ),
-    null,
-  );
-  await sql`UPDATE credentials SET resource='http://localhost:4321/mcp' WHERE id=${credential.id}`;
-  assert.equal(
-    (
-      await credentialActor(
-        new Request("http://localhost:4321/mcp", { headers }),
-      )
-    )?.kind,
+    (await credentialActor(new Request(resource, { headers })))?.kind,
     "agent",
   );
-  assert.equal(
-    await credentialActor(
-      new Request("http://localhost:4321/api/boards", { headers }),
-    ),
-    null,
-  );
+  assert.equal(await credentialActor(new Request(restUrl, { headers })), null);
 });
 
 test("idempotency remains atomic when a late response failure follows a domain mutation", async () => {
