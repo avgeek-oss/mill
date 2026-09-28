@@ -47,4 +47,4 @@ Use the application version compatible with the backup. PostgreSQL dumps are not
 
 ## Portable work export
 
-Administrators can export and import the supported workspace data through **Export and import** in the sidebar or the authenticated API. The export includes work and member metadata, and excludes passwords, sessions, authenticators, credentials, and OAuth grants. Import preserves the operator's administrator access. Use [the API documentation](api.md) for the exact format and permission checks. Portable export does not replace the full recovery backup.
+Administrators can export and import the supported workspace data through **Export and import** in the sidebar or the authenticated API. The export includes work and member details, and excludes passwords, sessions, authenticators, credentials, and OAuth grants. Import preserves the operator's administrator access. Use [the API documentation](api.md) for the exact format and permission checks. Portable export does not replace the full recovery backup.

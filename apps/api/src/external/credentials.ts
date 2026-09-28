@@ -2,6 +2,7 @@ import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
 import type postgres from "postgres";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "../../../../packages/database/src/index.js";
+import { badRequest } from "../http.js";
 import { digest, mcpResource, secret } from "./protocol.js";
 
 export type Credential = {
@@ -34,10 +35,22 @@ export async function externalAudit(
 ) {
   await sql`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${a.name},${a.kind},${action},${sql.json(detail as postgres.JSONValue)})`;
 }
-export async function listCredentials(a: Actor) {
-  return sql<
+export async function listCredentials(
+  a: Actor,
+  limit: number,
+  cursor?: string,
+) {
+  const [anchor] = cursor
+    ? await sql`SELECT id FROM credentials WHERE id=${cursor} AND user_id=${a.userId}`
+    : [];
+  if (cursor && !anchor)
+    badRequest("This credential cursor does not belong to your account");
+  const rows = await sql<
     Credential[]
-  >`SELECT id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at FROM credentials WHERE user_id=${a.userId} ORDER BY created_at DESC LIMIT 200`;
+  >`SELECT id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at FROM credentials WHERE user_id=${a.userId} ${anchor ? sql`AND (created_at,id)<(SELECT created_at,id FROM credentials WHERE id=${anchor.id} AND user_id=${a.userId})` : sql``} ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`;
+  const items = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  return { items, hasMore, nextCursor: hasMore ? items.at(-1)!.id : null };
 }
 export async function validateBoards(boardIds: string[] | undefined) {
   if (boardIds === undefined) return;

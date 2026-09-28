@@ -39,7 +39,16 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { Board, Member } from "../../../packages/contracts/src/index.js";
 import { ErrorPage } from "./error-page.js";
-import { api, errorText, navigate, type Session } from "./api.js";
+import { QueryLoading } from "./query-state.js";
+import { hasBoardResponse, hasBoardsResponse } from "./responses.js";
+import {
+  ApiError,
+  api,
+  createRetryKey,
+  errorText,
+  navigate,
+  type Session,
+} from "./api.js";
 
 function iconComponent(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
   return function Icon(
@@ -73,18 +82,12 @@ const BoardPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./settings.js").then((m) => ({ default: m.SettingsPage })),
 );
-type Notification = {
-  id: string;
-  taskId: string;
-  boardId?: string;
-  kind: string;
-  actorName?: string;
-  identifier?: string;
-  body?: string;
-  title?: string;
-  readAt: string | null;
-  createdAt: string;
-};
+const Inbox = lazy(() =>
+  import("./inbox.js").then((m) => ({ default: m.Inbox })),
+);
+const AppConsent = lazy(() =>
+  import("./app-consent.js").then((m) => ({ default: m.AppConsent })),
+);
 function usePath() {
   const [path, setPath] = useState(window.location.pathname);
   useEffect(() => {
@@ -106,6 +109,15 @@ export function App() {
   const [error, setError] = useState("");
   const [expired, setExpired] = useState(false);
   const [boards, setBoards] = useState<Board[]>([]);
+  const [boardsMore, setBoardsMore] = useState(false);
+  const [boardsCursor, setBoardsCursor] = useState<string | null>(null);
+  const [boardsPending, setBoardsPending] = useState(false);
+  const [boardsError, setBoardsError] = useState("");
+  const [boardsRestart, setBoardsRestart] = useState(false);
+  const [routeBoard, setRouteBoard] = useState<Pick<
+    Board,
+    "id" | "name"
+  > | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const sidebarState = usePersistentAppSidebar();
@@ -117,6 +129,7 @@ export function App() {
   const [boardName, setBoardName] = useState("");
   const [boardPrefix, setBoardPrefix] = useState("");
   const [createError, setCreateError] = useState("");
+  const [boardCreateKey] = useState(createRetryKey);
   const [busy, setBusy] = useState(false);
   const [theme, setTheme] = useState(
     localStorage.getItem("mill:theme") ??
@@ -125,12 +138,14 @@ export function App() {
         : "light"),
   );
   const lastBoardsRequest = useRef(0);
+  const recentlyCreatedBoard = useRef<Board | null>(null);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("mill:theme", theme);
   }, [theme]);
   async function initial() {
+    setReady(false);
     setError("");
     try {
       const status = await api<{ setupRequired: boolean }>("/auth/status");
@@ -138,8 +153,9 @@ export function App() {
       if (!status.setupRequired) {
         try {
           setSession(await api<Session>("/auth/me"));
-        } catch {
-          setSession(null);
+        } catch (e) {
+          if (e instanceof ApiError && e.status === 401) setSession(null);
+          else throw e;
         }
       }
     } catch (e) {
@@ -162,17 +178,89 @@ export function App() {
       setError(errorText(e));
     }
   }
-  async function loadBoards() {
+  async function loadBoards({
+    append = false,
+    collection = boardState,
+  }: { append?: boolean; collection?: string } = {}) {
+    if (append && (boardsPending || !boardsCursor)) return;
     const req = ++lastBoardsRequest.current;
+    setBoardsPending(true);
+    setBoardsError("");
+    setBoardsRestart(false);
+    if (!append) {
+      setBoards([]);
+      setBoardsMore(false);
+      setBoardsCursor(null);
+    }
     try {
-      const param =
-        boardState === "active"
-          ? ""
-          : `?${boardState === "deleted" ? "deleted" : "archived"}=true`;
-      const result = await api<{ items: Board[] }>(`/boards${param}`);
-      if (req === lastBoardsRequest.current) setBoards(result.items);
+      const params = new URLSearchParams({ limit: "100" });
+      if (collection !== "active")
+        params.set(collection === "deleted" ? "deleted" : "archived", "true");
+      if (append && boardsCursor) params.set("cursor", boardsCursor);
+      const result = await api<{
+        items: Board[];
+        hasMore: boolean;
+        nextCursor: string | null;
+      }>(`/boards?${params}`, undefined, "GET", {
+        validateResponse: hasBoardsResponse,
+      });
+      if (req !== lastBoardsRequest.current) return;
+      let created = recentlyCreatedBoard.current;
+      if (created) {
+        const fresh = result.items.find((board) => board.id === created?.id);
+        if (fresh) {
+          recentlyCreatedBoard.current = null;
+          created = null;
+        } else {
+          try {
+            const current = await api<{ board: Board }>(
+              `/boards/${created.id}`,
+              undefined,
+              "GET",
+              { validateResponse: hasBoardResponse },
+            );
+            if (req !== lastBoardsRequest.current) return;
+            created = current.board;
+            recentlyCreatedBoard.current = current.board;
+          } catch (e) {
+            if (req !== lastBoardsRequest.current) return;
+            if (e instanceof ApiError && [403, 404].includes(e.status)) {
+              recentlyCreatedBoard.current = null;
+              created = null;
+            } else throw e;
+          }
+        }
+      }
+      const include =
+        created &&
+        (collection === "deleted"
+          ? !!created.deletedAt
+          : collection === "archived"
+            ? created.archived && !created.deletedAt
+            : !created.archived && !created.deletedAt)
+          ? created
+          : null;
+      setBoards((current) => {
+        const items = [
+          ...(append ? current : []),
+          ...result.items,
+          ...(include ? [include] : []),
+        ];
+        return Array.from(
+          new Map(items.map((board) => [board.id, board])).values(),
+        ).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+      });
+      setBoardsMore(result.hasMore);
+      setBoardsCursor(result.nextCursor);
     } catch (e) {
-      if (req === lastBoardsRequest.current) setError(errorText(e));
+      if (req === lastBoardsRequest.current) {
+        setBoardsError(errorText(e));
+        setBoardsRestart(
+          append && e instanceof ApiError && [400, 409].includes(e.status),
+        );
+      }
+    } finally {
+      if (req === lastBoardsRequest.current) setBoardsPending(false);
     }
   }
   useEffect(() => {
@@ -210,17 +298,20 @@ export function App() {
   }, [session, path, boards]);
   if (!ready)
     return (
-      <main className="loading-state" role="status">
-        Opening Mill…
+      <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
+        <QueryLoading label="Opening Mill…" />
       </main>
     );
   if (!session) {
     if (error)
       return (
-        <main className="error-page">
-          <h1>Mill could not load</h1>
-          <ErrorMessage>{error}</ErrorMessage>
-          <Button onPress={() => void initial()}>Try again</Button>
+        <main className="min-h-dvh">
+          <ErrorPage
+            title="Mill could not load"
+            description={error}
+            onRetry={() => void initial()}
+            showBoards={false}
+          />
         </main>
       );
     return (
@@ -230,13 +321,7 @@ export function App() {
             Your session expired. Sign in again to continue.
           </div>
         )}
-        <Suspense
-          fallback={
-            <div className="loading-state" role="status">
-              Loading…
-            </div>
-          }
-        >
+        <Suspense fallback={<QueryLoading />}>
           <Auth
             setup={setup}
             onSession={(s) => {
@@ -252,6 +337,12 @@ export function App() {
     );
   }
   const activeBoardId = path.match(/^\/boards\/([^/]+)/)?.[1];
+  if (path === "/oauth/consent")
+    return (
+      <Suspense fallback={<QueryLoading />}>
+        <AppConsent session={session} />
+      </Suspense>
+    );
   const settingsSection = path.match(/^\/settings\/([^/]+)/)?.[1];
   const knownSettings = [
     "profile",
@@ -345,7 +436,7 @@ export function App() {
                     { id: "deleted", name: "Deleted boards" },
                   ]}
                 />
-                {!boards.length && (
+                {!boards.length && !boardsPending && !boardsError && (
                   <p className="text-xs text-muted">No {boardState} boards.</p>
                 )}
               </div>
@@ -359,6 +450,33 @@ export function App() {
                   active: activeBoardId === board.id,
                 }))
               : [],
+            footerContent: boardsExpanded ? (
+              <div className="grid min-w-0 gap-2 px-2 py-1">
+                <ErrorMessage>{boardsError}</ErrorMessage>
+                {boardsPending && (
+                  <p className="text-sm text-muted" role="status">
+                    Loading boards…
+                  </p>
+                )}
+                {(boardsMore || boardsError) && (
+                  <Button
+                    variant="secondary"
+                    isDisabled={boardsPending}
+                    onPress={() =>
+                      void loadBoards({
+                        append: !!boardsCursor && !boardsRestart,
+                      })
+                    }
+                  >
+                    {boardsError
+                      ? boardsRestart
+                        ? "Reload boards"
+                        : "Retry loading boards"
+                      : "Load more boards"}
+                  </Button>
+                )}
+              </div>
+            ) : undefined,
           },
           {
             id: "workspace",
@@ -409,7 +527,8 @@ export function App() {
     data: "Export and import",
   };
   const navbarTitle = activeBoardId
-    ? (boards.find((board) => board.id === activeBoardId)?.name ?? "Board")
+    ? (boards.find((board) => board.id === activeBoardId)?.name ??
+      (routeBoard?.id === activeBoardId ? routeBoard.name : "Board"))
     : path === "/notifications"
       ? "Inbox"
       : settingsSection && knownSettings.includes(settingsSection)
@@ -468,18 +587,17 @@ export function App() {
         }
       >
         <AppShell.Content>
-          <Suspense
-            fallback={
-              <div className="loading-state" role="status">
-                Loading…
-              </div>
-            }
-          >
+          <Suspense fallback={<QueryLoading />}>
             {error && <ErrorMessage>{error}</ErrorMessage>}
             {activeBoardId ? (
               <BoardPage
                 key={activeBoardId}
                 boardId={activeBoardId}
+                onBoardLoaded={(board) => {
+                  setRouteBoard(board);
+                  if (recentlyCreatedBoard.current?.id === board.id)
+                    recentlyCreatedBoard.current = board;
+                }}
                 boards={boards}
                 user={session.user}
                 members={members}
@@ -507,8 +625,22 @@ export function App() {
                   void loadBoards();
                 }}
               />
-            ) : path === "/oauth/consent" ? (
-              <Consent boards={boards} />
+            ) : path === "/" && boardsPending ? (
+              <QueryLoading label="Loading boards…" variant="list" />
+            ) : path === "/" && boardsError ? (
+              <EmptyState>
+                <EmptyState.Header>
+                  <EmptyState.Title>
+                    Boards could not be loaded
+                  </EmptyState.Title>
+                  <EmptyState.Description>{boardsError}</EmptyState.Description>
+                </EmptyState.Header>
+                <EmptyState.Content>
+                  <Button onPress={() => void loadBoards()}>
+                    Retry loading boards
+                  </Button>
+                </EmptyState.Content>
+              </EmptyState>
             ) : path === "/" ? (
               <EmptyState>
                 <EmptyState.Media>
@@ -541,37 +673,60 @@ export function App() {
         </AppShell.Content>
       </AppLayout>
       <Dialog
+        isDismissDisabled={busy}
         open={newBoard}
-        onClose={() => setNewBoard(false)}
+        onClose={() => {
+          boardCreateKey.reset();
+          setNewBoard(false);
+        }}
         title="Create a board"
         footer={
           <>
-            <Button variant="secondary" onPress={() => setNewBoard(false)}>
+            <Button
+              variant="secondary"
+              onPress={() => {
+                boardCreateKey.reset();
+                setNewBoard(false);
+              }}
+              isDisabled={busy}
+            >
               Cancel
             </Button>
             <Button type="submit" form="new-board" isDisabled={busy}>
-              Create board
+              {busy ? "Creating…" : "Create board"}
             </Button>
           </>
         }
       >
         <form
           id="new-board"
-          className="stack"
+          className="content-grid min-w-0"
           onSubmit={(e) => {
             e.preventDefault();
+            if (busy) return;
             setBusy(true);
             setCreateError("");
-            void api<{ board: Board }>("/boards", {
+            const payload = {
               name: boardName,
               ...(boardPrefix ? { prefix: boardPrefix } : {}),
+            };
+            void api<{ board: Board }>("/boards", payload, "POST", {
+              validateResponse: hasBoardResponse,
+              headers: {
+                "Idempotency-Key": boardCreateKey.forRequest(
+                  "/boards",
+                  payload,
+                ),
+              },
             })
               .then((result) => {
+                boardCreateKey.reset();
+                recentlyCreatedBoard.current = result.board;
                 setNewBoard(false);
                 setBoardName("");
                 setBoardPrefix("");
                 setBoardState("active");
-                void loadBoards();
+                void loadBoards({ collection: "active" });
                 navigate(`/boards/${result.board.id}`);
               })
               .catch((e) => setCreateError(errorText(e)))
@@ -583,7 +738,7 @@ export function App() {
             value={boardName}
             onChange={(e) => setBoardName(e.target.value)}
             required
-            autoFocus
+            autoFocus={!window.matchMedia("(pointer: coarse)").matches}
             maxLength={100}
           />
           <TextField
@@ -598,223 +753,6 @@ export function App() {
         </form>
       </Dialog>
     </AppShell>
-  );
-}
-function Inbox({
-  userId,
-  onRead,
-  timeZone,
-}: {
-  userId: string;
-  timeZone: string;
-  onRead: () => void;
-}) {
-  const [items, setItems] = useState<Notification[]>([]);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [unreadOnly, setUnreadOnly] = useState(false);
-  async function load() {
-    try {
-      const data = await api<{ items: Notification[] }>(
-        "/notifications?limit=100",
-      );
-      setItems(data.items);
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
-  useEffect(() => {
-    void load();
-  }, [userId]);
-  async function mark(ids?: string[]) {
-    setBusy(true);
-    try {
-      await api(
-        "/notifications",
-        ids ? { ids, read: true } : { all: true, read: true },
-        "PATCH",
-      );
-      await load();
-      onRead();
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <section className="settings-page">
-      <header className="row space-between">
-        <div>
-          <h1>Inbox</h1>
-          <p className="muted">
-            Assignments and mentions that need your attention.
-          </p>
-        </div>
-        <Button
-          variant="secondary"
-          onPress={() => void mark()}
-          isDisabled={busy}
-        >
-          Mark all read
-        </Button>
-      </header>
-      <div className="row">
-        <Button
-          variant={unreadOnly ? "ghost" : "secondary"}
-          onPress={() => setUnreadOnly(false)}
-        >
-          All
-        </Button>
-        <Button
-          variant={unreadOnly ? "secondary" : "ghost"}
-          onPress={() => setUnreadOnly(true)}
-        >
-          Unread
-        </Button>
-      </div>
-      <ErrorMessage>{error}</ErrorMessage>
-      <div className="separator-list notifications">
-        {items
-          .filter((i) => !unreadOnly || !i.readAt)
-          .map((i) => (
-            <article
-              key={i.id}
-              className={`notification ${i.readAt ? "" : "unread"}`}
-            >
-              <span className="unread-dot" />
-              <div>
-                <strong>{`${i.actorName ?? "A teammate"} ${i.kind === "assignment" ? "assigned you" : "mentioned you in"} ${i.identifier ?? "a task"}`}</strong>
-                <p className="muted small">
-                  {new Date(i.createdAt).toLocaleString(undefined, {
-                    timeZone,
-                  })}
-                </p>
-                <div className="row">
-                  <Button
-                    variant="ghost"
-                    onPress={() =>
-                      void api<{ task: { boardId: string } }>(
-                        `/tasks/${i.taskId}`,
-                      )
-                        .then(({ task }) => {
-                          void mark([i.id]);
-                          navigate(`/boards/${task.boardId}/tasks/${i.taskId}`);
-                        })
-                        .catch((e) => setError(errorText(e)))
-                    }
-                  >
-                    Open task
-                  </Button>
-                  {!i.readAt && (
-                    <Button variant="ghost" onPress={() => void mark([i.id])}>
-                      Mark read
-                    </Button>
-                  )}
-                </div>
-              </div>
-            </article>
-          ))}
-      </div>
-      {!items.filter((i) => !unreadOnly || !i.readAt).length && (
-        <div className="empty-state">
-          <Bell />
-          <h2>You’re all caught up</h2>
-          <p className="muted">
-            New assignments and mentions will appear here.
-          </p>
-        </div>
-      )}
-    </section>
-  );
-}
-function Consent({ boards }: { boards: Board[] }) {
-  const [boardId, setBoardId] = useState("");
-  const request = new URLSearchParams(window.location.search).get("request");
-  const [info, setInfo] = useState<{
-    clientName: string;
-    clientTrust: "unverified" | "metadata-document";
-    redirectUri: string;
-    scope: string;
-    user: { name: string; role: string };
-  } | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (request)
-      void api<typeof info>(`/oauth/consent/${request}`)
-        .then(setInfo)
-        .catch((e) => setError(errorText(e)));
-    else
-      setError(
-        "This authorization request is missing. Start the connection again from your agent.",
-      );
-  }, [request]);
-  async function decide(allow: boolean) {
-    setBusy(true);
-    try {
-      const { redirectTo } = await api<{ redirectTo: string }>(
-        `/oauth/consent/${request}`,
-        { allow, ...(boardId ? { boardIds: [boardId] } : {}) },
-      );
-      window.location.assign(redirectTo);
-    } catch (e) {
-      setError(errorText(e));
-      setBusy(false);
-    }
-  }
-  return (
-    <section className="settings-page narrow">
-      <h1>Connect an agent</h1>
-      <ErrorMessage>{error}</ErrorMessage>
-      {info && (
-        <>
-          <p>
-            <strong>{info.clientName}</strong> wants to access Mill as{" "}
-            {info.user.name}.
-          </p>
-          <p className="muted small">
-            {info.clientTrust === "unverified"
-              ? "This application registered its own name. Mill has not verified its identity. Continue only if you recognize the agent."
-              : "This application describes its identity in an HTTPS metadata document. Check that you recognize it before continuing."}
-          </p>
-          <div className="consent-card">
-            <h2>Requested permissions</h2>
-            <p>
-              {info.scope.includes("write")
-                ? "Read and change your boards, tasks, and comments."
-                : "Read your boards, tasks, and comments."}
-            </p>
-            <p className="muted small">
-              The agent keeps your current role. You can revoke its access
-              later.
-            </p>
-            <Choice
-              label="Approved boards"
-              value={boardId}
-              onChange={setBoardId}
-              items={[{ id: "", name: "All boards" }, ...boards]}
-              search
-            />
-            <p className="small">
-              Redirects to {new URL(info.redirectUri).origin}
-            </p>
-          </div>
-          <div className="row">
-            <Button
-              variant="secondary"
-              isDisabled={busy}
-              onPress={() => void decide(false)}
-            >
-              Deny
-            </Button>
-            <Button isDisabled={busy} onPress={() => void decide(true)}>
-              Allow access
-            </Button>
-          </div>
-        </>
-      )}
-    </section>
   );
 }
 export class ErrorBoundary extends Component<

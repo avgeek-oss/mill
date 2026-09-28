@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { verifyConfiguredStaticContent } from "./static-smoke.mjs";
 
 const origin = process.env.MILL_VERIFY_URL;
 const mode = process.argv[2];
@@ -27,6 +28,7 @@ assert.equal(
   mode === "unavailable" ? 503 : 200,
   "Readiness reflects the bounded PostgreSQL dependency check",
 );
+await verifyConfiguredStaticContent(3000);
 console.log(
   `PASS Liveness 200 and readiness ${ready.status} while PostgreSQL is ${mode}`,
 );

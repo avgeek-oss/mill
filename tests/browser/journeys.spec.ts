@@ -1,6 +1,14 @@
 import { readFile } from "node:fs/promises";
+import { rememberBrowserBootstrap } from "../browser-fixture.js";
 import postgres from "postgres";
-import { expect, test, type Page } from "@playwright/test";
+import {
+  expect,
+  request,
+  test,
+  type Locator,
+  type Page,
+  type Route,
+} from "@playwright/test";
 const account = {
   email: "browser-admin@example.test",
   password: "Browser-only-password-42",
@@ -8,9 +16,17 @@ const account = {
   workspaceName: "Mill browser verification",
 };
 const baseOrigin = process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323";
+let workspaceId = "";
 let boardId = "";
 let taskId = "";
 let layoutInvitationToken = "";
+let detailInvitationToken = "";
+let sidebarInvitationToken = "";
+let lifecycleInvitationUrl = "";
+const lifecycleAccount = {
+  email: "browser-lifecycle@example.test",
+  password: "Lifecycle-only-password-42",
+};
 async function login(
   page: Page,
   credentials: { email: string; password: string } = account,
@@ -27,6 +43,106 @@ async function choose(page: Page, label: string, value: string) {
   await page.getByRole("button", { name: new RegExp(`${label}$`) }).click();
   await page.getByRole("option", { name: value, exact: true }).click();
 }
+async function submitWhilePending(
+  page: Page,
+  path: string,
+  submit: Locator,
+  footerClose: string,
+) {
+  let release!: () => void;
+  let started!: () => void;
+  let continued!: () => void;
+  const pending = new Promise<void>((resolve) => (release = resolve));
+  const requestStarted = new Promise<void>((resolve) => (started = resolve));
+  const requestContinued = new Promise<void>(
+    (resolve) => (continued = resolve),
+  );
+  await page.route(`**/api${path}`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    started();
+    await pending;
+    try {
+      await route.continue();
+    } finally {
+      continued();
+    }
+  });
+  try {
+    await submit.click();
+    await requestStarted;
+    await expect(
+      page
+        .getByRole("dialog")
+        .getByRole("button", { name: "Close dialog", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page
+        .getByRole("dialog")
+        .getByRole("button", { name: footerClose, exact: true }),
+    ).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeVisible();
+  } finally {
+    release();
+    await requestContinued;
+    await page.unroute(`**/api${path}`);
+  }
+}
+async function submitSettingsWhilePending(
+  page: Page,
+  path: string,
+  method: "POST" | "PATCH",
+  submit: Locator,
+  duringPending?: () => Promise<void>,
+) {
+  let release!: () => void;
+  let started!: () => void;
+  let continued!: () => void;
+  let requestEntered = false;
+  const pending = new Promise<void>((resolve) => (release = resolve));
+  const requestStarted = new Promise<void>((resolve) => (started = resolve));
+  const requestContinued = new Promise<void>(
+    (resolve) => (continued = resolve),
+  );
+  const pattern = `**/api${path}`;
+  const handler = async (route: Route) => {
+    if (route.request().method() !== method) return route.continue();
+    requestEntered = true;
+    started();
+    await pending;
+    try {
+      await route.continue();
+    } finally {
+      continued();
+    }
+  };
+  await page.route(pattern, handler);
+  try {
+    await submit.click();
+    await requestStarted;
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+    const dialog = page.getByRole("dialog", {
+      name: "Board settings",
+      exact: true,
+    });
+    await expect(submit).toBeDisabled();
+    await expect(
+      dialog.getByRole("button", { name: "Close dialog", exact: true }),
+    ).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeVisible();
+    await duringPending?.();
+  } finally {
+    release();
+    if (requestEntered) await requestContinued;
+    await page.unroute(pattern, handler);
+  }
+}
 test.describe.configure({ mode: "serial" });
 test("first installation and complete board/task workflow", async ({
   page,
@@ -40,11 +156,16 @@ test("first installation and complete board/task workflow", async ({
   await page.getByLabel("Email", { exact: true }).fill(account.email);
   await page.getByLabel("Password", { exact: true }).fill(account.password);
   await page
+    .getByLabel("Confirm password", { exact: true })
+    .fill(account.password);
+  await page
     .getByRole("button", { name: "Create workspace", exact: true })
     .click();
   await expect(
     page.getByRole("button", { name: "Create your first board" }),
   ).toBeVisible();
+  const bootstrap = await rememberBrowserBootstrap(page.request, baseOrigin);
+  workspaceId = bootstrap.identity.workspace.id;
   const layoutInvitation = await page.request
     .post("/api/auth/invitations", {
       headers: { Origin: baseOrigin },
@@ -52,13 +173,38 @@ test("first installation and complete board/task workflow", async ({
     })
     .then((r) => r.json());
   layoutInvitationToken = layoutInvitation.token;
+  const detailInvitation = await page.request
+    .post("/api/auth/invitations", {
+      headers: { Origin: baseOrigin },
+      data: { email: "browser-detail@example.test", role: "member" },
+    })
+    .then((r) => r.json());
+  detailInvitationToken = detailInvitation.token;
+  const sidebarInvitation = await page.request
+    .post("/api/auth/invitations", {
+      headers: { Origin: baseOrigin },
+      data: { email: "browser-sidebar@example.test", role: "admin" },
+    })
+    .then((r) => r.json());
+  sidebarInvitationToken = sidebarInvitation.token;
+  const lifecycleInvitation = await page.request
+    .post("/api/auth/invitations", {
+      headers: { Origin: baseOrigin },
+      data: { email: lifecycleAccount.email, role: "admin" },
+    })
+    .then((r) => r.json());
+  lifecycleInvitationUrl = lifecycleInvitation.inviteUrl;
   await page.getByRole("button", { name: "Create your first board" }).click();
   await page.getByLabel("Board name", { exact: true }).fill("Release planning");
   await page.getByLabel("Task prefix", { exact: true }).fill("REL");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Create board", exact: true })
-    .click();
+  await submitWhilePending(
+    page,
+    "/boards",
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create board", exact: true }),
+    "Cancel",
+  );
   await expect(
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
@@ -73,13 +219,20 @@ test("first installation and complete board/task workflow", async ({
     .getByLabel("Title", { exact: true })
     .fill("Prepare the release checklist");
   await page
-    .getByLabel("Markdown description", { exact: true })
+    .getByLabel("Description", { exact: true })
     .fill(
       "## Release\nReview **all journeys**. [Unsafe](javascript:alert(1)) <script>alert(2)</script>",
     );
   await page.getByLabel("New checklist item").fill("Verify installation");
   await page.getByRole("button", { name: "Add checklist item" }).click();
-  await page.getByRole("button", { name: "Create task", exact: true }).click();
+  await submitWhilePending(
+    page,
+    `/boards/${boardId}/tasks`,
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create task", exact: true }),
+    "Close",
+  );
   await expect(
     page.getByRole("dialog").getByRole("heading", { name: "REL-1" }),
   ).toBeVisible();
@@ -92,15 +245,15 @@ test("first installation and complete board/task workflow", async ({
   await expect(
     page.getByRole("status").filter({ hasText: "Changes saved" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  await page.getByRole("tab", { name: "Preview", exact: true }).click();
   await expect(page.getByRole("link", { name: "Unsafe" })).not.toHaveAttribute(
     "href",
     /javascript:/,
   );
   await expect(page.locator(".markdown script")).toHaveCount(0);
-  await page.getByRole("button", { name: "Write", exact: true }).click();
+  await page.getByRole("tab", { name: "Write", exact: true }).click();
   await page
-    .getByLabel("Markdown description")
+    .getByLabel("Description", { exact: true })
     .fill(
       "## Release\nReview **all journeys** and verify the recovery procedure.",
     );
@@ -111,14 +264,78 @@ test("first installation and complete board/task workflow", async ({
   await page
     .getByLabel("Add a comment", { exact: true })
     .fill("Ready for review.");
-  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await submitWhilePending(
+    page,
+    `/tasks/${taskId}/comments`,
+    page.getByRole("button", { name: "Comment", exact: true }),
+    "Close",
+  );
   await expect(page.locator(".comment")).toContainText("Ready for review.");
+  await page
+    .locator(".comment")
+    .getByRole("button", { name: "Edit", exact: true })
+    .click();
+  await page
+    .getByLabel("Edit comment", { exact: true })
+    .fill("Ready for keyboard review.");
+  await page
+    .getByLabel("Edit comment", { exact: true })
+    .press("ControlOrMeta+Enter");
+  await expect(page.locator(".comment")).toContainText(
+    "Ready for keyboard review.",
+  );
+  await expect(page.locator(".comment")).toContainText(account.name);
+  await page
+    .locator(".comment")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  const commentConfirmation = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", { name: "Delete comment?", exact: true }),
+  });
+  await commentConfirmation
+    .getByRole("button", { name: "Keep comment", exact: true })
+    .click();
+  await expect(page.locator(".comment")).toContainText(
+    "Ready for keyboard review.",
+  );
+  await page
+    .locator(".comment")
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await commentConfirmation
+    .getByRole("button", { name: "Delete comment", exact: true })
+    .click();
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    "Comment deleted.",
+  );
+  await expect(page.locator(".comment")).toHaveCount(0);
+  await page
+    .getByLabel("Add a comment", { exact: true })
+    .fill("Ready for review.");
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await page
+    .locator(".checkbox")
+    .filter({
+      has: page.getByRole("checkbox", {
+        name: "Verify installation",
+        exact: true,
+      }),
+    })
+    .locator(".checkbox__content")
+    .click();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(
+    page.getByRole("checkbox", { name: "Verify installation", exact: true }),
+  ).toBeChecked();
   await page.getByRole("button", { name: "Add subtask" }).click();
   await expect(
     page.getByRole("dialog").getByRole("heading", { name: "New subtask" }),
   ).toBeVisible();
   await page.getByLabel("Title", { exact: true }).fill("Test database restore");
-  await page.getByRole("button", { name: "Create task", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Create task", exact: true })
+    .click();
   await expect(
     page.getByRole("dialog").getByRole("heading", { name: "REL-2" }),
   ).toBeVisible();
@@ -127,16 +344,26 @@ test("first installation and complete board/task workflow", async ({
     .getByRole("button", { name: "Board settings", exact: true })
     .click();
   await page.getByLabel("New status").fill("Review");
-  await page.getByRole("button", { name: "Add status" }).click();
+  await submitSettingsWhilePending(
+    page,
+    `/boards/${boardId}/columns`,
+    "POST",
+    page.getByRole("button", { name: "Add status", exact: true }),
+  );
   await expect(page.getByLabel("Status name").nth(3)).toHaveValue("Review");
   await expect(
     page.getByRole("button", { name: "Add status", exact: true }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Move Review earlier" }).click();
+  await submitSettingsWhilePending(
+    page,
+    "/columns/*",
+    "PATCH",
+    page.getByRole("button", { name: "Move Review earlier", exact: true }),
+  );
   await expect(
     page.getByRole("button", { name: "Move Review earlier" }),
   ).toBeFocused();
-  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
   await expect(page.getByRole("region", { name: "In progress" })).toContainText(
     "Prepare the release and recovery checklist",
   );
@@ -159,6 +386,9 @@ test("first installation and complete board/task workflow", async ({
   ).toBeVisible();
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
   await expect(page.getByRole("dialog")).toContainText("Test database restore");
+  await expect(
+    page.getByRole("checkbox", { name: "Verify installation", exact: true }),
+  ).toBeChecked();
   await page.screenshot({
     path: "docs/screenshots/task-detail-dark.png",
     fullPage: true,
@@ -370,6 +600,9 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
   await login(page);
   await page.goto("/settings/members");
   await page
+    .getByRole("button", { name: "Invite a person", exact: true })
+    .click();
+  await page
     .getByLabel("Email", { exact: true })
     .fill("browser-viewer@example.test");
   await choose(page, "Role", "Viewer");
@@ -380,13 +613,24 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
   );
   await page.getByRole("button", { name: "Create invitation" }).click();
   const invitation = await (await invitationResponse).json();
-  await expect(page.getByRole("status")).toContainText("Invitation created");
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("heading", { name: "Invitation created", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Done", exact: true })
+    .click();
   const viewerContext = await browser.newContext();
   const viewer = await viewerContext.newPage();
   await viewer.goto(invitation.inviteUrl);
   await viewer.getByLabel("Your name").fill("Jamie Viewer");
   await viewer
     .getByLabel("Password", { exact: true })
+    .fill("Viewer-only-password-42");
+  await viewer
+    .getByLabel("Confirm password", { exact: true })
     .fill("Viewer-only-password-42");
   await viewer.getByRole("button", { name: "Accept invitation" }).click();
   await expect(
@@ -412,9 +656,35 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   await expect(page.locator(".comment-list")).toContainText("Please review");
   await viewer.goto("/notifications");
-  await expect(viewer.locator(".notification")).toHaveCount(2);
+  const notifications = viewer.getByRole("list", {
+    name: "Notification list",
+    exact: true,
+  });
+  await expect(notifications.getByRole("listitem")).toHaveCount(2);
+  await expect(notifications.getByText("Unread", { exact: true })).toHaveCount(
+    2,
+  );
+  const marked = viewer.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/notifications" &&
+      response.request().method() === "PATCH",
+  );
   await viewer.getByRole("button", { name: "Mark all read" }).click();
-  await expect(viewer.locator(".notification.unread")).toHaveCount(0);
+  expect((await marked).ok()).toBeTruthy();
+  await expect(notifications.getByText("Unread", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(notifications.getByText("Read", { exact: true })).toHaveCount(2);
+  const persisted = await viewer.request.get("/api/notifications");
+  expect(persisted.ok()).toBeTruthy();
+  const notificationPage = await persisted.json();
+  expect(notificationPage.unreadCount).toBe(0);
+  expect(notificationPage.items).toHaveLength(2);
+  expect(
+    notificationPage.items.every(
+      (item: { readAt: string | null }) => item.readAt,
+    ),
+  ).toBe(true);
   await viewer.goto(`/boards/${boardId}/tasks/${taskId}`);
   await expect(viewer.getByLabel("Title", { exact: true })).toBeDisabled();
   await expect(
@@ -422,31 +692,116 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
   ).toHaveCount(0);
   await viewerContext.close();
   await page.goto("/settings/agents");
+  await page
+    .getByRole("button", { name: "Create credential", exact: true })
+    .click();
   await page.getByLabel("Name", { exact: true }).fill("Review agent");
-  await choose(page, "Permissions", "Read tasks");
-  await page.getByRole("button", { name: "Create credential" }).click();
-  await expect(page.getByLabel("Token · shown once")).not.toHaveValue("");
-  await page.getByRole("button", { name: "Revoke", exact: true }).click();
+  await choose(page, "Access", "Read only");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Confirm", exact: true })
+    .getByRole("button", { name: "Create credential", exact: true })
     .click();
-  await expect(page.getByText("Revoked", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Credential", { exact: true })).not.toHaveValue(
+    "",
+  );
+  const token = await page
+    .getByLabel("Credential", { exact: true })
+    .inputValue();
+  const agent = await request.newContext({
+    baseURL: baseOrigin,
+    extraHTTPHeaders: { Authorization: `Bearer ${token}`, Origin: baseOrigin },
+  });
+  try {
+    const forbiddenWrite = await agent.post(`/api/boards/${boardId}/tasks`, {
+      data: { title: "Read-only token cannot create this task" },
+    });
+    expect(forbiddenWrite.status()).toBe(403);
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Done", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Revoke Review agent", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Revoke credential", exact: true })
+      .click();
+    const revokedDialog = page.getByRole("dialog", {
+      name: "Revoke credential?",
+      exact: true,
+    });
+    await expect(revokedDialog.getByRole("status")).toHaveText(
+      "Credential revoked.",
+    );
+    await revokedDialog
+      .getByRole("button", { name: "Done", exact: true })
+      .click();
+    const credentialRow = page
+      .getByRole("grid", { name: "Credentials", exact: true })
+      .getByRole("row")
+      .filter({ hasText: "Review agent" });
+    await expect(
+      credentialRow.getByRole("gridcell", { name: "Revoked", exact: true }),
+    ).toBeVisible();
+    const credentialsResponse = await page.request.get("/api/credentials");
+    expect(credentialsResponse.ok()).toBeTruthy();
+    const credentialsPage = await credentialsResponse.json();
+    const credential = credentialsPage.items.find(
+      (item: { name: string }) => item.name === "Review agent",
+    );
+    expect(credential).toBeDefined();
+    expect(credential.revokedAt).not.toBeNull();
+    const revokedRead = await agent.get(`/api/boards/${boardId}/tasks`);
+    expect(revokedRead.status()).toBe(401);
+  } finally {
+    await agent.dispose();
+  }
 });
 
 test("task archive, delete, and restoration stay reversible", async ({
   page,
 }) => {
-  await login(page);
+  await page.goto(lifecycleInvitationUrl);
+  await page.getByLabel("Your name").fill("Lifecycle Review");
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill(lifecycleAccount.password);
+  await page
+    .getByLabel("Confirm password", { exact: true })
+    .fill(lifecycleAccount.password);
+  await page
+    .getByRole("button", { name: "Accept invitation", exact: true })
+    .click();
+  await expect(
+    page.getByRole("navigation", { name: "Workspace navigation" }),
+  ).toBeVisible();
+  const sessionResponse = await page.request.get("/api/auth/me");
+  expect(sessionResponse.ok()).toBeTruthy();
+  const session = await sessionResponse.json();
+  expect(session.user.email).toBe(lifecycleAccount.email);
+  expect(session.user.role).toBe("admin");
+  expect(session.workspace.id).toBe(workspaceId);
+  expect(session.workspace.name).toBe(account.workspaceName);
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
   await page.getByRole("button", { name: "Archive task", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    "Task archived.",
+  );
+  await expect(
+    page.getByRole("button", { name: "Restore from archive" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await choose(page, "Task view", "Archived tasks");
   await page
     .locator(".task-card")
     .filter({ hasText: "Another person’s update" })
     .click();
   await page.getByRole("button", { name: "Restore from archive" }).click();
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    "Task restored.",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await choose(page, "Task view", "Active tasks");
   await page
     .locator(".task-card")
@@ -458,14 +813,156 @@ test("task archive, delete, and restoration stay reversible", async ({
     .filter({ has: page.getByRole("heading", { name: "Delete this task?" }) })
     .getByRole("button", { name: "Delete task", exact: true })
     .click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    "Task deleted. You can restore it here.",
+  );
+  await expect(
+    page.getByRole("button", { name: "Restore task", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Title", { exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Save changes" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await choose(page, "Task view", "Deleted tasks");
   await page.locator(".task-card").click();
   await page.getByRole("button", { name: "Restore task", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText(
+    "Task restored.",
+  );
+  await page.getByRole("button", { name: "Close", exact: true }).click();
   await choose(page, "Task view", "Active tasks");
   await expect(
     page.locator(".task-card").filter({ hasText: "Another person’s update" }),
   ).toBeVisible();
+});
+
+test("board settings keep status failures recoverable and lifecycle actions reversible", async ({
+  page,
+}) => {
+  await login(page, lifecycleAccount);
+  await page.goto(`/boards/${boardId}`);
+  await page
+    .getByRole("button", { name: "Board settings", exact: true })
+    .click();
+  const settings = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", { name: "Board settings", exact: true }),
+  });
+  await expect(settings.getByLabel("Task prefix", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(settings).toContainText("The prefix stays fixed");
+  await settings.getByLabel("New status", { exact: true }).fill("Queue");
+  await settings
+    .getByRole("button", { name: "Add status", exact: true })
+    .click();
+  const row = settings.locator(".column-editor").last();
+  await expect(row.getByLabel("Status name", { exact: true })).toHaveValue(
+    "Queue",
+  );
+  await row.getByLabel("Status name", { exact: true }).fill("Ready for review");
+  await row.getByRole("button", { name: /Status color$/ }).click();
+  await page.getByRole("option", { name: "Blue", exact: true }).click();
+  const saveStatus = row.getByRole("button", { name: "Save", exact: true });
+  const newStatus = settings.getByLabel("New status", { exact: true });
+  await submitSettingsWhilePending(
+    page,
+    "/columns/*",
+    "PATCH",
+    saveStatus,
+    async () => {
+      await expect(newStatus).toBeEnabled();
+      await newStatus.click();
+      await expect(newStatus).toBeFocused();
+    },
+  );
+  await expect(settings.getByRole("status")).toContainText("Status updated.");
+  await expect(saveStatus).toBeDisabled();
+  await expect(newStatus).toBeFocused();
+  await expect(row).toContainText("Blue");
+  const populatedStatus = settings.locator(".column-editor").nth(1);
+  await expect(
+    populatedStatus.getByLabel("Status name", { exact: true }),
+  ).toHaveValue("In progress");
+  await populatedStatus
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  const confirmation = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", { name: "Delete status?", exact: true }),
+  });
+  await confirmation
+    .getByRole("button", { name: "Delete status", exact: true })
+    .click();
+  await expect(confirmation.getByRole("alert")).toContainText(
+    "Choose another status for the tasks in this status",
+  );
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole("button", { name: /Move tasks to$/ }).click();
+  await page.getByRole("option", { name: "Done", exact: true }).click();
+  await confirmation
+    .getByRole("button", { name: "Delete status", exact: true })
+    .click();
+  await expect(confirmation).not.toBeVisible();
+  await expect(
+    settings.getByRole("button", { name: "Add status", exact: true }),
+  ).toBeFocused();
+  await expect(settings.getByLabel("Status name", { exact: true })).toHaveCount(
+    4,
+  );
+  await settings
+    .getByRole("button", { name: "Archive board", exact: true })
+    .click();
+  const archive = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", { name: "Archive board?", exact: true }),
+  });
+  await archive
+    .getByRole("button", { name: "Archive board", exact: true })
+    .click();
+  await expect(settings.getByRole("status")).toContainText("Board archived.");
+  await expect(
+    settings.getByLabel("Board name", { exact: true }),
+  ).toBeDisabled();
+  await settings
+    .getByRole("button", { name: "Restore board", exact: true })
+    .click();
+  await expect(settings.getByRole("status")).toContainText("Board restored.");
+  await expect(
+    settings.getByLabel("Board name", { exact: true }),
+  ).toBeEnabled();
+  await settings
+    .getByRole("button", { name: "Delete board", exact: true })
+    .click();
+  const deletion = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", { name: "Delete board?", exact: true }),
+  });
+  await deletion
+    .getByRole("button", { name: "Keep board", exact: true })
+    .click();
+  await expect(
+    settings.getByLabel("Board name", { exact: true }),
+  ).toBeEnabled();
+  await settings
+    .getByRole("button", { name: "Delete board", exact: true })
+    .click();
+  await deletion
+    .getByRole("button", { name: "Delete board", exact: true })
+    .click();
+  await expect(
+    settings.getByRole("button", {
+      name: "Restore deleted board",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await settings
+    .getByRole("button", { name: "Restore deleted board", exact: true })
+    .click();
+  await expect(settings.getByRole("status")).toContainText("Board restored.");
+  await settings
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  await expect(page.getByRole("region", { name: "Done" })).toContainText(
+    "Test database restore",
+  );
 });
 
 test("long content, many statuses, tablet/phone themes and operational errors", async ({
@@ -540,7 +1037,10 @@ test("long content, many statuses, tablet/phone themes and operational errors", 
           : "Appearance: switch to dark theme",
     });
     if (await toggle.isVisible()) await toggle.click();
-    if (width < 700) await choose(page, "Board column", "Done (1)");
+    if (width < 700) {
+      await page.getByRole("button", { name: /Board column$/ }).click();
+      await page.getByRole("option", { name: /^Done \(\d+\)$/ }).click();
+    }
     await page.screenshot({
       path: `docs/screenshots/${name}.png`,
       fullPage: true,
@@ -555,14 +1055,34 @@ test("long content, many statuses, tablet/phone themes and operational errors", 
     route.abort(),
   );
   await page.reload();
-  await expect(page.getByRole("alert")).toContainText("could not be reached");
+  const networkError = page
+    .getByRole("main")
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Board unavailable",
+        exact: true,
+      }),
+    });
+  await expect(networkError).toBeVisible();
+  await expect(
+    networkError.getByText(
+      "Mill could not be reached. Check your connection and try again.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    networkError.getByRole("button", { name: "Try again", exact: true }),
+  ).toBeVisible();
   await page.screenshot({
     path: "docs/screenshots/network-error.png",
     fullPage: true,
     animations: "disabled",
   });
   await page.unroute(`**/api/boards/${boardId}/tasks?**`);
-  await page.reload();
+  await networkError
+    .getByRole("button", { name: "Try again", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
@@ -677,7 +1197,16 @@ test("a real isolated database fault renders 500 and reload recovery", async ({
     await expect(
       page.getByRole("heading", { name: "Something went wrong" }),
     ).toBeVisible();
-    await expect(page.locator(".error-page")).toContainText("500");
+    const serverError = page
+      .getByRole("main")
+      .locator("section")
+      .filter({
+        has: page.getByRole("heading", {
+          name: "Something went wrong",
+          exact: true,
+        }),
+      });
+    await expect(serverError.getByText("500", { exact: true })).toBeVisible();
     await page.screenshot({
       path: "docs/screenshots/server-error.png",
       fullPage: true,
@@ -695,4 +1224,394 @@ test("a real isolated database fault renders 500 and reload recovery", async ({
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
   await expect(page.locator(".task-card")).toHaveCount(100);
+});
+
+test("existing-task load failures preserve identity and recover without creating a task", async ({
+  page,
+}) => {
+  const accepted = await page.request.post("/api/auth/accept-invitation", {
+    headers: { Origin: baseOrigin },
+    data: {
+      token: detailInvitationToken,
+      name: "Detail Review",
+      password: "Detail-only-password-42",
+    },
+  });
+  expect(accepted.ok()).toBeTruthy();
+  let creations = 0;
+  page.on("request", (request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === `/api/boards/${boardId}/tasks`
+    )
+      creations++;
+  });
+  const { database, schema } = await browserDatabase();
+  let renamed = false;
+  try {
+    await database.unsafe(
+      `ALTER TABLE "${schema}".comments RENAME TO comments_fault`,
+    );
+    renamed = true;
+    await page.goto(`/boards/${boardId}/tasks/${taskId}`);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toContainText("Unable to load this task");
+    await expect(dialog.getByLabel("Title", { exact: true })).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: /Save changes|Create task/ }),
+    ).toHaveCount(0);
+    await expect(
+      dialog.getByRole("button", { name: "Reload task", exact: true }),
+    ).toBeEnabled();
+    expect(page.url()).toContain(`/tasks/${taskId}`);
+    expect(creations).toBe(0);
+  } finally {
+    if (renamed)
+      await database.unsafe(
+        `ALTER TABLE "${schema}".comments_fault RENAME TO comments`,
+      );
+    await database.end();
+  }
+  await page.getByRole("button", { name: "Reload task", exact: true }).click();
+  await expect(page.getByLabel("Title", { exact: true })).not.toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "Save changes", exact: true }),
+  ).toBeVisible();
+  await page.route(`**/api/tasks/${taskId}`, (route) => route.abort("failed"));
+  await page.reload();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Unable to load this task",
+  );
+  await expect(
+    page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Create task", exact: true }),
+  ).toHaveCount(0);
+  await page.unroute(`**/api/tasks/${taskId}`);
+  await page.getByRole("button", { name: "Reload task", exact: true }).click();
+  await expect(page.getByLabel("Title", { exact: true })).not.toHaveValue("");
+  expect(creations).toBe(0);
+});
+
+test("sidebar board continuation preserves collections and newly created later-page boards", async ({
+  page,
+}) => {
+  const { database, schema } = await browserDatabase();
+  const fixtureBoardIds: string[] = [];
+  try {
+    const [board] = await database.unsafe(
+      `SELECT workspace_id FROM "${schema}".boards WHERE id=$1`,
+      [boardId],
+    );
+    expect(board).toBeTruthy();
+    for (let i = 1; i <= 234; i++) {
+      const archived = i > 210;
+      const deleted = i > 222;
+      const [created] = await database.unsafe(
+        `INSERT INTO "${schema}".boards(workspace_id,name,prefix,position,archived,deleted_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+        [
+          board.workspace_id,
+          `${deleted ? "Deleted" : archived ? "Archived" : "Directory"} board ${String(i).padStart(3, "0")}`,
+          `DIR${i}`,
+          1000 + i,
+          archived,
+          deleted ? new Date().toISOString() : null,
+        ],
+      );
+      fixtureBoardIds.push(created.id);
+      await database.unsafe(
+        `INSERT INTO "${schema}".columns(board_id,name,position) VALUES ($1,'Backlog',0)`,
+        [created.id],
+      );
+    }
+    const accepted = await page.request.post("/api/auth/accept-invitation", {
+      headers: { Origin: baseOrigin },
+      data: {
+        token: sidebarInvitationToken,
+        name: "Sidebar Review",
+        password: "Sidebar-only-password-42",
+      },
+    });
+    expect(accepted.ok()).toBeTruthy();
+    await page.goto(`/boards/${boardId}`);
+    const nav = page.getByRole("navigation", { name: "Workspace navigation" });
+    const initial = await page.request
+      .get("/api/boards?limit=100")
+      .then((r) => r.json());
+    const directoryLinks = nav.getByRole("link", { name: /^Directory board / });
+    const firstCount = initial.items.filter((item: { name: string }) =>
+      item.name.startsWith("Directory board "),
+    ).length;
+    await expect(directoryLinks).toHaveCount(firstCount);
+    const anchor = initial.items.at(-1);
+    const moved = await page.request.patch(`/api/boards/${anchor.id}`, {
+      headers: { Origin: baseOrigin },
+      data: { version: anchor.version, beforeId: null },
+    });
+    expect(moved.ok()).toBeTruthy();
+    await nav
+      .getByRole("button", { name: "Load more boards", exact: true })
+      .click();
+    await expect(nav.getByRole("alert")).toContainText("Board list changed");
+    const reloaded = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/boards" &&
+        !new URL(response.url()).searchParams.has("cursor"),
+    );
+    await nav
+      .getByRole("button", { name: "Reload boards", exact: true })
+      .click();
+    await (await reloaded).finished();
+    await expect(directoryLinks).toHaveCount(firstCount);
+    await page.route("**/api/boards?*cursor=*", (route) =>
+      route.abort("failed"),
+    );
+    await nav
+      .getByRole("button", { name: "Load more boards", exact: true })
+      .click();
+    await expect(nav.getByRole("alert")).toContainText("could not be reached");
+    await expect(directoryLinks).toHaveCount(firstCount);
+    await page.unroute("**/api/boards?*cursor=*");
+    await nav
+      .getByRole("button", { name: "Retry loading boards", exact: true })
+      .click();
+    await expect(directoryLinks).toHaveCount(firstCount + 100);
+    await nav
+      .getByRole("button", { name: "Load more boards", exact: true })
+      .click();
+    await expect(directoryLinks).toHaveCount(210);
+    await expect(
+      nav.getByRole("link", { name: "Directory board 210", exact: true }),
+    ).toBeVisible();
+    await expect(
+      nav.getByRole("button", { name: "Load more boards", exact: true }),
+    ).toHaveCount(0);
+
+    let release!: () => void;
+    let started!: () => void;
+    let continued!: () => void;
+    const pending = new Promise<void>((resolve) => (release = resolve));
+    const requestStarted = new Promise<void>((resolve) => (started = resolve));
+    const requestContinued = new Promise<void>(
+      (resolve) => (continued = resolve),
+    );
+    await page.route("**/api/boards?**", async (route) => {
+      if (
+        new URL(route.request().url()).searchParams.get("archived") !== "true"
+      )
+        return route.continue();
+      started();
+      await pending;
+      try {
+        await route.continue();
+      } finally {
+        continued();
+      }
+    });
+    try {
+      await choose(page, "Board collection", "Archived boards");
+      await requestStarted;
+      await choose(page, "Board collection", "Deleted boards");
+      await expect(
+        nav.getByRole("link", { name: /^Deleted board / }),
+      ).toHaveCount(12);
+    } finally {
+      release();
+      await requestContinued;
+      await page.unroute("**/api/boards?**");
+    }
+    await expect(
+      nav.getByRole("button", {
+        name: "Deleted boards Board collection",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      nav.getByRole("link", { name: /^Archived board / }),
+    ).toHaveCount(0);
+    await nav.getByRole("button", { name: /^Account menu for / }).click();
+    await page
+      .getByRole("menu")
+      .getByRole("menuitem", { name: "Profile", exact: true })
+      .click();
+    await expect(
+      nav.getByRole("button", {
+        name: "Deleted boards Board collection",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await nav.getByRole("button", { name: "Boards", exact: true }).click();
+    await expect(
+      nav.getByRole("button", { name: /Board collection$/ }),
+    ).toHaveCount(0);
+    await nav.getByRole("button", { name: "Boards", exact: true }).click();
+    await expect(
+      nav.getByRole("button", {
+        name: "Deleted boards Board collection",
+        exact: true,
+      }),
+    ).toBeVisible();
+
+    await nav
+      .getByRole("button", { name: "Create board", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog
+      .getByLabel("Board name", { exact: true })
+      .fill("Created beyond the first page");
+    await dialog.getByLabel("Task prefix", { exact: true }).fill("LATE");
+    const creation = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/boards" &&
+        response.request().method() === "POST",
+    );
+    await dialog
+      .getByRole("button", { name: "Create board", exact: true })
+      .click();
+    const created = await (await creation).json();
+    expect(created.board.id).toMatch(/^[0-9a-f-]{36}$/);
+    fixtureBoardIds.push(created.board.id);
+    await expect(
+      page.getByRole("heading", {
+        name: "Created beyond the first page",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      nav.getByRole("button", {
+        name: "Active boards Board collection",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      nav.getByRole("link", {
+        name: "Created beyond the first page",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      nav.getByRole("button", { name: "Load more boards", exact: true }),
+    ).toBeVisible();
+    const createdId = page.url().split("/boards/")[1];
+    let current = await page.request
+      .get(`/api/boards/${createdId}`)
+      .then((response) => response.json());
+    const renamed = await page.request.patch(`/api/boards/${createdId}`, {
+      headers: { Origin: baseOrigin },
+      data: {
+        version: current.board.version,
+        name: "Server-renamed later board",
+      },
+    });
+    expect(renamed.ok()).toBeTruthy();
+    await choose(page, "Board collection", "Archived boards");
+    await expect(
+      nav.getByRole("link", { name: /^Archived board / }),
+    ).toHaveCount(12);
+    await choose(page, "Board collection", "Active boards");
+    await expect(
+      nav.getByRole("link", {
+        name: "Server-renamed later board",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      nav.getByRole("link", {
+        name: "Created beyond the first page",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    current = await page.request
+      .get(`/api/boards/${createdId}`)
+      .then((response) => response.json());
+    const archived = await page.request.patch(`/api/boards/${createdId}`, {
+      headers: { Origin: baseOrigin },
+      data: {
+        version: current.board.version,
+        name: "Server-renamed later board",
+        archived: true,
+      },
+    });
+    expect(archived.ok()).toBeTruthy();
+    await choose(page, "Board collection", "Archived boards");
+    await expect(
+      nav.getByRole("link", {
+        name: "Server-renamed later board",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      nav.getByRole("link", {
+        name: "Created beyond the first page",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await choose(page, "Board collection", "Active boards");
+    await expect(
+      nav.getByRole("link", {
+        name: "Server-renamed later board",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await choose(page, "Board collection", "Archived boards");
+    await expect(
+      nav.getByRole("link", {
+        name: "Server-renamed later board",
+        exact: true,
+      }),
+    ).toBeVisible();
+    current = await page.request
+      .get(`/api/boards/${createdId}`)
+      .then((response) => response.json());
+    const deleted = await page.request.patch(`/api/boards/${createdId}`, {
+      headers: { Origin: baseOrigin },
+      data: { version: current.board.version, deleted: true },
+    });
+    expect(deleted.ok()).toBeTruthy();
+    await choose(page, "Board collection", "Deleted boards");
+    await expect(
+      nav.getByRole("link", {
+        name: "Server-renamed later board",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await choose(page, "Board collection", "Archived boards");
+    await expect(
+      nav.getByRole("link", {
+        name: "Server-renamed later board",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  } finally {
+    try {
+      if (fixtureBoardIds.length) {
+        await database.begin(async (tx) => {
+          const tasks = await tx.unsafe(
+            `SELECT id FROM "${schema}".tasks WHERE board_id=ANY($1::uuid[])`,
+            [fixtureBoardIds],
+          );
+          expect(tasks).toHaveLength(0);
+          await tx.unsafe(
+            `DELETE FROM "${schema}".activity WHERE board_id=ANY($1::uuid[])`,
+            [fixtureBoardIds],
+          );
+          await tx.unsafe(
+            `DELETE FROM "${schema}".columns WHERE board_id=ANY($1::uuid[])`,
+            [fixtureBoardIds],
+          );
+          await tx.unsafe(
+            `DELETE FROM "${schema}".boards WHERE id=ANY($1::uuid[])`,
+            [fixtureBoardIds],
+          );
+        });
+        const retained = await database.unsafe(
+          `SELECT id FROM "${schema}".boards WHERE id=$1`,
+          [boardId],
+        );
+        expect(retained).toHaveLength(1);
+      }
+    } finally {
+      await database.end();
+    }
+  }
 });

@@ -83,9 +83,20 @@ externalRoutes.use(
     onError: (c) => c.json({ error: "Request is too large" }, 413),
   }),
 );
-externalRoutes.get("/api/credentials", async (c) =>
-  c.json({ items: await listCredentials(requireHuman(c)) }),
-);
+externalRoutes.get("/api/credentials", async (c) => {
+  const who = requireHuman(c);
+  const query = z
+    .object({
+      limit: z.coerce.number().int().min(1).max(200).default(200),
+      cursor: z.uuid().optional(),
+    })
+    .safeParse(c.req.query());
+  if (!query.success)
+    badRequest("Choose a limit from 1 to 200 and a valid credential cursor");
+  return c.json(
+    await listCredentials(who, query.data.limit, query.data.cursor),
+  );
+});
 externalRoutes.post("/api/credentials", async (c) => {
   const a = requireHuman(c);
   const parsed = z

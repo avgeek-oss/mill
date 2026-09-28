@@ -245,6 +245,7 @@ export type SidebarGroupConfig = {
   label?: string;
   header?: ReactNode;
   content?: ReactNode;
+  footerContent?: ReactNode;
   items: ShellLinkConfig[];
 };
 export type SidebarConfig = {
@@ -358,6 +359,7 @@ export function ApplicationSidebar({ config }: { config: SidebarConfig }) {
                 );
               })}
             </div>
+            {group.footerContent}
           </section>
         ))}
       </div>

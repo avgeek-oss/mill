@@ -38,4 +38,4 @@ An older application image may not support an upgraded schema. Do not point it a
 
 Database major-version upgrades need a tested PostgreSQL upgrade plan. Changing the container tag across majors while reusing a volume is not a supported shortcut.
 
-CI's production runner verifies startup from an earlier local schema, preserves task/comment/member data, and tests restoring the generated backup. The exact reviewed commit and results are in [B1 verification](b1-verification.md).
+CI's production runner verifies startup from an earlier local schema, preserves task/comment/member data, and tests restoring the generated backup. The source checkout's `docs/b1-verification.md` records exact reviewed commits and observed results.

@@ -19,7 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "node --env-file-if-exists=.env --import tsx --test tests/*.test.ts",
-    "test:browser": "playwright test",
+    "test:browser": "node tools/browser-verify.mjs",
     "verify": "pnpm docs:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:operations && pnpm test && pnpm audit --prod --audit-level=moderate && pnpm build",
     "backup": "bash tools/backup.sh",
     "restore": "bash tools/restore.sh",

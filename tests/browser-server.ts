@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import postgres from "postgres";
 if (!process.env.DATABASE_URL) process.loadEnvFile(".env");
@@ -37,4 +37,10 @@ const code = await new Promise<number>((resolve) =>
 await admin.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
 await admin.end();
 await rm(metadata, { force: true });
+const cachePattern = new RegExp(
+  `^browser-${schema}-[a-f0-9]{16}-(bootstrap|member|viewer)\\.json(?:\\.[a-f0-9]{16}\\.tmp)?$`,
+);
+for (const name of await readdir(resolve("tmp"))) {
+  if (cachePattern.test(name)) await rm(resolve("tmp", name), { force: true });
+}
 process.exitCode = code;

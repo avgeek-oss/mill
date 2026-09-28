@@ -156,6 +156,7 @@ export function installPortableRoutes(routes: Hono<Env>) {
       await tx`SELECT id FROM boards ORDER BY id FOR UPDATE`;
       await revalidateAuthority(c, tx, "admin");
       const [bounds] = await tx`SELECT
+        (SELECT count(*) FROM boards) AS boards,
         (SELECT count(*) FROM tasks) AS tasks,
         (SELECT count(*) FROM comments) AS comments,
         (SELECT count(*) FROM users) AS members,
@@ -163,6 +164,7 @@ export function installPortableRoutes(routes: Hono<Env>) {
         (SELECT coalesce(sum(octet_length(row_to_json(c)::text)),0) FROM comments c) +
         (SELECT coalesce(sum(octet_length(row_to_json(u)::text)),0) FROM (SELECT id,name,email,role,time_zone,(disabled_at IS NOT NULL) AS disabled FROM users) u) AS bytes`;
       if (
+        Number(bounds.boards) > 100 ||
         Number(bounds.tasks) > 50000 ||
         Number(bounds.comments) > 100000 ||
         Number(bounds.members) > 10000 ||
@@ -220,8 +222,6 @@ export function installPortableRoutes(routes: Hono<Env>) {
       const [workspace] = await tx`SELECT id FROM workspace`;
       await revalidateAuthority(c, tx, "admin");
       const [count] = await tx`SELECT count(*)::int AS total FROM boards`;
-      if (count.total + data.boards.length > 100)
-        badRequest("The import would exceed the workspace limit of 100 boards");
       const memberMap = new Map<string, string>();
       for (const member of data.members) {
         const [existing] =

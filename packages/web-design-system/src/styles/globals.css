@@ -12,6 +12,7 @@
 
 @source "../../../../apps/**/*.{ts,tsx}";
 @source "../../../../packages/**/*.{ts,tsx}";
+@source "../../../../tools/frontend-guides.mjs";
 
 :root {
   --workspace-page-content-width: 80rem;
@@ -91,7 +92,7 @@ a {
 
   .table__column,
   .table__cell {
-    width: auto !important;
+    width: auto;
     white-space: nowrap;
   }
 
@@ -370,7 +371,10 @@ a {
   }
 
   @media (pointer: coarse) {
-    .button.button--sm {
+    .button.button--sm,
+    .tabs__tab,
+    .checkbox,
+    .checkbox__content {
       min-height: 44px;
     }
 
@@ -378,7 +382,10 @@ a {
       min-width: 44px;
     }
 
-    [data-slot="theme-switcher"] {
+    [data-slot="theme-switcher"],
+    [data-slot="password-input-toggle"],
+    .modal__close-trigger,
+    .alert-dialog__close-trigger {
       min-width: 44px;
       min-height: 44px;
     }

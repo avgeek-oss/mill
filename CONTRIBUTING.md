@@ -19,7 +19,9 @@ pnpm test:browser
 node tools/production-verify.mjs
 ```
 
-`pnpm verify` covers formatting, lint, types, real PostgreSQL integration tests, production dependency advisories, and builds. Browser tests cover actual UI journeys. The production runner builds the image, creates an isolated Compose project, exercises setup and task persistence, verifies upgrade and full database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. These separate gates are all required in CI.
+`pnpm verify` covers formatting, lint, types, real PostgreSQL integration tests, production dependency advisories, and builds. `pnpm test:browser` runs every browser file in a fresh isolated installation, starting with the real setup journey. It requires the built frontend to stay unchanged and verifies server, session-cache, and PostgreSQL schema cleanup. Original logs, screenshots, and the distribution manifest are retained under `playwright-report` and `test-results`. For a focused check, use `pnpm exec playwright test tests/browser/FILE.spec.ts`.
+
+The production runner builds the image, creates an isolated Compose project, exercises setup and task persistence, verifies upgrade and full database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. All three gates are required in CI.
 
 When editing UI, review the running routes in light and dark themes, on desktop and phone widths. Include long titles, empty states, permission errors, keyboard movement, and scrolled selects inside dialogs. Preserve the shared components' keyboard, focus, and touch behavior.
 

@@ -14,7 +14,9 @@ Use `Idempotency-Key` for POST, PATCH, and DELETE requests under `/api` outside 
 
 ## Response and error shapes
 
-Collections return `{ "items": [...] }`. Paginated collections also return `hasMore` and `nextCursor`; send that cursor with the same filters on the next request. Task, comment, and notification lists default to 50 and accept `limit=1..100`. Boards are bounded to 100, statuses to 50 per board, and the team directory to 1,000 members.
+Collections return `{ "items": [...] }`. Paginated collections also return `hasMore` and `nextCursor`; send that cursor with the same filters on the next request. Task, comment, and notification lists default to 50 and accept `limit=1..100`. Boards default to 100 and accept `limit=1..100`, retaining position/ID order and the chosen collection and credential board scope. Credentials default to 200 and accept `limit=1..200`; invitations default to 100 and accept `limit=1..100`. Board cursors are opaque strings bound to the current user, selected collection, allowed boards, and board order. A changed board collection returns `409` with `code: "board_list_changed"`; discard its loaded pages and restart without a cursor. Credential and invitation UUID cursors must belong to the same credential owner or administrator's workspace respectively. Invalid or foreign anchors return 400. Statuses are bounded to 50 per board, and the team directory returns at most 1,000 members without continuation metadata.
+
+For a coherent board directory across all states, use `directory=true` and omit `archived` and `deleted`. It returns active, archived, and deleted metadata under the same board permissions. Continue one cursor sequence; state, metadata, or order changes return `409` and require restarting the whole directory. Agent access and Consent exclude deleted boards from selectable scopes.
 
 Single-object mutations return `{ "board": ... }`, `{ "column": ... }`, `{ "task": ... }`, or `{ "comment": ... }`. Object fields use camelCase. Task IDs are UUIDs. The `identifier` field, such as `OPS-17`, is a stable label for a person; use the UUID in API paths.
 
@@ -39,17 +41,17 @@ Agents can perform board and task workflows within that ceiling. Administration 
 
 ## Boards and statuses
 
-| Method and path                | Request                                                     | Response                       |
-| ------------------------------ | ----------------------------------------------------------- | ------------------------------ |
-| `GET /api/boards`              | Optional `archived`, `deleted` query booleans               | `{items}` in board order       |
-| `POST /api/boards`             | `{name,prefix?,description?}`                               | `{board}` and default statuses |
-| `GET /api/boards/:id`          | Board UUID                                                  | `{board,columns}`              |
-| `PATCH /api/boards/:id`        | `{version,name?,description?,archived?,deleted?,beforeId?}` | `{board}`                      |
-| `POST /api/boards/:id/restore` | `{version}`; human Admin                                    | `{board}`                      |
-| `GET /api/boards/:id/columns`  | Board UUID                                                  | `{items}` in status order      |
-| `POST /api/boards/:id/columns` | `{name,color?}`                                             | `{column}`                     |
-| `PATCH /api/columns/:id`       | `{version,name?,color?,beforeId?}`                          | `{column}`                     |
-| `DELETE /api/columns/:id`      | `{version,moveToColumnId?}`                                 | `{ok:true}`                    |
+| Method and path                | Request                                                        | Response                                    |
+| ------------------------------ | -------------------------------------------------------------- | ------------------------------------------- |
+| `GET /api/boards`              | Optional `archived`, `deleted`, `directory`, `limit`, `cursor` | `{items,hasMore,nextCursor}` in board order |
+| `POST /api/boards`             | `{name,prefix?,description?}`                                  | `{board}` and default statuses              |
+| `GET /api/boards/:id`          | Board UUID                                                     | `{board,columns}`                           |
+| `PATCH /api/boards/:id`        | `{version,name?,description?,archived?,deleted?,beforeId?}`    | `{board}`                                   |
+| `POST /api/boards/:id/restore` | `{version}`; human Admin                                       | `{board}`                                   |
+| `GET /api/boards/:id/columns`  | Board UUID                                                     | `{items}` in status order                   |
+| `POST /api/boards/:id/columns` | `{name,color?}`                                                | `{column}`                                  |
+| `PATCH /api/columns/:id`       | `{version,name?,color?,beforeId?}`                             | `{column}`                                  |
+| `DELETE /api/columns/:id`      | `{version,moveToColumnId?}`                                    | `{ok:true}`                                 |
 
 Board names are at most 100 characters; status names are at most 80. A custom prefix must match `^[A-Z][A-Z0-9]{1,9}$`. Prefixes stay fixed after creation. Allowed status colors are `gray`, `blue`, `green`, `yellow`, `orange`, `red`, `purple`, and `pink`.
 
@@ -138,17 +140,17 @@ Notification changes default to `read:true`. `read:false` marks them unread. An 
 
 ## Credentials
 
-| Method and path               | Request                                                 | Response                                 |
-| ----------------------------- | ------------------------------------------------------- | ---------------------------------------- |
-| `GET /api/credentials`        | Human session                                           | `{items}` with metadata, no token hashes |
-| `POST /api/credentials`       | Human session; `{name,scopes,boardIds?,expiresInDays?}` | `{credential,token}` once                |
-| `DELETE /api/credentials/:id` | Owner's human session                                   | `{revoked:true}`                         |
+| Method and path               | Request                                                 | Response                                                    |
+| ----------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
+| `GET /api/credentials`        | Human session; optional `limit`, `cursor`               | `{items,hasMore,nextCursor}` with metadata, no token hashes |
+| `POST /api/credentials`       | Human session; `{name,scopes,boardIds?,expiresInDays?}` | `{credential,token}` once                                   |
+| `DELETE /api/credentials/:id` | Owner's human session                                   | `{revoked:true}`                                            |
 
 Scopes are `["read"]` or `["read","write"]`. Omit `boardIds` for workspace board access, or supply 1 to 100 existing board UUIDs. Expiry defaults to 30 days and accepts 1 to 365. A credential remains tied to its owner's current role and active membership. It cannot create other credentials.
 
 ## Portable data and health
 
-`GET /api/export` returns a `mill-portable` version 1 JSON document with workspace, member metadata, boards, statuses, tasks, and comments. It requires a human Admin, excludes all authentication secrets and credentials, and has a 32 MiB response limit. `POST /api/import` accepts that document with the same 32 MiB limit and adds its boards, tasks, and comments without replacing existing data. Imported member metadata does not grant login access or change existing members' roles. New imported people start disabled and need an administrator invitation to join. The operator retains administrator access. For a larger workspace or full identity/history recovery, use [PostgreSQL backup and restore](backup.md).
+`GET /api/export` returns a `mill-portable` version 1 JSON document with workspace, member metadata, boards, statuses, tasks, and comments. It requires a human Admin, excludes all authentication secrets and credentials, and has a 32 MiB response limit. Each document supports at most 100 boards; exporting a larger workspace returns `413` with backup guidance. This document limit does not impose a workspace-wide board quota. `POST /api/import` accepts that document with the same 32 MiB limit and adds its boards, tasks, and comments without replacing existing data. Imported member metadata does not grant login access or change existing members' roles. New imported people start disabled and need an administrator invitation to join. The operator retains administrator access. For a larger workspace or full identity/history recovery, use [PostgreSQL backup and restore](backup.md).
 
 `GET /health/live` reports service liveness. `GET /health/ready` checks PostgreSQL and returns the application version. Neither needs a session. The response contains no credentials or personal data.
 

@@ -1,6 +1,6 @@
 # B1 security review
 
-This review covers the working implementation on 2026-09-28. It is independent API and database evidence, not release approval. The reviewed tree is still being integrated; CI, production installation, browser journeys, screenshots, and the coordinator's final review remain separate gates in [B1 verification](b1-verification.md).
+This independent review covers the original working implementation on 2026-09-28. Its 13 security regressions remain in the revised candidate's passing 84-test API/database suite. The final local browser run also passes all 72 cases. These current results are recorded in [B1 verification](b1-verification.md); exact-commit CI, clean installation, production verification, and private artifacts remain separate from the historical review below.
 
 ## Verification
 

@@ -65,10 +65,26 @@ teamRoutes.get("/members", async (c) => {
   return c.json({ items });
 });
 teamRoutes.get("/invitations", async (c) => {
-  admin(c);
-  const items =
-    await sql`SELECT id,email,role,created_at,expires_at,accepted_at,revoked_at FROM invitations ORDER BY created_at DESC LIMIT 100`;
-  return c.json({ items });
+  const who = admin(c);
+  const limit = Number(c.req.query("limit") ?? 100);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100)
+    badRequest("Limit must be between 1 and 100");
+  const rawCursor = c.req.query("cursor");
+  const cursor = rawCursor === undefined ? undefined : uuid(rawCursor);
+  const [anchor] = cursor
+    ? await sql`SELECT i.id FROM invitations i JOIN users inviter ON inviter.id=i.invited_by WHERE i.id=${cursor} AND inviter.workspace_id=(SELECT workspace_id FROM users WHERE id=${who.userId})`
+    : [];
+  if (cursor && !anchor)
+    badRequest("This invitation cursor does not belong to the workspace");
+  const rows =
+    await sql`SELECT i.id,i.email,i.role,i.created_at,i.expires_at,i.accepted_at,i.revoked_at FROM invitations i JOIN users inviter ON inviter.id=i.invited_by WHERE inviter.workspace_id=(SELECT workspace_id FROM users WHERE id=${who.userId}) ${anchor ? sql`AND (i.created_at,i.id)<(SELECT created_at,id FROM invitations WHERE id=${anchor.id})` : sql``} ORDER BY i.created_at DESC,i.id DESC LIMIT ${limit + 1}`;
+  const items = rows.slice(0, limit);
+  const hasMore = rows.length > limit;
+  return c.json({
+    items,
+    hasMore,
+    nextCursor: hasMore ? items.at(-1)!.id : null,
+  });
 });
 teamRoutes.post("/invitations", async (c) => {
   const who = admin(c);

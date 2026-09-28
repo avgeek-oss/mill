@@ -107,8 +107,8 @@ export function Choice({
       isDisabled={disabled ?? props.isDisabled}
     >
       <Label>{label}</Label>
-      <Select.Trigger>
-        <Select.Value>
+      <Select.Trigger className="min-w-0">
+        <Select.Value className="min-w-0 flex-1 truncate">
           {items.find((item) => item.id === value)?.name ?? "Choose…"}
         </Select.Value>
         <Select.Indicator />
@@ -151,6 +151,9 @@ export type DialogProps = Omit<
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  size?: ComponentProps<typeof Modal.Container>["size"];
+  scroll?: ComponentProps<typeof Modal.Container>["scroll"];
+  isDismissDisabled?: boolean;
 };
 
 export function Dialog({
@@ -160,17 +163,28 @@ export function Dialog({
   children,
   footer,
   wide = false,
+  size,
+  scroll = "inside",
+  isDismissDisabled = false,
   className,
   ...props
 }: DialogProps) {
   return (
-    <Modal.Backdrop isOpen={open} onOpenChange={(value) => !value && onClose()}>
-      <Modal.Container size={wide ? "lg" : "md"}>
+    <Modal.Backdrop
+      isOpen={open}
+      isDismissable={!isDismissDisabled}
+      isKeyboardDismissDisabled={isDismissDisabled}
+      onOpenChange={(value) => !value && !isDismissDisabled && onClose()}
+    >
+      <Modal.Container size={size ?? (wide ? "lg" : "md")} scroll={scroll}>
         <Modal.Dialog
           {...props}
           className={cn(wide && "mill-dialog wide", className)}
         >
-          <Modal.CloseTrigger aria-label="Close dialog" />
+          <Modal.CloseTrigger
+            aria-label="Close dialog"
+            isDisabled={isDismissDisabled}
+          />
           <Modal.Header>
             <Modal.Heading>{title}</Modal.Heading>
           </Modal.Header>

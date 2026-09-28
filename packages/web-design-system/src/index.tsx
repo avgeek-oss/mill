@@ -18,7 +18,8 @@ export {
   SearchField,
   TextArea,
   TextArea as Textarea,
-  Checkbox,
+  Separator,
+  Avatar,
   Switch,
   Spinner,
   Autocomplete,
@@ -26,12 +27,18 @@ export {
 export { cn } from "./utils.js";
 export * from "./typography/typography.js";
 export * from "./forms/field.js";
+export * from "./forms/file-field.js";
+export * from "./forms/password-input.js";
+export * from "./forms/checkbox.js";
+export * from "./navigation/tabs.js";
 export * from "./overlays/tooltip.js";
 export * from "./overlays/heading-help.js";
 export * from "./data-display/chip.js";
 export * from "./data-display/widget.js";
 export * from "./data-display/table.js";
+export * from "./data-display/list-view.js";
 export * from "./feedback/alert.js";
+export * from "./feedback/skeleton.js";
 export * from "./data-display/widget-context.js";
 export * from "./data-display/empty-state.js";
 export * from "./compatibility.js";

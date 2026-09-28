@@ -63,7 +63,7 @@ Import adds the exported boards to the current workspace. It does not replace cu
 
 Mill matches member metadata by normalized email. New imported members start with access disabled. Open People and choose Invite a person to let them choose a new password and regain access. Their restored task assignments and comment attribution stay attached to the same imported member record.
 
-Portable files have a 32 MiB limit. Imports support up to 100 boards, 50 statuses per board, 50,000 tasks, and 100,000 comments, subject to that file limit and the workspace's 100-board total. Use [database backup and restore](operations.md) to preserve a complete larger instance, including accounts, credentials, notifications, and history.
+Portable files have a 32 MiB limit. Each document supports up to 100 boards, 50 statuses per board, 50,000 tasks, and 100,000 comments, subject to that file limit. Imports add their boards without a workspace-wide board quota. Export reports an error when the workspace exceeds the document limits and directs the administrator to [database backup and restore](operations.md) to preserve the complete larger instance, including accounts, credentials, notifications, and history.
 
 ## Domain API
 
@@ -71,7 +71,7 @@ See [API and MCP access](agents.md) for authentication, scopes, rate limits, and
 
 | Method and path            | Request or query                                                          | Response                                                                          |
 | -------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `GET /boards`              | `archived=true` or `deleted=true`                                         | `{items}`; up to 100 boards in board order                                        |
+| `GET /boards`              | `archived=true` or `deleted=true`; optional `limit`, opaque `cursor`      | `{items,hasMore,nextCursor}`; up to 100 boards per page in board order            |
 | `POST /boards`             | `{name,prefix?,description?}`                                             | `201 {board}` with default statuses                                               |
 | `GET /boards/:id`          |                                                                           | `{board,columns}`                                                                 |
 | `PATCH /boards/:id`        | `{version,name?,description?,archived?,deleted?,beforeId?}`               | `{board}`                                                                         |

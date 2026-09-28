@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import { verifyConfiguredStaticContent } from "./static-smoke.mjs";
 
 const origin = process.env.MILL_VERIFY_URL;
 const password = process.env.MILL_VERIFY_PASSWORD;
@@ -64,6 +65,7 @@ assert.equal(page.headers.get("x-content-type-options"), "nosniff");
 assert.ok(page.headers.get("referrer-policy"));
 assert.match(await page.text(), /<div\s+id=["']root["']/);
 pass("Production web application and readiness endpoint respond");
+await verifyConfiguredStaticContent();
 
 let state;
 if (process.env.MILL_VERIFY_MODE === "fresh") {

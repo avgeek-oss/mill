@@ -6,8 +6,20 @@ import {
   Dialog,
   ErrorMessage,
   TextField,
+  Alert,
+  Avatar,
+  Checkbox,
+  Field,
+  FieldLabel,
+  FieldSeparator,
+  Label,
+  Link as TaskLink,
+  Tabs,
+  TextArea,
+  TypographyParagraph,
+  TypographyText,
 } from "@mill/web-design-system";
-import { Check, Link, Plus, Trash2 } from "lucide-react";
+import { Calendar, Check, LinkIcon, Plus, Trash2 } from "./icons.js";
 import type {
   Activity,
   ChecklistItem,
@@ -16,8 +28,10 @@ import type {
   Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
-import { ApiError, api, errorText, type User } from "./api.js";
+import { ApiError, api, createRetryKey, errorText, type User } from "./api.js";
 import { Markdown } from "./markdown.js";
+import { activityLabel } from "./activity-label.js";
+import { hasCommentResponse, hasTaskResponse } from "./responses.js";
 export type TaskSelection = {
   id?: string;
   columnId?: string;
@@ -28,12 +42,14 @@ type TaskDetail = {
   task: Task;
   comments: Comment[];
   activity: Activity[];
-  subtasks?: Pick<Task, "id" | "identifier" | "title">[];
+  subtasks?: RelatedTask[];
   parent?: Pick<Task, "id" | "identifier" | "title"> | null;
   commentsPage?: { hasMore: boolean; nextCursor: string | null };
   activityPage?: { hasMore: boolean; nextCursor: string | null };
   subtasksPage?: { hasMore: boolean; nextCursor: string | null };
 };
+type RelatedTask = Pick<Task, "id" | "identifier" | "title"> &
+  Partial<Pick<Task, "columnId" | "assigneeId" | "priority" | "dueDate">>;
 export function TaskDialog({
   selection,
   boardId,
@@ -81,15 +97,28 @@ export function TaskDialog({
   const [activityMore, setActivityMore] = useState(false);
   const [comment, setComment] = useState("");
   const [commentEdit, setCommentEdit] = useState<Comment | null>(null);
+  const [taskCreateKey] = useState(createRetryKey);
+  const [commentCreateKey] = useState(createRetryKey);
+  const [commentToDelete, setCommentToDelete] = useState<Comment | null>(null);
   const [preview, setPreview] = useState(!!selection.id);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(!!selection.id);
   const [error, setError] = useState("");
+  const [errorAction, setErrorAction] = useState<
+    "task" | "discussion" | "lifecycle"
+  >("task");
   const [conflict, setConflict] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [tab, setTab] = useState("comments");
   const [copyNotice, setCopyNotice] = useState("");
   const writable = user.role !== "viewer" && !readOnly;
+  const editable = writable && !detail?.task.deletedAt;
+  function close() {
+    if (busy) return;
+    taskCreateKey.reset();
+    commentCreateKey.reset();
+    onClose();
+  }
   async function load() {
     if (!selection.id) return;
     setLoading(true);
@@ -150,7 +179,11 @@ export function TaskDialog({
   useEffect(() => {
     if (detail) document.title = `${detail.task.identifier} · Mill`;
   }, [detail?.task.identifier]);
-  async function run(action: () => Promise<void>) {
+  async function run(
+    action: () => Promise<void>,
+    context: "task" | "discussion" | "lifecycle" = "task",
+  ) {
+    if (busy) return;
     setBusy(true);
     setError("");
     try {
@@ -158,13 +191,16 @@ export function TaskDialog({
       onSaved();
     } catch (e) {
       setError(errorText(e));
-      setConflict(e instanceof ApiError && e.status === 409);
+      setErrorAction(context);
+      if (context === "task")
+        setConflict(e instanceof ApiError && e.status === 409);
     } finally {
       setBusy(false);
     }
   }
   async function save(event: FormEvent) {
     event.preventDefault();
+    if (selection.id && !detail) return;
     await run(async () => {
       const payload = {
         ...form,
@@ -179,15 +215,31 @@ export function TaskDialog({
         ...(beforeId === "keep" ? {} : { beforeId: beforeId || null }),
         ...(detail ? { version: detail.task.version } : {}),
       };
+      const path = detail
+        ? `/tasks/${detail.task.id}`
+        : `/boards/${boardId}/tasks`;
       const result = await api<{ task: Task }>(
-        detail ? `/tasks/${detail.task.id}` : `/boards/${boardId}/tasks`,
+        path,
         payload,
         detail ? "PATCH" : "POST",
+        {
+          validateResponse: hasTaskResponse,
+          ...(!detail
+            ? {
+                headers: {
+                  "Idempotency-Key": taskCreateKey.forRequest(path, payload),
+                },
+              }
+            : {}),
+        },
       );
       if (detail) {
         setDetail({ ...detail, task: result.task });
         setCopyNotice("Changes saved.");
-      } else onSelect({ id: result.task.id });
+      } else {
+        taskCreateKey.reset();
+        onSelect({ id: result.task.id });
+      }
     });
   }
   function patch(key: keyof typeof form, value: string) {
@@ -226,12 +278,12 @@ export function TaskDialog({
         setActivityCursor(page.nextCursor);
         setActivityMore(page.hasMore);
       }
-    });
+    }, "discussion");
   }
   async function loadSubtasks() {
     await run(async () => {
       const next = await api<{
-        items: Pick<Task, "id" | "identifier" | "title">[];
+        items: RelatedTask[];
         hasMore: boolean;
         nextCursor: string | null;
       }>(
@@ -248,30 +300,49 @@ export function TaskDialog({
   }
   async function submitComment() {
     await run(async () => {
+      const path = commentEdit
+        ? `/comments/${commentEdit.id}`
+        : `/tasks/${detail!.task.id}/comments`;
+      const payload = {
+        body: comment,
+        ...(commentEdit ? { version: commentEdit.version } : {}),
+      };
       const result = await api<{ comment: Comment }>(
-        commentEdit
-          ? `/comments/${commentEdit.id}`
-          : `/tasks/${detail!.task.id}/comments`,
-        {
-          body: comment,
-          ...(commentEdit ? { version: commentEdit.version } : {}),
-        },
+        path,
+        payload,
         commentEdit ? "PATCH" : "POST",
+        {
+          validateResponse: hasCommentResponse,
+          ...(!commentEdit
+            ? {
+                headers: {
+                  "Idempotency-Key": commentCreateKey.forRequest(path, payload),
+                },
+              }
+            : {}),
+        },
       );
+      if (!commentEdit) commentCreateKey.reset();
+      const savedComment = {
+        ...result.comment,
+        authorName:
+          result.comment.authorName ?? commentEdit?.authorName ?? user.name,
+      };
       setDetail((prev) =>
         prev
           ? {
               ...prev,
               comments: commentEdit
                 ? prev.comments.map((c) =>
-                    c.id === commentEdit.id ? result.comment : c,
+                    c.id === commentEdit.id ? savedComment : c,
                   )
-                : [...prev.comments, result.comment],
+                : [...prev.comments, savedComment],
             }
           : prev,
       );
       setComment("");
       setCommentEdit(null);
+      setCopyNotice(commentEdit ? "Comment updated." : "Comment added.");
       const activity = await api<{ items: Activity[] }>(
         `/tasks/${detail!.task.id}/activity?limit=100`,
       );
@@ -280,28 +351,40 @@ export function TaskDialog({
       );
       setActivityCursor(activity.items.at(-1)?.id ?? null);
       setActivityMore(activity.items.length === 100);
-    });
+    }, "discussion");
   }
   async function lifecycle(action: "archive" | "restore" | "delete") {
     await run(async () => {
+      let result: { task: Task };
       if (action === "delete")
-        await api(
+        result = await api<{ task: Task }>(
           `/tasks/${detail!.task.id}`,
           { version: detail!.task.version },
           "DELETE",
         );
       else if (detail!.task.deletedAt)
-        await api(`/tasks/${detail!.task.id}/restore`, {
-          version: detail!.task.version,
-        });
+        result = await api<{ task: Task }>(
+          `/tasks/${detail!.task.id}/restore`,
+          {
+            version: detail!.task.version,
+          },
+        );
       else
-        await api(
+        result = await api<{ task: Task }>(
           `/tasks/${detail!.task.id}`,
           { version: detail!.task.version, archived: action === "archive" },
           "PATCH",
         );
-      onClose();
-    });
+      setDetail((prev) => (prev ? { ...prev, task: result.task } : prev));
+      setConfirm(false);
+      setCopyNotice(
+        action === "delete"
+          ? "Task deleted. You can restore it here."
+          : action === "archive"
+            ? "Task archived."
+            : "Task restored.",
+      );
+    }, "lifecycle");
   }
   const subtasks = detail
     ? (detail.subtasks ?? tasks.filter((t) => t.parentId === detail.task.id))
@@ -312,167 +395,257 @@ export function TaskDialog({
       ? [detail.parent]
       : []),
   ];
+  function addChecklistItem() {
+    if (!itemText.trim()) return;
+    setChecklist((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), text: itemText.trim(), done: false },
+    ]);
+    setItemText("");
+  }
   return (
     <Dialog
+      isDismissDisabled={busy}
       open
-      onClose={onClose}
+      onClose={close}
       wide
       title={
         detail
           ? detail.task.identifier
-          : selection.parentId
-            ? "New subtask"
-            : "New task"
+          : selection.id
+            ? "Task"
+            : selection.parentId
+              ? "New subtask"
+              : "New task"
       }
       footer={
-        <>
-          <span className="dialog-status" role="status">
-            {busy ? "Saving…" : copyNotice}
-          </span>
-          <Button variant="secondary" onPress={onClose}>
-            Close
-          </Button>
-          {writable && !detail?.task.deletedAt && (
-            <Button isDisabled={busy || loading} type="submit" form="task-form">
-              {detail ? "Save changes" : "Create task"}
+        <div className="grid w-full gap-3">
+          {(!conflict || errorAction !== "task") &&
+            (!selection.id || detail) && <ErrorMessage>{error}</ErrorMessage>}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <TypographyText
+              className="mr-auto text-sm"
+              color="muted"
+              role="status"
+            >
+              {busy ? "Saving…" : copyNotice}
+            </TypographyText>
+            <Button variant="secondary" onPress={close} isDisabled={busy}>
+              Close
             </Button>
-          )}
-        </>
+            {writable &&
+              (!selection.id || detail) &&
+              !detail?.task.deletedAt && (
+                <Button
+                  isDisabled={busy || loading}
+                  type="submit"
+                  form="task-form"
+                >
+                  {detail ? "Save changes" : "Create task"}
+                </Button>
+              )}
+          </div>
+        </div>
       }
     >
       {loading ? (
-        <p role="status">Loading task…</p>
+        <TypographyParagraph size="sm" color="muted" role="status">
+          Loading task…
+        </TypographyParagraph>
+      ) : selection.id && !detail ? (
+        <Alert status="danger" role="alert">
+          <Alert.Indicator />
+          <Alert.Content>
+            <Alert.Title>Unable to load this task</Alert.Title>
+            <Alert.Description>
+              {error || "Try loading the task again."}
+            </Alert.Description>
+            <Button
+              variant="secondary"
+              className="mt-3"
+              onPress={() => void load()}
+            >
+              Reload task
+            </Button>
+          </Alert.Content>
+        </Alert>
       ) : (
         <>
-          <ErrorMessage>{error}</ErrorMessage>
           {conflict && (
-            <div className="conflict">
-              <p>
-                Another person changed this task. Reload the current version
-                before saving again. Your draft stays here until you reload.
-              </p>
-              <Button variant="secondary" onPress={() => void load()}>
-                Reload task
-              </Button>
-            </div>
+            <Alert status="warning" role="alert" className="mb-4">
+              <Alert.Indicator />
+              <Alert.Content>
+                <Alert.Title>Your draft is preserved</Alert.Title>
+                <Alert.Description>
+                  Another person changed this task. Reload the current version
+                  before saving again. Your draft stays here until you reload.
+                </Alert.Description>
+                <Button
+                  variant="secondary"
+                  className="mt-3"
+                  isDisabled={busy}
+                  onPress={() => void load()}
+                >
+                  Reload task
+                </Button>
+              </Alert.Content>
+            </Alert>
           )}
-          <form
-            id="task-form"
-            className="task-layout"
-            onSubmit={(e) => void save(e)}
-          >
-            <div className="task-content">
+          <div className="task-layout">
+            <form
+              id="task-form"
+              className="task-content"
+              onSubmit={(e) => void save(e)}
+              onKeyDown={(e) => {
+                if (
+                  (e.metaKey || e.ctrlKey) &&
+                  e.key === "Enter" &&
+                  e.target instanceof HTMLTextAreaElement
+                ) {
+                  e.preventDefault();
+                  e.currentTarget.requestSubmit();
+                }
+              }}
+            >
               <TextField
+                className="min-w-0 w-full"
                 label="Title"
                 value={form.title}
                 onChange={(e) => patch("title", e.target.value)}
                 required
                 maxLength={300}
                 disabled={!writable || !!detail?.task.deletedAt}
-                autoFocus={!selection.id}
+                autoFocus={
+                  !selection.id &&
+                  !window.matchMedia("(pointer: coarse)").matches
+                }
               />
-              <div className="field">
-                <div className="row space-between">
-                  <span className="field-label">Description</span>
-                  <div className="segmented">
-                    <Button
-                      variant={preview ? "ghost" : "secondary"}
-                      onPress={() => setPreview(false)}
-                    >
-                      Write
-                    </Button>
-                    <Button
-                      variant={preview ? "secondary" : "ghost"}
-                      onPress={() => setPreview(true)}
-                    >
-                      Preview
-                    </Button>
+              <Field className="min-w-0">
+                <Tabs
+                  selectedKey={preview ? "preview" : "write"}
+                  onSelectionChange={(key) => setPreview(key === "preview")}
+                  className="min-w-0"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <FieldLabel htmlFor="task-description">
+                      Description
+                    </FieldLabel>
+                    <Tabs.ListContainer>
+                      <Tabs.List aria-label="Description mode">
+                        <Tabs.Tab id="write">
+                          Write
+                          <Tabs.Indicator />
+                        </Tabs.Tab>
+                        <Tabs.Tab id="preview">
+                          Preview
+                          <Tabs.Indicator />
+                        </Tabs.Tab>
+                      </Tabs.List>
+                    </Tabs.ListContainer>
                   </div>
-                </div>
-                {preview ? (
-                  <div className="markdown-preview">
+                  <Tabs.Panel id="write" className="pt-3">
+                    <TextArea
+                      id="task-description"
+                      variant="secondary"
+                      className="min-w-0 w-full"
+                      value={form.description}
+                      onChange={(e) => patch("description", e.target.value)}
+                      maxLength={50000}
+                      disabled={!editable}
+                      placeholder="Add context, links, or a plan…"
+                    />
+                  </Tabs.Panel>
+                  <Tabs.Panel id="preview" className="markdown-preview text-sm">
                     {form.description ? (
                       <Markdown>{form.description}</Markdown>
                     ) : (
-                      <p className="muted">No description yet.</p>
+                      <TypographyParagraph size="sm" color="muted">
+                        No description yet.
+                      </TypographyParagraph>
                     )}
-                  </div>
-                ) : (
-                  <TextField
-                    label="Markdown description"
-                    multiline
-                    value={form.description}
-                    onChange={(e) => patch("description", e.target.value)}
-                    maxLength={50000}
-                    disabled={!writable}
-                    placeholder="Add context, links, or a plan…"
-                  />
-                )}
-              </div>
-              <div className="field">
+                  </Tabs.Panel>
+                </Tabs>
+              </Field>
+              <div className="content-grid min-w-0">
                 <div className="row space-between">
-                  <span className="field-label">Checklist</span>
+                  <TypographyText textRole="label">Checklist</TypographyText>
                   <span className="small muted">
                     {checklist.filter((i) => i.done).length}/{checklist.length}
                   </span>
                 </div>
-                {checklist.map((item) => (
-                  <div className="checklist-row" key={item.id}>
-                    <input
-                      aria-label={item.text}
-                      type="checkbox"
-                      checked={item.done}
-                      disabled={!writable}
-                      onChange={(e) =>
-                        setChecklist((prev) =>
-                          prev.map((i) =>
-                            i.id === item.id
-                              ? { ...i, done: e.target.checked }
-                              : i,
-                          ),
-                        )
-                      }
-                    />
-                    <span className={item.done ? "completed" : ""}>
-                      {item.text}
-                    </span>
-                    {writable && (
-                      <Button
-                        variant="ghost"
-                        aria-label={`Remove ${item.text}`}
-                        onPress={() =>
+                <div className="grid">
+                  {checklist.map((item) => (
+                    <div
+                      className="flex min-w-0 items-start gap-2 border-b border-separator py-3 first:pt-0 last:border-0 last:pb-0"
+                      key={item.id}
+                    >
+                      <Checkbox
+                        variant="secondary"
+                        isSelected={item.done}
+                        isDisabled={!editable}
+                        onChange={(done) =>
                           setChecklist((prev) =>
-                            prev.filter((i) => i.id !== item.id),
+                            prev.map((i) =>
+                              i.id === item.id ? { ...i, done } : i,
+                            ),
                           )
                         }
+                        className="min-w-0 flex-1 items-start"
                       >
-                        <Trash2 />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-                {writable && (
-                  <div className="row">
-                    <TextField
-                      label="New checklist item"
-                      value={itemText}
-                      onChange={(e) => setItemText(e.target.value)}
-                      maxLength={500}
-                    />
+                        <Checkbox.Content className="min-w-0 items-start">
+                          <Checkbox.Control>
+                            <Checkbox.Indicator />
+                          </Checkbox.Control>
+                          <Label
+                            className={
+                              item.done
+                                ? "min-w-0 text-sm text-muted line-through [overflow-wrap:anywhere]"
+                                : "min-w-0 text-sm [overflow-wrap:anywhere]"
+                            }
+                          >
+                            {item.text}
+                          </Label>
+                        </Checkbox.Content>
+                      </Checkbox>
+                      {editable && (
+                        <Button
+                          variant="ghost"
+                          isIconOnly
+                          aria-label={`Remove ${item.text}`}
+                          onPress={() =>
+                            setChecklist((prev) =>
+                              prev.filter((i) => i.id !== item.id),
+                            )
+                          }
+                        >
+                          <Trash2 />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {editable && (
+                  <div className="flex min-w-0 items-end gap-2">
+                    <div className="min-w-0 flex-1">
+                      <TextField
+                        label="New checklist item"
+                        value={itemText}
+                        onChange={(e) => setItemText(e.target.value)}
+                        maxLength={500}
+                        className="min-w-0 w-full"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addChecklistItem();
+                          }
+                        }}
+                      />
+                    </div>
                     <Button
                       variant="secondary"
+                      isIconOnly
                       isDisabled={!itemText.trim()}
-                      onPress={() => {
-                        setChecklist((prev) => [
-                          ...prev,
-                          {
-                            id: crypto.randomUUID(),
-                            text: itemText.trim(),
-                            done: false,
-                          },
-                        ]);
-                        setItemText("");
-                      }}
+                      onPress={addChecklistItem}
                       aria-label="Add checklist item"
                     >
                       <Plus />
@@ -481,10 +654,10 @@ export function TaskDialog({
                 )}
               </div>
               {detail && (
-                <div className="field">
+                <div className="content-grid min-w-0">
                   <div className="row space-between">
-                    <span className="field-label">Subtasks</span>
-                    {writable && (
+                    <TypographyText textRole="label">Subtasks</TypographyText>
+                    {editable && (
                       <Button
                         variant="ghost"
                         onPress={() =>
@@ -500,19 +673,83 @@ export function TaskDialog({
                     )}
                   </div>
                   {subtasks.length ? (
-                    subtasks.map((task) => (
-                      <Button
-                        key={task.id}
-                        variant="ghost"
-                        className="subtask-link"
-                        onPress={() => onSelect({ id: task.id })}
-                      >
-                        <span className="mono muted">{task.identifier}</span>
-                        <span>{task.title}</span>
-                      </Button>
-                    ))
+                    <div className="grid">
+                      {subtasks.map((task) => {
+                        const status = columns.find(
+                          (column) => column.id === task.columnId,
+                        );
+                        const assignee = members.find(
+                          (member) => member.id === task.assigneeId,
+                        );
+                        return (
+                          <div
+                            key={task.id}
+                            className="flex min-w-0 flex-wrap items-center gap-3 border-b border-separator py-3 first:pt-0 last:border-0 last:pb-0"
+                          >
+                            <TaskLink
+                              href={`/boards/${boardId}/tasks/${task.id}`}
+                              className="grid min-w-0 flex-1 gap-1 text-foreground"
+                            >
+                              <span className="font-mono text-xs text-muted">
+                                {task.identifier}
+                              </span>
+                              <span className="text-sm font-medium [overflow-wrap:anywhere]">
+                                {task.title}
+                              </span>
+                            </TaskLink>
+                            <div className="flex shrink-0 flex-wrap items-center gap-2">
+                              {status && (
+                                <Chip
+                                  variant="secondary"
+                                  size="small"
+                                  icon={
+                                    <span
+                                      className="status-dot"
+                                      style={{
+                                        background: `var(--status-${status.color})`,
+                                      }}
+                                    />
+                                  }
+                                >
+                                  {status.name}
+                                </Chip>
+                              )}
+                              {task.dueDate && (
+                                <Chip
+                                  variant="secondary"
+                                  size="small"
+                                  icon={<Calendar />}
+                                >
+                                  {new Intl.DateTimeFormat(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    timeZone: "UTC",
+                                  }).format(
+                                    new Date(
+                                      `${task.dueDate.slice(0, 10)}T12:00:00Z`,
+                                    ),
+                                  )}
+                                </Chip>
+                              )}
+                              {assignee && (
+                                <Avatar
+                                  size="sm"
+                                  aria-label={`Assigned to ${assignee.name}`}
+                                >
+                                  <Avatar.Fallback>
+                                    {assignee.name.slice(0, 1).toUpperCase()}
+                                  </Avatar.Fallback>
+                                </Avatar>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   ) : (
-                    <p className="small muted">No subtasks yet.</p>
+                    <TypographyParagraph size="sm" color="muted">
+                      No subtasks yet.
+                    </TypographyParagraph>
                   )}
                   {subtasksMore && (
                     <Button
@@ -525,25 +762,28 @@ export function TaskDialog({
                   )}
                 </div>
               )}
-            </div>
+            </form>
             <aside className="task-properties">
               <Choice
+                className="min-w-0 w-full"
                 label="Status"
                 value={form.columnId}
                 onChange={(value) => patch("columnId", value)}
                 items={columns}
-                disabled={!writable}
+                disabled={!editable}
                 search
               />
               <Choice
+                className="min-w-0 w-full"
                 label="Assignee"
                 value={form.assigneeId}
                 onChange={(value) => patch("assigneeId", value)}
                 items={[{ id: "", name: "Unassigned" }, ...members]}
-                disabled={!writable}
+                disabled={!editable}
                 search
               />
               <Choice
+                className="min-w-0 w-full"
                 label="Priority"
                 value={form.priority}
                 onChange={(value) => patch("priority", value)}
@@ -554,24 +794,29 @@ export function TaskDialog({
                       ? "No priority"
                       : id[0].toUpperCase() + id.slice(1),
                 }))}
-                disabled={!writable}
+                disabled={!editable}
               />
               <TextField
+                className="min-w-0 w-full"
+                form="task-form"
                 label="Labels"
                 value={form.labels}
                 onChange={(e) => patch("labels", e.target.value)}
                 description="Separate labels with commas."
                 maxLength={500}
-                disabled={!writable}
+                disabled={!editable}
               />
               <TextField
+                className="min-w-0 w-full"
+                form="task-form"
                 label="Due date"
                 type="date"
                 value={form.dueDate}
                 onChange={(e) => patch("dueDate", e.target.value)}
-                disabled={!writable}
+                disabled={!editable}
               />
               <Choice
+                className="min-w-0 w-full"
                 label="Parent task"
                 value={form.parentId}
                 onChange={(value) => patch("parentId", value)}
@@ -584,7 +829,7 @@ export function TaskDialog({
                       name: `${t.identifier} · ${t.title}`,
                     })),
                 ]}
-                disabled={!writable}
+                disabled={!editable}
                 search
               />
               {optionsCursor && (
@@ -597,6 +842,7 @@ export function TaskDialog({
               )}
               {detail && (
                 <Choice
+                  className="min-w-0 w-full"
                   label="Position in status"
                   value={beforeId}
                   onChange={setBeforeId}
@@ -614,25 +860,25 @@ export function TaskDialog({
                         name: `Before ${t.identifier} · ${t.title}`,
                       })),
                   ]}
-                  disabled={!writable}
+                  disabled={!editable}
                   search
                 />
               )}
               {detail && (
                 <>
-                  <p className="small muted">
+                  <TypographyParagraph size="sm" color="muted">
                     Created{" "}
                     {new Date(detail.task.createdAt).toLocaleDateString(
                       undefined,
-                      { timeZone: user.timeZone },
+                      { timeZone: user.timeZone, dateStyle: "medium" },
                     )}
                     <br />
                     Updated{" "}
                     {new Date(detail.task.updatedAt).toLocaleDateString(
                       undefined,
-                      { timeZone: user.timeZone },
+                      { timeZone: user.timeZone, dateStyle: "medium" },
                     )}
-                  </p>
+                  </TypographyParagraph>
                   <Button
                     variant="ghost"
                     onPress={() =>
@@ -648,11 +894,19 @@ export function TaskDialog({
                         )
                     }
                   >
-                    <Link />
+                    <LinkIcon />
                     Copy task link
                   </Button>
-                  {detail.task.archived && <Chip>Archived</Chip>}
-                  {detail.task.deletedAt && <Chip color="danger">Deleted</Chip>}
+                  {detail.task.archived && (
+                    <Chip variant="secondary" size="small">
+                      Archived
+                    </Chip>
+                  )}
+                  {detail.task.deletedAt && (
+                    <Chip variant="destructive" size="small">
+                      Deleted
+                    </Chip>
+                  )}
                   {writable && (
                     <div className="stack compact">
                       {detail.task.deletedAt ? (
@@ -680,6 +934,7 @@ export function TaskDialog({
                           </Button>
                           <Button
                             variant="danger-ghost"
+                            isDisabled={busy}
                             onPress={() => setConfirm(true)}
                           >
                             Delete task
@@ -691,167 +946,245 @@ export function TaskDialog({
                 </>
               )}
             </aside>
-          </form>
-          {detail && (
-            <section className="task-discussion">
-              <div className="segmented">
-                <Button
-                  variant={tab === "comments" ? "secondary" : "ghost"}
-                  onPress={() => setTab("comments")}
+            {detail && (
+              <section className="task-discussion">
+                <Tabs
+                  selectedKey={tab}
+                  onSelectionChange={(key) => setTab(String(key))}
+                  className="min-w-0"
                 >
-                  Comments ({detail.comments.length})
-                </Button>
-                <Button
-                  variant={tab === "activity" ? "secondary" : "ghost"}
-                  onPress={() => setTab("activity")}
-                >
-                  Activity
-                </Button>
-              </div>
-              {tab === "activity" ? (
-                <div>
-                  <ol className="activity-list">
-                    {detail.activity.map((item) => (
-                      <li key={item.id}>
-                        <span className="activity-dot" />
-                        <div>
-                          <strong>{item.actorName}</strong>
-                          {item.actorKind === "agent" && (
-                            <Chip>Agent</Chip>
-                          )}{" "}
-                          {item.action.replaceAll("_", " ")}
-                          <time>
-                            {new Date(item.createdAt).toLocaleString(
-                              undefined,
-                              {
-                                timeZone: user.timeZone,
-                              },
-                            )}
-                          </time>
-                        </div>
-                      </li>
-                    ))}
-                    {!detail.activity.length && (
-                      <li className="muted">No activity yet.</li>
-                    )}
-                  </ol>
-                  {activityMore && (
-                    <Button
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => void loadDiscussion("activity")}
-                    >
-                      Load earlier activity
-                    </Button>
-                  )}
-                </div>
-              ) : (
-                <>
-                  <div className="comment-list">
-                    {detail.comments.map((item) => (
-                      <article className="comment" key={item.id}>
-                        <div className="row space-between">
-                          <strong>{item.authorName}</strong>
-                          <time className="muted small">
-                            {new Date(item.createdAt).toLocaleString(
-                              undefined,
-                              { timeZone: user.timeZone },
-                            )}
-                          </time>
-                        </div>
-                        <Markdown>{item.body}</Markdown>
-                        {writable &&
-                          (item.authorId === user.id ||
-                            user.role === "admin") && (
-                            <div className="row">
-                              <Button
-                                variant="ghost"
-                                onPress={() => {
-                                  setCommentEdit(item);
-                                  setComment(item.body);
-                                }}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="danger-ghost"
-                                onPress={() =>
-                                  void run(async () => {
-                                    await api(
-                                      `/comments/${item.id}`,
-                                      { version: item.version },
-                                      "DELETE",
-                                    );
-                                    setDetail({
-                                      ...detail,
-                                      comments: detail.comments.filter(
-                                        (c) => c.id !== item.id,
-                                      ),
-                                    });
-                                  })
-                                }
-                              >
-                                Delete
-                              </Button>
+                  <Tabs.ListContainer className="w-fit max-w-full">
+                    <Tabs.List aria-label="Task discussion">
+                      <Tabs.Tab id="comments" className="whitespace-nowrap">
+                        Comments ({detail.comments.length})<Tabs.Indicator />
+                      </Tabs.Tab>
+                      <Tabs.Tab id="activity" className="whitespace-nowrap">
+                        Activity
+                        <Tabs.Indicator />
+                      </Tabs.Tab>
+                    </Tabs.List>
+                  </Tabs.ListContainer>
+                  <Tabs.Panel id="activity" className="pt-4">
+                    <ol className="activity-list">
+                      {detail.activity.map((item, index) => (
+                        <li key={item.id} className="group grid min-w-0">
+                          <div className="grid gap-1 py-3 group-first:pt-0 group-last:pb-0">
+                            <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm">
+                              <TypographyText textRole="label">
+                                {item.actorName}
+                              </TypographyText>
+                              {item.actorKind === "agent" && (
+                                <Chip variant="secondary" size="small">
+                                  Agent
+                                </Chip>
+                              )}
+                              <span>{activityLabel(item.action)}</span>
                             </div>
+                            <time
+                              dateTime={item.createdAt}
+                              className="text-sm text-muted"
+                            >
+                              {new Date(item.createdAt).toLocaleString(
+                                undefined,
+                                {
+                                  timeZone: user.timeZone,
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                },
+                              )}
+                            </time>
+                          </div>
+                          {index < detail.activity.length - 1 && (
+                            <FieldSeparator />
                           )}
-                      </article>
-                    ))}
-                  </div>
-                  {commentsMore && (
-                    <Button
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => void loadDiscussion("comments")}
-                    >
-                      Load more comments
-                    </Button>
-                  )}
-                  {writable && !detail.task.deletedAt && (
-                    <div className="stack compact">
-                      <TextField
-                        label={commentEdit ? "Edit comment" : "Add a comment"}
-                        multiline
-                        value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                        maxLength={10000}
-                        description="Use @email to mention a teammate. Markdown is supported."
-                      />
-                      <div className="row">
-                        <Button
-                          isDisabled={!comment.trim() || busy}
-                          onPress={() => void submitComment()}
-                        >
-                          <Check />
-                          {commentEdit ? "Save comment" : "Comment"}
-                        </Button>
-                        {commentEdit && (
-                          <Button
-                            variant="ghost"
-                            onPress={() => {
-                              setCommentEdit(null);
-                              setComment("");
-                            }}
-                          >
-                            Cancel edit
-                          </Button>
-                        )}
-                      </div>
+                        </li>
+                      ))}
+                      {!detail.activity.length && (
+                        <li className="muted">No activity yet.</li>
+                      )}
+                    </ol>
+                    {activityMore && (
+                      <Button
+                        variant="secondary"
+                        isDisabled={busy}
+                        onPress={() => void loadDiscussion("activity")}
+                      >
+                        Load earlier activity
+                      </Button>
+                    )}
+                  </Tabs.Panel>
+                  <Tabs.Panel id="comments" className="pt-4">
+                    <div className="comment-list">
+                      {detail.comments.map((item) => (
+                        <article className="comment text-sm" key={item.id}>
+                          <div className="row space-between">
+                            <TypographyText textRole="label">
+                              {item.authorName}
+                            </TypographyText>
+                            <time className="muted small">
+                              {new Date(item.createdAt).toLocaleString(
+                                undefined,
+                                {
+                                  timeZone: user.timeZone,
+                                  dateStyle: "medium",
+                                  timeStyle: "short",
+                                },
+                              )}
+                            </time>
+                          </div>
+                          <Markdown>{item.body}</Markdown>
+                          {editable &&
+                            (item.authorId === user.id ||
+                              user.role === "admin") && (
+                              <div className="row">
+                                <Button
+                                  variant="ghost"
+                                  onPress={() => {
+                                    setCommentEdit(item);
+                                    setComment(item.body);
+                                  }}
+                                >
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="danger-ghost"
+                                  isDisabled={busy}
+                                  onPress={() => setCommentToDelete(item)}
+                                >
+                                  Delete
+                                </Button>
+                              </div>
+                            )}
+                        </article>
+                      ))}
                     </div>
-                  )}
-                </>
-              )}
-            </section>
-          )}
+                    {commentsMore && (
+                      <Button
+                        variant="secondary"
+                        isDisabled={busy}
+                        onPress={() => void loadDiscussion("comments")}
+                      >
+                        Load more comments
+                      </Button>
+                    )}
+                    {writable && !detail.task.deletedAt && (
+                      <form
+                        className="content-grid min-w-0"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void submitComment();
+                        }}
+                      >
+                        <TextField
+                          className="min-w-0 w-full"
+                          label={commentEdit ? "Edit comment" : "Add a comment"}
+                          multiline
+                          value={comment}
+                          onChange={(e) => setComment(e.target.value)}
+                          maxLength={10000}
+                          onKeyDown={(e) => {
+                            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                              e.preventDefault();
+                              e.currentTarget.form?.requestSubmit();
+                            }
+                          }}
+                          description="Use @email to mention a teammate. Markdown is supported."
+                        />
+                        <div className="row">
+                          <Button
+                            isDisabled={!comment.trim() || busy}
+                            type="submit"
+                          >
+                            <Check />
+                            {commentEdit ? "Save comment" : "Comment"}
+                          </Button>
+                          {commentEdit && (
+                            <Button
+                              variant="ghost"
+                              onPress={() => {
+                                setCommentEdit(null);
+                                setComment("");
+                              }}
+                            >
+                              Cancel edit
+                            </Button>
+                          )}
+                        </div>
+                      </form>
+                    )}
+                  </Tabs.Panel>
+                </Tabs>
+              </section>
+            )}
+          </div>
         </>
       )}
       <Dialog
+        open={!!commentToDelete}
+        isDismissDisabled={busy}
+        onClose={() => setCommentToDelete(null)}
+        title="Delete comment?"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              isDisabled={busy}
+              onPress={() => setCommentToDelete(null)}
+            >
+              Keep comment
+            </Button>
+            <Button
+              variant="danger"
+              isDisabled={busy}
+              onPress={() =>
+                void run(async () => {
+                  if (!commentToDelete) return;
+                  await api(
+                    `/comments/${commentToDelete.id}`,
+                    { version: commentToDelete.version },
+                    "DELETE",
+                  );
+                  setDetail((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          comments: prev.comments.filter(
+                            (item) => item.id !== commentToDelete.id,
+                          ),
+                        }
+                      : prev,
+                  );
+                  if (commentEdit?.id === commentToDelete.id) {
+                    setCommentEdit(null);
+                    setComment("");
+                  }
+                  setCommentToDelete(null);
+                  setCopyNotice("Comment deleted.");
+                }, "discussion")
+              }
+            >
+              Delete comment
+            </Button>
+          </>
+        }
+      >
+        <TypographyParagraph size="sm">
+          This comment will be removed from the task discussion.
+        </TypographyParagraph>
+        <ErrorMessage>{errorAction === "discussion" ? error : ""}</ErrorMessage>
+      </Dialog>
+      <Dialog
+        isDismissDisabled={busy}
         open={confirm}
         onClose={() => setConfirm(false)}
         title="Delete this task?"
         footer={
           <>
-            <Button variant="secondary" onPress={() => setConfirm(false)}>
+            <Button
+              variant="secondary"
+              onPress={() => setConfirm(false)}
+              isDisabled={busy}
+            >
               Keep task
             </Button>
             <Button

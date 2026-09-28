@@ -1,4 +1,11 @@
-import { Suspense, lazy, useEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Button,
   Chip,
@@ -13,6 +20,9 @@ import {
   Table,
   Link,
   TooltipText,
+  FieldDescription,
+  TypographyCode,
+  TypographyParagraph,
 } from "@mill/web-design-system";
 import {
   ArrowDown,
@@ -21,6 +31,7 @@ import {
   List,
   Plus,
   Settings2,
+  Save,
 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import type {
@@ -35,6 +46,7 @@ const TaskDialog = lazy(() =>
   import("./task-dialog.js").then((m) => ({ default: m.TaskDialog })),
 );
 import { ErrorPage } from "./error-page.js";
+import { QueryLoading } from "./query-state.js";
 type Page = { items: Task[]; nextCursor?: string | null };
 export function BoardPage({
   boardId,
@@ -42,6 +54,7 @@ export function BoardPage({
   user,
   members,
   onBoardsChanged,
+  onBoardLoaded,
   path,
 }: {
   boardId: string;
@@ -49,6 +62,7 @@ export function BoardPage({
   user: User;
   members: Member[];
   onBoardsChanged: () => void;
+  onBoardLoaded: (board: Board) => void;
   path: string;
 }) {
   const [board, setBoard] = useState<Board | null>(null);
@@ -76,14 +90,17 @@ export function BoardPage({
   const [selection, setSelection] = useState<TaskSelection | null>(null);
   const [mobileColumn, setMobileColumn] = useState("");
   const [confirmBoard, setConfirmBoard] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
   const [boardBefore, setBoardBefore] = useState("keep");
   const [settings, setSettings] = useState(false);
   const [columnDraft, setColumnDraft] = useState({ name: "", color: "gray" });
   const [busy, setBusy] = useState(false);
+  const pendingSettingsOpener = useRef<HTMLElement | null>(null);
   const [settingsError, setSettingsError] = useState("");
+  const [settingsNotice, setSettingsNotice] = useState("");
   const latestLoad = useRef(0);
   const writable =
-    user.role !== "viewer" && !board?.archived && !board?.deletedAt;
+    !!board && user.role !== "viewer" && !board.archived && !board.deletedAt;
   useEffect(() => {
     const timer = setTimeout(() => setQ(query), 250);
     return () => clearTimeout(timer);
@@ -128,6 +145,7 @@ export function BoardPage({
       }
       if (request !== latestLoad.current) return;
       setBoard(info.board);
+      onBoardLoaded(info.board);
       setColumns(info.columns);
       setTasks((prev) =>
         more
@@ -208,29 +226,52 @@ export function BoardPage({
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
   }, [selection, settings, mobileColumn, writable]);
-  async function settingsRun(action: () => Promise<void>) {
-    const focusTarget =
-      document.activeElement instanceof HTMLElement
+  useLayoutEffect(() => {
+    if (!settings) {
+      pendingSettingsOpener.current = null;
+      return;
+    }
+    if (busy) return;
+    const target = pendingSettingsOpener.current;
+    pendingSettingsOpener.current = null;
+    if (
+      target?.isConnected &&
+      !target.matches(":disabled") &&
+      target.getAttribute("aria-disabled") !== "true" &&
+      (document.activeElement === document.body ||
+        document.activeElement === target)
+    )
+      target.focus({ preventScroll: true });
+  }, [busy, settings]);
+  useLayoutEffect(
+    () => () => {
+      pendingSettingsOpener.current = null;
+    },
+    [],
+  );
+  async function settingsRun(
+    action: () => Promise<void>,
+    notice = "Changes saved.",
+  ) {
+    if (busy) return false;
+    pendingSettingsOpener.current =
+      settings && document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
     setBusy(true);
     setSettingsError("");
+    setSettingsNotice("");
     try {
       await action();
       await load();
       onBoardsChanged();
+      setSettingsNotice(notice);
+      return true;
     } catch (e) {
       setSettingsError(errorText(e));
+      return false;
     } finally {
       setBusy(false);
-      window.requestAnimationFrame(() => {
-        if (
-          focusTarget?.isConnected &&
-          (document.activeElement === document.body ||
-            document.activeElement === focusTarget)
-        )
-          focusTarget.focus({ preventScroll: true });
-      });
     }
   }
   async function shiftColumn(column: Column, index: number, delta: number) {
@@ -383,14 +424,14 @@ export function BoardPage({
     return <ErrorPage onRetry={() => void load()} />;
   if (!board && !loading)
     return (
-      <section className="error-page">
-        <h1>Board unavailable</h1>
-        <ErrorMessage>{error || "This board could not be found."}</ErrorMessage>
-        <Button onPress={() => void load()}>Try again</Button>
-        <Button variant="secondary" onPress={() => navigate("/")}>
-          Go to boards
-        </Button>
-      </section>
+      <ErrorPage
+        code={[403, 404].includes(errorStatus) ? String(errorStatus) : "500"}
+        title={
+          errorStatus === 403 ? "Board access required" : "Board unavailable"
+        }
+        description={error || "This board could not be found."}
+        onRetry={() => void load()}
+      />
     );
   return (
     <>
@@ -431,6 +472,7 @@ export function BoardPage({
                 variant="ghost"
                 aria-label="Board settings"
                 isIconOnly
+                isDisabled={!board}
                 onPress={() => setSettings(true)}
               >
                 <Settings2 />
@@ -563,9 +605,7 @@ export function BoardPage({
       </div>
       <ErrorMessage>{error}</ErrorMessage>
       {loading ? (
-        <div className="loading-state" role="status">
-          Loading tasks…
-        </div>
+        <QueryLoading label="Loading tasks…" variant="list" />
       ) : !visibleTasks.length ? (
         emptyTasks()
       ) : view === "board" ? (
@@ -737,176 +777,285 @@ export function BoardPage({
       )}
       {settings && board && (
         <Dialog
+          isDismissDisabled={busy}
           open
-          onClose={() => setSettings(false)}
+          onClose={() => {
+            pendingSettingsOpener.current = null;
+            setSettings(false);
+          }}
           title="Board settings"
+          wide
           footer={
-            <Button variant="secondary" onPress={() => setSettings(false)}>
-              Done
-            </Button>
+            <div className="grid w-full gap-2">
+              <ErrorMessage>{settingsError}</ErrorMessage>
+              <TypographyText textRole="supporting" role="status">
+                {busy ? "Saving…" : settingsNotice}
+              </TypographyText>
+            </div>
           }
         >
-          <ErrorMessage>{settingsError}</ErrorMessage>
-          <form
-            className="stack"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void settingsRun(async () => {
-                const data = new FormData(e.currentTarget);
-                await api(
-                  `/boards/${board.id}`,
-                  {
-                    version: board.version,
-                    name: data.get("name"),
-                    description: data.get("description"),
-                    ...(boardBefore === "keep"
-                      ? {}
-                      : { beforeId: boardBefore || null }),
-                  },
-                  "PATCH",
-                );
-              });
-            }}
-          >
-            <TextField
-              label="Board name"
-              name="name"
-              defaultValue={board.name}
-              required
-              maxLength={100}
-            />
-            <TextField
-              label="Task prefix"
-              name="prefix"
-              value={board.prefix}
-              readOnly
-              description="Stable task identifiers keep their original prefix."
-            />
-            <TextField
-              label="Description"
-              name="description"
-              defaultValue={board.description}
-              multiline
-              maxLength={2000}
-            />
-            <Choice
-              label="Board order"
-              value={boardBefore}
-              onChange={setBoardBefore}
-              items={[
-                { id: "keep", name: "Keep current order" },
-                { id: "", name: "Move to the end" },
-                ...boards
-                  .filter((b) => b.id !== board.id)
-                  .map((b) => ({ id: b.id, name: `Before ${b.name}` })),
-              ]}
-              disabled={!writable}
-            />
-            <Button type="submit" isDisabled={busy || !writable}>
-              Save board
-            </Button>
-          </form>
-          <section className="settings-section">
-            <h2>Statuses</h2>
-            <p className="muted small">
-              Move statuses with the arrows. Tasks keep their order within each
-              status.
-            </p>
-            {columns.map((column, index) => (
-              <ColumnEditor
-                key={column.id}
-                column={column}
-                busy={busy || !writable}
-                onSave={(name, color) =>
-                  void settingsRun(async () => {
-                    await api(
-                      `/columns/${column.id}`,
-                      { version: column.version, name, color },
-                      "PATCH",
-                    );
-                  })
-                }
-                onShift={(delta) => void shiftColumn(column, index, delta)}
-                first={index === 0}
-                last={index === columns.length - 1}
-                onDelete={() =>
-                  void settingsRun(async () => {
-                    await api(
-                      `/columns/${column.id}`,
-                      { version: column.version },
-                      "DELETE",
-                    );
-                  })
-                }
-              />
-            ))}
-            <form
-              className="row"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void settingsRun(async () => {
-                  await api(`/boards/${board.id}/columns`, columnDraft);
-                  setColumnDraft({ ...columnDraft, name: "" });
-                });
-              }}
-            >
-              <TextField
-                label="New status"
-                value={columnDraft.name}
-                onChange={(e) =>
-                  setColumnDraft({ ...columnDraft, name: e.target.value })
-                }
-                required
-                maxLength={80}
-              />
-              <Button type="submit" isDisabled={busy || !writable}>
-                Add status
-              </Button>
-            </form>
-          </section>
-          <section className="settings-section">
-            <h2>Archive and deletion</h2>
-            <p className="muted small">
-              Archived boards remain accessible. Deleted boards can be restored
-              from the sidebar.
-            </p>
-            <div className="row">
+          <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
+            <div className="content-grid min-w-0">
+              <Widget>
+                <Widget.Header>
+                  <Widget.Title icon={<Settings2 />} help={false}>
+                    Board details
+                  </Widget.Title>
+                </Widget.Header>
+                <Widget.Content>
+                  <form
+                    className="content-grid min-w-0"
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const data = new FormData(e.currentTarget);
+                      void settingsRun(async () => {
+                        await api(
+                          `/boards/${board.id}`,
+                          {
+                            version: board.version,
+                            name: data.get("name"),
+                            description: data.get("description"),
+                            ...(boardBefore === "keep"
+                              ? {}
+                              : { beforeId: boardBefore || null }),
+                          },
+                          "PATCH",
+                        );
+                      }, "Board updated.");
+                    }}
+                  >
+                    <TextField
+                      label="Board name"
+                      name="name"
+                      defaultValue={board.name}
+                      required
+                      maxLength={100}
+                      disabled={!writable}
+                      className="min-w-0 w-full"
+                    />
+                    <FieldDescription>
+                      Task identifiers use{" "}
+                      <TypographyCode>{board.prefix}</TypographyCode>. The
+                      prefix stays fixed so existing links remain stable.
+                    </FieldDescription>
+                    <TextField
+                      label="Description"
+                      name="description"
+                      defaultValue={board.description}
+                      multiline
+                      maxLength={2000}
+                      disabled={!writable}
+                      className="min-w-0 w-full"
+                    />
+                    <Choice
+                      label="Board order"
+                      value={boardBefore}
+                      onChange={setBoardBefore}
+                      items={[
+                        { id: "keep", name: "Keep current order" },
+                        { id: "", name: "Move to the end" },
+                        ...boards
+                          .filter((b) => b.id !== board.id)
+                          .map((b) => ({ id: b.id, name: `Before ${b.name}` })),
+                      ]}
+                      disabled={!writable}
+                      className="min-w-0 w-full"
+                    />
+                    <div>
+                      <Button
+                        type="submit"
+                        isPending={busy}
+                        isDisabled={!writable}
+                      >
+                        <Save />
+                        Save board
+                      </Button>
+                    </div>
+                  </form>
+                </Widget.Content>
+              </Widget>
+              <Widget>
+                <Widget.Header>
+                  <Widget.Title help={false}>Archive and deletion</Widget.Title>
+                </Widget.Header>
+                <Widget.Content className="content-grid min-w-0">
+                  <TypographyParagraph size="sm" color="muted">
+                    Archived boards remain accessible. Deleted boards can be
+                    restored from the sidebar.
+                  </TypographyParagraph>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="secondary"
+                      isPending={busy}
+                      isDisabled={!!board.deletedAt}
+                      onPress={() => {
+                        if (board.archived)
+                          void settingsRun(async () => {
+                            await api(
+                              `/boards/${board.id}`,
+                              { version: board.version, archived: false },
+                              "PATCH",
+                            );
+                          }, "Board restored.");
+                        else setConfirmArchive(true);
+                      }}
+                    >
+                      {board.archived ? "Restore board" : "Archive board"}
+                    </Button>
+                    <Button
+                      variant={board.deletedAt ? "secondary" : "danger-ghost"}
+                      isPending={busy}
+                      onPress={() => {
+                        if (board.deletedAt)
+                          void settingsRun(async () => {
+                            await api(`/boards/${board.id}/restore`, {
+                              version: board.version,
+                            });
+                          }, "Board restored.");
+                        else setConfirmBoard(true);
+                      }}
+                    >
+                      {board.deletedAt
+                        ? "Restore deleted board"
+                        : "Delete board"}
+                    </Button>
+                  </div>
+                </Widget.Content>
+              </Widget>
+            </div>
+            <Widget className="min-w-0">
+              <Widget.Header>
+                <Widget.Title help={false}>Statuses</Widget.Title>
+              </Widget.Header>
+              <Widget.Content className="content-grid min-w-0">
+                <TypographyParagraph size="sm" color="muted">
+                  Use the arrows to reorder statuses. Tasks keep their order
+                  within each status.
+                </TypographyParagraph>
+                <div className="grid min-w-0">
+                  {columns.map((column, index) => (
+                    <ColumnEditor
+                      key={column.id}
+                      column={column}
+                      columns={columns}
+                      busy={busy}
+                      readOnly={!writable}
+                      error={settingsError}
+                      onSave={(name, color) =>
+                        void settingsRun(async () => {
+                          await api(
+                            `/columns/${column.id}`,
+                            { version: column.version, name, color },
+                            "PATCH",
+                          );
+                        }, "Status updated.")
+                      }
+                      onShift={(delta) =>
+                        void shiftColumn(column, index, delta)
+                      }
+                      first={index === 0}
+                      last={index === columns.length - 1}
+                      onDelete={async (moveToColumnId) => {
+                        const ok = await settingsRun(async () => {
+                          await api(
+                            `/columns/${column.id}`,
+                            {
+                              version: column.version,
+                              ...(moveToColumnId ? { moveToColumnId } : {}),
+                            },
+                            "DELETE",
+                          );
+                        }, "Status deleted.");
+                        if (ok)
+                          requestAnimationFrame(() =>
+                            document.getElementById("add-status")?.focus(),
+                          );
+                        return ok;
+                      }}
+                    />
+                  ))}
+                </div>
+                <form
+                  className="flex min-w-0 flex-wrap items-end gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void settingsRun(async () => {
+                      await api(`/boards/${board.id}/columns`, columnDraft);
+                      setColumnDraft({ ...columnDraft, name: "" });
+                    }, "Status added.");
+                  }}
+                >
+                  <div className="min-w-0 flex-1 basis-40">
+                    <TextField
+                      label="New status"
+                      value={columnDraft.name}
+                      onChange={(e) =>
+                        setColumnDraft({ ...columnDraft, name: e.target.value })
+                      }
+                      required
+                      maxLength={80}
+                      disabled={!writable}
+                      className="min-w-0 w-full"
+                    />
+                  </div>
+                  <Button
+                    id="add-status"
+                    type="submit"
+                    isPending={busy}
+                    isDisabled={!writable}
+                  >
+                    <Plus />
+                    Add status
+                  </Button>
+                </form>
+              </Widget.Content>
+            </Widget>
+          </div>
+        </Dialog>
+      )}
+      {confirmArchive && board && (
+        <Dialog
+          isDismissDisabled={busy}
+          open
+          onClose={() => setConfirmArchive(false)}
+          title="Archive board?"
+          footer={
+            <>
               <Button
                 variant="secondary"
-                isDisabled={busy}
+                onPress={() => setConfirmArchive(false)}
+                isPending={busy}
+              >
+                Keep active
+              </Button>
+              <Button
+                isPending={busy}
                 onPress={() =>
                   void settingsRun(async () => {
                     await api(
                       `/boards/${board.id}`,
-                      { version: board.version, archived: !board.archived },
+                      { version: board.version, archived: true },
                       "PATCH",
                     );
-                  })
+                    setConfirmArchive(false);
+                  }, "Board archived.")
                 }
               >
-                {board.archived ? "Restore board" : "Archive board"}
+                Archive board
               </Button>
-              <Button
-                variant={board.deletedAt ? "secondary" : "danger-ghost"}
-                isDisabled={busy}
-                onPress={() => {
-                  if (board.deletedAt)
-                    void settingsRun(async () => {
-                      await api(`/boards/${board.id}/restore`, {
-                        version: board.version,
-                      });
-                    });
-                  else setConfirmBoard(true);
-                }}
-              >
-                {board.deletedAt ? "Restore deleted board" : "Delete board"}
-              </Button>
-            </div>
-          </section>
+            </>
+          }
+        >
+          <TypographyParagraph size="sm">
+            The board stays accessible in archived boards. Restore it before
+            adding or editing tasks.
+          </TypographyParagraph>
+          <ErrorMessage>{settingsError}</ErrorMessage>
         </Dialog>
       )}
       {confirmBoard && board && (
         <Dialog
+          isDismissDisabled={busy}
           open
           onClose={() => setConfirmBoard(false)}
           title="Delete board?"
@@ -915,12 +1064,13 @@ export function BoardPage({
               <Button
                 variant="secondary"
                 onPress={() => setConfirmBoard(false)}
+                isPending={busy}
               >
                 Keep board
               </Button>
               <Button
                 variant="danger"
-                isDisabled={busy}
+                isPending={busy}
                 onPress={() =>
                   void settingsRun(async () => {
                     await api(
@@ -949,7 +1099,10 @@ export function BoardPage({
 }
 function ColumnEditor({
   column,
+  columns,
   busy,
+  readOnly,
+  error,
   onSave,
   onShift,
   first,
@@ -957,28 +1110,37 @@ function ColumnEditor({
   onDelete,
 }: {
   column: Column;
+  columns: Column[];
   busy: boolean;
+  readOnly: boolean;
+  error: string;
   onSave: (name: string, color: string) => void;
   onShift: (delta: number) => void;
   first: boolean;
   last: boolean;
-  onDelete: () => void;
+  onDelete: (moveToColumnId?: string) => Promise<boolean>;
 }) {
   const [name, setName] = useState(column.name);
   const [color, setColor] = useState(column.color);
+  const [moveTo, setMoveTo] = useState("");
+  const [confirm, setConfirm] = useState(false);
   useEffect(() => {
     setName(column.name);
     setColor(column.color);
   }, [column.name, column.color]);
-  const [confirm, setConfirm] = useState(false);
+  const colorName = color[0].toUpperCase() + color.slice(1);
   return (
-    <div className="column-editor">
-      <TextField
-        label="Status name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        maxLength={80}
-      />
+    <div className="column-editor min-w-0 border-b border-separator py-3 first:pt-0 last:border-0 last:pb-0">
+      <div className="min-w-0">
+        <TextField
+          label="Status name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          maxLength={80}
+          disabled={busy || readOnly}
+          className="min-w-0 w-full"
+        />
+      </div>
       <Choice
         label="Status color"
         value={color}
@@ -992,57 +1154,85 @@ function ColumnEditor({
           "red",
           "purple",
           "pink",
-        ].map((id) => ({ id, name: id }))}
-        disabled={busy}
+        ].map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1) }))}
+        disabled={busy || readOnly}
+        className="min-w-0 w-full"
       />
-      <Button
-        variant="secondary"
-        isDisabled={
-          busy ||
-          (name === column.name && color === column.color) ||
-          !name.trim()
-        }
-        onPress={() => onSave(name, color)}
-      >
-        Save
-      </Button>
-      <Button
-        variant="ghost"
-        aria-label={`Move ${column.name} earlier`}
-        isDisabled={busy || first}
-        onPress={() => onShift(-1)}
-      >
-        <ArrowUp />
-      </Button>
-      <Button
-        variant="ghost"
-        aria-label={`Move ${column.name} later`}
-        isDisabled={busy || last}
-        onPress={() => onShift(1)}
-      >
-        <ArrowDown />
-      </Button>
-      <Button
-        variant="danger-ghost"
-        isDisabled={busy}
-        onPress={() => setConfirm(true)}
-      >
-        Delete
-      </Button>
+      <div className="col-span-full flex flex-wrap items-center gap-2">
+        <Chip
+          variant="secondary"
+          size="small"
+          icon={
+            <span
+              className="status-dot"
+              style={{ background: `var(--status-${color})` }}
+            />
+          }
+        >
+          {colorName}
+        </Chip>
+        <Button
+          variant="secondary"
+          isPending={busy}
+          isDisabled={
+            readOnly ||
+            (name === column.name && color === column.color) ||
+            !name.trim()
+          }
+          onPress={() => onSave(name, color)}
+        >
+          <Save />
+          Save
+        </Button>
+        <Button
+          variant="ghost"
+          isIconOnly
+          aria-label={`Move ${column.name} earlier`}
+          isPending={busy}
+          isDisabled={readOnly || first}
+          onPress={() => onShift(-1)}
+        >
+          <ArrowUp />
+        </Button>
+        <Button
+          variant="ghost"
+          isIconOnly
+          aria-label={`Move ${column.name} later`}
+          isPending={busy}
+          isDisabled={readOnly || last}
+          onPress={() => onShift(1)}
+        >
+          <ArrowDown />
+        </Button>
+        <Button
+          variant="danger-ghost"
+          isPending={busy}
+          isDisabled={readOnly}
+          onPress={() => setConfirm(true)}
+        >
+          Delete
+        </Button>
+      </div>
       <Dialog
+        isDismissDisabled={busy}
         open={confirm}
         onClose={() => setConfirm(false)}
         title="Delete status?"
         footer={
           <>
-            <Button variant="secondary" onPress={() => setConfirm(false)}>
-              Cancel
+            <Button
+              variant="secondary"
+              onPress={() => setConfirm(false)}
+              isPending={busy}
+            >
+              Keep status
             </Button>
             <Button
               variant="danger"
-              onPress={() => {
-                onDelete();
-                setConfirm(false);
+              isPending={busy}
+              isDisabled={readOnly}
+              onPress={async () => {
+                if (await onDelete(moveTo || undefined)) setConfirm(false);
               }}
             >
               Delete status
@@ -1050,7 +1240,24 @@ function ColumnEditor({
           </>
         }
       >
-        <p>Move tasks out of this status before deleting it.</p>
+        <div className="content-grid min-w-0">
+          <TypographyParagraph size="sm">
+            Choose another status to receive any tasks in {column.name}. An
+            empty status can be deleted directly.
+          </TypographyParagraph>
+          <Choice
+            label="Move tasks to"
+            value={moveTo}
+            onChange={setMoveTo}
+            items={[
+              { id: "", name: "Do not move tasks" },
+              ...columns.filter((item) => item.id !== column.id),
+            ]}
+            search
+            disabled={busy}
+          />
+          <ErrorMessage>{error}</ErrorMessage>
+        </div>
       </Dialog>
     </div>
   );

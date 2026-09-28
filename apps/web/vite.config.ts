@@ -1,7 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { frontendNotices } from "../../tools/frontend-notices.mjs";
+import { frontendGuides } from "../../tools/frontend-guides.mjs";
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), frontendNotices(), frontendGuides()],
   server: {
     port: 4322,
     proxy: {

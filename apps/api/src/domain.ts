@@ -135,13 +135,103 @@ function administrative(c: Parameters<typeof actor>[0], write = false): Actor {
   return a;
 }
 
+const boardListCursor = z
+  .object({
+    id: uuid,
+    position: z.number().int().min(0).max(2147483647),
+    revision: z.string().regex(/^[a-f0-9]{32}$/),
+    filter: z.string().regex(/^[a-f0-9]{24}$/),
+  })
+  .strict();
+
 domainRoutes.get("/boards", async (c) => {
   const a = requireRole(c);
+  const directory = boolQuery(c, "directory");
   const archived = boolQuery(c, "archived");
   const deleted = boolQuery(c, "deleted");
-  const items =
-    await sql`SELECT * FROM boards WHERE (deleted_at IS NOT NULL)=${deleted} ${deleted ? sql`` : sql`AND archived=${archived}`} ${a.boardIds ? (a.boardIds.length ? sql`AND id IN ${sql(a.boardIds)}` : sql`AND false`) : sql``} ORDER BY position,id LIMIT 100`;
-  return c.json({ items });
+  if (
+    directory &&
+    (c.req.query("archived") !== undefined ||
+      c.req.query("deleted") !== undefined)
+  )
+    badRequest(
+      "Board directory requests cannot include archived or deleted filters",
+    );
+  const limit = pagination(c, 100);
+  const rawCursor = c.req.query("cursor");
+  let cursor: z.infer<typeof boardListCursor> | undefined;
+  if (rawCursor !== undefined) {
+    try {
+      if (rawCursor.length > 1000) throw new Error("Invalid cursor");
+      cursor = boardListCursor.parse(
+        JSON.parse(Buffer.from(rawCursor, "base64url").toString()),
+      );
+    } catch {
+      badRequest("Invalid board cursor");
+    }
+  }
+  const filterKey = fingerprint({
+    collection: directory ? "board_directory" : "boards",
+    userId: a.userId,
+    archived: directory || deleted ? null : archived,
+    deleted: directory ? null : deleted,
+    boardIds: a.boardIds ? [...a.boardIds].sort() : null,
+  });
+  if (cursor && cursor.filter !== filterKey)
+    badRequest("This board cursor does not match the accessible board list");
+  const collectionFilter = directory
+    ? sql`true`
+    : sql`(deleted_at IS NOT NULL)=${deleted} ${deleted ? sql`` : sql`AND archived=${archived}`}`;
+  const filters = sql`${collectionFilter} ${a.boardIds ? (a.boardIds.length ? sql`AND id IN ${sql(a.boardIds)}` : sql`AND false`) : sql``}`;
+  const revisionFields = directory
+    ? sql`id::text||':'||position::text||':'||archived::text||':'||COALESCE(deleted_at::text,'')||':'||version::text`
+    : sql`id::text||':'||position::text`;
+  const result = await sql.begin(
+    "isolation level repeatable read read only",
+    async (tx) => {
+      const [order] = await tx<
+        { revision: string }[]
+      >`SELECT md5(COALESCE(string_agg(${revisionFields},',' ORDER BY position,id),'')) AS revision FROM boards WHERE ${filters}`;
+      if (cursor && cursor.revision !== order.revision)
+        return { stale: true as const };
+      const [anchor] = cursor
+        ? await tx`SELECT id,position FROM boards WHERE id=${cursor.id} AND ${filters}`
+        : [];
+      if (cursor && (!anchor || anchor.position !== cursor.position))
+        badRequest(
+          "This board cursor does not belong to the accessible board list",
+        );
+      const rows =
+        await tx`SELECT * FROM boards WHERE ${filters} ${cursor ? tx`AND (position,id)>(${cursor.position},${cursor.id}::uuid)` : tx``} ORDER BY position,id LIMIT ${limit + 1}`;
+      const items = rows.slice(0, limit);
+      const hasMore = rows.length > limit;
+      const last = items.at(-1);
+      return {
+        stale: false as const,
+        items,
+        hasMore,
+        nextCursor:
+          hasMore && last
+            ? encodeCursor({
+                id: last.id,
+                position: last.position,
+                revision: order.revision,
+                filter: filterKey,
+              })
+            : null,
+      };
+    },
+  );
+  if (result.stale)
+    return c.json(
+      {
+        error: "Board list changed. Reload boards to continue.",
+        code: "board_list_changed",
+      },
+      409,
+    );
+  const { stale: _stale, ...page } = result;
+  return c.json(page);
 });
 domainRoutes.post("/boards", async (c) => {
   const a = requireRole(c, "member");
@@ -156,7 +246,6 @@ domainRoutes.post("/boards", async (c) => {
     if (!workspace) missing("Complete workspace setup first");
     await revalidateAuthority(c, tx, "member");
     const [count] = await tx`SELECT count(*)::int AS total FROM boards`;
-    if (count.total >= 100) badRequest("A workspace supports up to 100 boards");
     let prefix =
       input.prefix ??
       input.name

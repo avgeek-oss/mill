@@ -120,6 +120,7 @@ async function configuration(name, targetPort) {
 }
 const state = join(evidence, "fixture-state.json");
 const backup = join(privateDirectory, "mill.dump");
+const staticManifest = join(evidence, "static-content-manifest.json");
 let primary;
 let sourceRevision;
 let sourceDirty;
@@ -161,10 +162,32 @@ try {
     {},
     240_000,
   );
+  const builtStaticManifest = await run(
+    "production-static-manifest",
+    "docker",
+    [
+      ...primary.compose,
+      "exec",
+      "-T",
+      "--env",
+      "MILL_STATIC_MODE=manifest",
+      "--env",
+      "MILL_STATIC_ROOT=/app/apps/web/dist",
+      "mill",
+      "node",
+      "--input-type=module",
+      "-e",
+      await readFile(resolve(root, "tools/static-smoke.mjs"), "utf8"),
+    ],
+  );
+  const staticContent = JSON.parse(builtStaticManifest);
+  assert.equal(staticContent.format, "mill-static-content-v1");
+  await writeFile(staticManifest, JSON.stringify(staticContent, null, 2));
   const verifyEnv = {
     MILL_VERIFY_URL: primary.url,
     MILL_VERIFY_PASSWORD: secrets[2],
     MILL_VERIFY_STATE: state,
+    MILL_VERIFY_STATIC_MANIFEST: staticManifest,
   };
   await run("fresh-install-journey", "node", ["tools/install-smoke.mjs"], {
     ...verifyEnv,
@@ -391,6 +414,12 @@ try {
         sourceDirty,
         primaryUrl: primary.url,
         fixture,
+        staticContent: {
+          manifest: "static-content-manifest.json",
+          resources: staticContent.resources.length,
+          verification:
+            "Container-built notices, all guides and their local CSS/font resource closure match anonymous HTTP bytes across installation, database outage/recovery, upgrade and restore",
+        },
         schemaUpgrade:
           "Reconstructed pre-004 local schema with real task/comment/member data, then automatic packaged migration 004",
         restore:

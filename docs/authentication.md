@@ -62,38 +62,38 @@ Database backups contain the complete identity state. Portable workspace export 
 
 All endpoints are under `/api/auth`, return JSON and enforce the same access rules as the interface. Successful sign-in sets the session cookie. Send that cookie with subsequent requests, and the configured public origin on mutations. Errors return `{ "error": "A readable message" }` with 400, 401, 403, 404, 409 or 429 status. Login, verification, invitations and recovery use persistent database rate limits.
 
-| Method and path                       | Request or result                                                                                                  |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `GET /status`                         | `{setupRequired}`.                                                                                                 |
-| `POST /setup`                         | `{workspaceName,name,email,password}` → `{user,workspace}` and cookie.                                             |
-| `POST /login`                         | `{email,password}` → `{user,workspace}` or `{requiresSecondFactor,challengeId,methods,preferredMethod}`.           |
-| `POST /second-factor`                 | `{challengeId,method:"totp"\|"recovery",code}` → account and cookie, or `{ok:true}` for reauthentication.          |
-| `POST /logout`                        | Ends the current session.                                                                                          |
-| `GET /me`                             | `{user,workspace}`; no password hashes or authentication secrets.                                                  |
-| `PATCH /profile`                      | Optional `{name,timeZone,notificationPreferences:{assignments,mentions}}` → `{user,workspace}`.                    |
-| `POST /reauth`                        | `{password}` → `{ok:true}` or a second-factor challenge tied to the current session.                               |
-| `POST /password`                      | `{currentPassword,password}`; requires recent authentication.                                                      |
-| `GET /sessions`                       | `{items:[{id,userAgent,createdAt,lastSeenAt,expiresAt,current}]}`.                                                 |
-| `DELETE /sessions/:id`                | Revokes one of the signed-in person's sessions.                                                                    |
-| `GET /passkeys`                       | `{items:[{id,name,createdAt}]}`.                                                                                   |
-| `POST /passkeys/register/options`     | `{}` → `{challengeId,options}`; recent human session required.                                                     |
-| `POST /passkeys/register/verify`      | `{challengeId,name,response}`; browser WebAuthn registration response.                                             |
-| `DELETE /passkeys/:id`                | Removes the person's passkey; recent authentication required.                                                      |
-| `POST /passkeys/authenticate/options` | `{challengeId?}` → `{challengeId,options}`; omit the identifier for discoverable passkey sign-in.                  |
-| `POST /passkeys/authenticate/verify`  | `{challengeId,response}` → account and cookie, or reauthentication success.                                        |
-| `POST /totp/setup`                    | `{}` → `{secret,uri}`; no enabled factor is replaced.                                                              |
-| `POST /totp/verify`                   | `{code}` → `{recoveryCodes}` and enables the pending authenticator.                                                |
-| `POST /totp/disable`                  | `{code}`; removes the authenticator and recovery codes.                                                            |
-| `POST /totp/recovery-codes`           | `{code}` → a new `{recoveryCodes}` set.                                                                            |
-| `GET /members`                        | Active team members' basic metadata.                                                                               |
-| `GET /invitations`                    | Admin-only invitation metadata; excludes tokens.                                                                   |
-| `POST /invitations`                   | Admin-only `{email,role}` → `{invitation,token,inviteUrl,emailDelivery:"unavailable"}`; save the link at creation. |
-| `DELETE /invitations/:id`             | Admin-only revocation.                                                                                             |
-| `GET /invitation?token=…`             | Public invitation context for a valid token; email, role and workspace name.                                       |
-| `POST /accept-invitation`             | `{token,name,password}` → account and cookie.                                                                      |
-| `PATCH /members/:id`                  | Admin-only `{role}`; last-admin protection.                                                                        |
-| `DELETE /members/:id`                 | Admin-only reversible membership removal through a subsequent invitation.                                          |
-| `POST /recovery/reset`                | `{token,password}`; completes an operator-issued recovery link.                                                    |
+| Method and path                       | Request or result                                                                                                                 |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /status`                         | `{setupRequired}`.                                                                                                                |
+| `POST /setup`                         | `{workspaceName,name,email,password}` → `{user,workspace}` and cookie.                                                            |
+| `POST /login`                         | `{email,password}` → `{user,workspace}` or `{requiresSecondFactor,challengeId,methods,preferredMethod}`.                          |
+| `POST /second-factor`                 | `{challengeId,method:"totp"\|"recovery",code}` → account and cookie, or `{ok:true}` for reauthentication.                         |
+| `POST /logout`                        | Ends the current session.                                                                                                         |
+| `GET /me`                             | `{user,workspace}`; no password hashes or authentication secrets.                                                                 |
+| `PATCH /profile`                      | Optional `{name,timeZone,notificationPreferences:{assignments,mentions}}` → `{user,workspace}`.                                   |
+| `POST /reauth`                        | `{password}` → `{ok:true}` or a second-factor challenge tied to the current session.                                              |
+| `POST /password`                      | `{currentPassword,password}`; requires recent authentication.                                                                     |
+| `GET /sessions`                       | `{items:[{id,userAgent,createdAt,lastSeenAt,expiresAt,current}]}`.                                                                |
+| `DELETE /sessions/:id`                | Revokes one of the signed-in person's sessions.                                                                                   |
+| `GET /passkeys`                       | `{items:[{id,name,createdAt}]}`.                                                                                                  |
+| `POST /passkeys/register/options`     | `{}` → `{challengeId,options}`; recent human session required.                                                                    |
+| `POST /passkeys/register/verify`      | `{challengeId,name,response}`; browser WebAuthn registration response.                                                            |
+| `DELETE /passkeys/:id`                | Removes the person's passkey; recent authentication required.                                                                     |
+| `POST /passkeys/authenticate/options` | `{challengeId?}` → `{challengeId,options}`; omit the identifier for discoverable passkey sign-in.                                 |
+| `POST /passkeys/authenticate/verify`  | `{challengeId,response}` → account and cookie, or reauthentication success.                                                       |
+| `POST /totp/setup`                    | `{}` → `{secret,uri}`; no enabled factor is replaced.                                                                             |
+| `POST /totp/verify`                   | `{code}` → `{recoveryCodes}` and enables the pending authenticator.                                                               |
+| `POST /totp/disable`                  | `{code}`; removes the authenticator and recovery codes.                                                                           |
+| `POST /totp/recovery-codes`           | `{code}` → a new `{recoveryCodes}` set.                                                                                           |
+| `GET /members`                        | Active team members' basic metadata.                                                                                              |
+| `GET /invitations`                    | Admin-only invitation metadata; optional `limit=1..100`, UUID `cursor`; returns `{items,hasMore,nextCursor}` and excludes tokens. |
+| `POST /invitations`                   | Admin-only `{email,role}` → `{invitation,token,inviteUrl,emailDelivery:"unavailable"}`; save the link at creation.                |
+| `DELETE /invitations/:id`             | Admin-only revocation.                                                                                                            |
+| `GET /invitation?token=…`             | Public invitation context for a valid token; email, role and workspace name.                                                      |
+| `POST /accept-invitation`             | `{token,name,password}` → account and cookie.                                                                                     |
+| `PATCH /members/:id`                  | Admin-only `{role}`; last-admin protection.                                                                                       |
+| `DELETE /members/:id`                 | Admin-only reversible membership removal through a subsequent invitation.                                                         |
+| `POST /recovery/reset`                | `{token,password}`; completes an operator-issued recovery link.                                                                   |
 
 `user` contains `id`, `name`, `email`, `role`, `timeZone`, `notificationPreferences`, `totpEnabled` and `passkeyCount`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
 

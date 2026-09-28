@@ -43,11 +43,6 @@
 .field {
   min-width: 0;
 }
-.loading-state {
-  padding: 80px 24px;
-  text-align: center;
-  color: var(--muted);
-}
 .session-banner {
   padding: 12px;
   text-align: center;
@@ -254,6 +249,8 @@
 .task-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 220px;
+  grid-template-rows: min-content 1fr;
+  align-items: start;
   gap: 24px;
 }
 .task-content,
@@ -263,36 +260,19 @@
   gap: 16px;
   min-width: 0;
 }
+.task-content {
+  grid-column: 1;
+  grid-row: 1;
+}
+.task-properties > * {
+  min-width: 0;
+  max-width: 100%;
+}
 .task-properties {
+  grid-column: 2;
+  grid-row: 1 / span 2;
   border-left: 1px solid var(--separator);
   padding-left: 24px;
-}
-.task-content .row .field {
-  flex: 1;
-}
-.task-content .row:has(.field) {
-  align-items: flex-end;
-}
-.dialog-status {
-  margin-right: auto;
-  color: var(--muted);
-}
-.checklist-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 32px;
-}
-.checklist-row > span {
-  flex: 1;
-  overflow-wrap: anywhere;
-}
-.checklist-row input {
-  flex: none;
-}
-.completed {
-  text-decoration: line-through;
-  color: var(--muted);
 }
 .markdown-preview {
   min-height: 86px;
@@ -349,30 +329,26 @@
   border: 1px solid var(--separator);
   padding: 8px;
 }
-.subtask-link {
-  justify-content: flex-start;
-  height: auto !important;
-  text-align: left;
-  white-space: normal;
-  min-height: 34px;
-}
-.subtask-link span:last-child {
-  overflow-wrap: anywhere;
-}
 .task-discussion {
-  margin-top: 24px;
+  grid-column: 1;
+  grid-row: 2;
   border-top: 1px solid var(--separator);
   padding-top: 16px;
 }
 .comment-list {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+  display: grid;
   margin: 16px 0;
 }
 .comment {
   border-bottom: 1px solid var(--separator);
-  padding-bottom: 16px;
+  padding: 16px 0;
+}
+.comment:first-child {
+  padding-top: 0;
+}
+.comment:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 .comment > .row {
   margin-bottom: 8px;
@@ -384,52 +360,13 @@
   padding: 0;
   margin: 16px 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.activity-list li {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-.activity-dot {
-  height: 6px;
-  width: 6px;
-  border-radius: 50%;
-  margin-top: 8px;
-  background: var(--muted);
-  flex: none;
-}
-.activity-list time {
-  display: block;
-  color: var(--muted);
-  margin-top: 4px;
-}
-.activity-list .chip {
-  margin: 0 4px;
-}
-.conflict {
-  padding: 12px;
-  background: var(--warning-soft);
-  color: var(--warning-soft-foreground);
-  border-radius: var(--radius-xl);
   display: grid;
-  gap: 8px;
 }
 .column-editor {
-  display: flex;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
   gap: 8px;
-  padding: 8px 0;
-}
-.column-editor .field {
-  flex: 1;
-  min-width: 90px;
-}
-.column-editor .select {
-  width: 105px;
-  flex: none;
 }
 
 .settings-page {
@@ -542,8 +479,7 @@
 .consent-card p {
   margin-top: 8px;
 }
-.empty-state,
-.error-page {
+.empty-state {
   padding: 40px 24px;
   display: flex;
   flex-direction: column;
@@ -553,13 +489,6 @@
 }
 .welcome {
   margin: auto;
-}
-.error-page {
-  margin: auto;
-  max-width: 620px;
-}
-.error-page .error-message {
-  width: 100%;
 }
 
 @media (max-width: 700px) {
@@ -621,25 +550,26 @@
   }
   .task-layout {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
   }
   .task-properties {
+    grid-column: 1;
+    grid-row: 2;
     border-left: 0;
     border-top: 1px solid var(--separator);
     padding: 16px 0 0;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px;
+  }
+  .task-discussion {
+    grid-column: 1;
+    grid-row: 3;
   }
   .task-properties > .stack,
   .task-properties > p,
   .task-properties > .button {
     grid-column: 1/-1;
-  }
-  .column-editor {
-    flex-wrap: wrap;
-  }
-  .column-editor .field {
-    flex-basis: 100%;
   }
   .member-row {
     grid-template-columns: minmax(0, 1fr) 115px 44px;
@@ -648,8 +578,7 @@
   .member-row p {
     overflow-wrap: anywhere;
   }
-  .check-option,
-  .checklist-row {
+  .check-option {
     min-height: 44px;
   }
   .recovery-codes {
