@@ -15,6 +15,11 @@ export default defineConfig({
     reuseExistingServer: false,
     gracefulShutdown: { signal: "SIGTERM", timeout: 5000 },
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"], channel: "chromium" },
+    },
+  ],
   reporter: [["list"], ["html", { open: "never" }]],
 });

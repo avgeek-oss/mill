@@ -52,6 +52,14 @@ $$;
 CREATE TRIGGER clean_deleted_task AFTER DELETE ON tasks
   FOR EACH ROW EXECUTE FUNCTION clean_deleted_task();
 
+DO $$
+DECLARE installation_schema text := current_schema();
+BEGIN
+  EXECUTE format('ALTER FUNCTION %I.clean_deleted_board() SET search_path TO pg_catalog, %I, pg_temp',installation_schema,installation_schema);
+  EXECUTE format('ALTER FUNCTION %I.clean_deleted_task() SET search_path TO pg_catalog, %I, pg_temp',installation_schema,installation_schema);
+END;
+$$;
+
 -- Archived records become ordinary records. Previously deleted work is purged,
 -- including descendants of a deleted parent and content owned by deleted boards.
 DELETE FROM boards WHERE deleted_at IS NOT NULL;

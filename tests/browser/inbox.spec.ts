@@ -7,6 +7,8 @@ import {
   request as requests,
   type APIRequestContext,
   type Page,
+  type Request,
+  type Response,
 } from "@playwright/test";
 import {
   authenticateBrowserFixture,
@@ -49,8 +51,12 @@ async function json(
   expect(response.ok(), `${path}: ${response.status()}`).toBeTruthy();
   return response.json();
 }
-async function account(name: string, role: "member" | "viewer" = "member") {
-  if (name !== "Private Inbox") {
+async function account(
+  name: string,
+  role: "member" | "viewer" = "member",
+  dedicated = false,
+) {
+  if (name !== "Private Inbox" && !dedicated) {
     const fixture = await getBrowserRoleFixture(origin, role);
     contexts.push(fixture.api);
     return {
@@ -70,7 +76,14 @@ async function account(name: string, role: "member" | "viewer" = "member") {
     name,
     password,
   });
-  return { id: result.user.id, email, name, api } as Account;
+  const who: Account = { id: result.user.id, email, name, api };
+  if (dedicated)
+    who.fixture = {
+      origin,
+      identity: await json(api, "/auth/me"),
+      storageState: await api.storageState(),
+    };
+  return who;
 }
 async function seed(
   who: Account,
@@ -175,10 +188,11 @@ test.afterAll(async () => {
 
 test("server unread filtering reaches older notifications and marks refresh the count without affecting another person", async ({
   page,
-}) => {
+}, testInfo) => {
   const who = await account("Older Inbox");
   const other = await account("Private Inbox");
-  const { task } = await seed(who, 240, 120);
+  const taskTitle = "Review the next step";
+  const { task } = await seed(who, 240, 120, taskTitle);
   await seed(other, 1);
   await login(page, who);
   await expect(rows(page)).toHaveCount(100);
@@ -206,11 +220,82 @@ test("server unread filtering reaches older notifications and marks refresh the 
     `/boards/${boardId}/tasks/${task.id}`,
   );
   expect(await oldest.locator("a button").count()).toBe(0);
+  const expectedURL = `${origin}/boards/${boardId}/tasks/${task.id}`;
+  const safeURL = (value: string) => {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? `${url.origin}${url.pathname}`
+      : `${url.protocol}${url.pathname}`;
+  };
+  const documents: { url: string; status: number }[] = [];
+  const onResponse = (response: Response) => {
+    if (
+      documents.length < 10 &&
+      response.request().isNavigationRequest() &&
+      response.request().resourceType() === "document"
+    )
+      documents.push({
+        url: safeURL(response.url()),
+        status: response.status(),
+      });
+  };
+  let marks = 0;
+  const onRequest = (request: Request) => {
+    if (
+      request.method() === "PATCH" &&
+      new URL(request.url()).pathname === "/api/notifications"
+    )
+      marks++;
+  };
+  page.context().on("response", onResponse);
+  page.context().on("request", onRequest);
   const popupPromise = page.context().waitForEvent("page");
-  await link.click({ modifiers: ["ControlOrMeta"] });
-  const popup = await popupPromise;
-  await popup.waitForURL(`**/boards/${boardId}/tasks/${task.id}`);
-  await popup.close();
+  let popup: Page | undefined;
+  try {
+    await link.click({ modifiers: ["ControlOrMeta"] });
+    popup = await popupPromise;
+    await popup.waitForURL(`**/boards/${boardId}/tasks/${task.id}`);
+    await expect(popup).toHaveURL(expectedURL);
+    await expect(taskDialog(popup)).toBeVisible();
+    await expect(
+      taskDialog(popup).getByLabel("Title", { exact: true }),
+    ).toHaveValue(taskTitle);
+    expect(page.context().pages()).toHaveLength(2);
+    expect(marks).toBe(0);
+    expect((await json(who.api, "/notifications")).unreadCount).toBe(120);
+  } finally {
+    page.context().off("response", onResponse);
+    page.context().off("request", onRequest);
+    const title = popup
+      ? taskDialog(popup).getByLabel("Title", { exact: true })
+      : undefined;
+    const titleVisible = (await title?.isVisible().catch(() => false)) ?? false;
+    const titleMatches = titleVisible
+      ? (await title?.inputValue({ timeout: 1000 }).catch(() => null)) ===
+        taskTitle
+      : false;
+    await testInfo.attach("notification-native-popup.json", {
+      contentType: "application/json",
+      body: JSON.stringify({
+        expectedURL,
+        popupURL: popup ? safeURL(popup.url()) : null,
+        parentURL: safeURL(page.url()),
+        contextPages: page
+          .context()
+          .pages()
+          .map((contextPage) => ({
+            url: safeURL(contextPage.url()),
+            isParent: contextPage === page,
+            isSelected: contextPage === popup,
+          })),
+        documents,
+        taskTitleVisible: titleVisible,
+        taskTitleMatches: titleMatches,
+        markRequests: marks,
+      }),
+    });
+    await popup?.close();
+  }
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   await expect(
     page.getByLabel("120 unread notifications", { exact: true }),
@@ -816,7 +901,7 @@ test("dismissing a pending task opening keeps the acknowledged read without dela
 test("notification popover rows fit desktop and phone in both themes with native sibling actions", async ({
   page,
 }) => {
-  const who = await account("Layout Inbox");
+  const who = await account("Layout Inbox", "member", true);
   await seed(
     who,
     2,
@@ -876,7 +961,14 @@ test("notification popover rows fit desktop and phone in both themes with native
   await page.evaluate(() => localStorage.setItem("mill:theme", "light"));
   await page.reload();
   await openNotifications(page);
+  const unreadResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/notifications" &&
+      new URL(response.url()).searchParams.get("unread") === "true" &&
+      new URL(response.url()).searchParams.get("limit") === "100",
+  );
   await page.getByRole("tab", { name: "Unread", exact: true }).click();
+  expect((await unreadResponse).status()).toBe(200);
   await expect(rows(page)).toHaveCount(2);
   await inbox(page)
     .getByRole("button", { name: "Mark all read", exact: true })
