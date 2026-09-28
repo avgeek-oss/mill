@@ -1,0 +1,36 @@
+name: Bug report
+description: Report a reproducible problem in Mill.
+body:
+  - type: markdown
+    attributes:
+      value: Do not include secrets, account recovery links, cookies, tokens, or database dumps. Use SECURITY.md for vulnerabilities.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Include the exact image tag/digest or source commit.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Use a disposable board and describe the smallest reproduction.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Expected and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Browser, operating system, Docker version, installation method, and relevant variable names without private values.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Redacted error messages or screenshots with private data removed.

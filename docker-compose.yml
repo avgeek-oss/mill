@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:17.9-alpine@sha256:c7526c0f6c3f30260a563d7bcf8ad778effac59a44f8ffa86678c35418338609
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mill
+      POSTGRES_USER: mill
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate .env with node tools/init-env.mjs}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mill -d mill"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mill:
+    image: ${MILL_IMAGE:-mill:local}
+    build:
+      context: .
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
+    init: true
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4321
+      DATABASE_URL: postgres://mill:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/mill
+      MILL_BASE_URL: ${MILL_BASE_URL:?set MILL_BASE_URL}
+      MILL_SECRET: ${MILL_SECRET:?set MILL_SECRET}
+      MILL_MIGRATIONS_DIR: /app/packages/database/migrations
+      ALLOW_INSECURE_LOCALHOST: ${ALLOW_INSECURE_LOCALHOST:-false}
+      MILL_TRUSTED_PROXY_IPS: ${MILL_TRUSTED_PROXY_IPS:-}
+    ports:
+      - "${MILL_BIND_ADDRESS:-127.0.0.1}:${MILL_PORT:-4321}:4321"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 30s
+
+volumes:
+  postgres-data:

@@ -1,0 +1,299 @@
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
+import { z } from "zod";
+import { badRequest, requireHuman, type Env } from "./http.js";
+import { authenticateClient, registerClient } from "./external/clients.js";
+import {
+  createCredential,
+  listCredentials,
+  revokeCredential,
+} from "./external/credentials.js";
+import {
+  beginAuthorization,
+  consentDetails,
+  decideConsent,
+  exchangeCode,
+  revokeOAuthToken,
+} from "./external/oauth.js";
+import {
+  externalAccessAllowed,
+  issuer,
+  mcpResource,
+  OAuthError,
+  resourceMetadataUrl,
+  uniqueParameters,
+} from "./external/protocol.js";
+import { serveMcp } from "./external/mcp.js";
+export { credentialActor } from "./external/credentials.js";
+export { setApiDispatcher } from "./external/mcp.js";
+
+export const externalRoutes = new Hono<Env>();
+for (const path of ["/api/credentials", "/api/credentials/*"])
+  externalRoutes.use(path, async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Pragma", "no-cache");
+    await next();
+  });
+externalRoutes.onError((error, c) => {
+  if (error instanceof OAuthError) {
+    if (error.status === 401)
+      c.header("WWW-Authenticate", 'Basic realm="Mill OAuth"');
+    return c.json(
+      { error: error.code, error_description: error.message },
+      error.status,
+    );
+  }
+  if (error instanceof HTTPException)
+    return c.json({ error: error.message }, error.status);
+  if (error instanceof SyntaxError)
+    return c.json({ error: "Invalid JSON" }, 400);
+  console.error(
+    "External access request failed",
+    error instanceof Error ? error.name : "UnknownError",
+  );
+  return c.json(
+    { error: "The request could not be completed. Try again." },
+    500,
+  );
+});
+for (const path of ["/.well-known/*", "/oauth/*", "/api/oauth/*", "/mcp"]) {
+  externalRoutes.use(path, async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    c.header("Pragma", "no-cache");
+    c.header("Referrer-Policy", "no-referrer");
+    if (!externalAccessAllowed())
+      return c.json({ error: "HTTPS is required for external access" }, 403);
+    await next();
+  });
+}
+for (const path of ["/oauth/*", "/api/oauth/*", "/api/credentials*"])
+  externalRoutes.use(
+    path,
+    bodyLimit({
+      maxSize: 16384,
+      onError: (c) => c.json({ error: "Request is too large" }, 413),
+    }),
+  );
+externalRoutes.use(
+  "/mcp",
+  bodyLimit({
+    maxSize: 1024 * 1024,
+    onError: (c) => c.json({ error: "Request is too large" }, 413),
+  }),
+);
+externalRoutes.get("/api/credentials", async (c) =>
+  c.json({ items: await listCredentials(requireHuman(c)) }),
+);
+externalRoutes.post("/api/credentials", async (c) => {
+  const a = requireHuman(c);
+  const parsed = z
+    .object({
+      name: z.string().trim().min(1).max(120),
+      scopes: z
+        .array(z.enum(["read", "write"]))
+        .min(1)
+        .max(2)
+        .refine(
+          (values) =>
+            values.includes("read") && new Set(values).size === values.length,
+        ),
+      boardIds: z
+        .array(z.uuid())
+        .min(1)
+        .max(100)
+        .refine((ids) => new Set(ids).size === ids.length)
+        .optional(),
+      expiresInDays: z.number().int().min(1).max(365).default(30),
+    })
+    .strict()
+    .safeParse(await c.req.json());
+  if (!parsed.success)
+    badRequest(
+      "Choose a name, read/write access, existing boards, and an expiry between 1 and 365 days",
+    );
+  if (a.role === "viewer" && parsed.data.scopes.includes("write"))
+    throw new HTTPException(403, {
+      message: "Viewer accounts can only grant read access",
+    });
+  try {
+    return c.json(await createCredential(a, parsed.data), 201);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Choose existing boards")
+      badRequest(error.message);
+    throw error;
+  }
+});
+externalRoutes.delete("/api/credentials/:id", async (c) => {
+  const a = requireHuman(c),
+    id = z.uuid().safeParse(c.req.param("id"));
+  if (!id.success) badRequest("Invalid credential");
+  if (!(await revokeCredential(a, id.data)))
+    throw new HTTPException(404, { message: "Credential not found" });
+  return c.json({ revoked: true });
+});
+externalRoutes.use(
+  "/.well-known/*",
+  cors({ origin: "*", allowMethods: ["GET", "OPTIONS"] }),
+);
+externalRoutes.get("/.well-known/oauth-authorization-server", (c) =>
+  c.json({
+    issuer: issuer(),
+    authorization_endpoint: `${issuer()}/oauth/authorize`,
+    token_endpoint: `${issuer()}/oauth/token`,
+    registration_endpoint: `${issuer()}/oauth/register`,
+    revocation_endpoint: `${issuer()}/oauth/revoke`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    scopes_supported: ["read", "write"],
+    token_endpoint_auth_methods_supported: [
+      "none",
+      "client_secret_basic",
+      "client_secret_post",
+    ],
+    revocation_endpoint_auth_methods_supported: [
+      "none",
+      "client_secret_basic",
+      "client_secret_post",
+    ],
+    client_id_metadata_document_supported: true,
+    authorization_response_iss_parameter_supported: true,
+  }),
+);
+for (const path of [
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-protected-resource/mcp",
+])
+  externalRoutes.get(path, (c) =>
+    c.json({
+      resource: mcpResource(),
+      authorization_servers: [issuer()],
+      scopes_supported: ["read", "write"],
+      bearer_methods_supported: ["header"],
+      resource_name: "Mill MCP",
+    }),
+  );
+for (const path of ["/oauth/register", "/oauth/token", "/oauth/revoke"])
+  externalRoutes.use(
+    path,
+    cors({
+      origin: "*",
+      allowMethods: ["POST", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"],
+    }),
+  );
+externalRoutes.post("/oauth/register", async (c) => {
+  if (!c.req.header("content-type")?.startsWith("application/json"))
+    throw new OAuthError("invalid_request", "Use application/json");
+  return c.json(await registerClient(await c.req.json()), 201);
+});
+externalRoutes.get("/oauth/authorize", async (c) => {
+  const result = await beginAuthorization(
+    uniqueParameters(new URL(c.req.url).searchParams),
+  );
+  return c.redirect(
+    result.redirectTo ??
+      `${issuer()}/oauth/consent?request=${result.requestId}`,
+    302,
+  );
+});
+externalRoutes.get("/api/oauth/consent/:id", async (c) => {
+  const a = requireHuman(c),
+    id = z.uuid().safeParse(c.req.param("id"));
+  if (!id.success)
+    throw new OAuthError("invalid_request", "Invalid authorization request");
+  return c.json(await consentDetails(id.data, a));
+});
+externalRoutes.post("/api/oauth/consent/:id", async (c) => {
+  const a = requireHuman(c),
+    id = z.uuid().safeParse(c.req.param("id"));
+  if (!id.success)
+    throw new OAuthError("invalid_request", "Invalid authorization request");
+  const parsed = z
+    .object({
+      allow: z.boolean(),
+      boardIds: z
+        .array(z.uuid())
+        .min(1)
+        .max(100)
+        .refine((ids) => new Set(ids).size === ids.length)
+        .optional(),
+    })
+    .strict()
+    .safeParse(await c.req.json());
+  if (!parsed.success)
+    throw new OAuthError("invalid_request", "Choose whether to allow access");
+  try {
+    return c.json({
+      redirectTo: await decideConsent(
+        id.data,
+        a,
+        parsed.data.allow,
+        parsed.data.boardIds,
+      ),
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "Choose existing boards")
+      throw new OAuthError("invalid_request", error.message);
+    throw error;
+  }
+});
+async function readForm(request: Request) {
+  if (
+    !request.headers
+      .get("content-type")
+      ?.startsWith("application/x-www-form-urlencoded")
+  )
+    throw new OAuthError(
+      "invalid_request",
+      "Use application/x-www-form-urlencoded",
+    );
+  return uniqueParameters(new URLSearchParams(await request.text()));
+}
+externalRoutes.post("/oauth/token", async (c) => {
+  const params = await readForm(c.req.raw),
+    client = await authenticateClient(params, c.req.header("authorization"));
+  return c.json(await exchangeCode(client.id, params));
+});
+externalRoutes.post("/oauth/revoke", async (c) => {
+  const params = await readForm(c.req.raw),
+    client = await authenticateClient(params, c.req.header("authorization"));
+  if (!params.token)
+    throw new OAuthError("invalid_request", "A token is required");
+  await revokeOAuthToken(client.id, params.token);
+  return c.body(null, 200);
+});
+externalRoutes.use(
+  "/mcp",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowHeaders: [
+      "Content-Type",
+      "Authorization",
+      "MCP-Protocol-Version",
+      "Mcp-Session-Id",
+      "Last-Event-ID",
+    ],
+    exposeHeaders: [
+      "WWW-Authenticate",
+      "MCP-Protocol-Version",
+      "Mcp-Session-Id",
+    ],
+  }),
+);
+externalRoutes.all("/mcp", async (c) => {
+  if (!c.get("actor")) {
+    c.header(
+      "WWW-Authenticate",
+      `Bearer resource_metadata="${resourceMetadataUrl()}"`,
+    );
+    return c.json(
+      { error: "A valid API credential or OAuth token is required" },
+      401,
+    );
+  }
+  return serveMcp(c);
+});

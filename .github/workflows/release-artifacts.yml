@@ -1,0 +1,88 @@
+name: Prepare private release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Reviewed source commit with passing Required CI
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+
+concurrency:
+  group: release-artifacts-${{ inputs.source_revision }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.review.outputs.commit }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_revision }}
+      - id: review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO" --jq .private)" = "true"
+          commit="$(git rev-parse HEAD)"
+          gh api "repos/$GH_REPO/commits/$commit/check-runs?filter=all&per_page=100" --paginate --slurp > "$RUNNER_TEMP/release-checks.json"
+          node tools/release-check.mjs --commit "$commit" --checks "$RUNNER_TEMP/release-checks.json"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            architecture: amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            architecture: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.16.0
+      - name: Verify native production installation
+        run: node tools/production-verify.mjs
+      - name: Build reviewed image archive
+        env:
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_PLATFORM: ${{ matrix.platform }}
+          RELEASE_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          set -euo pipefail
+          version="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
+          image="mill:$version-$RELEASE_ARCHITECTURE"
+          mkdir -p tmp/release
+          docker build --platform "$RELEASE_PLATFORM" --build-arg "SOURCE_COMMIT=$RELEASE_COMMIT" --tag "$image" .
+          docker save --output "tmp/release/mill-image-$RELEASE_ARCHITECTURE.tar" "$image"
+          node tools/package-release.mjs --image-archive "tmp/release/mill-image-$RELEASE_ARCHITECTURE.tar" --platform "$RELEASE_PLATFORM" --output "tmp/release/package-$RELEASE_ARCHITECTURE"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mill-release-${{ matrix.architecture }}
+          path: tmp/release/package-${{ matrix.architecture }}/
+          retention-days: 30
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-verification-${{ matrix.architecture }}
+          path: tmp/verification/
+          retention-days: 14

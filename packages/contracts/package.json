@@ -1,0 +1,6 @@
+{
+  "name": "@mill/contracts",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts"
+}
