@@ -1362,6 +1362,7 @@ try {
       `import assert from 'node:assert/strict';
     import {randomBytes} from 'node:crypto';
     import {hashPassword,hashToken} from '/app/dist/apps/api/src/auth/security.js';
+    import {digest} from '/app/dist/apps/api/src/external/protocol.js';
     import {sql,closeDatabase} from '/app/dist/packages/database/src/index.js';
     const fixture=${JSON.stringify(agentFixture)};
     try {
@@ -1402,14 +1403,14 @@ try {
         ]) {
           assert.match(credential.token,/^mill_[A-Za-z0-9_-]{43}$/);
           await tx\`INSERT INTO credentials (id,user_id,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at)
-            VALUES (\${credential.id},\${fixture.ownerId},\${'Earlier '+credential.type},\${hashToken(credential.token)},\${credential.token.slice(0,12)},ARRAY['read','write'],ARRAY[\${fixture.boardId}::uuid],\${credential.type},
+            VALUES (\${credential.id},\${fixture.ownerId},\${'Earlier '+credential.type},\${digest(credential.token)},\${credential.token.slice(0,12)},ARRAY['read','write'],ARRAY[\${fixture.boardId}::uuid],\${credential.type},
               \${credential.type==='oauth'?fixture.legacyOAuthClientId:null},\${credential.type==='oauth'?${JSON.stringify(`${agentUpgrade.url}/mcp`)}:null},now()+interval '1 day')\`;
         }
         await tx\`INSERT INTO oauth_requests (id,client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,board_ids,code_hash,credential_id,expires_at)
           VALUES (\${fixture.legacyOAuthRequestId},\${fixture.legacyOAuthClientId},'Earlier OAuth client','registered',
             \${${JSON.stringify(`${agentUpgrade.url}/legacy-callback`)}},\${${JSON.stringify(`${agentUpgrade.url}/mcp`)}},'read write',
             \${randomBytes(32).toString('base64url')},\${fixture.ownerId},ARRAY[\${fixture.boardId}::uuid],
-            \${hashToken(randomBytes(32).toString('base64url'))},\${fixture.legacyOAuthCredentialId},now()+interval '10 minutes')\`;
+            \${digest(randomBytes(32).toString('base64url'))},\${fixture.legacyOAuthCredentialId},now()+interval '10 minutes')\`;
       });
       console.log(JSON.stringify({fixture:'Real pre-008 content, active unbound credentials and issued consent',passwordFormat:'scrypt:32768:8:3'}));
     } catch { throw new Error('Pre-Agent fixture creation failed'); }
@@ -1534,9 +1535,9 @@ try {
       UPDATE tasks SET agent_id='${agentFixture.policyAgentId}',assignee_id='${agentFixture.ownerId}' WHERE id='${agentFixture.taskId}';
       INSERT INTO credentials(id,user_id,agent_id,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at) VALUES
         ('${agentFixture.policyApiCredentialId}','${agentFixture.ownerId}','${agentFixture.policyAgentId}','Earlier selected-Agent API key',
-          '${createHash("sha256").update(policyApiToken).digest("hex")}','mill_policy',ARRAY['read','write'],ARRAY['${agentFixture.boardId}'::uuid],'api-key',NULL,NULL,now()+interval '1 day'),
+          '${createHash("sha256").update(policyApiToken).digest("base64url")}','mill_policy',ARRAY['read','write'],ARRAY['${agentFixture.boardId}'::uuid],'api-key',NULL,NULL,now()+interval '1 day'),
         ('${agentFixture.policyOAuthCredentialId}','${agentFixture.ownerId}','${agentFixture.policyAgentId}','Earlier selected-Agent OAuth',
-          '${createHash("sha256").update(policyOAuthToken).digest("hex")}','mill_policy',ARRAY['read','write'],ARRAY['${agentFixture.boardId}'::uuid],'oauth',${sqlString(agentFixture.legacyOAuthClientId)},${sqlString(`${agentUpgrade.url}/mcp`)},now()+interval '1 day');
+          '${createHash("sha256").update(policyOAuthToken).digest("base64url")}','mill_policy',ARRAY['read','write'],ARRAY['${agentFixture.boardId}'::uuid],'oauth',${sqlString(agentFixture.legacyOAuthClientId)},${sqlString(`${agentUpgrade.url}/mcp`)},now()+interval '1 day');
       INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,board_ids,agent_ids) VALUES
         ('${agentFixture.ownerId}','${agentFixture.policyRetryKey}','${legacyAgentRetryHash}',
           ${sqlString(JSON.stringify(legacyAgentRetryResponse))}::jsonb,201,ARRAY['${agentFixture.boardId}'::uuid],ARRAY['${agentFixture.policyAgentId}'::uuid]);`,
@@ -1868,6 +1869,16 @@ try {
     {},
     240_000,
   );
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "explicit-agent-restored-before-traffic",
+        "docker",
+        databaseArguments(agentRecovery, persistedAgentDataQuery),
+      ),
+    ),
+    persistedAgentData,
+  );
   await run(
     "explicit-agent-restored-api-oauth-mcp",
     "node",
@@ -1882,16 +1893,32 @@ try {
       MILL_VERIFY_POLICY_OAUTH_TOKEN: policyOAuthToken,
     },
   );
-  assert.deepEqual(
-    JSON.parse(
-      await run(
-        "explicit-agent-restored-data",
-        "docker",
-        databaseArguments(agentRecovery, persistedAgentDataQuery),
-      ),
+  const restoredAgentData = JSON.parse(
+    await run(
+      "explicit-agent-restored-data",
+      "docker",
+      databaseArguments(agentRecovery, persistedAgentDataQuery),
     ),
-    persistedAgentData,
   );
+  const savedPolicyOAuth = persistedAgentData.credentials.find(
+    (item) => item.id === agentFixture.policyOAuthCredentialId,
+  );
+  const usedPolicyOAuth = restoredAgentData.credentials.find(
+    (item) => item.id === agentFixture.policyOAuthCredentialId,
+  );
+  assert.ok(savedPolicyOAuth.last_used_at && usedPolicyOAuth.last_used_at);
+  assert.ok(
+    new Date(usedPolicyOAuth.last_used_at) >=
+      new Date(savedPolicyOAuth.last_used_at),
+  );
+  assert.deepEqual(restoredAgentData, {
+    ...persistedAgentData,
+    credentials: persistedAgentData.credentials.map((item) =>
+      item.id === savedPolicyOAuth.id
+        ? { ...item, last_used_at: usedPolicyOAuth.last_used_at }
+        : item,
+    ),
+  });
   await run(
     "explicit-agent-restored-human-authority",
     "docker",

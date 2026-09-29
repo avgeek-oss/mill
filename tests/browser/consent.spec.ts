@@ -735,6 +735,13 @@ test("phone consent in both themes keeps long context readable and supports keyb
         await expect(
           mobile.getByRole("button", { name: "Allow access", exact: true }),
         ).toBeEnabled();
+        await expect(mobile.locator("html")).toHaveAttribute(
+          "data-theme",
+          theme,
+        );
+        if (theme === "dark")
+          await expect(mobile.locator("html")).toHaveClass(/\bdark\b/);
+        else await expect(mobile.locator("html")).not.toHaveClass(/\bdark\b/);
         await expect(
           mobile.getByText("Unverified app.", { exact: false }),
         ).toBeVisible();

@@ -174,10 +174,13 @@ test("People lists load independently, show separate recovery and protect the la
     await expect(avatar.getByText("AM", { exact: true })).toBeVisible();
     const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(bootstrap.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
     await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
-    const ownRow = members.getByRole("row").filter({ has: avatar });
+    const ownRow = members
+      .getByRole("row")
+      .filter({ hasText: bootstrap.email });
+    await expect(ownRow).toHaveCount(1);
     const adminChip = ownRow
       .locator(".chip")
-      .filter({ hasText: /^Admin$/ })
+      .filter({ hasText: /^\s*Admin\s*$/ })
       .filter({ visible: true });
     await expect(adminChip).toHaveCount(1);
     await expect(adminChip.locator("svg")).toHaveCount(1);

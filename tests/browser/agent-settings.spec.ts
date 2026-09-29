@@ -21,6 +21,29 @@ let origin: string;
 let admin: APIRequestContext;
 let board: { id: string; name: string };
 let scenarioOwner: { id: string; baseline: string[] } | null = null;
+async function expectTheme(page: Page, theme: "light" | "dark") {
+  const root = page.locator("html");
+  await expect(root).toHaveAttribute("data-theme", theme);
+  if (theme === "dark") await expect(root).toHaveClass(/\bdark\b/);
+  else await expect(root).not.toHaveClass(/\bdark\b/);
+}
+async function chooseTheme(page: Page, theme: "light" | "dark", touch = false) {
+  await expect(
+    page.getByRole("button", { name: /^Appearance: switch to / }),
+  ).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    /^(light|dark)$/,
+  );
+  if ((await page.locator("html").getAttribute("data-theme")) !== theme) {
+    const switcher = page.getByRole("button", {
+      name: new RegExp(`^Appearance: switch to ${theme}`),
+    });
+    if (touch) await switcher.tap();
+    else await switcher.click();
+  }
+  await expectTheme(page, theme);
+}
 async function json(
   api: APIRequestContext,
   path: string,
@@ -921,11 +944,8 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
   await expect(
     page.getByRole("region", { name: "Remote MCP", exact: true }),
   ).toHaveCount(0);
-  for (const theme of ["light", "dark"]) {
-    if (theme === "dark")
-      await page
-        .getByRole("button", { name: /Appearance: switch to dark/ })
-        .click();
+  for (const theme of ["light", "dark"] as const) {
+    await chooseTheme(page, theme);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -959,6 +979,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       testInfo.outputPath(`api-keys-desktop-${theme}-columns.json`),
       JSON.stringify(columns, null, 2),
     );
+    await expectTheme(page, theme);
     await page.screenshot({
       path: testInfo.outputPath(`api-keys-desktop-${theme}.png`),
       fullPage: true,
@@ -968,6 +989,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
     await expect(
       page.getByRole("row", { name: new RegExp(visibleAgent.name) }),
     ).toBeVisible();
+    await expectTheme(page, theme);
     await page.screenshot({
       path: testInfo.outputPath(`agent-directory-desktop-${theme}.png`),
       fullPage: true,
@@ -1011,11 +1033,8 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
         .tap();
     }
     expect(longCredential.credential.agentId).toBeNull();
-    for (const theme of ["dark", "light"]) {
-      if (theme === "light")
-        await mobile
-          .getByRole("button", { name: /Appearance: switch to light/ })
-          .tap();
+    for (const theme of ["dark", "light"] as const) {
+      await chooseTheme(mobile, theme, true);
       await mobile.evaluate(() => window.scrollTo(0, 0));
       const cells = await mobile
         .getByRole("region", { name: "API keys", exact: true })
@@ -1041,6 +1060,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
           () => document.documentElement.scrollWidth <= window.innerWidth,
         ),
       ).toBe(true);
+      await expectTheme(mobile, theme);
       await mobile.screenshot({
         path: testInfo.outputPath(`api-keys-phone-${theme}.png`),
         fullPage: true,
@@ -1050,6 +1070,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       await expect(
         mobile.getByRole("row", { name: new RegExp(visibleAgent.name) }),
       ).toBeVisible();
+      await expectTheme(mobile, theme);
       await mobile.screenshot({
         path: testInfo.outputPath(`agent-directory-phone-${theme}.png`),
         fullPage: true,
@@ -1286,6 +1307,7 @@ test("125 active people keep selections across pages and search with bounded whe
       ).length,
     ).toBe(125);
     await page.goto("/settings/agents");
+    await chooseTheme(page, "light");
     await page
       .getByRole("button", { name: "Create agent", exact: true })
       .click();
@@ -1297,14 +1319,12 @@ test("125 active people keep selections across pages and search with bounded whe
       .getByLabel("Name", { exact: true })
       .fill("Many people team assistant");
     await choose(page, "Access", "Team");
-    for (const theme of ["light", "dark"]) {
+    for (const theme of ["light", "dark"] as const) {
       if (theme === "dark") {
         await dialog
           .getByRole("button", { name: "Cancel", exact: true })
           .click();
-        await page
-          .getByRole("button", { name: /Appearance: switch to dark/ })
-          .click();
+        await chooseTheme(page, theme);
         await page
           .getByRole("button", { name: "Create agent", exact: true })
           .click();
@@ -1313,6 +1333,7 @@ test("125 active people keep selections across pages and search with bounded whe
           .fill("Many people team assistant");
         await choose(page, "Access", "Team");
       }
+      await expectTheme(page, theme);
       await selection(page, dialog, first);
       await bounded(page, dialog, false);
       await expect(
@@ -1331,6 +1352,7 @@ test("125 active people keep selections across pages and search with bounded whe
           exact: true,
         }),
       ).toBeChecked();
+      await expectTheme(page, theme);
       await page.screenshot({
         path: testInfo.outputPath(`agent-people-desktop-${theme}.png`),
         animations: "disabled",
@@ -1351,11 +1373,8 @@ test("125 active people keep selections across pages and search with bounded whe
     );
     const mobile = await phone.newPage();
     await mobile.goto("/settings/agents");
-    for (const theme of ["dark", "light"]) {
-      const switcher = mobile.getByRole("button", {
-        name: new RegExp(`Appearance: switch to ${theme}`),
-      });
-      if (await switcher.count()) await switcher.tap();
+    for (const theme of ["dark", "light"] as const) {
+      await chooseTheme(mobile, theme, true);
       await mobile
         .getByRole("button", {
           name: "Edit Many people team assistant",
@@ -1381,6 +1400,7 @@ test("125 active people keep selections across pages and search with bounded whe
         await edit.getByText(person.email, { exact: true }).tap();
         await expect(checkbox).toBeChecked();
       }
+      await expectTheme(mobile, theme);
       await mobile.screenshot({
         path: testInfo.outputPath(`agent-people-phone-${theme}.png`),
         animations: "disabled",

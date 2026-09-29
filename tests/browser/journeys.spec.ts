@@ -748,7 +748,7 @@ test("first installation and complete board/task workflow", async ({
         fontWeight: style.fontWeight,
       };
     });
-  expect(identifierStyle.xsToken).toMatch(/^\d+(?:\.\d+)?rem$/);
+  expect(identifierStyle.xsToken).toMatch(/^(?:\d+(?:\.\d+)?|\.\d+)rem$/);
   expect(identifierStyle.fontSize).toBe(
     Number.parseFloat(identifierStyle.xsToken) * identifierStyle.rootFontSize,
   );
@@ -1291,7 +1291,7 @@ test("expired sessions preserve task route and dedicated not-found uses shared a
   ).toBeVisible();
 });
 
-test("invitations, viewer permissions, mentions, and scoped credentials", async ({
+test("invitations, viewer permissions, mentions, and personal API keys", async ({
   page,
   browser,
 }) => {
@@ -1490,49 +1490,110 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
     viewer.getByRole("button", { name: "Save changes" }),
   ).toHaveCount(0);
   await viewerContext.close();
-  const credentialAgentResponse = await page.request.post("/api/agents", {
-    headers: { Origin: baseOrigin },
-    data: { name: "Review integration", scope: "personal" },
-  });
-  expect(credentialAgentResponse.status()).toBe(201);
-  const credentialAgent = (await credentialAgentResponse.json()).agent;
   await page.goto("/settings/api-keys");
   await page
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
-  await page.getByLabel("Name", { exact: true }).fill("Review agent");
-  await choose(page, "Agent", credentialAgent.name);
-  await choose(page, "Access", "Read only");
-  await page
-    .getByRole("dialog")
+  const keyForm = page.getByRole("dialog", {
+    name: "Create API key",
+    exact: true,
+  });
+  await keyForm.getByLabel("Name", { exact: true }).fill("Review automation");
+  await choose(page, "Expiry", "60 days");
+  for (const removedLabel of ["Agent", "Access", "Board access"])
+    await expect(
+      keyForm.getByRole("button", { name: new RegExp(`${removedLabel}$`) }),
+    ).toHaveCount(0);
+  const keyCreationResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/credentials" &&
+      response.request().method() === "POST",
+  );
+  await keyForm
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
-  await expect(page.getByLabel("API key", { exact: true })).not.toHaveValue("");
-  const token = await page.getByLabel("API key", { exact: true }).inputValue();
-  const agent = await request.newContext({
+  const keyCreation = await keyCreationResponse;
+  expect(keyCreation.status()).toBe(201);
+  expect(keyCreation.request().postDataJSON()).toEqual({
+    name: "Review automation",
+    expiresInDays: 60,
+  });
+  const createdKey = (await keyCreation.json()).credential;
+  expect(createdKey.agentId).toBeNull();
+  expect(createdKey.agentName).toBeNull();
+  expect(createdKey.boardIds).toBeNull();
+  expect(createdKey.scopes).toEqual([]);
+  expect(createdKey.tokenType).toBe("api-key");
+  const copyKey = page.getByRole("dialog", {
+    name: "Copy your API key",
+    exact: true,
+  });
+  await expect(copyKey.getByLabel("API key", { exact: true })).not.toHaveValue(
+    "",
+  );
+  const token = await copyKey
+    .getByLabel("API key", { exact: true })
+    .inputValue();
+  await copyKey.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(copyKey).toBeHidden();
+  const personalKey = await request.newContext({
     baseURL: baseOrigin,
     extraHTTPHeaders: { Authorization: `Bearer ${token}`, Origin: baseOrigin },
   });
   try {
-    const forbiddenWrite = await agent.post(`/api/boards/${boardId}/tasks`, {
-      data: { title: "Read-only token cannot create this task" },
+    const readableBoards = await personalKey.get("/api/boards");
+    expect(readableBoards.ok()).toBeTruthy();
+    expect(
+      (await readableBoards.json()).items.some(
+        (board: { id: string }) => board.id === boardId,
+      ),
+    ).toBe(true);
+    const beforeKeyEditResponse = await personalKey.get(`/api/tasks/${taskId}`);
+    expect(beforeKeyEditResponse.ok()).toBeTruthy();
+    const beforeKeyEdit = (await beforeKeyEditResponse.json()).task;
+    const humanEditResponse = await personalKey.patch(`/api/tasks/${taskId}`, {
+      data: { version: beforeKeyEdit.version, status: "done" },
     });
-    expect(forbiddenWrite.status()).toBe(403);
+    expect(humanEditResponse.ok()).toBeTruthy();
+    const humanEdit = (await humanEditResponse.json()).task;
+    expect(humanEdit.status).toBe("done");
+    expect(humanEdit.assigneeId).toBe(viewerUser.user.id);
+    expect(humanEdit.agentId).toBeNull();
+    const historyResponse = await personalKey.get(
+      `/api/tasks/${taskId}/activity`,
+    );
+    expect(historyResponse.ok()).toBeTruthy();
+    const history = (await historyResponse.json()).items;
+    expect(history[0].actorId).toBe(permissionsIdentity.user.id);
+    expect(history[0].actorName).toBe(permissionsIdentity.user.name);
+    expect(history[0].actorKind).toBe("human");
+    const forbiddenKeyCreation = await personalKey.post("/api/credentials", {
+      data: { name: "A key cannot mint another key", expiresInDays: 30 },
+    });
+    expect(forbiddenKeyCreation.status()).toBe(403);
+    const forbiddenSettings = await personalKey.patch("/api/workspace", {
+      data: { name: "A key cannot change team settings" },
+    });
+    expect(forbiddenSettings.status()).toBe(403);
+    const unchangedWorkspace = await page.request.get("/api/auth/me");
+    expect(unchangedWorkspace.ok()).toBeTruthy();
+    expect((await unchangedWorkspace.json()).workspace.name).toBe(
+      permissionsIdentity.workspace.name,
+    );
+    const forbiddenMcp = await personalKey.post("/mcp", {
+      data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    });
+    expect(forbiddenMcp.status()).toBe(403);
     await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Done", exact: true })
-      .click();
-    await page
-      .getByRole("button", { name: "Revoke Review agent", exact: true })
-      .click();
-    await page
-      .getByRole("dialog")
-      .getByRole("button", { name: "Revoke API key", exact: true })
+      .getByRole("button", { name: "Revoke Review automation", exact: true })
       .click();
     const revokedDialog = page.getByRole("dialog", {
       name: "Revoke API key?",
       exact: true,
     });
+    await revokedDialog
+      .getByRole("button", { name: "Revoke API key", exact: true })
+      .click();
     await expect(revokedDialog.getByRole("status")).toHaveText(
       "API key revoked.",
     );
@@ -1542,22 +1603,40 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
     const credentialRow = page
       .getByRole("grid", { name: "API keys", exact: true })
       .getByRole("row")
-      .filter({ hasText: "Review agent" });
+      .filter({ has: page.getByText("Review automation", { exact: true }) });
+    await expect(credentialRow).toHaveCount(1);
     await expect(
-      credentialRow.getByRole("gridcell", { name: "Revoked", exact: true }),
+      credentialRow
+        .locator(".chip:visible")
+        .getByText("Revoked", { exact: true }),
     ).toBeVisible();
+    await expect(
+      credentialRow.getByRole("button", {
+        name: "Revoke Review automation",
+        exact: true,
+      }),
+    ).toHaveCount(0);
     const credentialsResponse = await page.request.get("/api/credentials");
     expect(credentialsResponse.ok()).toBeTruthy();
     const credentialsPage = await credentialsResponse.json();
     const credential = credentialsPage.items.find(
-      (item: { name: string }) => item.name === "Review agent",
+      (item: { id: string }) => item.id === createdKey.id,
     );
     expect(credential).toBeDefined();
+    expect(credential.name).toBe("Review automation");
+    expect(credential.agentId).toBeNull();
+    expect(credential.boardIds).toBeNull();
     expect(credential.revokedAt).not.toBeNull();
-    const revokedRead = await agent.get(`/api/boards/${boardId}/tasks`);
+    expect(
+      credentialsPage.items.some(
+        (item: { name: string }) =>
+          item.name === "A key cannot mint another key",
+      ),
+    ).toBe(false);
+    const revokedRead = await personalKey.get(`/api/boards/${boardId}/tasks`);
     expect(revokedRead.status()).toBe(401);
   } finally {
-    await agent.dispose();
+    await personalKey.dispose();
   }
 });
 
