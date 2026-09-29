@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { verifyConfiguredStaticContent } from "./static-smoke.mjs";
 
 const origin = process.env.MILL_VERIFY_URL;
@@ -86,6 +84,69 @@ function preservedRecord(actual, expected) {
     Object.fromEntries(Object.keys(fields).map((name) => [name, actual[name]])),
     fields,
   );
+}
+async function mcpRequest(
+  token,
+  transport,
+  method,
+  params,
+  notification = false,
+) {
+  const id = notification ? undefined : ++transport.id;
+  const response = await fetch(`${origin}/mcp`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(transport.protocolVersion
+        ? { "MCP-Protocol-Version": transport.protocolVersion }
+        : {}),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      ...(id === undefined ? {} : { id }),
+      method,
+      ...(params === undefined ? {} : { params }),
+    }),
+    signal: AbortSignal.timeout(15_000),
+    redirect: "error",
+  });
+  if (notification) {
+    assert.equal(response.status, 202, `${method} notification is accepted`);
+    assert.equal(await response.text(), "");
+    return;
+  }
+  assert.equal(response.status, 200, `${method} MCP request succeeds`);
+  const type = response.headers.get("content-type") ?? "";
+  const body = await response.text();
+  let message;
+  if (type.includes("application/json")) message = JSON.parse(body);
+  else {
+    assert.match(
+      type,
+      /text\/event-stream/,
+      "MCP transport returns JSON or SSE",
+    );
+    const events = body
+      .split(/\r?\n\r?\n/)
+      .map((block) =>
+        block
+          .split(/\r?\n/)
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).trimStart())
+          .join("\n"),
+      )
+      .filter(Boolean)
+      .map((data) => JSON.parse(data));
+    message = events.find((event) => event.id === id);
+  }
+  assert.ok(message, "MCP transport returns the request response");
+  assert.equal(message.jsonrpc, "2.0");
+  assert.equal(message.id, id);
+  assert.equal(message.error, undefined, `${method} has no protocol error`);
+  assert.ok("result" in message);
+  return message.result;
 }
 
 const ready = await fetch(`${origin}/health/ready`, {
@@ -372,17 +433,39 @@ if (
     },
     201,
   );
-  const client = new Client({
-    name: "mill-production-verification",
-    version: "1.0.0",
-  });
+  const transport = { id: 0, protocolVersion: undefined };
   try {
-    await client.connect(
-      new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
-        requestInit: { headers: { Authorization: `Bearer ${external.token}` } },
-      }),
+    const initialized = await mcpRequest(
+      external.token,
+      transport,
+      "initialize",
+      {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "mill-production-verification", version: "1.0.0" },
+      },
     );
-    const { tools } = await client.listTools();
+    assert.ok(
+      ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"].includes(
+        initialized.protocolVersion,
+      ),
+      "Server negotiates a supported MCP protocol",
+    );
+    assert.ok(initialized.capabilities.tools);
+    transport.protocolVersion = initialized.protocolVersion;
+    await mcpRequest(
+      external.token,
+      transport,
+      "notifications/initialized",
+      undefined,
+      true,
+    );
+    const { tools } = await mcpRequest(
+      external.token,
+      transport,
+      "tools/list",
+      {},
+    );
     assert.ok(tools.some((item) => item.name === "update_task"));
     assert.ok(
       !tools.some((item) => item.name === "create_board"),
@@ -422,13 +505,13 @@ if (
       ])
         assert.equal(field in tool.inputSchema.properties, false);
     }
-    const read = await client.callTool({
+    const read = await mcpRequest(external.token, transport, "tools/call", {
       name: "get_task",
       arguments: { taskId: state.taskId },
     });
     assert.ok(!read.isError);
     assert.equal(read.structuredContent.task.status, "todo");
-    const rejected = await client.callTool({
+    const rejected = await mcpRequest(external.token, transport, "tools/call", {
       name: "create_task",
       arguments: {
         boardId: state.boardId,
@@ -439,7 +522,7 @@ if (
     assert.equal(rejected.isError, true);
     assert.equal(
       (
-        await client.callTool({
+        await mcpRequest(external.token, transport, "tools/call", {
           name: "create_column",
           arguments: { boardId: state.boardId, name: "Removed" },
         })
@@ -465,7 +548,6 @@ if (
       );
     }
   } finally {
-    await client.close();
     await request(`/api/credentials/${external.credential.id}`, "DELETE");
   }
   pass(
