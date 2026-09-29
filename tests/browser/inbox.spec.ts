@@ -652,11 +652,10 @@ test("pending, pagination failure and mark failure retain their owning retry sta
   try {
     await login(page, who);
     await requested;
+    await expect(inbox(page).locator('[aria-busy="true"]')).toHaveCount(1);
     await expect(
-      inbox(page)
-        .getByRole("status")
-        .filter({ hasText: "Loading notifications…" }),
-    ).toHaveText("Loading notifications…");
+      inbox(page).getByText("Loading notifications…", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       inbox(page).getByText("No notifications yet", { exact: true }),
     ).toHaveCount(0);
@@ -802,6 +801,13 @@ test("a delayed real continuation cannot replace or append to the reopened singl
       .getByRole("button", { name: "Load older notifications", exact: true })
       .click();
     await requested;
+    await expect(
+      inbox(page).getByRole("button", {
+        name: "Load older notifications",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await expect(inbox(page)).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(inbox(page)).toHaveCount(0);
     await openNotifications(page);

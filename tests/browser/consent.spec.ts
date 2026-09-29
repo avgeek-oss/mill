@@ -369,8 +369,11 @@ test("delayed real details for request A cannot enable or replace request B and 
     await page.goto(a.url);
     await received.wait;
     await expect(
-      page.getByRole("status").filter({ hasText: "Loading connection" }),
-    ).toBeVisible();
+      page.getByRole("region", { name: "Connection request", exact: true }),
+    ).toHaveAttribute("aria-busy", "true");
+    await expect(
+      page.getByText("Loading connection…", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
     ).toHaveCount(0);

@@ -437,13 +437,10 @@ export function AgentSettings({
         className="min-w-0 space-y-3"
         aria-label="API keys"
         role="region"
+        aria-busy={pending || morePending}
       >
         <div className="min-w-0">
-          {pending && items === null ? (
-            <p role="status" className="text-xs font-normal text-muted">
-              Loading API keys…
-            </p>
-          ) : error && items === null ? (
+          {pending && items === null ? null : error && items === null ? (
             <div className="content-grid">
               <ErrorMessage>{error}</ErrorMessage>
               <Button variant="secondary" onPress={() => void refresh()}>
@@ -585,11 +582,7 @@ export function AgentSettings({
                 isDisabled={morePending}
                 onPress={() => void more()}
               >
-                {morePending
-                  ? "Loading more…"
-                  : moreError
-                    ? "Retry loading more"
-                    : "Load more API keys"}
+                {moreError ? "Retry loading more" : "Load more API keys"}
               </Button>
             </div>
           </div>

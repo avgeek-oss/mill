@@ -75,7 +75,10 @@ for (const failure of ["server", "network"] as const) {
     });
     try {
       await page.getByRole("button", { name: "Try again" }).click();
-      await expect(page.getByRole("status")).toHaveText("Opening Mill…");
+      await expect(page.getByRole("main")).toHaveAttribute("aria-busy", "true");
+      await expect(
+        page.getByText("Opening Mill…", { exact: true }),
+      ).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Try again" })).toHaveCount(
         0,
       );
@@ -246,7 +249,7 @@ test("missing pages have a primary recovery action in both themes and viewport s
   }
 });
 
-test("board read failure retries through an owning loading state", async ({
+test("board read failure retries without a transient placeholder or empty state", async ({
   page,
 }, testInfo) => {
   await authenticate(page);
@@ -276,8 +279,14 @@ test("board read failure retries through an owning loading state", async ({
     });
     await page.getByRole("button", { name: "Try again", exact: true }).click();
     await expect(
-      page.getByRole("status", { name: "Loading tasks…" }),
+      page.getByRole("heading", { name: "Recovery verification", exact: true }),
     ).toBeVisible();
+    await expect(page.getByText("Loading tasks…", { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(page.getByText("No tasks yet", { exact: true })).toHaveCount(
+      0,
+    );
     await expect(
       page.getByRole("button", { name: "New task", exact: true }),
     ).toHaveCount(0);

@@ -380,12 +380,7 @@ function AgentEditor({
               : "Choose the people who can use this agent. Administrators manage its access."}
           </p>
           {scope === "team" && (
-            <div className="content-grid">
-              {membersPending && (
-                <p role="status" className="text-xs font-normal text-muted">
-                  Loading people…
-                </p>
-              )}
+            <div className="content-grid" aria-busy={membersPending}>
               <ErrorMessage>{membersError}</ErrorMessage>
               {membersError && (
                 <Button variant="secondary" onPress={() => void loadMembers()}>
@@ -665,12 +660,7 @@ export function AgentsSettings({ session }: { session: Session }) {
           ) : undefined
         }
       />
-      <div className="content-grid min-w-0">
-        {directory.pending && (
-          <p role="status" className="text-xs font-normal text-muted">
-            Loading agents…
-          </p>
-        )}
+      <div className="content-grid min-w-0" aria-busy={directory.pending}>
         <ErrorMessage>{directory.error}</ErrorMessage>
         {directory.error && (
           <Button variant="secondary" onPress={() => void directory.reload()}>

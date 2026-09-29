@@ -149,11 +149,11 @@ test("People lists load independently, show separate recovery and protect the la
     await expect(members.getByRole("alert")).toContainText(
       "People are temporarily unavailable",
     );
+    await expect(invitations).toHaveAttribute("aria-busy", "true");
+    await expect(invitations.getByText(/Loading invitations/)).toHaveCount(0);
     await expect(
-      invitations
-        .getByRole("status")
-        .filter({ hasText: "Loading invitations" }),
-    ).toContainText("Loading invitations");
+      invitations.getByText("No invitations yet", { exact: true }),
+    ).toHaveCount(0);
     await expect(invitations.getByRole("alert")).toHaveCount(0);
     failMembers = false;
     await members.getByRole("button", { name: "Retry people" }).click();

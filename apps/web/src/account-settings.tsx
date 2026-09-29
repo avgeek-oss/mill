@@ -57,15 +57,22 @@ function AccountWidget({
   title,
   icon,
   status,
+  busy = false,
   children,
 }: {
   title: string;
   icon: ReactNode;
   status?: ReactNode;
+  busy?: boolean;
   children: ReactNode;
 }) {
   return (
-    <Widget className="min-w-0" aria-label={title} role="region">
+    <Widget
+      className="min-w-0"
+      aria-label={title}
+      role="region"
+      aria-busy={busy}
+    >
       <Widget.Header endContent={status}>
         <Widget.Title icon={icon}>
           <h2 className="font-medium">{title}</h2>
@@ -121,24 +128,18 @@ function useAccountList<T>(path: string) {
   return { ...state, refresh };
 }
 function ListState({
-  pending,
+  loaded,
   error,
   retry,
   noun,
   children,
 }: {
-  pending: boolean;
+  loaded: boolean;
   error: string;
   retry: () => void;
   noun: string;
   children: ReactNode;
 }) {
-  if (pending)
-    return (
-      <p role="status" className="text-xs text-muted">
-        Loading {noun}…
-      </p>
-    );
   if (error)
     return (
       <div className="content-grid">
@@ -150,7 +151,7 @@ function ListState({
         </div>
       </div>
     );
-  return children;
+  return loaded ? children : null;
 }
 export function AccountSettings({
   section,
@@ -424,8 +425,9 @@ function SecuritySettings({
         <AccountWidget
           title="Passkeys"
           icon={<KeyRound />}
+          busy={keys.pending}
           status={
-            keys.items && !keys.pending && !keys.error ? (
+            keys.items && !keys.error ? (
               <Chip color={keys.items.length ? "success" : "default"}>
                 {keys.items.length
                   ? `${keys.items.length} added`
@@ -440,7 +442,7 @@ function SecuritySettings({
           </p>
           <Feedback error="" notice={keyNotice} />
           <ListState
-            pending={keys.pending}
+            loaded={keys.items !== null}
             error={keys.error}
             retry={() => void keys.refresh()}
             noun="passkeys"
@@ -465,7 +467,7 @@ function SecuritySettings({
                     </div>
                     <Button
                       variant="danger"
-                      isDisabled={busy || !!pending}
+                      isDisabled={busy || !!pending || keys.pending}
                       onPress={() =>
                         secure(async () => {
                           await api(`/auth/passkeys/${key.id}`, {}, "DELETE");
@@ -656,8 +658,9 @@ function SecuritySettings({
         <AccountWidget
           title="Sessions"
           icon={<Monitor />}
+          busy={sessions.pending}
           status={
-            sessions.items && !sessions.pending && !sessions.error ? (
+            sessions.items && !sessions.error ? (
               <Chip>{sessions.items.length} active</Chip>
             ) : undefined
           }
@@ -668,7 +671,7 @@ function SecuritySettings({
           </p>
           <Feedback error={sessionError} notice={sessionNotice} />
           <ListState
-            pending={sessions.pending}
+            loaded={sessions.items !== null}
             error={sessions.error}
             retry={() => void sessions.refresh()}
             noun="sessions"
@@ -702,7 +705,7 @@ function SecuritySettings({
                     ) : (
                       <Button
                         variant="danger"
-                        isDisabled={busy}
+                        isDisabled={busy || sessions.pending}
                         onPress={() =>
                           void runSession(async () => {
                             await api(

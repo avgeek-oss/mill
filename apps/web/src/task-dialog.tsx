@@ -404,6 +404,7 @@ export function TaskDialog({
   return (
     <Dialog
       data-task-dialog
+      aria-busy={loading}
       isDismissDisabled={busy}
       open
       onClose={close}
@@ -439,11 +440,7 @@ export function TaskDialog({
         </div>
       }
     >
-      {loading ? (
-        <TypographyParagraph className="text-xs" color="muted" role="status">
-          Loading task…
-        </TypographyParagraph>
-      ) : selection.id && !detail ? (
+      {loading ? null : selection.id && !detail ? (
         <Alert status="danger" role="alert">
           <Alert.Indicator />
           <Alert.Content>

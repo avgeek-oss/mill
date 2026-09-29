@@ -505,7 +505,10 @@ test("initial loading, failed loading, empty list and the personal key form rema
   await openAgents(page);
   const region = page.getByRole("region", { name: "API keys", exact: true });
   try {
-    await expect(region.getByRole("status")).toHaveText("Loading API keys…");
+    await expect(region).toHaveAttribute("aria-busy", "true");
+    await expect(
+      region.getByText("Loading API keys…", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       region.getByText("No API keys yet", { exact: true }),
     ).toHaveCount(0);
@@ -824,7 +827,7 @@ test("older active credentials remain reachable and revocable after the default 
   await page.getByRole("button", { name: "Retry loading more" }).click();
   try {
     await expect(
-      page.getByRole("button", { name: "Loading more…" }),
+      page.getByRole("button", { name: "Load more API keys" }),
     ).toBeDisabled();
     const creation = await createDialog(page, "Created during continuation");
     await creation

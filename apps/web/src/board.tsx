@@ -56,7 +56,6 @@ const TaskDialog = lazy(() =>
   import("./task-dialog.js").then((m) => ({ default: m.TaskDialog })),
 );
 import { ErrorPage } from "./error-page.js";
-import { QueryLoading } from "./query-state.js";
 type Page = { items: Task[]; nextCursor?: string | null };
 export function BoardPage({
   boardId,
@@ -643,9 +642,7 @@ export function BoardPage({
           </Button>
         </div>
       )}
-      {loading ? (
-        <QueryLoading label="Loading tasks…" variant="list" />
-      ) : !visibleTasks.length ? (
+      {loading && !tasks.length ? null : !visibleTasks.length ? (
         emptyTasks()
       ) : (
         <div
@@ -659,7 +656,11 @@ export function BoardPage({
         >
           <Table>
             <Table.ScrollContainer>
-              <Table.Content ref={taskList} aria-label="Task list">
+              <Table.Content
+                ref={taskList}
+                aria-label="Task list"
+                aria-busy={loading || moreLoading}
+              >
                 <Table.Header>
                   <Table.Column isRowHeader>Task</Table.Column>
                   <Table.Column>Status</Table.Column>
@@ -742,12 +743,12 @@ export function BoardPage({
             onPress={() => void load(true)}
             isDisabled={loading || moreLoading || query !== q}
           >
-            {moreLoading ? "Loading…" : "Load more tasks"}
+            Load more tasks
           </Button>
         </div>
       )}
       {selection && (
-        <Suspense fallback={<div role="status">Opening task…</div>}>
+        <Suspense fallback={null}>
           <TaskDialog
             key={selection.id ?? "new"}
             selection={selection}

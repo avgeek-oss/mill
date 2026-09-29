@@ -15,7 +15,6 @@ import {
   Dialog,
   EmptyState,
   ErrorMessage,
-  Spinner,
   Table,
   TableCellStack,
   TableCellDescription,
@@ -117,13 +116,20 @@ function usePeopleList<T>(path: string) {
 
 function PeopleSection({
   label,
+  busy,
   children,
 }: {
   label: string;
+  busy: boolean;
   children: ReactNode;
 }) {
   return (
-    <section role="region" aria-label={label} className="content-grid min-w-0">
+    <section
+      role="region"
+      aria-label={label}
+      aria-busy={busy}
+      className="content-grid min-w-0"
+    >
       {children}
     </section>
   );
@@ -191,14 +197,6 @@ function RemovalHint({
   );
 }
 
-function LoadingPeople({ children }: { children: ReactNode }) {
-  return (
-    <div role="status" className="flex items-center gap-2 text-xs text-muted">
-      <Spinner size="sm" />
-      <span>{children}</span>
-    </div>
-  );
-}
 function invitationStatus(invitation: Invitation) {
   if (invitation.acceptedAt)
     return {
@@ -300,7 +298,7 @@ export function PeopleSettings({
         }
       />
       <div className="content-grid min-w-0">
-        <PeopleSection label="Workspace members">
+        <PeopleSection label="Workspace members" busy={members.loading}>
           <ErrorMessage>{members.error}</ErrorMessage>
           {members.error && (
             <div>
@@ -313,7 +311,6 @@ export function PeopleSettings({
               </Button>
             </div>
           )}
-          {members.loading && <LoadingPeople>Loading people…</LoadingPeople>}
           {!members.loading && !members.error && !members.items.length && (
             <EmptyState>
               <EmptyState.Header>
@@ -439,7 +436,7 @@ export function PeopleSettings({
             </p>
           )}
         </PeopleSection>
-        <PeopleSection label="Invitations">
+        <PeopleSection label="Invitations" busy={invitations.loading}>
           <ErrorMessage>{invitations.error}</ErrorMessage>
           {invitations.error && (
             <div>
@@ -451,13 +448,6 @@ export function PeopleSettings({
                 Retry invitations
               </Button>
             </div>
-          )}
-          {invitations.loading && (
-            <LoadingPeople>
-              {invitations.items.length
-                ? "Loading more invitations…"
-                : "Loading invitations…"}
-            </LoadingPeople>
           )}
           {!invitations.loading &&
             !invitations.error &&

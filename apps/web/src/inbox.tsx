@@ -250,17 +250,15 @@ export function NotificationsPopover({
     <ScrollShadow
       className="max-h-[min(26rem,calc(100dvh-8rem))] min-w-0 overflow-y-auto overscroll-contain"
       size={16}
+      aria-busy={state.loading}
     >
       {markError &&
         (markError.target === "all" ||
           !state.items.some((item) => item.id === markError.target)) && (
           <div className="p-4">{markFailure(markError.target)}</div>
         )}
-      {state.loading && state.items.length === 0 ? (
-        <p role="status" className="px-4 py-6 text-center text-sm text-muted">
-          Loading notifications…
-        </p>
-      ) : state.error && state.items.length === 0 ? (
+      {state.loading && state.items.length === 0 ? null : state.error &&
+        state.items.length === 0 ? (
         <EmptyState>
           <EmptyState.Header>
             <EmptyState.Title>
@@ -366,13 +364,13 @@ export function NotificationsPopover({
                   </span>
                 </div>
               </Link>
-              {(opening === item.id || markError?.target === item.id) && (
+              {opening === item.id && (
+                <span role="status" className="sr-only">
+                  Opening task…
+                </span>
+              )}
+              {markError?.target === item.id && (
                 <div className="grid gap-3 px-4 pb-3">
-                  {opening === item.id && (
-                    <p role="status" className="text-sm text-muted">
-                      Opening task…
-                    </p>
-                  )}
                   {markFailure(item.id)}
                 </div>
               )}
@@ -396,20 +394,17 @@ export function NotificationsPopover({
         !state.error &&
         (state.loading || state.hasMore) && (
           <div className="border-t border-separator px-4 py-3">
-            {state.loading ? (
-              <p role="status" className="text-sm text-muted">
-                Loading older notifications…
-              </p>
-            ) : (
-              <Button
-                variant="secondary"
-                className="min-h-11"
-                isDisabled={!!marking}
-                onPress={() => void load(state.nextCursor ?? undefined)}
-              >
-                Load older notifications
-              </Button>
-            )}
+            <Button
+              variant="secondary"
+              className="min-h-11"
+              isDisabled={state.loading || !!marking}
+              onPress={() => {
+                dialog.current?.focus();
+                void load(state.nextCursor ?? undefined);
+              }}
+            >
+              Load older notifications
+            </Button>
           </div>
         )}
     </ScrollShadow>

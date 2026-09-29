@@ -1152,7 +1152,10 @@ test("passkeys and sessions distinguish independent PostgreSQL pending and failu
       name: "Sessions",
       exact: true,
     });
-    await expect(keys.getByRole("status")).toHaveText("Loading passkeys…");
+    await expect(keys).toHaveAttribute("aria-busy", "true");
+    await expect(
+      keys.getByText("Loading passkeys…", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       keys.getByText("No passkeys added.", { exact: true }),
     ).toHaveCount(0);

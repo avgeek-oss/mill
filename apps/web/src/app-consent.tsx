@@ -7,7 +7,6 @@ import {
   Button,
   Choice,
   ErrorMessage,
-  Spinner,
   Link,
 } from "@mill/web-design-system";
 import { ApiError, errorText, isResponseObject, type Session } from "./api.js";
@@ -217,6 +216,13 @@ function ConsentRequest({
   const agents = useAgentDirectory(
     id ? `${session.user.id}:${session.user.role}:${id}` : null,
   );
+  const [previousBoards, setPreviousBoards] = useState<typeof directory.boards>(
+    [],
+  );
+  useEffect(() => {
+    if (!directory.pending && !directory.error)
+      setPreviousBoards(directory.boards);
+  }, [directory.boards, directory.pending, directory.error]);
   useEffect(() => {
     active.current = true;
     return () => {
@@ -253,6 +259,8 @@ function ConsentRequest({
   const canWrite =
     details?.user.role !== "viewer" && session.user.role !== "viewer";
   const choices = directory.boards;
+  const displayedBoards =
+    directory.pending || directory.error ? previousBoards : choices;
   const selectedAvailable =
     !boardId || choices.some((board) => board.id === boardId);
   const selectedAgentAvailable = agents.items.some(
@@ -323,12 +331,7 @@ function ConsentRequest({
           This connection link is incomplete. Start again from your app.
         </ErrorMessage>
       ) : connection.phase === "pending" ? (
-        <p
-          role="status"
-          className="flex items-center gap-2 text-xs font-normal text-muted"
-        >
-          <Spinner size="sm" /> Loading connection…
-        </p>
+        <div role="region" aria-label="Connection request" aria-busy />
       ) : connection.phase === "failed" ? (
         <div className="content-grid">
           <ErrorMessage>{connection.error}</ErrorMessage>
@@ -342,6 +345,7 @@ function ConsentRequest({
       ) : details ? (
         <form
           aria-label="Connection permissions"
+          aria-busy={!!decision || agents.pending || directory.pending}
           className="grid min-w-0 gap-6 pt-4"
           onSubmit={(event) => {
             event.preventDefault();
@@ -404,7 +408,10 @@ function ConsentRequest({
               </p>
             )}
           </div>
-          <div className="content-grid min-w-0">
+          <div
+            className="content-grid min-w-0"
+            aria-busy={agents.pending || directory.pending}
+          >
             <Choice
               label="Agent"
               value={agentId}
@@ -423,11 +430,6 @@ function ConsentRequest({
               search
               disabled={!!decision || agents.pending || !!agents.error}
             />
-            {agents.pending && (
-              <p role="status" className="text-xs font-normal text-muted">
-                Loading agents…
-              </p>
-            )}
             <ErrorMessage>{agents.error}</ErrorMessage>
             {agents.error && (
               <Button
@@ -475,7 +477,7 @@ function ConsentRequest({
               onChange={setBoardId}
               items={[
                 { id: "", name: "All boards" },
-                ...choices.map((board) => ({
+                ...displayedBoards.map((board) => ({
                   id: board.id,
                   name: board.name,
                 })),
@@ -483,11 +485,6 @@ function ConsentRequest({
               search
               disabled={!!decision || directory.pending || !!directory.error}
             />
-            {directory.pending && (
-              <p role="status" className="text-xs font-normal text-muted">
-                Loading available boards…
-              </p>
-            )}
             {directory.error && (
               <>
                 <ErrorMessage>{directory.error}</ErrorMessage>
@@ -500,7 +497,7 @@ function ConsentRequest({
                 </Button>
               </>
             )}
-            {!selectedAvailable && (
+            {!directory.pending && !directory.error && !selectedAvailable && (
               <ErrorMessage>
                 This board is no longer available. Choose another board.
               </ErrorMessage>

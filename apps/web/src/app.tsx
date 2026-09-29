@@ -34,7 +34,6 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { Board, Member } from "../../../packages/contracts/src/index.js";
 import { ErrorPage } from "./error-page.js";
-import { QueryLoading } from "./query-state.js";
 import { hasBoardResponse, hasBoardsResponse } from "./responses.js";
 import { compareBoardNames } from "./board-directory.js";
 import {
@@ -279,9 +278,7 @@ export function App() {
   }, [session, path, boards]);
   if (!ready)
     return (
-      <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
-        <QueryLoading label="Opening Mill…" />
-      </main>
+      <main aria-busy className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6" />
     );
   if (!session) {
     if (error)
@@ -302,7 +299,7 @@ export function App() {
             Your session expired. Sign in again to continue.
           </div>
         )}
-        <Suspense fallback={<QueryLoading />}>
+        <Suspense fallback={null}>
           <Auth
             setup={setup}
             onSession={(s) => {
@@ -320,7 +317,7 @@ export function App() {
   const activeBoardId = path.match(/^\/boards\/([^/]+)/)?.[1];
   if (path === "/oauth/consent")
     return (
-      <Suspense fallback={<QueryLoading />}>
+      <Suspense fallback={null}>
         <AppConsent session={session} />
       </Suspense>
     );
@@ -388,11 +385,6 @@ export function App() {
             content: (
               <div className="grid min-w-0 gap-1">
                 <ErrorMessage>{boardsError}</ErrorMessage>
-                {boardsPending && (
-                  <p className="px-2 py-1.5 text-xs text-muted" role="status">
-                    Loading boards…
-                  </p>
-                )}
                 {boardsError && (
                   <Button
                     variant="secondary"
@@ -493,7 +485,7 @@ export function App() {
         }
       >
         <AppShell.Content>
-          <Suspense fallback={<QueryLoading />}>
+          <Suspense fallback={null}>
             {error && <ErrorMessage>{error}</ErrorMessage>}
             {activeBoardId ? (
               <BoardPage
@@ -532,9 +524,8 @@ export function App() {
                   void loadBoards();
                 }}
               />
-            ) : path === "/" && boardsPending ? (
-              <QueryLoading label="Loading boards…" variant="list" />
-            ) : path === "/" && boardsError ? (
+            ) : path === "/" && boardsPending ? null : path === "/" &&
+              boardsError ? (
               <EmptyState>
                 <EmptyState.Header>
                   <EmptyState.Title>

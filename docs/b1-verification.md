@@ -1,5 +1,13 @@
 # B1 verification
 
+## September 29 loading-transition follow-up
+
+Page and list requests no longer render transient Loading text or skeletons. This covers boards, tasks, People/invitations, Agents and their member picker, API keys, notifications, passkeys/sessions and MCP consent. Completed empty states remain gated by the request result; failures retain their owning retry actions. Previously loaded lists stay visible during refresh where supported, and pagination labels remain stable with duplicate actions disabled. The notification pagination action keeps focus in its popover so Escape remains available during a delayed request.
+
+The follow-up local source gate passes 162 real PostgreSQL tests, 14 tooling tests, 28 documentation checks, formatting, lint, strict types, the dependency audit and the production build. Complete browser verification passes 77 cases across nine fresh installations, with every isolated schema/cache/listener removed and an unchanged 41-file distribution. The notification suite additionally verifies disabled pagination, owning dialog focus and Escape during a delayed request, then rejects stale responses after reopening. Root reviewed the live People, API keys, Agents, notifications and account-security routes; owning desktop/phone captures cover both themes.
+
+Packaged verification built from the follow-up working tree passes all 92 installation, migration, full-restore, vulnerability and cleanup steps, with zero HIGH/CRITICAL image findings. This local run is working-tree evidence; exact-commit hosted checks are tracked separately on the private PR. Original output and receipts are `tmp/loading-ui/verify-r2.log`, `tmp/loading-ui/browser-r3.log`, `tmp/loading-ui/browser-r3-summary.json` and `tmp/loading-ui/production-receipt.json`. Original failed attempts are retained alongside passing evidence.
+
 ## September 29 People, Agent access and personal key revision
 
 This is the current revision. It hides board descriptions from the displayed board while retaining them in edit settings and REST/MCP, follows Towbar's People and Avatar presentation, uses compact form help and table descriptions, removes all ghost buttons, and adds durable all-members Agent access. Personal API keys use the active owner's current human permissions on REST; Agents connect only through OAuth MCP. Keys accept only a name and one of 30, 60, 90 or 365 days. Migration 009 revokes and unbinds earlier Agent-bound API keys while preserving OAuth, work and history. Applied migrations 001–008 are unchanged.
@@ -60,6 +68,7 @@ The first PR browser run on `25baaa2` exposed a settings-fixture synchronization
 | UI 12          | Widget title font and icons match Towbar             | Profile details and other owning Widgets checked in both themes                                                                                                                                 | Verified locally |
 | UI 13          | Last administrator guidance only in delete tooltip   | No visible label; tooltip, disabled safety and last-admin authorization retained                                                                                                                | Verified locally |
 | UI 14          | Personal API keys replaces Agent access              | API keys navigation/route, personal list/creation/revocation and selected Agent binding                                                                                                         | Verified locally |
+| UI 15          | Remove transient loading placeholders                | Quiet initial loads, retained refreshed lists, stable pagination labels, completed-result empty states, recoverable failures and pending-popover Escape                                         | Verified locally |
 | Architecture 1 | Agents are distinct human-created identities         | Personal creator-only access; Admin-managed team grants; eligible existing Agent selection for keys/OAuth; no eligible blocks approval; no automatic or MCP creation                            | Verified locally |
 | Architecture 2 | Task Agent coexists with human Assignee              | REST/MCP/UI `agentId` and derived `agentName`; no Agent without an active human; actor/assignee access on binding changes; valid binding retained on unrelated edits; no execution side effects | Verified locally |
 
