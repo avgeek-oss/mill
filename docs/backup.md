@@ -1,6 +1,6 @@
 # Backup and recovery
 
-A full PostgreSQL backup restores accounts, sessions, authenticators, boards, tasks, comments, members, notifications, and agent/OAuth records. A portable export is for moving work between workspaces and deliberately excludes login secrets and credentials. Keep both purposes separate.
+A full PostgreSQL backup preserves accounts, sessions, authenticators, boards, tasks, checklists, comments, members, attributed task history, in-app notifications, and agent/OAuth records. This is the supported recovery method. Mill v1 does not offer portable work export/import.
 
 ## Create a full backup
 
@@ -45,6 +45,6 @@ bash tools/restore.sh --project mill --confirm-project mill --env-file .env --in
 
 Use the application version compatible with the backup. PostgreSQL dumps are not a substitute for testing a major-version database upgrade. See [upgrades](upgrades.md).
 
-## Portable work export
+## Work from older versions
 
-Administrators can export and import the supported workspace data through **Export and import** in the sidebar or the authenticated API. The export includes work and member details, and excludes passwords, sessions, authenticators, credentials, and OAuth grants. Import preserves the operator's administrator access. Use [the API documentation](api.md) for the exact format and permission checks. Portable export does not replace the full recovery backup.
+Keep a full backup from before the list-only migration if you need to recover the earlier model. [Upgrade guidance](upgrades.md) explains how existing tasks and former subtasks become independent tasks and how old status names are mapped. Restoring an older dump requires its compatible application version before applying newer migrations. Historical portable JSON files have no importer in v1; retain them separately if needed, but use a database backup for supported recovery.

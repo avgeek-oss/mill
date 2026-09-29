@@ -1,6 +1,18 @@
 # B1 security review
 
-This independent review covers the original working implementation on 2026-09-28. Its 13 security regressions remain in the revised candidate's passing 84-test API/database suite. The final local browser run also passes all 72 cases. These current results are recorded in [B1 verification](b1-verification.md); exact-commit CI, clean installation, production verification, and private artifacts remain separate from the historical review below.
+## September 29 fixed-status task list
+
+The independent backend review passed 71 focused PostgreSQL/API/security checks for the reduced model. A separate prior-schema upgrade probe verified preserved task content, former subtasks as independent tasks, unchanged historical activity details, retained sessions and retry identities, and removal of obsolete storage and API/tool surfaces. Existing completed retry responses become content-free terminal records after the upgrade.
+
+The reviewer independently reproduced and then rechecked a task-pagination omission when an unseen task moved across a title cursor. Continuation now returns `409 task_list_changed`; a fresh traversal returns every task exactly once. [Task-pagination regressions](../tests/task-pagination.test.ts) cover inserts, deletions, status-filter changes, updated-time changes, unaffected other boards, and invalid cursors.
+
+The complete local source gate passes 115 database/API/security tests, 14 tooling tests, documentation checks, formatting, lint, type checks, dependency audit, and the production build. Browser and packaged installation/upgrade/restore gates are recorded separately in [current B1 verification](b1-verification.md) and the private PR.
+
+## Historical review
+
+> Historical review of candidates before the final September 29 v1 task-list reduction. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below are retained as evidence of that earlier scope. They do not establish current behavior or readiness. See [the current scope and evidence](b1-verification.md).
+
+This independent review covers the original working implementation on 2026-09-28. At that checkpoint, its 13 security regressions were included in an 84-test API/database suite and the local browser run passed 72 cases. Those receipts describe the historical candidate; exact-commit CI, clean installation, production verification, and private artifacts remain separate from the review below.
 
 ## Verification
 

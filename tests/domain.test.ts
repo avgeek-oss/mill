@@ -44,7 +44,8 @@ async function fixture() {
   const detail = await json(
     await request(`/api/boards/${created.board.id}`, { cookie: admin.cookie }),
   );
-  return { ...admin, board: created.board, columns: detail.columns };
+  assert.deepEqual(Object.keys(detail), ["board"]);
+  return { ...admin, board: created.board };
 }
 async function createTask(
   cookie: string,
@@ -63,44 +64,29 @@ async function createTask(
   ).task;
 }
 
-test("task lifecycle persists identifiers, edits, checklist, relationships, move and permanent deletion", async () => {
-  const { cookie, board, columns } = await fixture();
+test("task lifecycle persists identifiers, edits, checklist, status and permanent deletion", async () => {
+  const { cookie, board } = await fixture();
   const teammate = await member(cookie, "teammate@example.test");
-  let parent = await createTask(cookie, board.id, "Ship B1", {
+  let item = await createTask(cookie, board.id, "Ship B1", {
     description: "[Reference](https://example.test)",
     assigneeId: teammate.user.id,
     priority: "urgent",
-    labels: ["release", "release"],
     dueDate: "2026-10-01",
     checklist: [{ id: "review", text: "Review the board", done: false }],
   });
-  assert.equal(parent.identifier, "ENG-1");
-  assert.deepEqual(parent.labels, ["release"]);
-  const subtask = await createTask(cookie, board.id, "Review permissions", {
-    parentId: parent.id,
-  });
-  assert.equal(subtask.identifier, "ENG-2");
-  const childDetail = await json(
-    await request(`/api/tasks/${subtask.id}`, { cookie }),
-  );
-  assert.equal(childDetail.parent.id, parent.id);
-  const parentDetail = await json(
-    await request(`/api/tasks/${parent.id}`, { cookie }),
-  );
-  assert.equal(parentDetail.subtasks[0].id, subtask.id);
-  assert.equal(
-    parentDetail.task.description,
-    "[Reference](https://example.test)",
-  );
-  parent = (
+  assert.equal(item.identifier, "ENG-1");
+  assert.equal(item.status, "todo");
+  const detail = await json(await request(`/api/tasks/${item.id}`, { cookie }));
+  assert.equal(detail.task.description, "[Reference](https://example.test)");
+  item = (
     await json(
-      await request(`/api/tasks/${parent.id}`, {
+      await request(`/api/tasks/${item.id}`, {
         method: "PATCH",
         cookie,
         body: {
-          version: parent.version,
+          version: item.version,
           title: "Ship reviewed B1",
-          columnId: columns[1].id,
+          status: "in_review",
           checklist: [{ id: "review", text: "Review the board", done: true }],
           assigneeId: null,
           dueDate: null,
@@ -108,34 +94,29 @@ test("task lifecycle persists identifiers, edits, checklist, relationships, move
       }),
     )
   ).task;
-  assert.equal(parent.columnId, columns[1].id);
-  assert.equal(parent.checklist[0].done, true);
-  assert.equal(parent.assigneeId, null);
-  parent = (
-    await json(
-      await request(`/api/tasks/${parent.id}/move`, {
-        cookie,
-        body: { version: parent.version, columnId: columns[2].id },
-      }),
-    )
-  ).task;
+  assert.equal(item.status, "in_review");
+  assert.equal(item.checklist[0].done, true);
+  assert.equal(item.assigneeId, null);
+  assert.equal(item.dueDate, null);
+  const independent = await createTask(cookie, board.id, "Review permissions");
+  assert.equal(independent.identifier, "ENG-2");
   assert.deepEqual(
     await json(
-      await request(`/api/tasks/${parent.id}`, {
+      await request(`/api/tasks/${item.id}`, {
         method: "DELETE",
         cookie,
-        body: { version: parent.version },
+        body: { version: item.version },
       }),
     ),
     { ok: true },
   );
   assert.equal(
-    (await request(`/api/tasks/${parent.id}`, { cookie })).status,
+    (await request(`/api/tasks/${item.id}`, { cookie })).status,
     404,
   );
   assert.equal(
-    (await request(`/api/tasks/${subtask.id}`, { cookie })).status,
-    404,
+    (await request(`/api/tasks/${independent.id}`, { cookie })).status,
+    200,
   );
   const next = await createTask(cookie, board.id, "Continue work");
   assert.equal(next.identifier, "ENG-3");
@@ -185,8 +166,6 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
     ).status,
     403,
   );
-  for (const path of ["/api/export"])
-    assert.equal((await request(path, { cookie: writer.cookie })).status, 403);
   const privateBoard = (
     await json(
       await request("/api/boards", {
@@ -249,12 +228,10 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
   );
   for (const path of [
     `/api/boards/${privateBoard.id}`,
-    `/api/boards/${privateBoard.id}/columns`,
     `/api/boards/${privateBoard.id}/tasks`,
     `/api/tasks/${privateTask.id}`,
     `/api/tasks/${privateTask.id}/comments`,
     `/api/tasks/${privateTask.id}/activity`,
-    "/api/export",
     "/api/workspace",
   ])
     assert.equal((await request(path, { token })).status, 403, path);
@@ -270,15 +247,14 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
   );
   assert.equal(
     (
-      await request(`/api/boards/${board.id}`, {
+      await request(`/api/boards/${privateBoard.id}`, {
         method: "PATCH",
         token,
-        body: { version: board.version, beforeId: privateBoard.id },
+        body: { version: privateBoard.version, name: "Denied" },
       })
     ).status,
     403,
   );
-  assert.equal((await request("/api/import", { token, body: {} })).status, 403);
   const readCredential = await json(
     await request("/api/credentials", {
       cookie,
@@ -313,8 +289,8 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
   );
 });
 
-test("concurrent task edits and moves reject stale versions without lost fields or duplicate ranks", async () => {
-  const { cookie, board, columns } = await fixture();
+test("concurrent edits and status changes reject stale versions without lost fields", async () => {
+  const { cookie, board } = await fixture();
   const item = await createTask(cookie, board.id);
   const edits = await Promise.all(
     ["First edit", "Second edit"].map((title) =>
@@ -329,26 +305,34 @@ test("concurrent task edits and moves reject stale versions without lost fields 
   const fresh = (await json(await request(`/api/tasks/${item.id}`, { cookie })))
     .task;
   assert.ok(["First edit", "Second edit"].includes(fresh.title));
-  const moves = await Promise.all(
-    [columns[1], columns[2]].map((col) =>
-      request(`/api/tasks/${item.id}/move`, {
+  const changes = await Promise.all(
+    ["in_progress", "done"].map((status) =>
+      request(`/api/tasks/${item.id}`, {
+        method: "PATCH",
         cookie,
-        body: { columnId: col.id, version: fresh.version },
+        body: { status, version: fresh.version },
       }),
     ),
   );
-  assert.deepEqual(moves.map((r) => r.status).sort(), [200, 409]);
+  assert.deepEqual(changes.map((r) => r.status).sort(), [200, 409]);
+  const updated = (
+    await json(await request(`/api/tasks/${item.id}`, { cookie }))
+  ).task;
+  assert.equal(updated.title, fresh.title);
+  assert.ok(["in_progress", "done"].includes(updated.status));
+  assert.equal(updated.version, fresh.version + 1);
   const a = await createTask(cookie, board.id, "Independent A", {
-    columnId: columns[0].id,
+    status: "backlog",
   });
   const b = await createTask(cookie, board.id, "Independent B", {
-    columnId: columns[1].id,
+    status: "in_review",
   });
   const independent = await Promise.all(
     [a, b].map((row) =>
-      request(`/api/tasks/${row.id}/move`, {
+      request(`/api/tasks/${row.id}`, {
+        method: "PATCH",
         cookie,
-        body: { columnId: columns[2].id, version: row.version },
+        body: { status: "done", version: row.version },
       }),
     ),
   );
@@ -357,64 +341,10 @@ test("concurrent task edits and moves reject stale versions without lost fields 
     [200, 200],
   );
   const rows =
-    await sql`SELECT column_id,position FROM tasks WHERE board_id=${board.id} ORDER BY column_id,position`;
-  for (const col of columns)
-    assert.deepEqual(
-      rows.filter((t) => t.columnId === col.id).map((t) => t.position),
-      rows.filter((t) => t.columnId === col.id).map((_t, index) => index),
-    );
-});
-
-test("status reorder is concurrent-safe and removal transfers all tasks without orphaned statuses", async () => {
-  const { cookie, board, columns } = await fixture();
-  const item = await createTask(cookie, board.id, "A status task");
-  const reorder = await Promise.all(
-    [columns[1].id, null].map((beforeId) =>
-      request(`/api/columns/${columns[2].id}`, {
-        method: "PATCH",
-        cookie,
-        body: { version: columns[2].version, beforeId },
-      }),
-    ),
-  );
-  assert.deepEqual(reorder.map((r) => r.status).sort(), [200, 409]);
-  const currentColumns = (
-    await json(await request(`/api/boards/${board.id}/columns`, { cookie }))
-  ).items;
+    await sql`SELECT status FROM tasks WHERE id IN (${a.id},${b.id})`;
   assert.deepEqual(
-    currentColumns.map((col: { position: number }) => col.position),
-    [0, 1, 2],
-  );
-  const initial = currentColumns.find(
-    (col: { id: string }) => col.id === item.columnId,
-  );
-  assert.equal(
-    (
-      await request(`/api/columns/${initial.id}`, {
-        method: "DELETE",
-        cookie,
-        body: { version: initial.version },
-      })
-    ).status,
-    409,
-  );
-  await json(
-    await request(`/api/columns/${initial.id}`, {
-      method: "DELETE",
-      cookie,
-      body: { version: initial.version, moveToColumnId: columns[1].id },
-    }),
-  );
-  const updated = (
-    await json(await request(`/api/tasks/${item.id}`, { cookie }))
-  ).task;
-  assert.equal(updated.columnId, columns[1].id);
-  const remaining = (
-    await json(await request(`/api/boards/${board.id}/columns`, { cookie }))
-  ).items;
-  assert.deepEqual(
-    remaining.map((col: { position: number }) => col.position),
-    [0, 1],
+    rows.map((row) => row.status),
+    ["done", "done"],
   );
 });
 
@@ -423,19 +353,19 @@ test("combined search filters and keyset pagination are bounded and deterministi
   for (let index = 0; index < 7; index++)
     await createTask(cookie, board.id, `Release ${index}`, {
       priority: "high",
-      labels: ["B1"],
+      status: "in_review",
       description: index === 6 ? "contains wildcard_%" : "",
     });
   await createTask(cookie, board.id, "Unrelated task", {
     priority: "low",
-    labels: ["other"],
+    status: "todo",
   });
   let cursor: string | null = null;
   const ids: string[] = [];
   do {
     const page = await json(
       await request(
-        `/api/boards/${board.id}/tasks?q=Release&priority=high&label=B1&assigneeId=unassigned&limit=2&sort=title${cursor ? "&cursor=" + cursor : ""}`,
+        `/api/boards/${board.id}/tasks?q=Release&priority=high&status=in_review&assigneeId=unassigned&limit=2&sort=title${cursor ? "&cursor=" + cursor : ""}`,
         { cookie },
       ),
     );
@@ -602,133 +532,6 @@ test("assignments and mentions respect preferences and notifications remain priv
   );
 });
 
-test("portable export/import preserves data and member attribution without granting access or leaking secrets", async () => {
-  const { cookie, user, board } = await fixture();
-  const teammate = await member(cookie, "portable@example.test");
-  const parent = await createTask(cookie, board.id, "Portable parent", {
-    assigneeId: teammate.user.id,
-    checklist: [{ id: "one", text: "Persist me", done: true }],
-    dueDate: "2026-10-04",
-  });
-  await createTask(cookie, board.id, "Portable subtask", {
-    parentId: parent.id,
-  });
-  await json(
-    await request(`/api/tasks/${parent.id}/comments`, {
-      cookie: teammate.cookie,
-      body: { body: "Portable comment" },
-    }),
-    201,
-  );
-  const exported = await json(await request("/api/export", { cookie }));
-  const serialized = JSON.stringify(exported);
-  for (const forbidden of [
-    "passwordHash",
-    "tokenHash",
-    "publicKey",
-    "recoveryCodes",
-    "sessions",
-  ])
-    assert.equal(serialized.includes(forbidden), false);
-  assert.equal(exported.format, "mill-portable");
-  await resetDatabase();
-  const destination = await setupUser({
-    email: "destination@example.test",
-    name: "Destination admin",
-  });
-  const imported = await json(
-    await request("/api/import", {
-      cookie: destination.cookie,
-      body: exported,
-    }),
-    201,
-  );
-  assert.equal(imported.imported.tasks, 2);
-  assert.equal(imported.imported.comments, 1);
-  const [admin] =
-    await sql`SELECT role,disabled_at FROM users WHERE id=${destination.user.id}`;
-  assert.equal(admin.role, "admin");
-  assert.equal(admin.disabledAt, null);
-  const [restoredMember] =
-    await sql`SELECT id,disabled_at FROM users WHERE email=${teammate.user.email}`;
-  assert.ok(restoredMember.disabledAt);
-  assert.notEqual(restoredMember.id, teammate.user.id);
-  const [restoredTask] =
-    await sql`SELECT * FROM tasks WHERE title='Portable parent'`;
-  assert.equal(restoredTask.assigneeId, restoredMember.id);
-  assert.equal(restoredTask.identifier, parent.identifier);
-  assert.equal(restoredTask.checklist[0].done, true);
-  const child = (
-    await sql`SELECT * FROM tasks WHERE title='Portable subtask'`
-  )[0];
-  assert.equal(child.parentId, restoredTask.id);
-  assert.notEqual(restoredTask.createdBy, user.id);
-  const detail = await json(
-    await request(`/api/tasks/${restoredTask.id}`, {
-      cookie: destination.cookie,
-    }),
-  );
-  assert.equal(detail.comments[0].body, "Portable comment");
-  assert.equal(detail.comments[0].authorId, restoredMember.id);
-  const reinvited = await member(destination.cookie, teammate.user.email);
-  assert.equal(reinvited.user.id, restoredMember.id);
-  assert.equal(
-    (
-      await request(`/api/tasks/${restoredTask.id}`, {
-        cookie: reinvited.cookie,
-      })
-    ).status,
-    200,
-  );
-});
-
-test("invalid imports fail before changing data and live task relations cannot create cycles or cross boards", async () => {
-  const { cookie, board } = await fixture();
-  const a = await createTask(cookie, board.id, "A");
-  const b = await createTask(cookie, board.id, "B", { parentId: a.id });
-  assert.equal(
-    (
-      await request(`/api/tasks/${a.id}`, {
-        method: "PATCH",
-        cookie,
-        body: { version: a.version, parentId: b.id },
-      })
-    ).status,
-    400,
-  );
-  const other = (
-    await json(
-      await request("/api/boards", {
-        cookie,
-        body: { name: "Other", prefix: "REL" },
-      }),
-      201,
-    )
-  ).board;
-  assert.equal(
-    (
-      await request(`/api/boards/${other.id}/tasks`, {
-        cookie,
-        body: { title: "Invalid", parentId: a.id },
-      })
-    ).status,
-    400,
-  );
-  const exported = await json(await request("/api/export", { cookie }));
-  const before = (await sql`SELECT count(*)::int AS total FROM boards`)[0]
-    .total;
-  exported.tasks[0].parentId = exported.tasks[1].id;
-  exported.tasks[1].parentId = exported.tasks[0].id;
-  assert.equal(
-    (await request("/api/import", { cookie, body: exported })).status,
-    400,
-  );
-  assert.equal(
-    (await sql`SELECT count(*)::int AS total FROM boards`)[0].total,
-    before,
-  );
-});
-
 test("archive fields, deleted filters and restore routes are rejected", async () => {
   const { cookie, board } = await fixture();
   const task = await createTask(cookie, board.id);
@@ -779,44 +582,6 @@ test("archive fields, deleted filters and restore routes are rejected", async ()
     );
 });
 
-test("exports remain internally consistent while tasks and comments are concurrently created", async () => {
-  const { cookie, board } = await fixture();
-  const snapshots = await Promise.all(
-    Array.from({ length: 8 }, async (_unused, index) => {
-      const write = (async () => {
-        const task = await createTask(cookie, board.id, `Concurrent ${index}`);
-        await json(
-          await request(`/api/tasks/${task.id}/comments`, {
-            cookie,
-            body: { body: `Comment ${index}` },
-          }),
-          201,
-        );
-      })();
-      const exportResponse = await json(
-        await request("/api/export", { cookie }),
-      );
-      await write;
-      return exportResponse;
-    }),
-  );
-  for (const snapshot of snapshots) {
-    const ids = new Set(snapshot.tasks.map((t: { id: string }) => t.id));
-    assert.ok(
-      snapshot.comments.every((comment: { taskId: string }) =>
-        ids.has(comment.taskId),
-      ),
-    );
-  }
-  const latest = await json(await request("/api/export", { cookie }));
-  assert.equal(latest.tasks.length, 8);
-  assert.equal(latest.comments.length, 8);
-  assert.equal(
-    (await request("/api/import", { cookie, body: latest })).status,
-    201,
-  );
-});
-
 test("comment, activity and notification pagination preserve PostgreSQL microsecond ordering", async () => {
   const { cookie, board, user } = await fixture();
   const item = await createTask(cookie, board.id);
@@ -857,7 +622,7 @@ test("comment, activity and notification pagination preserve PostgreSQL microsec
   }
 });
 
-test("bounded input validation rejects invalid sorts, impossible relations and oversized task/comment fields", async () => {
+test("bounded input validation rejects invalid sorts, unknown assignments and oversized task/comment fields", async () => {
   const { cookie, board } = await fixture();
   const item = await createTask(cookie, board.id);
   for (const sort of ["constructor", "__proto__", "toString", "unknown"])
@@ -869,10 +634,6 @@ test("bounded input validation rejects invalid sorts, impossible relations and o
   for (const input of [
     { title: "x".repeat(301) },
     { title: "Task", description: "x".repeat(100001) },
-    {
-      title: "Task",
-      labels: Array.from({ length: 21 }, (_unused, index) => `Label ${index}`),
-    },
     { title: "Task", dueDate: "2026-02-31" },
     { title: "Task", assigneeId: "00000000-0000-4000-8000-000000000000" },
     {
@@ -901,59 +662,4 @@ test("bounded input validation rejects invalid sorts, impossible relations and o
     (await request(`/api/tasks/00000000-0000-4000-8000-000000000000`)).status,
     401,
   );
-});
-
-test("portable data excludes permanently deleted work and preserves accepted account email lengths and task numbering", async () => {
-  const email =
-    "x".repeat(64) +
-    "@" +
-    [
-      "a".repeat(63),
-      "b".repeat(63),
-      "c".repeat(63),
-      "d".repeat(55),
-      "test",
-    ].join(".");
-  assert.equal(email.length, 317);
-  const { cookie } = await setupUser({ email });
-  const created = await json(
-    await request("/api/boards", {
-      cookie,
-      body: { name: "Portable work", prefix: "PAR" },
-    }),
-    201,
-  );
-  const surviving = await createTask(
-    cookie,
-    created.board.id,
-    "Surviving record",
-  );
-  const deleted = await createTask(cookie, created.board.id, "Deleted record");
-  await json(
-    await request(`/api/tasks/${deleted.id}`, {
-      cookie,
-      method: "DELETE",
-      body: { version: deleted.version },
-    }),
-  );
-  const exported = await json(await request("/api/export", { cookie }));
-  assert.equal(exported.version, 2);
-  assert.equal(exported.members[0].email, email);
-  assert.equal(exported.boards[0].nextNumber, 3);
-  assert.equal(exported.tasks.length, 1);
-  assert.equal(exported.tasks[0].id, surviving.id);
-  for (const row of [...exported.boards, ...exported.tasks]) {
-    assert.equal(Object.hasOwn(row, "archived"), false);
-    assert.equal(Object.hasOwn(row, "deletedAt"), false);
-  }
-  const imported = await json(
-    await request("/api/import", { cookie, body: exported }),
-    201,
-  );
-  const next = await createTask(
-    cookie,
-    imported.imported.boardIds[0],
-    "Next imported task",
-  );
-  assert.match(next.identifier, /-3$/);
 });

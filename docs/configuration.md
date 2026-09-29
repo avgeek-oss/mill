@@ -27,6 +27,6 @@ For browser passkeys, use `localhost` during local development or an HTTPS DNS h
 
 ## Notifications
 
-Mill B1 uses in-app assignment and mention notifications. Email delivery is unavailable. Administrators share private invitation links and use the local account-recovery procedure described in [getting started](getting-started.md).
+Mill v1 uses in-app assignment and mention notifications; task email notifications are excluded. The account/invitation email provider is currently unavailable. Administrators share private invitation links and use the local account-recovery procedure described in [getting started](getting-started.md).
 
 Environment files and full database backups need protected storage. Do not paste their contents into logs or screenshots.

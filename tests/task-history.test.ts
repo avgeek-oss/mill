@@ -49,9 +49,6 @@ test("workspace audit is absent for every role while task history retains human,
     }),
     201,
   );
-  const detail = await json(
-    await request(`/api/boards/${board.id}`, { cookie }),
-  );
   const credential = await json(
     await request("/api/credentials", {
       cookie,
@@ -80,6 +77,7 @@ test("workspace audit is absent for every role while task history retains human,
       201,
     )
   ).task;
+  assert.equal(task.status, "todo");
   const comment = (
     await json(
       await request(`/api/tasks/${task.id}/comments`, {
@@ -129,9 +127,10 @@ test("workspace audit is absent for every role while task history retains human,
   ).task;
   task = (
     await json(
-      await request(`/api/tasks/${task.id}/move`, {
+      await request(`/api/tasks/${task.id}`, {
         token: credential.token,
-        body: { version: task.version, columnId: detail.columns[1].id },
+        method: "PATCH",
+        body: { version: task.version, status: "in_progress" },
       }),
     )
   ).task;
@@ -184,8 +183,6 @@ test("workspace audit is absent for every role while task history retains human,
       body: { name: "Updated workspace" },
     }),
   );
-  const exported = await json(await request("/api/export", { cookie }));
-  await json(await request("/api/import", { cookie, body: exported }), 201);
   await json(
     await request(`/api/credentials/${credential.credential.id}`, {
       cookie,
@@ -213,7 +210,7 @@ test("workspace audit is absent for every role while task history retains human,
   assert.equal((await sql`SELECT * FROM activity`).length, 0);
 });
 
-test("deleting a status records each task move and leaves other tasks unchanged", async () => {
+test("status changes retain attributed history, reject stale versions and deduplicate retries", async () => {
   const { cookie, user } = await setupUser();
   const { board } = await json(
     await request("/api/boards", {
@@ -222,34 +219,26 @@ test("deleting a status records each task move and leaves other tasks unchanged"
     }),
     201,
   );
-  const { columns } = await json(
-    await request(`/api/boards/${board.id}`, { cookie }),
-  );
-  const [source, destination] = columns;
-  const moved = [];
-  for (const title of ["First task", "Second task"])
-    moved.push(
-      (
-        await json(
-          await request(`/api/boards/${board.id}/tasks`, {
-            cookie,
-            body: { title, columnId: source.id },
-          }),
-          201,
-        )
-      ).task,
-    );
-  const { task: unrelated } = await json(
+  const { task } = await json(
     await request(`/api/boards/${board.id}/tasks`, {
       cookie,
-      body: { title: "Keep in destination", columnId: destination.id },
+      body: { title: "Change status", status: "backlog" },
     }),
     201,
   );
+  const { task: unrelated } = await json(
+    await request(`/api/boards/${board.id}/tasks`, {
+      cookie,
+      body: { title: "Keep completed task", status: "done" },
+    }),
+    201,
+  );
+  const taskBefore = await sql`SELECT * FROM tasks WHERE id=${task.id}`;
+  const historyBefore = await sql`SELECT * FROM activity ORDER BY id`;
   const unrelatedBefore =
     await sql`SELECT * FROM tasks WHERE id=${unrelated.id}`;
   const unrelatedHistory =
-    await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY created_at,id`;
+    await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY id`;
   const credential = await json(
     await request("/api/credentials", {
       cookie,
@@ -263,67 +252,119 @@ test("deleting a status records each task move and leaves other tasks unchanged"
   );
   assert.equal(
     (
-      await request(`/api/columns/${source.id}`, {
+      await request(`/api/tasks/${task.id}`, {
         token: credential.token,
-        method: "DELETE",
-        body: { version: source.version + 1, moveToColumnId: destination.id },
+        method: "PATCH",
+        body: { version: task.version + 1, status: "in_progress" },
       })
     ).status,
     409,
   );
-  assert.equal(
-    (await sql`SELECT * FROM activity WHERE action='task.moved'`).length,
-    0,
+  assert.deepEqual(
+    await sql`SELECT * FROM tasks WHERE id=${task.id}`,
+    taskBefore,
   );
-  const deleteOptions = {
+  assert.deepEqual(
+    await sql`SELECT * FROM activity ORDER BY id`,
+    historyBefore,
+  );
+  const patchOptions = {
     token: credential.token,
-    method: "DELETE",
-    headers: { "Idempotency-Key": "status-delete-history" },
-    body: { version: source.version, moveToColumnId: destination.id },
+    method: "PATCH",
+    headers: { "Idempotency-Key": "status-change-history" },
+    body: { version: task.version, status: "in_progress" },
   };
-  await json(await request(`/api/columns/${source.id}`, deleteOptions));
-  await json(await request(`/api/columns/${source.id}`, deleteOptions));
-  for (const [index, task] of moved.entries()) {
-    const { task: updated } = await json(
-      await request(`/api/tasks/${task.id}`, { cookie }),
-    );
-    assert.equal(updated.columnId, destination.id);
-    assert.equal(updated.position, index + 1);
-    assert.equal(updated.version, task.version + 1);
-    const history = await json(
-      await request(`/api/tasks/${task.id}/activity`, { cookie }),
-    );
-    assert.equal(history.items.length, 2);
-    assert.deepEqual(
-      history.items.map((event: { action: string }) => event.action).sort(),
-      ["task.created", "task.moved"],
-    );
-    const event = history.items.find(
-      (event: { action: string }) => event.action === "task.moved",
-    );
-    assert.equal(event.taskId, task.id);
-    assert.equal(event.boardId, board.id);
-    assert.equal(event.actorId, user.id);
-    assert.equal(event.actorKind, "agent");
-    assert.equal(event.actorName, "Admin via Status helper");
-    assert.deepEqual(event.detail, {
-      fromColumnId: source.id,
-      columnId: destination.id,
-      status: destination.name,
-    });
-  }
-  assert.equal(
-    (await sql`SELECT * FROM columns WHERE id=${source.id}`).length,
-    0,
+  const changed = await json(
+    await request(`/api/tasks/${task.id}`, patchOptions),
   );
+  const replayResponse = await request(`/api/tasks/${task.id}`, patchOptions);
+  assert.equal(replayResponse.headers.get("Idempotency-Replayed"), "true");
+  assert.deepEqual(await json(replayResponse), changed);
+  assert.equal(changed.task.status, "in_progress");
+  assert.equal(changed.task.version, task.version + 1);
+  const history = await json(
+    await request(`/api/tasks/${task.id}/activity`, { cookie }),
+  );
+  assert.equal(history.items.length, 2);
+  assert.deepEqual(
+    history.items.map((event: { action: string }) => event.action).sort(),
+    ["task.created", "task.moved"],
+  );
+  const event = history.items.find(
+    (event: { action: string }) => event.action === "task.moved",
+  );
+  assert.equal(event.taskId, task.id);
+  assert.equal(event.boardId, board.id);
+  assert.equal(event.actorId, user.id);
+  assert.equal(event.actorKind, "agent");
+  assert.equal(event.actorName, "Admin via Status helper");
+  assert.deepEqual(event.detail, {
+    fromStatus: "backlog",
+    status: "in_progress",
+  });
   assert.deepEqual(
     await sql`SELECT * FROM tasks WHERE id=${unrelated.id}`,
     unrelatedBefore,
   );
   assert.deepEqual(
-    await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY created_at,id`,
+    await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY id`,
     unrelatedHistory,
   );
+});
+
+test("a status change rolls back when its task history cannot be persisted", async () => {
+  const { cookie } = await setupUser();
+  const { board } = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "Atomic history", prefix: "ATOMIC" },
+    }),
+    201,
+  );
+  const { task } = await json(
+    await request(`/api/boards/${board.id}/tasks`, {
+      cookie,
+      body: { title: "Keep task and history consistent" },
+    }),
+    201,
+  );
+  const before = await sql`SELECT * FROM tasks WHERE id=${task.id}`;
+  const historyBefore = await sql`SELECT * FROM activity ORDER BY id`;
+  await sql.unsafe(`
+    CREATE FUNCTION reject_task_move_history() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.action='task.moved' THEN
+        RAISE EXCEPTION 'Simulated task history failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    CREATE TRIGGER reject_task_move_history BEFORE INSERT ON activity
+    FOR EACH ROW EXECUTE FUNCTION reject_task_move_history();
+  `);
+  try {
+    assert.equal(
+      (
+        await request(`/api/tasks/${task.id}`, {
+          cookie,
+          method: "PATCH",
+          body: { version: task.version, status: "in_progress" },
+        })
+      ).status,
+      500,
+    );
+    assert.deepEqual(
+      await sql`SELECT * FROM tasks WHERE id=${task.id}`,
+      before,
+    );
+    assert.deepEqual(
+      await sql`SELECT * FROM activity ORDER BY id`,
+      historyBefore,
+    );
+  } finally {
+    await sql.unsafe("DROP TRIGGER reject_task_move_history ON activity");
+    await sql.unsafe("DROP FUNCTION reject_task_move_history()");
+  }
 });
 
 test("fresh activity rows require an owning task in the same board", async () => {

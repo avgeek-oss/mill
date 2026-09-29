@@ -613,25 +613,88 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           );
           const listed = await sdk.listTools();
           assert(listed.tools.some((tool) => tool.name === "create_board"));
+          for (const removed of [
+            "list_columns",
+            "create_column",
+            "update_column",
+            "delete_column",
+            "move_task",
+            "list_subtasks",
+            "import_workspace",
+            "export_workspace",
+          ])
+            assert(
+              !listed.tools.some((tool) => tool.name === removed),
+              removed,
+            );
           const created = await sdk.callTool({
             name: "create_board",
             arguments: {
-              name: "OAuth SDK board",
+              name: "A OAuth SDK board",
               prefix: "OAUTH",
               idempotencyKey: "oauth-sdk-board-0001",
             },
           });
           assert.equal(created.isError, false, JSON.stringify(created));
           const board = created.structuredContent as { board: { id: string } };
+          const firstBoards = await sdk.callTool({
+            name: "list_boards",
+            arguments: { limit: 1 },
+          });
+          assert.equal(firstBoards.isError, false, JSON.stringify(firstBoards));
+          const firstPage = firstBoards.structuredContent as {
+            items: { id: string; name: string }[];
+            hasMore: boolean;
+            nextCursor: string;
+          };
+          assert.equal(firstPage.items[0]!.id, board.board.id);
+          assert.equal(firstPage.hasMore, true);
+          const nextBoards = await sdk.callTool({
+            name: "list_boards",
+            arguments: { limit: 1, cursor: firstPage.nextCursor },
+          });
+          assert.equal(nextBoards.isError, false, JSON.stringify(nextBoards));
+          const secondPage = nextBoards.structuredContent as {
+            items: { id: string; name: string }[];
+          };
+          assert.equal(secondPage.items[0]!.name, "OAuth restricted board");
+          assert.notEqual(secondPage.items[0]!.id, firstPage.items[0]!.id);
           const task = await sdk.callTool({
             name: "create_task",
             arguments: {
               boardId: board.board.id,
               title: "OAuth SDK task",
+              status: "in_review",
               idempotencyKey: "oauth-sdk-task-0001",
             },
           });
           assert.equal(task.isError, false, JSON.stringify(task));
+          const taskState = task.structuredContent as {
+            task: { id: string; version: number; status: string };
+          };
+          assert.equal(taskState.task.status, "in_review");
+          const updateArguments = {
+            taskId: taskState.task.id,
+            version: taskState.task.version,
+            status: "done",
+            idempotencyKey: "oauth-sdk-status-0001",
+          };
+          const updated = await sdk.callTool({
+            name: "update_task",
+            arguments: updateArguments,
+          });
+          assert.equal(updated.isError, false, JSON.stringify(updated));
+          assert.equal(
+            (updated.structuredContent as { task: { status: string } }).task
+              .status,
+            "done",
+          );
+          const retry = await sdk.callTool({
+            name: "update_task",
+            arguments: updateArguments,
+          });
+          assert.equal(retry.isError, false, JSON.stringify(retry));
+          assert.deepEqual(retry.structuredContent, updated.structuredContent);
           assert.equal(
             (
               await fetch(`${process.env.MILL_BASE_URL}/api/boards`, {

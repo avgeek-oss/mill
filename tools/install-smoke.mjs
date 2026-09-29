@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { verifyConfiguredStaticContent } from "./static-smoke.mjs";
 
 const origin = process.env.MILL_VERIFY_URL;
@@ -50,6 +52,40 @@ async function request(
 }
 function pass(message) {
   console.log(`PASS ${message}`);
+}
+async function removedRoute(path, method = "GET", data) {
+  const response = await fetch(`${origin}${path}`, {
+    method,
+    headers: {
+      Origin: origin,
+      "Content-Type": "application/json",
+      Cookie: [...cookies]
+        .map(([name, value]) => `${name}=${value}`)
+        .join("; "),
+    },
+    body: data === undefined ? undefined : JSON.stringify(data),
+    signal: AbortSignal.timeout(15_000),
+    redirect: "error",
+  });
+  assert.equal(response.status, 404, `${method} ${path} is removed`);
+}
+function apiRecord(record) {
+  return Object.fromEntries(
+    Object.entries(record).map(([name, value]) => [
+      name.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()),
+      name.endsWith("_at") && value !== null
+        ? new Date(value).toISOString()
+        : value,
+    ]),
+  );
+}
+function preservedRecord(actual, expected) {
+  const fields = apiRecord(expected);
+  assert.ok(actual, "Preserved record exists through the real API");
+  assert.deepEqual(
+    Object.fromEntries(Object.keys(fields).map((name) => [name, actual[name]])),
+    fields,
+  );
 }
 
 const ready = await fetch(`${origin}/health/ready`, {
@@ -113,7 +149,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
       title: "Persist through restart and recovery",
       description: "A **real** task in the production container.",
       priority: "high",
-      labels: ["install-smoke"],
+      status: "todo",
       checklist: [
         {
           id: "restore-check",
@@ -188,15 +224,7 @@ assert.ok(
   ),
   "Persisted task creation history remains readable",
 );
-const removedAudit = await fetch(`${origin}/api/audit`, {
-  headers: {
-    Origin: origin,
-    Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
-  },
-  signal: AbortSignal.timeout(15_000),
-  redirect: "error",
-});
-assert.equal(removedAudit.status, 404, "Workspace Audit endpoint is removed");
+await removedRoute("/api/audit");
 pass(
   "Task actions history remains readable and workspace Audit is unavailable",
 );
@@ -212,6 +240,18 @@ assert.match(
 );
 assert.equal(task.title, "Persist through restart and recovery");
 assert.equal(task.boardId, state.boardId);
+assert.equal(task.status, "todo");
+assert.equal(task.description, "A **real** task in the production container.");
+assert.equal(task.priority, "high");
+assert.deepEqual(task.checklist, [
+  {
+    id: "restore-check",
+    text: "Verify restored comment and member",
+    done: false,
+  },
+]);
+for (const name of ["columnId", "labels", "parentId", "position"])
+  assert.equal(name in task, false, `Removed task field ${name} is absent`);
 assert.ok(
   comments.some(
     (comment) =>
@@ -225,18 +265,213 @@ assert.ok(
     (member) => member.id === state.memberId && member.role === "member",
   ),
 );
-const exported = await request("/api/export");
-assert.equal(exported.format, "mill-portable");
-assert.ok(exported.tasks.some((item) => item.id === state.taskId));
-assert.ok(exported.comments.some((item) => item.id === state.commentId));
 assert.ok(
-  exported.members.every(
+  members.items.every(
     (member) => !("passwordHash" in member) && !("totpSecret" in member),
   ),
 );
 pass(
-  "Persisted task/comment/member data and credential-free portable export are readable",
+  "Persisted task descriptions/checklists/comments and credential-free membership are readable",
 );
+if (
+  process.env.MILL_VERIFY_MODE === "fresh" ||
+  process.env.MILL_VERIFY_UPGRADE_STATE
+) {
+  for (const [path, method, data] of [
+    [`/api/boards/${state.boardId}/columns`, "GET"],
+    [
+      `/api/boards/${state.boardId}/columns`,
+      "POST",
+      { name: "Removed status" },
+    ],
+    [
+      `/api/columns/${state.taskId}`,
+      "PATCH",
+      { name: "Removed status", version: 1 },
+    ],
+    [`/api/columns/${state.taskId}`, "DELETE", {}],
+    [`/api/tasks/${state.taskId}/subtasks`, "GET"],
+    ["/api/export", "GET"],
+    ["/api/import", "POST", { format: "mill-portable", version: 1 }],
+  ])
+    await removedRoute(path, method, data);
+  for (const [field, value] of [
+    ["columnId", state.taskId],
+    ["labels", ["removed"]],
+    ["parentId", state.taskId],
+    ["position", 0],
+  ]) {
+    await request(
+      `/api/boards/${state.boardId}/tasks`,
+      "POST",
+      { title: "Rejected obsolete field", [field]: value },
+      400,
+    );
+    await request(
+      `/api/tasks/${state.taskId}`,
+      "PATCH",
+      { version: task.version, [field]: value },
+      400,
+    );
+  }
+  await request(
+    "/api/boards",
+    "POST",
+    { name: "Rejected ranking", prefix: "REJUP", position: 0 },
+    400,
+  );
+  await request(
+    `/api/boards/${state.boardId}/tasks`,
+    "POST",
+    { title: "Rejected status", status: "custom" },
+    400,
+  );
+  await request(
+    `/api/tasks/${state.taskId}?subtaskLimit=1`,
+    "GET",
+    undefined,
+    400,
+  );
+  for (const query of [
+    `columnId=${state.taskId}`,
+    "label=removed",
+    `parentId=${state.taskId}`,
+    "sort=position",
+  ])
+    await request(
+      `/api/boards/${state.boardId}/tasks?${query}`,
+      "GET",
+      undefined,
+      400,
+    );
+  await request(
+    "/api/auth/profile",
+    "PATCH",
+    {
+      notificationPreferences: {
+        assignments: true,
+        mentions: true,
+        email: true,
+      },
+    },
+    400,
+  );
+  const me = await request("/api/auth/me");
+  assert.deepEqual(Object.keys(me.user.notificationPreferences).sort(), [
+    "assignments",
+    "mentions",
+  ]);
+  const external = await request(
+    "/api/credentials",
+    "POST",
+    {
+      name: "Disposable production capability check",
+      scopes: ["read", "write"],
+      boardIds: [state.boardId],
+      expiresInDays: 1,
+    },
+    201,
+  );
+  const client = new Client({
+    name: "mill-production-verification",
+    version: "1.0.0",
+  });
+  try {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`${origin}/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${external.token}` } },
+      }),
+    );
+    const { tools } = await client.listTools();
+    assert.ok(tools.some((item) => item.name === "update_task"));
+    assert.ok(
+      !tools.some((item) => item.name === "create_board"),
+      "Board-restricted MCP cannot create workspace boards",
+    );
+    for (const name of [
+      "list_columns",
+      "create_column",
+      "update_column",
+      "delete_column",
+      "move_task",
+      "list_subtasks",
+      "import_workspace",
+      "export_workspace",
+    ])
+      assert.ok(
+        !tools.some((item) => item.name === name),
+        `Removed MCP capability ${name} is absent`,
+      );
+    for (const name of ["create_task", "update_task"]) {
+      const tool = tools.find((item) => item.name === name);
+      assert.ok(tool);
+      assert.deepEqual(tool.inputSchema.properties.status.enum, [
+        "backlog",
+        "todo",
+        "in_progress",
+        "in_review",
+        "done",
+        "wont_do",
+      ]);
+      for (const field of [
+        "columnId",
+        "labels",
+        "parentId",
+        "position",
+        "beforeId",
+      ])
+        assert.equal(field in tool.inputSchema.properties, false);
+    }
+    const read = await client.callTool({
+      name: "get_task",
+      arguments: { taskId: state.taskId },
+    });
+    assert.ok(!read.isError);
+    assert.equal(read.structuredContent.task.status, "todo");
+    const rejected = await client.callTool({
+      name: "create_task",
+      arguments: {
+        boardId: state.boardId,
+        title: "Rejected obsolete MCP field",
+        columnId: state.taskId,
+      },
+    });
+    assert.equal(rejected.isError, true);
+    assert.equal(
+      (
+        await client.callTool({
+          name: "create_column",
+          arguments: { boardId: state.boardId, name: "Removed" },
+        })
+      ).isError,
+      true,
+    );
+    if (process.env.MILL_VERIFY_UPGRADE_STATE) {
+      const upgrade = JSON.parse(
+        await readFile(process.env.MILL_VERIFY_UPGRADE_STATE, "utf8"),
+      );
+      const outside = await fetch(
+        `${origin}/api/boards/${upgrade.archivedBoardId}`,
+        {
+          headers: { Authorization: `Bearer ${external.token}` },
+          signal: AbortSignal.timeout(15_000),
+          redirect: "error",
+        },
+      );
+      assert.equal(
+        outside.status,
+        403,
+        "Scoped production credential cannot read another migrated board",
+      );
+    }
+  } finally {
+    await client.close();
+    await request(`/api/credentials/${external.credential.id}`, "DELETE");
+  }
+  pass(
+    "Removed structure, ranking, import/export and email preferences are rejected; real scoped MCP advertises fixed statuses and rejects obsolete capabilities",
+  );
+}
 if (process.env.MILL_VERIFY_UPGRADE_STATE) {
   const upgrade = JSON.parse(
     await readFile(process.env.MILL_VERIFY_UPGRADE_STATE, "utf8"),
@@ -255,22 +490,9 @@ if (process.env.MILL_VERIFY_UPGRADE_STATE) {
       upgrade[name],
       /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,
     );
-  assert.ok(
-    exported.boards.some(
-      (board) =>
-        board.id === upgrade.archivedBoardId &&
-        board.name === "Legacy archived board",
-    ),
-    "Previously archived board is ordinary exported work after migration",
-  );
-  assert.ok(
-    exported.tasks.some(
-      (item) =>
-        item.id === upgrade.archivedTaskId &&
-        item.title === "Legacy archived task",
-    ),
-    "Previously archived task is ordinary exported work after migration",
-  );
+  const archivedBoard = await request(`/api/boards/${upgrade.archivedBoardId}`);
+  assert.equal(archivedBoard.board.name, "Legacy archived board");
+  assert.equal("position" in archivedBoard.board, false);
   const archived = await request(`/api/tasks/${upgrade.archivedTaskId}`);
   assert.equal(archived.task.title, "Legacy archived task");
   assert.ok(
@@ -318,13 +540,9 @@ if (process.env.MILL_VERIFY_UPGRADE_STATE) {
     upgrade.deletedChildId,
     upgrade.deletedBoardTaskId,
   ];
-  assert.ok(
-    !exported.boards.some((board) => board.id === upgrade.deletedBoardId),
-  );
   for (const id of deletedIds) {
-    assert.ok(!exported.tasks.some((item) => item.id === id));
-    assert.ok(!exported.comments.some((comment) => comment.taskId === id));
     await request(`/api/tasks/${id}`, "GET", undefined, 404);
+    await request(`/api/tasks/${id}/comments`, "GET", undefined, 404);
   }
   await request(`/api/boards/${upgrade.deletedBoardId}`, "GET", undefined, 404);
   assert.match(upgrade.legacyRetry.key, /^[A-Za-z0-9._:-]{8,128}$/);
@@ -341,9 +559,66 @@ if (process.env.MILL_VERIFY_UPGRADE_STATE) {
     { "Idempotency-Key": upgrade.legacyRetry.key },
   );
   assert.equal(retry.code, "retry_invalidated");
-  const afterRetry = await request("/api/export");
-  assert.ok(!afterRetry.boards.some((board) => board.prefix === "DELUP"));
+  const afterRetry = await request("/api/boards?limit=100");
+  assert.ok(!afterRetry.items.some((board) => board.prefix === "DELUP"));
   pass(
     "Migrated archived work remains usable; deleted work stays absent and its stale create retry returns terminal 410 without recreation",
   );
+  if (upgrade.simplification) {
+    const simplified = upgrade.simplification;
+    assert.equal(simplified.tasks.length, 7);
+    const foundStatuses = new Set();
+    for (const expected of simplified.tasks) {
+      const details = await request(
+        `/api/tasks/${expected.id}?commentLimit=100&activityLimit=100`,
+      );
+      preservedRecord(details.task, expected);
+      for (const field of ["columnId", "labels", "parentId", "position"])
+        assert.equal(field in details.task, false);
+      foundStatuses.add(details.task.status);
+      for (const comment of simplified.comments.filter(
+        (item) => item.task_id === expected.id,
+      ))
+        preservedRecord(
+          details.comments.find((item) => item.id === comment.id),
+          comment,
+        );
+      for (const event of simplified.activity.filter(
+        (item) => item.task_id === expected.id,
+      ))
+        preservedRecord(
+          details.activity.find((item) => item.id === event.id),
+          event,
+        );
+    }
+    assert.deepEqual(
+      [...foundStatuses].sort(),
+      ["backlog", "todo", "in_progress", "in_review", "done", "wont_do"].sort(),
+    );
+    const listed = await request(
+      `/api/boards/${simplified.boardId}/tasks?limit=100`,
+    );
+    assert.ok(
+      listed.items.some((item) => item.id === simplified.formerChildId),
+      "Former subtask is independently listed",
+    );
+    assert.equal(listed.items.length, 7);
+    const obsoleteRetry = await request(
+      simplified.retry.path,
+      "POST",
+      simplified.retry.body,
+      410,
+      cookies,
+      { "Idempotency-Key": simplified.retry.key },
+    );
+    assert.equal(obsoleteRetry.code, "retry_invalidated");
+    assert.equal(
+      (await request(`/api/boards/${simplified.boardId}/tasks?limit=100`)).items
+        .length,
+      7,
+    );
+    pass(
+      "All six statuses, independent former subtasks and exact descriptions/checklists/comments/history survive; legacy task retries return terminal410",
+    );
+  }
 }

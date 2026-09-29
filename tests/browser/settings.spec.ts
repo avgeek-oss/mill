@@ -24,7 +24,6 @@ let origin = "";
 let admin: Account;
 let adminApi: APIRequestContext;
 let board: { id: string; name: string };
-let columnId = "";
 
 async function json(
   api: APIRequestContext,
@@ -135,8 +134,6 @@ test.beforeAll(async ({ playwright, baseURL }) => {
     description: "Independent account and administration verification",
   });
   board = created.board;
-  const detail = await json(adminApi, `/boards/${board.id}`);
-  columnId = detail.columns[0].id;
 });
 test.afterAll(async () => {
   await adminApi?.dispose();
@@ -158,6 +155,12 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
       .getByRole("region", { name: "Profile details", exact: true })
       .getByRole("status"),
   ).toContainText("Preferences saved");
+  await expect(page.getByRole("checkbox", { name: /email/i })).toHaveCount(0);
+  await expect(
+    page.getByText("Email delivery is unavailable for this installation.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("checkbox", { name: "Task assignments", exact: true }),
   ).toBeChecked();
@@ -499,7 +502,7 @@ test("assignment and mention notifications open the correct task and preferences
     "Inbox Settings",
   );
   const task = await json(adminApi, `/boards/${board.id}/tasks`, {
-    columnId,
+    status: "todo",
     title: "Review notification delivery",
     assigneeId: recipient.id,
   });
@@ -574,7 +577,7 @@ test("assignment and mention notifications open the correct task and preferences
       .getByRole("status"),
   ).toContainText("Notifications saved");
   await json(adminApi, `/boards/${board.id}/tasks`, {
-    columnId,
+    status: "todo",
     title: "Assignment preference excludes this alert",
     assigneeId: recipient.id,
   });
@@ -629,7 +632,10 @@ test("a scoped credential created through the interface works on its board and l
     const tasks = await agent.get(`/api/boards/${board.id}/tasks`);
     expect(tasks.status()).toBe(200);
     const created = await agent.post(`/api/boards/${board.id}/tasks`, {
-      data: { columnId, title: "A scoped external agent created this task" },
+      data: {
+        status: "todo",
+        title: "A scoped external agent created this task",
+      },
     });
     expect(created.status()).toBe(201);
     const other = await json(adminApi, "/boards", {
@@ -665,85 +671,59 @@ test("a scoped credential created through the interface works on its board and l
   }
 });
 
-test("workspace export downloads actual data and the selected file imports with tasks and comments intact", async ({
+test("workspace settings persist while portable export and import are unavailable", async ({
   page,
-}, testInfo) => {
+}) => {
   await login(page, admin);
-  const task = await json(adminApi, `/boards/${board.id}/tasks`, {
-    columnId,
-    title: "Portable export browser proof",
-    description: "Data crosses the actual file picker.",
+  await expect(
+    page.getByRole("link", { name: "Export and import", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("link", { name: "Workspace settings", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Workspace", exact: true, level: 1 }),
+  ).toBeVisible();
+  const name = page.getByRole("textbox", { name: /^Name/ });
+  await name.fill("Settings workspace verification");
+  await page.getByRole("button", { name: "Update", exact: true }).click();
+  await expect(page.getByRole("main").getByRole("status")).toContainText(
+    "Workspace updated",
+  );
+  expect((await json(page.request, "/auth/me")).workspace.name).toBe(
+    "Settings workspace verification",
+  );
+  await page.reload();
+  await expect(name).toHaveValue("Settings workspace verification");
+  const guide = page.getByRole("link", {
+    name: "backup and recovery guide",
+    exact: true,
   });
-  await json(adminApi, `/tasks/${task.task.id}/comments`, {
-    body: "This comment survives export and import.",
-  });
-  await page
-    .getByRole("link", { name: "Export and import", exact: true })
-    .click();
-  const downloaded = page.waitForEvent("download");
-  await page
-    .getByRole("button", { name: "Download export", exact: true })
-    .click();
-  const download = await downloaded;
-  expect(download.suggestedFilename()).toMatch(/^mill-export-.*\.json$/);
-  const exportedPath = testInfo.outputPath("workspace-export.json");
-  await download.saveAs(exportedPath);
-  const exported = JSON.parse(await readFile(exportedPath, "utf8"));
-  expect(exported.format).toBe("mill-portable");
+  await expect(guide).toHaveAttribute("href", "/guides/backup.html");
+  await expect(guide).toHaveAttribute("target", "_blank");
+  await page.goto("/settings/data");
+  await expect(
+    page.getByRole("heading", {
+      name: "This page could not be found",
+      exact: true,
+      level: 1,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Download export", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Choose Mill export", { exact: true }),
+  ).toHaveCount(0);
+  expect((await page.request.get("/api/export")).status()).toBe(404);
   expect(
-    exported.tasks.some(
-      (t: { title: string }) => t.title === "Portable export browser proof",
-    ),
-  ).toBe(true);
-  expect(
-    exported.comments.some(
-      (c: { body: string }) =>
-        c.body === "This comment survives export and import.",
-    ),
-  ).toBe(true);
-  const content = JSON.stringify(exported);
-  expect(
-    /passwordHash|password_hash|tokenHash|encryptedSecret|recoveryCodes/.test(
-      content,
-    ),
-    "Portable export excludes credential fields",
-  ).toBe(false);
-  await page.getByLabel("Choose Mill export").setInputFiles(exportedPath);
-  await page
-    .getByRole("region", { name: "Import workspace data", exact: true })
-    .getByRole("button", { name: "Import", exact: true })
-    .click();
-  const importResponse = page.waitForResponse(
-    (response) =>
-      response.url().endsWith("/api/import") &&
-      response.request().method() === "POST",
-  );
-  await page
-    .getByRole("dialog", { name: "Import workspace data?" })
-    .getByRole("button", { name: "Import", exact: true })
-    .click();
-  const imported = await (await importResponse).json();
-  const complete = page.getByRole("dialog", { name: "Import completed" });
-  await expect(complete.getByRole("status")).toContainText("Import completed");
-  await expect(complete.getByRole("status")).not.toContainText(
-    "[object Object]",
-  );
-  await complete.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  const boards = await json(page.request, "/boards");
-  const restored = boards.items.find(
-    (item: { id: string; name: string }) =>
-      item.name === board.name && imported.imported.boardIds.includes(item.id),
-  );
-  expect(restored).toBeTruthy();
-  expect(restored.id).not.toBe(board.id);
-  await page.goto(`/boards/${restored.id}`);
-  await page.getByLabel("Search tasks").fill("Portable export browser proof");
-  await expect(page.locator(".task-card")).toHaveCount(1);
-  await page.locator(".task-card").click();
-  await expect(page.getByRole("dialog")).toContainText(
-    "This comment survives export and import.",
-  );
+    (
+      await page.request.post("/api/import", {
+        headers: { Origin: origin },
+        data: {},
+      })
+    ).status(),
+  ).toBe(404);
   expect((await page.request.get("/api/auth/me")).status()).toBe(200);
 });
 

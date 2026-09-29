@@ -32,12 +32,12 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
       }),
       201,
     );
-    async function createTask(boardId: string, key: string, parentId?: string) {
+    async function createTask(boardId: string, key: string) {
       return (
         await json(
           await request(`/api/boards/${boardId}/tasks`, {
             cookie,
-            body: { title: `Private content ${key}`, parentId },
+            body: { title: `Private content ${key}` },
             headers: { "Idempotency-Key": key },
           }),
           201,
@@ -45,15 +45,11 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
       ).task;
     }
     const parent = await createTask(removed.id, "schema-parent-cache");
-    const child = await createTask(removed.id, "schema-child-cache", parent.id);
-    const grandchild = await createTask(
-      removed.id,
-      "schema-grandchild-cache",
-      child.id,
-    );
+    const child = await createTask(removed.id, "schema-child-cache");
+    const grandchild = await createTask(removed.id, "schema-grandchild-cache");
     const boardOnly = await createTask(removed.id, "schema-board-only-cache");
     const outside = await createTask(kept.id, "schema-outside-cache");
-    for (const item of [child, boardOnly]) {
+    for (const item of [parent, boardOnly]) {
       await json(
         await request(`/api/tasks/${item.id}/comments`, {
           cookie,
@@ -118,7 +114,13 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
         ]);
       }
       await tx`DELETE FROM ${tx(`${schema}.tasks`)} WHERE id=${parent.id}`;
-      const descendants = [parent.id, child.id, grandchild.id];
+      const descendants = [parent.id];
+      assert.equal(
+        (
+          await tx`SELECT id FROM ${tx(`${schema}.tasks`)} WHERE id IN ${tx([child.id, grandchild.id])}`
+        ).length,
+        2,
+      );
       assert.equal(
         (
           await tx`SELECT id FROM ${tx(`${schema}.tasks`)} WHERE id IN ${tx(descendants)}`
@@ -140,7 +142,7 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
         1,
       );
       await tx`DELETE FROM ${tx(`${schema}.boards`)} WHERE id=${removed.id}`;
-      for (const name of ["columns", "tasks", "activity"])
+      for (const name of ["tasks", "activity"])
         assert.equal(
           (
             await tx`SELECT id FROM ${tx(`${schema}.${name}`)} WHERE board_id=${removed.id}`

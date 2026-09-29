@@ -67,6 +67,14 @@ export async function activeUser(userId: string, db: Db = sql) {
   if (!user) throw new HTTPException(401, { message: "Sign in to continue" });
   return user;
 }
+export function inAppPreferences(
+  preferences: UserRow["notificationPreferences"],
+) {
+  return {
+    assignments: preferences.assignments !== false,
+    mentions: preferences.mentions !== false,
+  };
+}
 export async function userMetadata(user: UserRow, db: Db = sql) {
   const [state] =
     await db`SELECT EXISTS(SELECT 1 FROM authenticators WHERE user_id=${user.id} AND verified) AS totp_enabled,
@@ -77,7 +85,7 @@ export async function userMetadata(user: UserRow, db: Db = sql) {
     email: user.email,
     role: user.role,
     timeZone: user.timeZone,
-    notificationPreferences: user.notificationPreferences,
+    notificationPreferences: inAppPreferences(user.notificationPreferences),
     totpEnabled: state.totpEnabled,
     passkeyCount: state.passkeyCount,
   };

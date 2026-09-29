@@ -124,57 +124,9 @@ test("an exact board creation retry cannot recreate a permanently deleted board"
   await assertTombstone(key, original);
   await terminalRetry("/api/boards", options);
   assert.equal((await sql`SELECT id FROM boards`).length, 0);
-  assert.equal((await sql`SELECT id FROM columns`).length, 0);
   const replay = await request(`/api/boards/${board.id}`, deletion);
   assert.equal(replay.headers.get("Idempotency-Replayed"), "true");
   assert.deepEqual(await json(replay), { ok: true });
-});
-
-test("portable import retries cannot recreate any work after one imported board is deleted", async () => {
-  const { cookie, board } = await fixture();
-  await json(
-    await request(`/api/boards/${board.id}/tasks`, {
-      cookie,
-      body: { title: "Imported sensitive work" },
-    }),
-    201,
-  );
-  await json(
-    await request("/api/boards", {
-      cookie,
-      body: { name: "Other source", prefix: "OTHER" },
-    }),
-    201,
-  );
-  const document = await json(await request("/api/export", { cookie }));
-  const key = "portable-import-after-delete";
-  const options = {
-    cookie,
-    body: document,
-    headers: { "Idempotency-Key": key },
-  };
-  const { imported } = await json(await request("/api/import", options), 201);
-  const original = await saved(key);
-  assert.equal(imported.boardIds.length, 2);
-  const [removed] =
-    await sql`SELECT * FROM boards WHERE id=${imported.boardIds[0]}`;
-  await json(
-    await request(`/api/boards/${removed.id}`, {
-      cookie,
-      method: "DELETE",
-      body: { version: removed.version },
-    }),
-  );
-  const before = await sql`SELECT id FROM boards ORDER BY id`;
-  const tasksBefore = await sql`SELECT id FROM tasks ORDER BY id`;
-  await assertTombstone(key, original);
-  await terminalRetry("/api/import", options);
-  assert.deepEqual(await sql`SELECT id FROM boards ORDER BY id`, before);
-  assert.deepEqual(await sql`SELECT id FROM tasks ORDER BY id`, tasksBefore);
-  assert.equal(
-    (await sql`SELECT id FROM boards WHERE id=${imported.boardIds[1]}`).length,
-    1,
-  );
 });
 
 for (const action of ["edit", "comment"] as const) {

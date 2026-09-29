@@ -49,6 +49,15 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "REST API", exact: true }),
     ).toBeVisible();
+    for (const status of [
+      "backlog",
+      "todo",
+      "in_progress",
+      "in_review",
+      "done",
+      "wont_do",
+    ])
+      await expect(page.getByRole("main")).toContainText(status);
 
     await page
       .getByRole("navigation", { name: "Guide navigation" })

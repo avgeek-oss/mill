@@ -25,8 +25,7 @@ import {
 } from "@mill/web-design-system";
 import {
   Add01Icon,
-  Download01Icon,
-  KanbanIcon,
+  ListViewIcon,
   Key01Icon,
   Settings01Icon,
   UserGroupIcon,
@@ -36,6 +35,7 @@ import type { Board, Member } from "../../../packages/contracts/src/index.js";
 import { ErrorPage } from "./error-page.js";
 import { QueryLoading } from "./query-state.js";
 import { hasBoardResponse, hasBoardsResponse } from "./responses.js";
+import { compareBoardNames } from "./board-directory.js";
 import {
   ApiError,
   api,
@@ -60,12 +60,11 @@ function iconComponent(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
     );
   };
 }
-const Columns3 = iconComponent(KanbanIcon);
+const BoardIcon = iconComponent(ListViewIcon);
 const Plus = iconComponent(Add01Icon);
 const Settings = iconComponent(Settings01Icon);
 const Users = iconComponent(UserGroupIcon);
 const KeyRound = iconComponent(Key01Icon);
-const Download = iconComponent(Download01Icon);
 const Auth = lazy(() => import("./auth.js").then((m) => ({ default: m.Auth })));
 const BoardPage = lazy(() =>
   import("./board.js").then((m) => ({ default: m.BoardPage })),
@@ -188,16 +187,18 @@ export function App() {
             if (request !== lastBoardsRequest.current) return;
             for (const board of result.items) directory.set(board.id, board);
             const created = recentlyCreatedBoard.current;
+            if (created && directory.has(created.id))
+              recentlyCreatedBoard.current = null;
             setBoards((previous) =>
               [
                 ...new Map([
                   ...previous.map((board) => [board.id, board] as const),
                   ...directory,
-                  ...(created ? [[created.id, created] as const] : []),
+                  ...(created && !directory.has(created.id)
+                    ? [[created.id, created] as const]
+                    : []),
                 ]).values(),
-              ].sort(
-                (a, b) => a.position - b.position || a.id.localeCompare(b.id),
-              ),
+              ].sort(compareBoardNames),
             );
             cursor = result.nextCursor;
             if (cursor) {
@@ -209,11 +210,7 @@ export function App() {
             }
           } while (cursor);
           recentlyCreatedBoard.current = null;
-          setBoards(
-            [...directory.values()].sort(
-              (a, b) => a.position - b.position || a.id.localeCompare(b.id),
-            ),
-          );
+          setBoards([...directory.values()].sort(compareBoardNames));
           return;
         } catch (cause) {
           if (!(
@@ -321,7 +318,6 @@ export function App() {
     "members",
     "agents",
     "workspace",
-    "data",
   ];
   function nav(label: string, url: string, icon: ReactNode): ShellLinkConfig {
     return {
@@ -355,7 +351,7 @@ export function App() {
                 id: board.id,
                 href: `/boards/${board.id}`,
                 label: board.name,
-                icon: <Columns3 />,
+                icon: <BoardIcon />,
                 active: activeBoardId === board.id,
               })),
               ...(session.user.role === "viewer"
@@ -405,7 +401,6 @@ export function App() {
                       "/settings/workspace",
                       <Settings />,
                     ),
-                    nav("Export and import", "/settings/data", <Download />),
                   ]
                 : []),
             ],
@@ -438,7 +433,6 @@ export function App() {
     members: "People",
     agents: "Agent access",
     workspace: "Workspace",
-    data: "Export and import",
   };
   const navbarTitle = activeBoardId
     ? (boards.find((board) => board.id === activeBoardId)?.name ??
@@ -552,7 +546,7 @@ export function App() {
             ) : path === "/" ? (
               <EmptyState>
                 <EmptyState.Media>
-                  <Columns3 size={32} />
+                  <BoardIcon size={32} />
                 </EmptyState.Media>
                 <EmptyState.Header>
                   <EmptyState.Title>Your work starts here</EmptyState.Title>

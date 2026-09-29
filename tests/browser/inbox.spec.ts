@@ -25,7 +25,6 @@ let admin: APIRequestContext;
 let database: ReturnType<typeof postgres>;
 let adminId = "";
 let boardId = "";
-let columnId = "";
 let boardPrefix = "";
 type Account = {
   id: string;
@@ -94,7 +93,7 @@ async function seed(
   const [number] =
     await database`UPDATE boards SET next_number=next_number+1 WHERE id=${boardId} RETURNING next_number-1 AS number`;
   const [task] =
-    await database`INSERT INTO tasks(board_id,column_id,identifier,title,created_by,assignee_id,position) VALUES(${boardId},${columnId},${`${boardPrefix}-${number.number}`},${title},${adminId},${who.id},${number.number}) RETURNING id,identifier`;
+    await database`INSERT INTO tasks(board_id,status,identifier,title,created_by,assignee_id) VALUES(${boardId},'backlog',${`${boardPrefix}-${number.number}`},${title},${adminId},${who.id}) RETURNING id,identifier`;
   seededTasks.push(task.id);
   await database`INSERT INTO notifications(user_id,task_id,kind,actor_name,created_at,read_at) SELECT ${who.id},${task.id},'mention',${who.name}||' teammate '||sequence,timestamptz '2026-01-01T00:00:00Z'+sequence*interval '1 millisecond',CASE WHEN sequence>${unread} THEN now() ELSE NULL END FROM generate_series(1,${total}) sequence`;
   const items =
@@ -171,7 +170,10 @@ test.beforeAll(async ({ baseURL }) => {
     prefix: boardPrefix,
   });
   boardId = created.board.id;
-  columnId = (await json(admin, `/boards/${boardId}`)).columns[0].id;
+  const detail = await json(admin, `/boards/${boardId}`);
+  expect(Object.keys(detail)).toEqual(["board"]);
+  expect(detail.board.id).toBe(boardId);
+  expect(detail.board).not.toHaveProperty("position");
 });
 test.afterEach(async () => {
   if (seededTasks.length) {

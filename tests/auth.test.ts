@@ -57,13 +57,15 @@ async function totpSetup(adminCookie: string) {
     issuer: "Mill",
     secret: Secret.fromBase32(data.secret),
   });
+  const enrollmentCode = totp.generate();
   const confirmed = await request("/api/auth/totp/verify", {
     cookie: adminCookie,
-    body: { code: totp.generate() },
+    body: { code: enrollmentCode },
   });
   assert.equal(confirmed.status, 200);
   return {
     totp,
+    enrollmentCode,
     secret: data.secret,
     recoveryCodes: (await confirmed.json()).recoveryCodes as string[],
   };
@@ -293,7 +295,10 @@ test("profiles validate time zones, preserve omitted preferences and reject agen
   assert.equal(changed.status, 200);
   const data = await changed.json();
   assert.equal(data.user.timeZone, "Asia/Kolkata");
-  assert.equal(data.user.notificationPreferences.assignments, false);
+  assert.deepEqual(data.user.notificationPreferences, {
+    assignments: false,
+    mentions: true,
+  });
   assert.equal(
     (
       await request("/api/auth/profile", {
@@ -341,6 +346,34 @@ test("profiles validate time zones, preserve omitted preferences and reject agen
     ).status,
     403,
   );
+});
+test("profiles expose only in-app notification preferences and reject email delivery settings", async () => {
+  const admin = await setupUser();
+  await sql`UPDATE users SET notification_preferences=${sql.json({ assignments: false, mentions: true, email: true })} WHERE id=${admin.user.id}`;
+  const preferences = { assignments: false, mentions: true };
+  const identity = await (
+    await request("/api/auth/me", { cookie: admin.cookie })
+  ).json();
+  assert.deepEqual(identity.user.notificationPreferences, preferences);
+  const unsupported = await request("/api/auth/profile", {
+    method: "PATCH",
+    cookie: admin.cookie,
+    body: { notificationPreferences: { ...preferences, email: false } },
+  });
+  assert.equal(unsupported.status, 400);
+  const changed = await request("/api/auth/profile", {
+    method: "PATCH",
+    cookie: admin.cookie,
+    body: { timeZone: "UTC" },
+  });
+  assert.equal(changed.status, 200);
+  assert.deepEqual(
+    (await changed.json()).user.notificationPreferences,
+    preferences,
+  );
+  const [stored] =
+    await sql`SELECT notification_preferences FROM users WHERE id=${admin.user.id}`;
+  assert.deepEqual(stored.notificationPreferences, preferences);
 });
 test("invitations are one-time, expiring, revocable and only administrators can issue them", async () => {
   const admin = await setupUser();
@@ -484,7 +517,7 @@ test("authenticator enrollment encrypts secrets, verifies codes and prevents cod
         body: {
           challengeId: first.challengeId,
           method: "totp",
-          code: factor.totp.generate(),
+          code: factor.enrollmentCode,
         },
       })
     ).status,

@@ -13,20 +13,22 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { app } from "../apps/api/src/app.js";
 import { credentialActor } from "../apps/api/src/external.js";
+import {
+  TASK_STATUSES,
+  type TaskStatus,
+} from "../packages/contracts/src/index.js";
 type BoardResult = {
   board: { id: string; version: number };
-  columns?: { id: string; version: number }[];
 };
 type TaskResult = {
   task: {
     id: string;
     boardId: string;
-    columnId: string;
+    status: TaskStatus;
     title: string;
     description: string;
     version: number;
     checklist: unknown[];
-    parentId: string | null;
   };
 };
 type CredentialResult = {
@@ -66,9 +68,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
       cookie,
       body: { name: "Private scope", prefix: "PRIVATE" },
     }),
-  );
-  const details = await ok<BoardResult>(
-    await request(`/api/boards/${first.board.id}`, { cookie }),
   );
   const outside = await ok<TaskResult>(
     await request(`/api/boards/${second.board.id}/tasks`, {
@@ -161,7 +160,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
           `/api/tasks/${outside.task.id}`,
           `/api/tasks/${outside.task.id}/comments`,
           `/api/tasks/${outside.task.id}/activity`,
-          "/api/export",
           "/api/workspace",
           "/api/auth/members",
         ])
@@ -188,11 +186,13 @@ test("External credentials and actual MCP task workflows enforce current permiss
           ).status,
           403,
         );
-        assert.equal(
-          (await request("/api/import", { token: write.token, body: {} }))
-            .status,
-          403,
-        );
+        for (const options of [{ cookie }, { token: write.token }]) {
+          assert.equal((await request("/api/export", options)).status, 404);
+          assert.equal(
+            (await request("/api/import", { ...options, body: {} })).status,
+            404,
+          );
+        }
         const invitation = await ok<{ token: string }>(
           await request("/api/auth/invitations", {
             cookie,
@@ -338,7 +338,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
       },
     );
     await t.test(
-      "installed MCP SDK creates, edits, orders, comments, permanently deletes and retries against a live HTTP server",
+      "installed MCP SDK creates, changes fixed statuses, comments, permanently deletes and retries against a live HTTP server",
       async () => {
         const server = serve({
           fetch: app.fetch,
@@ -368,42 +368,140 @@ test("External credentials and actual MCP task workflows enforce current permiss
           assert(listed.tools.some((tool) => tool.name === "create_task"));
           assert(!listed.tools.some((tool) => tool.name === "create_board"));
           assert(!listed.tools.some((tool) => tool.name === "list_members"));
+          for (const name of [
+            "list_columns",
+            "create_column",
+            "update_column",
+            "delete_column",
+            "move_task",
+            "list_subtasks",
+            "import_workspace",
+            "export_workspace",
+          ]) {
+            assert(!listed.tools.some((tool) => tool.name === name), name);
+            assert.equal(
+              (await client.callTool({ name, arguments: {} })).isError,
+              true,
+              name,
+            );
+          }
+          for (const name of ["create_task", "update_task", "list_tasks"]) {
+            const schema = listed.tools.find((tool) => tool.name === name)!
+              .inputSchema.properties!;
+            assert.deepEqual((schema.status as { enum: string[] }).enum, [
+              ...TASK_STATUSES,
+            ]);
+            for (const field of [
+              "columnId",
+              "beforeId",
+              "position",
+              "labels",
+              "label",
+              "parentId",
+            ])
+              assert(!(field in schema), `${name}.${field}`);
+          }
+          const boardSchema = listed.tools.find(
+            (tool) => tool.name === "update_board",
+          )!.inputSchema.properties!;
+          assert(!("beforeId" in boardSchema));
+          assert(!("position" in boardSchema));
+          const detailSchema = listed.tools.find(
+            (tool) => tool.name === "get_task",
+          )!.inputSchema.properties!;
+          assert(!("subtaskLimit" in detailSchema));
           let boardState = await result<BoardResult>(client, "get_board", {
             boardId: first.board.id,
           });
+          assert.deepEqual(Object.keys(boardState), ["board"]);
+          assert(!("position" in boardState.board));
+          const removedId = randomUUID();
+          for (const options of [{ cookie }, { token: write.token }]) {
+            for (const [path, method, body] of [
+              [`/api/boards/${first.board.id}/columns`, "GET", undefined],
+              [
+                `/api/boards/${first.board.id}/columns`,
+                "POST",
+                { name: "Custom status" },
+              ],
+              [
+                `/api/columns/${removedId}`,
+                "PATCH",
+                { version: 1, name: "Custom status" },
+              ],
+              [`/api/columns/${removedId}`, "DELETE", { version: 1 }],
+              [
+                `/api/tasks/${outside.task.id}/move`,
+                "POST",
+                { version: 1, columnId: removedId },
+              ],
+              [`/api/tasks/${outside.task.id}/subtasks`, "GET", undefined],
+            ] as const)
+              assert.equal(
+                (await request(path, { ...options, method, body })).status,
+                404,
+                `${method} ${path}`,
+              );
+          }
           boardState = await result<BoardResult>(client, "update_board", {
             boardId: first.board.id,
             version: boardState.board.version,
             name: "Agents working",
           });
           assert.equal(boardState.board.version, 2);
-          const column = await result<{
-            column: { id: string; version: number; name: string };
-          }>(client, "create_column", {
-            boardId: first.board.id,
-            name: "Review",
-            color: "purple",
-          });
-          const renamed = await result<{
-            column: { id: string; version: number; name: string };
-          }>(client, "update_column", {
-            columnId: column.column.id,
-            version: column.column.version,
-            name: "Ready for review",
-            beforeId: details.columns![2]!.id,
-          });
-          assert.equal(renamed.column.name, "Ready for review");
           const args = {
             boardId: first.board.id,
             title: "Actual MCP task",
             description: "**Markdown** task",
             checklist: [{ id: "one", text: "Verify SDK", done: false }],
-            labels: ["integration"],
             priority: "high",
             dueDate: "2026-10-01",
             idempotencyKey: "mcp-create-retry-0001",
           };
           let task = await result<TaskResult>(client, "create_task", args);
+          assert.equal(task.task.status, "todo");
+          for (const [name, arguments_] of [
+            [
+              "update_board",
+              {
+                boardId: first.board.id,
+                version: boardState.board.version,
+                beforeId: null,
+              },
+            ],
+            ["get_task", { taskId: task.task.id, subtaskLimit: 1 }],
+          ] as const) {
+            const invalid = await client.callTool({
+              name,
+              arguments: arguments_,
+            });
+            assert.equal(invalid.isError, true);
+            assert.match(JSON.stringify(invalid.content), /Invalid arguments/);
+          }
+          for (const field of ["columnId", "position", "labels", "parentId"])
+            assert(!(field in task.task), field);
+          for (const removed of [
+            { columnId: randomUUID() },
+            { labels: ["integration"] },
+            { parentId: task.task.id },
+            { position: 1 },
+          ]) {
+            const invalid = await client.callTool({
+              name: "create_task",
+              arguments: { ...args, ...removed },
+            });
+            assert.equal(invalid.isError, true);
+            assert.match(JSON.stringify(invalid.content), /Invalid arguments/);
+          }
+          assert.equal(
+            (
+              await client.callTool({
+                name: "create_task",
+                arguments: { ...args, status: "custom_review" },
+              })
+            ).isError,
+            true,
+          );
           const retry = await result<TaskResult>(client, "create_task", args);
           assert.equal(retry.task.id, task.task.id);
           const [count] =
@@ -413,12 +511,11 @@ test("External credentials and actual MCP task workflows enforce current permiss
             taskId: task.task.id,
             version: task.task.version,
             title: "Actual MCP task edited",
-            columnId: details.columns![1]!.id,
-            beforeId: null,
+            status: "in_progress",
             checklist: [{ id: "one", text: "Verify SDK", done: true }],
           });
           assert.equal(task.task.title, "Actual MCP task edited");
-          assert.equal(task.task.columnId, details.columns![1]!.id);
+          assert.equal(task.task.status, "in_progress");
           const stale = await client.callTool({
             name: "update_task",
             arguments: {
@@ -428,18 +525,66 @@ test("External credentials and actual MCP task workflows enforce current permiss
             },
           });
           assert.equal(stale.isError, true);
-          task = await result<TaskResult>(client, "move_task", {
+          for (const status of TASK_STATUSES) {
+            task = await result<TaskResult>(client, "update_task", {
+              taskId: task.task.id,
+              version: task.task.version,
+              status,
+            });
+            assert.equal(task.task.status, status);
+          }
+          for (const removed of [
+            { columnId: randomUUID() },
+            { beforeId: null },
+            { labels: ["integration"] },
+            { parentId: outside.task.id },
+            { position: 1 },
+            { status: "custom_review" },
+          ]) {
+            const invalid = await client.callTool({
+              name: "update_task",
+              arguments: {
+                taskId: task.task.id,
+                version: task.task.version,
+                ...removed,
+              },
+            });
+            assert.equal(invalid.isError, true);
+            assert.match(JSON.stringify(invalid.content), /Invalid arguments/);
+          }
+          for (const removed of [
+            { columnId: randomUUID() },
+            { label: "integration" },
+            { sort: "position" },
+            { status: "custom_review" },
+          ])
+            assert.equal(
+              (
+                await client.callTool({
+                  name: "list_tasks",
+                  arguments: { boardId: first.board.id, ...removed },
+                })
+              ).isError,
+              true,
+            );
+          const reviewArguments = {
             taskId: task.task.id,
-            columnId: renamed.column.id,
+            status: "in_review",
             version: task.task.version,
-          });
-          assert.equal(task.task.columnId, renamed.column.id);
-          const subtask = await result<TaskResult>(client, "create_task", {
-            boardId: first.board.id,
-            title: "Child task",
-            parentId: task.task.id,
-          });
-          assert.equal(subtask.task.parentId, task.task.id);
+            idempotencyKey: "mcp-status-retry-0001",
+          };
+          task = await result<TaskResult>(
+            client,
+            "update_task",
+            reviewArguments,
+          );
+          const reviewedRetry = await result<TaskResult>(
+            client,
+            "update_task",
+            reviewArguments,
+          );
+          assert.equal(task.task.status, "in_review");
+          assert.deepEqual(reviewedRetry, task);
           const comment = await result<{
             comment: { id: string; version: number };
           }>(client, "add_comment", {
@@ -478,7 +623,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
             {
               boardId: first.board.id,
               q: "edited",
-              label: "integration",
+              status: "in_review",
               priority: "high",
               sort: "dueDate",
               limit: 1,
@@ -522,28 +667,20 @@ test("External credentials and actual MCP task workflows enforce current permiss
             ),
             false,
           );
-          const cols = await result<{
-            items: { id: string; version: number }[];
-          }>(client, "list_columns", { boardId: first.board.id });
-          const current = cols.items.find(
-            (item) => item.id === renamed.column.id,
-          )!;
-          await result(client, "delete_column", {
-            columnId: current.id,
-            version: current.version,
-            moveToColumnId: details.columns![1]!.id,
-          });
           const forbidden = await client.callTool({
             name: "get_task",
             arguments: { taskId: outside.task.id },
           });
           assert.equal(forbidden.isError, true);
-          for (let index = 0; index < 4; index++)
-            await result<TaskResult>(client, "create_task", {
+          const boundedIds: string[] = [];
+          for (let index = 0; index < 4; index++) {
+            const created = await result<TaskResult>(client, "create_task", {
               boardId: first.board.id,
               title: `Bounded content ${index}`,
               description: "界".repeat(100000),
             });
+            boundedIds.push(created.task.id);
+          }
           const oversized = await client.callTool({
             name: "list_tasks",
             arguments: {
@@ -560,9 +697,32 @@ test("External credentials and actual MCP task workflows enforce current permiss
             { boardId: first.board.id, q: "Bounded content", limit: 1 },
           );
           assert.equal(bounded.items.length, 1);
+          assert.equal(bounded.items[0]!.id, boundedIds.at(-1));
+          const firstTaskPage = await result<{
+            items: { id: string }[];
+            hasMore: boolean;
+            nextCursor: string;
+          }>(client, "list_tasks", {
+            boardId: first.board.id,
+            q: "Bounded content",
+            limit: 1,
+          });
+          const secondTaskPage = await result<{ items: { id: string }[] }>(
+            client,
+            "list_tasks",
+            {
+              boardId: first.board.id,
+              q: "Bounded content",
+              limit: 1,
+              cursor: firstTaskPage.nextCursor,
+            },
+          );
+          assert.equal(firstTaskPage.hasMore, true);
+          assert.equal(firstTaskPage.items[0]!.id, boundedIds.at(-1));
+          assert.equal(secondTaskPage.items[0]!.id, boundedIds.at(-2));
           const large = await result<TaskResult>(client, "create_task", {
             boardId: first.board.id,
-            title: "Full-size readable parent",
+            title: "Full-size readable task",
             description: "\u0001".repeat(100000),
             checklist: Array.from({ length: 100 }, (_, index) => ({
               id: `item-${index}-` + "\u0001".repeat(90),
@@ -570,13 +730,11 @@ test("External credentials and actual MCP task workflows enforce current permiss
               done: false,
             })),
           });
-          await sql`UPDATE tasks SET parent_id=${large.task.id} WHERE board_id=${first.board.id} AND title LIKE 'Bounded content %'`;
           await sql`INSERT INTO comments(task_id,author_id,body,created_at) SELECT ${large.task.id},${user.id},${"言".repeat(9900)},now()+sequence*interval '1 millisecond' FROM generate_series(1,100) sequence`;
           const longDetail = await result<
             TaskResult & {
               comments: unknown[];
               commentsPage: { hasMore: boolean; nextCursor: string | null };
-              subtasks: { id: string; title: string; description?: string }[];
             }
           >(client, "get_task", { taskId: large.task.id });
           assert.equal(longDetail.task.description.length, 100000);
@@ -584,38 +742,24 @@ test("External credentials and actual MCP task workflows enforce current permiss
           assert.equal(longDetail.comments.length, 0);
           assert.equal(longDetail.commentsPage.hasMore, true);
           assert.equal(longDetail.commentsPage.nextCursor, null);
-          assert.equal(longDetail.subtasks.length, 4);
-          assert(
-            longDetail.subtasks.every(
-              (child) => child.description === undefined,
-            ),
-          );
+          assert(!("parent" in longDetail));
+          assert(!("subtasks" in longDetail));
+          assert(!("subtasksPage" in longDetail));
           const commentPage = await result<{
-            items: { body: string }[];
+            items: { id: string; body: string }[];
             hasMore: boolean;
             nextCursor: string;
           }>(client, "list_comments", { taskId: large.task.id, limit: 1 });
           assert.equal(commentPage.items[0]!.body.length, 9900);
           assert.equal(commentPage.hasMore, true);
           assert(commentPage.nextCursor);
-          const childPage = await result<{
-            items: { id: string }[];
-            hasMore: boolean;
-            nextCursor: string;
-          }>(client, "list_subtasks", { taskId: large.task.id, limit: 2 });
-          assert.equal(childPage.items.length, 2);
-          assert.equal(childPage.hasMore, true);
-          const otherChildren = await result<{ items: { id: string }[] }>(
+          const otherComments = await result<{ items: { id: string }[] }>(
             client,
-            "list_subtasks",
-            { taskId: large.task.id, limit: 2, cursor: childPage.nextCursor },
+            "list_comments",
+            { taskId: large.task.id, limit: 1, cursor: commentPage.nextCursor },
           );
-          assert.equal(otherChildren.items.length, 2);
-          assert(
-            !childPage.items.some((child) =>
-              otherChildren.items.some((other) => other.id === child.id),
-            ),
-          );
+          assert.equal(otherComments.items.length, 1);
+          assert.notEqual(otherComments.items[0]!.id, commentPage.items[0]!.id);
           const readClient = new Client({
             name: "read-integration",
             version: "1.0.0",

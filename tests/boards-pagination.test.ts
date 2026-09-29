@@ -16,7 +16,7 @@ async function json(response: Response, status = 200) {
 type Page = {
   items: {
     id: string;
-    position: number;
+    name: string;
   }[];
   hasMore: boolean;
   nextCursor: string | null;
@@ -43,7 +43,7 @@ async function traversal(
 
 test("board pagination reaches every board and newly created boards beyond the former ceiling", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Board '||sequence,'B'||sequence,sequence FROM users CROSS JOIN generate_series(1,223) sequence WHERE users.id=${user.id}`;
+  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Board '||sequence,'B'||sequence FROM users CROSS JOIN generate_series(1,223) sequence WHERE users.id=${user.id}`;
   const first: Page = await json(await request("/api/boards", { cookie }));
   assert.equal(first.items.length, 100);
   assert.equal(first.hasMore, true);
@@ -56,14 +56,11 @@ test("board pagination reaches every board and newly created boards beyond the f
     }),
     201,
   );
-  assert.equal(created.board.position, 223);
+  assert.equal(Object.hasOwn(created.board, "position"), false);
   assert.equal(created.board.name, "Created after 223 boards");
-  const [columns] =
-    await sql`SELECT count(*)::int AS total FROM columns WHERE board_id=${created.board.id}`;
-  assert.equal(columns.total, 3);
-  const expected = (await sql`SELECT id FROM boards ORDER BY position,id`).map(
-    (row) => row.id,
-  );
+  const expected = (
+    await sql`SELECT id FROM boards ORDER BY lower(name),name,id`
+  ).map((row) => row.id);
   const stale = await json(
     await request(`/api/boards?cursor=${first.nextCursor}`, { cookie }),
     409,
@@ -84,12 +81,12 @@ test("board pagination reaches every board and newly created boards beyond the f
   );
 });
 
-test("board cursor ordering preserves tied integer positions and handles inserts on either side", async () => {
+test("board cursors preserve alphabetical case and identifier ties and reject inserts on either side", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Precision '||sequence,'P'||sequence,2147483500+(sequence/4) FROM users CROSS JOIN generate_series(1,211) sequence WHERE users.id=${user.id}`;
-  const expected = (await sql`SELECT id FROM boards ORDER BY position,id`).map(
-    (row) => row.id,
-  );
+  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,CASE sequence%3 WHEN 0 THEN 'Precision' WHEN 1 THEN 'precision' ELSE 'PRECISION' END,'P'||sequence FROM users CROSS JOIN generate_series(1,211) sequence WHERE users.id=${user.id}`;
+  const expected = (
+    await sql`SELECT id FROM boards ORDER BY lower(name),name,id`
+  ).map((row) => row.id);
   const first: Page = await json(
     await request("/api/boards?limit=37", { cookie }),
   );
@@ -97,15 +94,14 @@ test("board cursor ordering preserves tied integer positions and handles inserts
     first.items.map((item) => item.id),
     expected.slice(0, 37),
   );
-  assert.equal(first.items[0]!.position, 2147483500);
   assert.deepEqual(
     await traversal("/api/boards?limit=37", { cookie }, first),
     expected,
   );
   const [before] =
-    await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Before cursor','BEFORE',0 FROM users WHERE id=${user.id} RETURNING id`;
+    await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'A before cursor','BEFORE' FROM users WHERE id=${user.id} RETURNING id`;
   const [after] =
-    await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'After cursor','AFTER',2147483647 FROM users WHERE id=${user.id} RETURNING id`;
+    await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Z after cursor','AFTER' FROM users WHERE id=${user.id} RETURNING id`;
   const stale = await json(
     await request(`/api/boards?cursor=${first.nextCursor}`, { cookie }),
     409,
@@ -120,8 +116,9 @@ test("board cursor ordering preserves tied integer positions and handles inserts
 
 test("board pagination keeps credential board restrictions on every page", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Filtered '||sequence,'F'||sequence,sequence FROM users CROSS JOIN generate_series(1,9) sequence WHERE users.id=${user.id}`;
-  const boards = await sql`SELECT id,position FROM boards ORDER BY position,id`;
+  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Filtered '||sequence,'F'||sequence FROM users CROSS JOIN generate_series(1,9) sequence WHERE users.id=${user.id}`;
+  const boards =
+    await sql`SELECT id,name FROM boards ORDER BY lower(name),name,id`;
   const allowedIds = [
     boards[0]!.id,
     boards[2]!.id,
@@ -198,7 +195,7 @@ test("board page validation rejects malformed, missing and wrong-collection anch
   for (const change of [
     { id: randomUUID() },
     { id: credential.credential.id },
-    { position: payload.position + 1 },
+    { name: "Wrong name" },
   ]) {
     const cursor = Buffer.from(
       JSON.stringify({ ...payload, ...change }),
@@ -221,7 +218,7 @@ test("board page validation rejects malformed, missing and wrong-collection anch
   assert.equal((await request("/api/boards")).status, 401);
 });
 
-test("board cursors reject moved anchors and other reordered rows before a complete restart", async () => {
+test("board cursors reject renamed anchors and other renamed rows before a complete restart", async () => {
   const { cookie } = await setupUser();
   const boards = [];
   for (const name of ["Alpha", "Bravo", "Charlie", "Delta"]) {
@@ -236,11 +233,11 @@ test("board cursors reject moved anchors and other reordered rows before a compl
     first.items.map((item: { id: string }) => item.id),
     boards.slice(0, 2).map((item) => item.id),
   );
-  await json(
+  const renamed = await json(
     await request(`/api/boards/${boards[1].id}`, {
       cookie,
       method: "PATCH",
-      body: { version: boards[1].version, beforeId: null },
+      body: { version: boards[1].version, name: "Zulu" },
     }),
   );
   const movedAnchor = await json(
@@ -256,19 +253,17 @@ test("board cursors reject moved anchors and other reordered rows before a compl
     boards[1].id,
   ]);
   const [before] =
-    await sql`SELECT position FROM boards WHERE id=${boards[2].id}`;
-  const [other] =
-    await sql`SELECT version FROM boards WHERE id=${boards[1].id}`;
+    await sql`SELECT name,version FROM boards WHERE id=${boards[2].id}`;
   await json(
     await request(`/api/boards/${boards[1].id}`, {
       cookie,
       method: "PATCH",
-      body: { version: other.version, beforeId: boards[3].id },
+      body: { version: renamed.board.version, name: "Cedar" },
     }),
   );
   const [after] =
-    await sql`SELECT position FROM boards WHERE id=${boards[2].id}`;
-  assert.equal(after.position, before.position);
+    await sql`SELECT name,version FROM boards WHERE id=${boards[2].id}`;
+  assert.deepEqual(after, before);
   const movedOther = await json(
     await request(`/api/boards?limit=2&cursor=${reset.nextCursor}`, { cookie }),
     409,
@@ -277,19 +272,19 @@ test("board cursors reject moved anchors and other reordered rows before a compl
   const final = await json(await request("/api/boards?limit=2", { cookie }));
   assert.deepEqual(await traversal("/api/boards?limit=2", { cookie }, final), [
     boards[0].id,
-    boards[2].id,
     boards[1].id,
+    boards[2].id,
     boards[3].id,
   ]);
 });
 
 test("directory continuation reaches every board and rejects metadata or deletion changes", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Whole directory '||sequence,'WHOLE'||sequence,sequence/4 FROM users CROSS JOIN generate_series(1,213) sequence WHERE users.id=${user.id}`;
+  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Whole directory '||sequence,'WHOLE'||sequence FROM users CROSS JOIN generate_series(1,213) sequence WHERE users.id=${user.id}`;
   const path = "/api/boards?directory=true&limit=100";
-  const expected = (await sql`SELECT id FROM boards ORDER BY position,id`).map(
-    (board) => board.id,
-  );
+  const expected = (
+    await sql`SELECT id FROM boards ORDER BY lower(name),name,id`
+  ).map((board) => board.id);
   let first = await json(await request(path, { cookie }));
   assert.equal(first.items.length, 100);
   assert.deepEqual(await traversal(path, { cookie }, first), expected);
@@ -323,14 +318,16 @@ test("directory continuation reaches every board and rejects metadata or deletio
   const reset = await json(await request(path, { cookie }));
   assert.deepEqual(
     await traversal(path, { cookie }, reset),
-    expected.filter((id) => id !== removed.id),
+    (await sql`SELECT id FROM boards ORDER BY lower(name),name,id`).map(
+      (row) => row.id,
+    ),
   );
 });
 
 test("directory pages preserve actor restrictions and reject cross-mode or ambiguous cursors", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'Scoped directory '||sequence,'SCOPE'||sequence,sequence FROM users CROSS JOIN generate_series(1,8) sequence WHERE users.id=${user.id}`;
-  const boards = await sql`SELECT id FROM boards ORDER BY position,id`;
+  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Scoped directory '||sequence,'SCOPE'||sequence FROM users CROSS JOIN generate_series(1,8) sequence WHERE users.id=${user.id}`;
+  const boards = await sql`SELECT id FROM boards ORDER BY lower(name),name,id`;
   const allowedIds = [
     boards[0]!.id,
     boards[1]!.id,
@@ -398,10 +395,10 @@ test("directory pages preserve actor restrictions and reject cross-mode or ambig
 
 test("initialized MCP clients traverse more than 100 boards and preserve board restrictions across cursors", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix,position) SELECT workspace_id,'MCP board '||sequence,'MCP'||sequence,sequence/4 FROM users CROSS JOIN generate_series(1,221) sequence WHERE users.id=${user.id}`;
-  const expected = (await sql`SELECT id FROM boards ORDER BY position,id`).map(
-    (row) => row.id as string,
-  );
+  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'MCP board '||sequence,'MCP'||sequence FROM users CROSS JOIN generate_series(1,221) sequence WHERE users.id=${user.id}`;
+  const expected = (
+    await sql`SELECT id FROM boards ORDER BY lower(name),name,id`
+  ).map((row) => row.id as string);
   const restrictedIds = expected
     .filter((_id, index) => index % 2 === 0)
     .slice(0, 100);
@@ -507,7 +504,7 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
       await request(`/api/boards/${anchorId}`, {
         cookie,
         method: "PATCH",
-        body: { version: anchor.version, beforeId: null },
+        body: { version: anchor.version, name: "ZZZ renamed MCP board" },
       }),
     );
     const stale = await clients[0]!.callTool({
@@ -520,7 +517,7 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
       "board_list_changed",
     );
     const currentExpected = (
-      await sql`SELECT id FROM boards ORDER BY position,id`
+      await sql`SELECT id FROM boards ORDER BY lower(name),name,id`
     ).map((item) => item.id);
     const resetIds: string[] = [];
     let resetCursor: string | null = null;

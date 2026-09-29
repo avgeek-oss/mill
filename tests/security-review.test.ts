@@ -38,17 +38,17 @@ async function fixture(scopes: string[] = ["read", "write"]) {
   };
 }
 
-test("a board-restricted agent cannot reorder other boards or gain administration", async () => {
-  const { token, cookie, allowedBoard, privateBoard } = await fixture();
-  const before = await sql`SELECT id,position,version FROM boards ORDER BY id`;
-  const reorder = await request(`/api/boards/${allowedBoard.id}`, {
+test("a board-restricted agent cannot change other boards or gain administration", async () => {
+  const { token, allowedBoard, privateBoard } = await fixture();
+  const before = await sql`SELECT id,name,version FROM boards ORDER BY id`;
+  const update = await request(`/api/boards/${privateBoard.id}`, {
     token,
     method: "PATCH",
-    body: { version: allowedBoard.version, beforeId: privateBoard.id },
+    body: { version: privateBoard.version, name: "Captured board" },
   });
-  assert.equal(reorder.status, 403);
+  assert.equal(update.status, 403);
   assert.deepEqual(
-    await sql`SELECT id,position,version FROM boards ORDER BY id`,
+    await sql`SELECT id,name,version FROM boards ORDER BY id`,
     before,
   );
   for (const [path, method, body] of [
@@ -63,7 +63,6 @@ test("a board-restricted agent cannot reorder other boards or gain administratio
       { email: "outsider@example.test", role: "admin" },
     ],
     ["/api/workspace", "PATCH", { name: "Captured workspace" }],
-    ["/api/export", "GET", undefined],
   ] as const) {
     const response = await request(path, { token, method, body });
     assert.equal(response.status, 403, path);
@@ -77,16 +76,62 @@ test("a board-restricted agent cannot reorder other boards or gain administratio
     (await request(`/api/boards/${privateBoard.id}`, { token })).status,
     403,
   );
-  assert.equal((await request("/api/export", { cookie })).status, 200);
+});
+
+test("removed status, subtask, move and portable routes cannot mutate the workspace", async () => {
+  const { cookie, token, allowedBoard } = await fixture();
+  const response = await request(`/api/boards/${allowedBoard.id}/tasks`, {
+    cookie,
+    body: { title: "Keep task" },
+  });
+  assert.equal(response.status, 201);
+  const { task } = await response.json();
+  const before = {
+    boards: await sql`SELECT * FROM boards ORDER BY id`,
+    tasks: await sql`SELECT * FROM tasks ORDER BY id`,
+    history: await sql`SELECT * FROM activity ORDER BY id`,
+  };
+  for (const access of [{ cookie }, { token }])
+    for (const [path, method, body] of [
+      ["/api/export", "GET", undefined],
+      ["/api/import", "POST", {}],
+      [`/api/boards/${allowedBoard.id}/columns`, "GET", undefined],
+      [
+        `/api/boards/${allowedBoard.id}/columns`,
+        "POST",
+        { name: "Custom status" },
+      ],
+      [
+        `/api/columns/${randomUUID()}`,
+        "PATCH",
+        { version: 1, name: "Custom status" },
+      ],
+      [`/api/columns/${randomUUID()}`, "DELETE", { version: 1 }],
+      [
+        `/api/tasks/${task.id}/move`,
+        "POST",
+        { version: task.version, status: "done" },
+      ],
+      [`/api/tasks/${task.id}/subtasks`, "GET", undefined],
+    ] as const)
+      assert.equal(
+        (await request(path, { ...access, method, body })).status,
+        404,
+        `${method} ${path}`,
+      );
+  assert.deepEqual(await sql`SELECT * FROM boards ORDER BY id`, before.boards);
+  assert.deepEqual(await sql`SELECT * FROM tasks ORDER BY id`, before.tasks);
+  assert.deepEqual(
+    await sql`SELECT * FROM activity ORDER BY id`,
+    before.history,
+  );
 });
 
 test("mixed accessible and inaccessible notification IDs fail without any update", async () => {
   const { token, user, privateBoard, allowedBoard } = await fixture();
   const makeTask = async (boardId: string) => {
-    const [column] =
-      await sql`SELECT id FROM columns WHERE board_id=${boardId} ORDER BY position LIMIT 1`;
     const [task] =
-      await sql`INSERT INTO tasks(board_id,column_id,identifier,title,created_by,position) VALUES(${boardId},${column.id},${randomUUID()},'Notification target',${user.id},0) RETURNING id`;
+      await sql`INSERT INTO tasks(board_id,status,identifier,title,created_by) VALUES(${boardId},'todo',${randomUUID()},'Notification target',${user.id}) RETURNING id`;
     const [notification] =
       await sql`INSERT INTO notifications(user_id,task_id,kind,actor_name) VALUES(${user.id},${task.id},'mention','Another person') RETURNING id`;
     return notification.id;
@@ -153,7 +198,7 @@ test("idempotency remains atomic when a late response failure follows a domain m
   );
   probe.post("/api/security-late-failure", async () => {
     await sql.begin(async (tx) => {
-      await tx`INSERT INTO boards(workspace_id,name,prefix,position) SELECT id,'Must roll back','FAIL',0 FROM workspace`;
+      await tx`INSERT INTO boards(workspace_id,name,prefix) SELECT id,'Must roll back','FAIL' FROM workspace`;
     });
     throw new Error("Security review simulated response failure");
   });
@@ -255,101 +300,6 @@ test("REST and MCP resolve task, comment, and activity IDs through board scope",
     (await sql`SELECT body FROM comments WHERE id=${otherComment.id}`)[0].body,
     "Another person comment",
   );
-});
-
-test("portable import rejects bad references atomically and keeps the operator secure", async () => {
-  const { cookie, user } = await setupUser();
-  const { board } = await (
-    await request("/api/boards", {
-      cookie,
-      body: { name: "Portable workspace", prefix: "PORT" },
-    })
-  ).json();
-  const { task: parent } = await (
-    await request(`/api/boards/${board.id}/tasks`, {
-      cookie,
-      body: {
-        title: "Parent",
-        dueDate: "2027-01-30",
-        description: "Portable Markdown",
-        labels: ["release"],
-        checklist: [{ id: "first", text: "Keep data", done: false }],
-      },
-    })
-  ).json();
-  const { task: child } = await (
-    await request(`/api/boards/${board.id}/tasks`, {
-      cookie,
-      body: { title: "Child", parentId: parent.id, assigneeId: user.id },
-    })
-  ).json();
-  assert.equal(
-    (
-      await request(`/api/tasks/${child.id}/comments`, {
-        cookie,
-        body: { body: "Portable comment" },
-      })
-    ).status,
-    201,
-  );
-  const exportedResponse = await request("/api/export", { cookie });
-  assert.equal(exportedResponse.status, 200);
-  const exported = await exportedResponse.json();
-  const serialized = JSON.stringify(exported);
-  for (const forbidden of [
-    "passwordHash",
-    "password_hash",
-    "tokenHash",
-    "token_hash",
-    "encryptedSecret",
-    "encrypted_secret",
-  ])
-    assert.equal(serialized.includes(forbidden), false, forbidden);
-  const invalid = structuredClone(exported);
-  invalid.comments[0].taskId = randomUUID();
-  const countsBefore =
-    await sql`SELECT (SELECT count(*)::int FROM users) AS users,(SELECT count(*)::int FROM boards) AS boards,(SELECT count(*)::int FROM tasks) AS tasks,(SELECT count(*)::int FROM comments) AS comments`;
-  assert.equal(
-    (await request("/api/import", { cookie, body: invalid })).status,
-    400,
-  );
-  assert.deepEqual(
-    await sql`SELECT (SELECT count(*)::int FROM users) AS users,(SELECT count(*)::int FROM boards) AS boards,(SELECT count(*)::int FROM tasks) AS tasks,(SELECT count(*)::int FROM comments) AS comments`,
-    countsBefore,
-  );
-  exported.members[0].role = "viewer";
-  const importedResponse = await request("/api/import", {
-    cookie,
-    body: exported,
-  });
-  assert.equal(
-    importedResponse.status,
-    201,
-    JSON.stringify(await importedResponse.clone().json()),
-  );
-  const { imported } = await importedResponse.json();
-  assert.equal(imported.boards, 1);
-  const copiedTasks = await (
-    await request(`/api/boards/${imported.boardIds[0]}/tasks`, { cookie })
-  ).json();
-  const copiedParent = copiedTasks.items.find(
-    (item: { title: string }) => item.title === "Parent",
-  );
-  const copiedChild = copiedTasks.items.find(
-    (item: { title: string }) => item.title === "Child",
-  );
-  assert.equal(copiedChild.parentId, copiedParent.id);
-  assert.equal(copiedParent.dueDate, "2027-01-30");
-  assert.equal(copiedChild.assigneeId, user.id);
-  const copiedComments = await (
-    await request(`/api/tasks/${copiedChild.id}/comments`, { cookie })
-  ).json();
-  assert.equal(copiedComments.items[0].body, "Portable comment");
-  assert.equal(
-    (await sql`SELECT role FROM users WHERE id=${user.id}`)[0].role,
-    "admin",
-  );
-  assert.equal((await request("/api/auth/me", { cookie })).status, 200);
 });
 
 async function changeAccessWhileWriteWaits(
@@ -523,31 +473,7 @@ test("retrying credential creation returns the same secret while encrypting stor
   assert.ok(record.response.iv && record.response.tag && record.response.data);
 });
 
-test("accounts accepted by identity remain portable at the email length boundary", async () => {
-  const email =
-    "a".repeat(64) +
-    "@" +
-    ["b".repeat(63), "c".repeat(63), "d".repeat(63), "e".repeat(60)].join(".");
-  const { cookie, user } = await setupUser({ email });
-  const exportedResponse = await request("/api/export", { cookie });
-  assert.equal(exportedResponse.status, 200);
-  const exported = await exportedResponse.json();
-  const importedResponse = await request("/api/import", {
-    cookie,
-    body: exported,
-  });
-  assert.equal(
-    importedResponse.status,
-    201,
-    JSON.stringify(await importedResponse.clone().json()),
-  );
-  assert.equal(
-    (await sql`SELECT role FROM users WHERE id=${user.id}`)[0].role,
-    "admin",
-  );
-});
-
-test("MCP can read a task with valid long descriptions, many subtasks, and a long discussion", async () => {
+test("MCP can read a task with a valid long description and a long discussion", async () => {
   const { cookie, user, token, allowedBoard } = await fixture(["read"]);
   const createdResponse = await request(
     `/api/boards/${allowedBoard.id}/tasks`,
@@ -561,8 +487,6 @@ test("MCP can read a task with valid long descriptions, many subtasks, and a lon
   );
   assert.equal(createdResponse.status, 201);
   const { task } = await createdResponse.json();
-  await sql`INSERT INTO tasks(board_id,column_id,identifier,title,description,parent_id,position,created_by) SELECT ${allowedBoard.id},${task.columnId},'ALLOW-'||(sequence+1),'Child '||sequence,${"Child details ".repeat(1500)},${task.id},sequence,${user.id} FROM generate_series(1,50) sequence`;
-  await sql`UPDATE boards SET next_number=52 WHERE id=${allowedBoard.id}`;
   await sql`INSERT INTO comments(task_id,author_id,body,created_at) SELECT ${task.id},${user.id},${"Discussion ".repeat(900)},now()+sequence*interval '1 millisecond' FROM generate_series(1,100) sequence`;
   const response = await request("/mcp", {
     token,
@@ -570,7 +494,10 @@ test("MCP can read a task with valid long descriptions, many subtasks, and a lon
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "get_task", arguments: { taskId: task.id } },
+      params: {
+        name: "get_task",
+        arguments: { taskId: task.id, commentLimit: 10 },
+      },
     },
     headers: { Accept: "application/json, text/event-stream" },
   });
@@ -578,5 +505,13 @@ test("MCP can read a task with valid long descriptions, many subtasks, and a lon
   const result = (await response.json()).result;
   assert.equal(result.isError, false, JSON.stringify(result));
   assert.equal(result.structuredContent.task.id, task.id);
-  assert.ok(result.structuredContent.subtasks.length > 0);
+  assert.equal(result.structuredContent.task.description, task.description);
+  assert.equal(result.structuredContent.comments.length, 10);
+  assert.equal(
+    result.structuredContent.comments[0].body,
+    "Discussion ".repeat(900),
+  );
+  assert.equal(result.structuredContent.commentsPage.hasMore, true);
+  assert.equal("subtasks" in result.structuredContent, false);
+  assert.equal("parent" in result.structuredContent, false);
 });

@@ -7,6 +7,15 @@ type DirectoryPage = {
   hasMore: boolean;
   nextCursor: string | null;
 };
+export function compareBoardNames(a: Board, b: Board) {
+  const first = a.name.toLowerCase();
+  const second = b.name.toLowerCase();
+  return (
+    (first < second ? -1 : first > second ? 1 : 0) ||
+    (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) ||
+    a.id.localeCompare(b.id)
+  );
+}
 type DirectoryState = {
   key: string | null;
   boards: Board[];
@@ -78,7 +87,7 @@ export function useBoardDirectory(requestKey: string | null = "agents") {
           if (current === generation.current)
             setState({
               key: requestKey,
-              boards: [...directory.values()],
+              boards: [...directory.values()].sort(compareBoardNames),
               pending: false,
               error: "",
             });

@@ -280,7 +280,7 @@ function ProfileSettings({
             }}
           >
             <p className="text-sm text-muted">
-              Choose which notifications you receive.
+              Choose which in-app notifications you receive.
             </p>
             <div className="grid gap-3">
               <Checkbox
@@ -308,9 +308,6 @@ function ProfileSettings({
                 </Checkbox.Content>
               </Checkbox>
             </div>
-            <FieldDescription>
-              Email delivery is unavailable for this installation.
-            </FieldDescription>
             <Feedback {...notificationFeedback} />
             <div>
               <Button type="submit" isDisabled={busy}>

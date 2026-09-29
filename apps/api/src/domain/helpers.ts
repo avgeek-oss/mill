@@ -7,9 +7,9 @@ import { sql } from "../../../../packages/database/src/index.js";
 import type {
   Actor,
   Board,
-  Column,
   Task,
 } from "../../../../packages/contracts/src/index.js";
+import { TASK_STATUSES } from "../../../../packages/contracts/src/index.js";
 import { badRequest, conflict, requireRole, type Env } from "../http.js";
 import { sessionToken } from "../auth/model.js";
 import { hashToken } from "../auth/security.js";
@@ -20,16 +20,6 @@ export type TaskRow = Task & { createdBy: string };
 export const uuid = z.uuid();
 export const version = z.number().int().positive();
 export const priorities = ["none", "low", "medium", "high", "urgent"] as const;
-export const colors = [
-  "gray",
-  "blue",
-  "green",
-  "yellow",
-  "orange",
-  "red",
-  "purple",
-  "pink",
-] as const;
 export const checklist = z
   .array(
     z
@@ -45,19 +35,14 @@ export const checklist = z
     (items) => new Set(items.map((i) => i.id)).size === items.length,
     "Checklist IDs must be unique",
   );
-export const labels = z
-  .array(z.string().trim().min(1).max(40))
-  .max(20)
-  .transform((items) => [...new Set(items)]);
 export const taskFields = {
   title: z.string().trim().min(1).max(300),
   description: z.string().max(100000),
   assigneeId: uuid.nullable(),
   priority: z.enum(priorities),
-  labels,
+  status: z.enum(TASK_STATUSES),
   dueDate: z.iso.date().nullable(),
   checklist,
-  parentId: uuid.nullable(),
 };
 export async function body<T>(
   c: Context<Env>,
@@ -194,71 +179,11 @@ export async function recordActivity(
 ) {
   await tx`INSERT INTO activity (actor_id,actor_name,actor_kind,action,detail,board_id,task_id) VALUES (${a.userId},${a.name},${a.kind},${action},${tx.json(detail as postgres.JSONValue)},${boardId},${taskId})`;
 }
-export async function normalizeTasks(
-  tx: Tx,
-  columnId: string,
-  orderedIds?: string[],
-) {
-  const rows =
-    orderedIds ??
-    (
-      await tx<
-        { id: string }[]
-      >`SELECT id FROM tasks WHERE column_id=${columnId} ORDER BY position,id`
-    ).map((r) => r.id);
-  for (const [position, taskId] of rows.entries())
-    await tx`UPDATE tasks SET position=${position},version=version+1,updated_at=now() WHERE id=${taskId} AND position<>${position}`;
-}
-export async function normalizeColumns(
-  tx: Tx,
-  boardId: string,
-  orderedIds?: string[],
-) {
-  const rows =
-    orderedIds ??
-    (
-      await tx<
-        Column[]
-      >`SELECT * FROM columns WHERE board_id=${boardId} ORDER BY position,id`
-    ).map((r) => r.id);
-  for (const [position, columnId] of rows.entries())
-    await tx`UPDATE columns SET position=${position},version=version+1 WHERE id=${columnId} AND position<>${position}`;
-}
-export function insertBefore(
-  ids: string[],
-  itemId: string,
-  beforeId?: string | null,
-): string[] {
-  const next = ids.filter((i) => i !== itemId);
-  if (beforeId === itemId) badRequest("An item cannot be moved before itself");
-  const index = beforeId ? next.indexOf(beforeId) : next.length;
-  if (index < 0) badRequest("The target item does not belong to this list");
-  next.splice(index, 0, itemId);
-  return next;
-}
-export async function validateTaskRelations(
-  tx: Tx,
-  boardId: string,
-  taskId: string | null,
-  assigneeId?: string | null,
-  parentId?: string | null,
-) {
-  if (assigneeId) {
-    const [member] =
-      await tx`SELECT id FROM users WHERE id=${assigneeId} AND disabled_at IS NULL`;
-    if (!member) badRequest("Choose an active workspace member");
-  }
-  if (parentId) {
-    if (parentId === taskId) badRequest("A task cannot be its own parent");
-    const [parent] =
-      await tx`SELECT id FROM tasks WHERE id=${parentId} AND board_id=${boardId}`;
-    if (!parent) badRequest("Choose a parent task in this board");
-    if (taskId) {
-      const [cycle] =
-        await tx`WITH RECURSIVE ancestors AS (SELECT id,parent_id FROM tasks WHERE id=${parentId} UNION ALL SELECT t.id,t.parent_id FROM tasks t JOIN ancestors a ON t.id=a.parent_id) SELECT id FROM ancestors WHERE id=${taskId}`;
-      if (cycle) badRequest("This parent would create a subtask cycle");
-    }
-  }
+export async function validateAssignee(tx: Tx, assigneeId?: string | null) {
+  if (!assigneeId) return;
+  const [member] =
+    await tx`SELECT id FROM users WHERE id=${assigneeId} AND disabled_at IS NULL`;
+  if (!member) badRequest("Choose an active workspace member");
 }
 export async function notify(
   tx: Tx,
@@ -330,9 +255,14 @@ export function encodeCursor(value: unknown) {
 }
 export function decodeCursor(
   raw: string | undefined,
-  schema: z.ZodType<{ key: string; id: string; fingerprint: string }>,
+  schema: z.ZodType<{
+    key: string;
+    id: string;
+    fingerprint: string;
+    revision: string;
+  }>,
 ) {
-  if (!raw) return null;
+  if (raw === undefined) return null;
   if (raw.length > 1000) badRequest("Invalid cursor");
   try {
     return schema.parse(JSON.parse(Buffer.from(raw, "base64url").toString()));
@@ -340,11 +270,14 @@ export function decodeCursor(
     badRequest("Invalid cursor");
   }
 }
-export const cursorSchema = z.object({
-  key: z.string().max(400),
-  id: uuid,
-  fingerprint: z.string().length(24),
-});
+export const cursorSchema = z
+  .object({
+    key: z.string().max(400),
+    id: uuid,
+    fingerprint: z.string().length(24),
+    revision: z.string().regex(/^[a-f0-9]{32}$/),
+  })
+  .strict();
 export function newId() {
   return randomUUID();
 }

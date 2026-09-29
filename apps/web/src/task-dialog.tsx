@@ -7,30 +7,31 @@ import {
   ErrorMessage,
   TextField,
   Alert,
-  Avatar,
   Checkbox,
   Field,
   FieldLabel,
   FieldSeparator,
   Label,
-  Link as TaskLink,
   Tabs,
   TextArea,
   TypographyParagraph,
   TypographyText,
 } from "@mill/web-design-system";
-import { Calendar, Check, LinkIcon, Plus, Trash2 } from "./icons.js";
+import { Check, LinkIcon, Plus, Trash2 } from "./icons.js";
 import type {
   Activity,
   ChecklistItem,
-  Column,
   Comment,
   Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
 import { ApiError, api, createRetryKey, errorText, type User } from "./api.js";
 import { Markdown } from "./markdown.js";
-import { activityLabel } from "./activity-label.js";
+import { activityLabel, taskStatusLabel } from "./activity-label.js";
+import {
+  TASK_STATUSES,
+  type TaskStatus,
+} from "../../../packages/contracts/src/index.js";
 import {
   hasCommentResponse,
   hasOkResponse,
@@ -38,28 +39,19 @@ import {
 } from "./responses.js";
 export type TaskSelection = {
   id?: string;
-  columnId?: string;
-  parentId?: string;
 };
 const priorities = ["none", "low", "medium", "high", "urgent"];
 type TaskDetail = {
   task: Task;
   comments: Comment[];
   activity: Activity[];
-  subtasks?: RelatedTask[];
-  parent?: Pick<Task, "id" | "identifier" | "title"> | null;
   commentsPage?: { hasMore: boolean; nextCursor: string | null };
   activityPage?: { hasMore: boolean; nextCursor: string | null };
-  subtasksPage?: { hasMore: boolean; nextCursor: string | null };
 };
-type RelatedTask = Pick<Task, "id" | "identifier" | "title"> &
-  Partial<Pick<Task, "columnId" | "assigneeId" | "priority" | "dueDate">>;
 export function TaskDialog({
   selection,
   boardId,
-  columns,
   members,
-  tasks,
   user,
   readOnly = false,
   onClose,
@@ -68,9 +60,7 @@ export function TaskDialog({
 }: {
   selection: TaskSelection;
   boardId: string;
-  columns: Column[];
   members: Member[];
-  tasks: Task[];
   user: User;
   readOnly?: boolean;
   onClose: () => void;
@@ -81,20 +71,13 @@ export function TaskDialog({
   const [form, setForm] = useState({
     title: "",
     description: "",
-    columnId: selection.columnId ?? columns[0]?.id ?? "",
+    status: "todo" as TaskStatus,
     assigneeId: "",
     priority: "none",
-    labels: "",
     dueDate: "",
-    parentId: selection.parentId ?? "",
   });
-  const [taskOptions, setTaskOptions] = useState<Task[]>(tasks);
-  const [optionsCursor, setOptionsCursor] = useState<string | null>(null);
-  const [beforeId, setBeforeId] = useState("keep");
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [itemText, setItemText] = useState("");
-  const [subtasksCursor, setSubtasksCursor] = useState<string | null>(null);
-  const [subtasksMore, setSubtasksMore] = useState(false);
   const [commentsCursor, setCommentsCursor] = useState<string | null>(null);
   const [activityCursor, setActivityCursor] = useState<string | null>(null);
   const [commentsMore, setCommentsMore] = useState(false);
@@ -134,8 +117,6 @@ export function TaskDialog({
       setCommentsCursor(
         next.commentsPage?.nextCursor ?? next.comments.at(-1)?.id ?? null,
       );
-      setSubtasksCursor(next.subtasksPage?.nextCursor ?? null);
-      setSubtasksMore(next.subtasksPage?.hasMore ?? false);
       setActivityCursor(
         next.activityPage?.nextCursor ?? next.activity.at(-1)?.id ?? null,
       );
@@ -148,16 +129,13 @@ export function TaskDialog({
       setForm({
         title: next.task.title,
         description: next.task.description,
-        columnId: next.task.columnId,
+        status: next.task.status,
         assigneeId: next.task.assigneeId ?? "",
         priority: next.task.priority,
-        labels: next.task.labels.join(", "),
         dueDate: next.task.dueDate?.slice(0, 10) ?? "",
-        parentId: next.task.parentId ?? "",
       });
       setChecklist(next.task.checklist);
       setConflict(false);
-      setBeforeId("keep");
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -166,21 +144,7 @@ export function TaskDialog({
   }
   useEffect(() => {
     void load();
-    void loadOptions();
   }, [selection.id]);
-  async function loadOptions(cursor?: string) {
-    try {
-      const page = await api<{ items: Task[]; nextCursor?: string | null }>(
-        `/boards/${boardId}/tasks?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-      );
-      setTaskOptions((prev) =>
-        cursor ? [...prev, ...page.items] : page.items,
-      );
-      setOptionsCursor(page.nextCursor ?? null);
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
   useEffect(() => {
     if (detail) document.title = `${detail.task.identifier} · Mill`;
   }, [detail?.task.identifier]);
@@ -210,14 +174,8 @@ export function TaskDialog({
       const payload = {
         ...form,
         assigneeId: form.assigneeId || null,
-        parentId: form.parentId || null,
         dueDate: form.dueDate || null,
-        labels: form.labels
-          .split(",")
-          .map((i) => i.trim())
-          .filter(Boolean),
         checklist,
-        ...(beforeId === "keep" ? {} : { beforeId: beforeId || null }),
         ...(detail ? { version: detail.task.version } : {}),
       };
       const path = detail
@@ -284,24 +242,6 @@ export function TaskDialog({
         setActivityMore(page.hasMore);
       }
     }, "discussion");
-  }
-  async function loadSubtasks() {
-    await run(async () => {
-      const next = await api<{
-        items: RelatedTask[];
-        hasMore: boolean;
-        nextCursor: string | null;
-      }>(
-        `/tasks/${detail!.task.id}/subtasks?limit=100${subtasksCursor ? `&cursor=${subtasksCursor}` : ""}`,
-      );
-      setDetail((prev) =>
-        prev
-          ? { ...prev, subtasks: [...(prev.subtasks ?? []), ...next.items] }
-          : prev,
-      );
-      setSubtasksMore(next.hasMore);
-      setSubtasksCursor(next.nextCursor);
-    });
   }
   async function submitComment() {
     await run(async () => {
@@ -381,15 +321,6 @@ export function TaskDialog({
       onClose();
     }, "lifecycle");
   }
-  const subtasks = detail
-    ? (detail.subtasks ?? tasks.filter((t) => t.parentId === detail.task.id))
-    : [];
-  const parents = [
-    ...taskOptions,
-    ...(detail?.parent && !taskOptions.some((t) => t.id === detail.parent?.id)
-      ? [detail.parent]
-      : []),
-  ];
   function addChecklistItem() {
     if (!itemText.trim()) return;
     setChecklist((prev) => [
@@ -400,18 +331,13 @@ export function TaskDialog({
   }
   return (
     <Dialog
+      data-task-dialog
       isDismissDisabled={busy}
       open
       onClose={close}
       wide
       title={
-        detail
-          ? detail.task.identifier
-          : selection.id
-            ? "Task"
-            : selection.parentId
-              ? "New subtask"
-              : "New task"
+        detail ? detail.task.identifier : selection.id ? "Task" : "New task"
       }
       footer={
         <div className="grid w-full gap-3">
@@ -646,125 +572,18 @@ export function TaskDialog({
                   </div>
                 )}
               </div>
-              {detail && (
-                <div className="content-grid min-w-0">
-                  <div className="row space-between">
-                    <TypographyText textRole="label">Subtasks</TypographyText>
-                    {editable && (
-                      <Button
-                        variant="ghost"
-                        onPress={() =>
-                          onSelect({
-                            parentId: detail.task.id,
-                            columnId: detail.task.columnId,
-                          })
-                        }
-                      >
-                        <Plus />
-                        Add subtask
-                      </Button>
-                    )}
-                  </div>
-                  {subtasks.length ? (
-                    <div className="grid">
-                      {subtasks.map((task) => {
-                        const status = columns.find(
-                          (column) => column.id === task.columnId,
-                        );
-                        const assignee = members.find(
-                          (member) => member.id === task.assigneeId,
-                        );
-                        return (
-                          <div
-                            key={task.id}
-                            className="flex min-w-0 flex-wrap items-center gap-3 border-b border-separator py-3 first:pt-0 last:border-0 last:pb-0"
-                          >
-                            <TaskLink
-                              href={`/boards/${boardId}/tasks/${task.id}`}
-                              className="grid min-w-0 flex-1 gap-1 text-foreground"
-                            >
-                              <span className="font-mono text-xs text-muted">
-                                {task.identifier}
-                              </span>
-                              <span className="text-sm font-medium [overflow-wrap:anywhere]">
-                                {task.title}
-                              </span>
-                            </TaskLink>
-                            <div className="flex shrink-0 flex-wrap items-center gap-2">
-                              {status && (
-                                <Chip
-                                  variant="secondary"
-                                  size="small"
-                                  icon={
-                                    <span
-                                      className="status-dot"
-                                      style={{
-                                        background: `var(--status-${status.color})`,
-                                      }}
-                                    />
-                                  }
-                                >
-                                  {status.name}
-                                </Chip>
-                              )}
-                              {task.dueDate && (
-                                <Chip
-                                  variant="secondary"
-                                  size="small"
-                                  icon={<Calendar />}
-                                >
-                                  {new Intl.DateTimeFormat(undefined, {
-                                    month: "short",
-                                    day: "numeric",
-                                    timeZone: "UTC",
-                                  }).format(
-                                    new Date(
-                                      `${task.dueDate.slice(0, 10)}T12:00:00Z`,
-                                    ),
-                                  )}
-                                </Chip>
-                              )}
-                              {assignee && (
-                                <Avatar
-                                  size="sm"
-                                  aria-label={`Assigned to ${assignee.name}`}
-                                >
-                                  <Avatar.Fallback>
-                                    {assignee.name.slice(0, 1).toUpperCase()}
-                                  </Avatar.Fallback>
-                                </Avatar>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <TypographyParagraph size="sm" color="muted">
-                      No subtasks yet.
-                    </TypographyParagraph>
-                  )}
-                  {subtasksMore && (
-                    <Button
-                      variant="secondary"
-                      isDisabled={busy}
-                      onPress={() => void loadSubtasks()}
-                    >
-                      Load more subtasks
-                    </Button>
-                  )}
-                </div>
-              )}
             </form>
             <aside className="task-properties">
               <Choice
                 className="min-w-0 w-full"
                 label="Status"
-                value={form.columnId}
-                onChange={(value) => patch("columnId", value)}
-                items={columns}
+                value={form.status}
+                onChange={(value) => patch("status", value as TaskStatus)}
+                items={TASK_STATUSES.map((id) => ({
+                  id,
+                  name: taskStatusLabel(id),
+                }))}
                 disabled={!editable}
-                search
               />
               <Choice
                 className="min-w-0 w-full"
@@ -792,71 +611,12 @@ export function TaskDialog({
               <TextField
                 className="min-w-0 w-full"
                 form="task-form"
-                label="Labels"
-                value={form.labels}
-                onChange={(e) => patch("labels", e.target.value)}
-                description="Separate labels with commas."
-                maxLength={500}
-                disabled={!editable}
-              />
-              <TextField
-                className="min-w-0 w-full"
-                form="task-form"
                 label="Due date"
                 type="date"
                 value={form.dueDate}
                 onChange={(e) => patch("dueDate", e.target.value)}
                 disabled={!editable}
               />
-              <Choice
-                className="min-w-0 w-full"
-                label="Parent task"
-                value={form.parentId}
-                onChange={(value) => patch("parentId", value)}
-                items={[
-                  { id: "", name: "No parent" },
-                  ...parents
-                    .filter((t) => t.id !== selection.id)
-                    .map((t) => ({
-                      id: t.id,
-                      name: `${t.identifier} · ${t.title}`,
-                    })),
-                ]}
-                disabled={!editable}
-                search
-              />
-              {optionsCursor && (
-                <Button
-                  variant="ghost"
-                  onPress={() => void loadOptions(optionsCursor)}
-                >
-                  Load more parent choices
-                </Button>
-              )}
-              {detail && (
-                <Choice
-                  className="min-w-0 w-full"
-                  label="Position in status"
-                  value={beforeId}
-                  onChange={setBeforeId}
-                  items={[
-                    { id: "keep", name: "Keep current order" },
-                    { id: "", name: "Move to the end" },
-                    ...taskOptions
-                      .filter(
-                        (t) =>
-                          t.id !== detail.task.id &&
-                          t.columnId === form.columnId,
-                      )
-                      .map((t) => ({
-                        id: t.id,
-                        name: `Before ${t.identifier} · ${t.title}`,
-                      })),
-                  ]}
-                  disabled={!editable}
-                  search
-                />
-              )}
               {detail && (
                 <>
                   <TypographyParagraph size="sm" color="muted">
@@ -998,6 +758,7 @@ export function TaskDialog({
                               <div className="row">
                                 <Button
                                   variant="ghost"
+                                  isDisabled={busy}
                                   onPress={() => {
                                     setCommentEdit(item);
                                     setComment(item.body);
@@ -1037,6 +798,7 @@ export function TaskDialog({
                         <TextField
                           className="min-w-0 w-full"
                           label={commentEdit ? "Edit comment" : "Add a comment"}
+                          disabled={busy}
                           multiline
                           value={comment}
                           onChange={(e) => setComment(e.target.value)}
@@ -1060,6 +822,7 @@ export function TaskDialog({
                           {commentEdit && (
                             <Button
                               variant="ghost"
+                              isDisabled={busy}
                               onPress={() => {
                                 setCommentEdit(null);
                                 setComment("");
@@ -1157,8 +920,8 @@ export function TaskDialog({
         }
       >
         <TypographyParagraph size="sm">
-          Permanently delete this task, all of its subtasks, and their comments?
-          This cannot be undone. There is no restore.
+          Permanently delete this task and its comments? This cannot be undone.
+          There is no restore.
         </TypographyParagraph>
         <ErrorMessage>{errorAction === "lifecycle" ? error : ""}</ErrorMessage>
         {conflict && errorAction === "lifecycle" && (

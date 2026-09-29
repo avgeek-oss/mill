@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import postgres from "postgres";
 if (!process.env.DATABASE_URL) process.loadEnvFile(".env");
@@ -13,7 +13,11 @@ const port = process.env.MILL_BROWSER_PORT ?? "4323";
 const baseURL = process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323";
 const metadata = resolve("tmp", `browser-${port}-schema.json`);
 await mkdir(resolve("tmp"), { recursive: true });
-await writeFile(metadata, JSON.stringify({ schema, baseURL }), { mode: 0o600 });
+const metadataDraft = `${metadata}.${schema}.tmp`;
+await writeFile(metadataDraft, JSON.stringify({ schema, baseURL }), {
+  mode: 0o600,
+});
+await rename(metadataDraft, metadata);
 const child = spawn(
   process.execPath,
   ["--import", "tsx", "apps/api/src/index.ts"],

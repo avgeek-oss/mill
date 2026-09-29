@@ -1,5 +1,7 @@
 # Towbar foundation review
 
+> Historical review of candidates before the final September 29 v1 task-list reduction. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below are retained as evidence of that earlier scope. They do not establish current behavior or readiness. See [the current scope and evidence](b1-verification.md).
+
 This records the controlled first UI foundation pass for the private Mill B1 draft. Foundation acceptance is limited to this checkpoint; it does not establish overall UI approval or release readiness. The earlier B1 screenshots and functional verification do not establish acceptance of the Towbar visual composition.
 
 The source authority is the public Apache-2.0 Towbar checkout at `../towbar`, specifically `packages/web-design-system/src` and the public application compositions named below. No HeroUI Pro package, paid icon pack, private design-system package, or licensed private component was used. HeroUI, Hugeicons free icons, React Aria Components, Inter, and Geist Mono are public dependencies. Their attribution is recorded in `packages/web-design-system/NOTICE.md` and the root notices.

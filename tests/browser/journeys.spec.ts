@@ -53,12 +53,15 @@ async function login(
 async function choose(page: Page, label: string, value: string) {
   await page.getByRole("button", { name: new RegExp(`${label}$`) }).click();
   await page.getByRole("option", { name: value, exact: true }).click();
+  await expect(page.getByRole("listbox")).toBeHidden();
 }
 async function submitWhilePending(
   page: Page,
   path: string,
   submit: Locator,
   footerClose: string,
+  dialogTitle: string,
+  duringPending?: () => Promise<void>,
 ) {
   let release!: () => void;
   let started!: () => void;
@@ -78,21 +81,19 @@ async function submitWhilePending(
       continued();
     }
   });
+  const dialog = page.getByRole("dialog", { name: dialogTitle, exact: true });
   try {
     await submit.click();
     await requestStarted;
     await expect(
-      page
-        .getByRole("dialog")
-        .getByRole("button", { name: "Close dialog", exact: true }),
+      dialog.getByRole("button", { name: "Close dialog", exact: true }),
     ).toBeDisabled();
     await expect(
-      page
-        .getByRole("dialog")
-        .getByRole("button", { name: footerClose, exact: true }),
+      dialog.getByRole("button", { name: footerClose, exact: true }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog")).toBeVisible();
+    await expect(dialog).toBeVisible();
+    await duringPending?.();
   } finally {
     release();
     await requestContinued;
@@ -314,9 +315,10 @@ test("first installation and complete board/task workflow", async ({
     page,
     "/boards",
     page
-      .getByRole("dialog")
+      .getByRole("dialog", { name: "Create a board", exact: true })
       .getByRole("button", { name: "Create board", exact: true }),
     "Cancel",
+    "Create a board",
   );
   await expect(
     page.getByRole("heading", { name: "Release planning" }),
@@ -328,6 +330,20 @@ test("first installation and complete board/task workflow", async ({
     animations: "disabled",
   });
   await page.getByRole("button", { name: "New task", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Status$/ })).toContainText(
+    "Todo",
+  );
+  await page.getByRole("button", { name: /Status$/ }).click();
+  await expect(page.getByRole("option")).toHaveText([
+    "Backlog",
+    "Todo",
+    "In Progress",
+    "In Review",
+    "Done",
+    "Won't Do",
+  ]);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toBeHidden();
   await page
     .getByLabel("Title", { exact: true })
     .fill("Prepare the release checklist");
@@ -342,18 +358,21 @@ test("first installation and complete board/task workflow", async ({
     page,
     `/boards/${boardId}/tasks`,
     page
-      .getByRole("dialog")
+      .getByRole("dialog", { name: "New task", exact: true })
       .getByRole("button", { name: "Create task", exact: true }),
     "Close",
+    "New task",
   );
   await expect(
-    page.getByRole("dialog").getByRole("heading", { name: "REL-1" }),
+    page
+      .getByRole("dialog", { name: "REL-1", exact: true })
+      .getByRole("heading", { name: "REL-1" }),
   ).toBeVisible();
   taskId = page.url().split("/tasks/")[1];
   await page
     .getByLabel("Title", { exact: true })
     .fill("Prepare the release and recovery checklist");
-  await choose(page, "Status", "In progress");
+  await choose(page, "Status", "In Progress");
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "Changes saved" }),
@@ -380,8 +399,19 @@ test("first installation and complete board/task workflow", async ({
   await submitWhilePending(
     page,
     `/tasks/${taskId}/comments`,
-    page.getByRole("button", { name: "Comment", exact: true }),
+    page
+      .getByRole("dialog", { name: "REL-1", exact: true })
+      .getByRole("button", { name: "Comment", exact: true }),
     "Close",
+    "REL-1",
+    async () => {
+      await expect(
+        page.getByLabel("Add a comment", { exact: true }),
+      ).toBeDisabled();
+      await expect(
+        page.getByLabel("Add a comment", { exact: true }),
+      ).toHaveValue("Ready for review.");
+    },
   );
   await expect(page.locator(".comment")).toContainText("Ready for review.");
   await page
@@ -391,13 +421,50 @@ test("first installation and complete board/task workflow", async ({
   await page
     .getByLabel("Edit comment", { exact: true })
     .fill("Ready for keyboard review.");
-  await page
-    .getByLabel("Edit comment", { exact: true })
-    .press("ControlOrMeta+Enter");
+  const pendingCommentEdit = requestGate();
+  const holdCommentEdit = async (route: Route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    return pendingCommentEdit.hold(route);
+  };
+  await page.route("**/api/comments/*", holdCommentEdit);
+  try {
+    await page
+      .getByLabel("Edit comment", { exact: true })
+      .press("ControlOrMeta+Enter");
+    await pendingCommentEdit.started;
+    await expect(
+      page.getByLabel("Edit comment", { exact: true }),
+    ).toBeDisabled();
+    await expect(page.getByLabel("Edit comment", { exact: true })).toHaveValue(
+      "Ready for keyboard review.",
+    );
+    await expect(
+      page
+        .locator(".comment")
+        .getByRole("button", { name: "Edit", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Cancel edit", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Close", exact: true }),
+    ).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("dialog", { name: "REL-1", exact: true }),
+    ).toBeVisible();
+  } finally {
+    await pendingCommentEdit.finish();
+    await page.unroute("**/api/comments/*", holdCommentEdit);
+  }
   await expect(page.locator(".comment")).toContainText(
     "Ready for keyboard review.",
   );
   await expect(page.locator(".comment")).toContainText(account.name);
+  await expect(page.getByLabel("Add a comment", { exact: true })).toBeEnabled();
+  await expect(page.getByLabel("Add a comment", { exact: true })).toHaveValue(
+    "",
+  );
   await page
     .locator(".comment")
     .getByRole("button", { name: "Delete", exact: true })
@@ -440,46 +507,73 @@ test("first installation and complete board/task workflow", async ({
   await expect(
     page.getByRole("checkbox", { name: "Verify installation", exact: true }),
   ).toBeChecked();
-  await page.getByRole("button", { name: "Add subtask" }).click();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "New task", exact: true }).click();
   await expect(
-    page.getByRole("dialog").getByRole("heading", { name: "New subtask" }),
+    page
+      .getByRole("dialog", { name: "New task", exact: true })
+      .getByRole("heading", { name: "New task" }),
   ).toBeVisible();
   await page.getByLabel("Title", { exact: true }).fill("Test database restore");
+  await choose(page, "Status", "Done");
   await page
-    .getByRole("dialog")
+    .getByRole("dialog", { name: "New task", exact: true })
     .getByRole("button", { name: "Create task", exact: true })
     .click();
   await expect(
-    page.getByRole("dialog").getByRole("heading", { name: "REL-2" }),
+    page
+      .getByRole("dialog", { name: "REL-2", exact: true })
+      .getByRole("heading", { name: "REL-2" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page
     .getByRole("button", { name: "Board settings", exact: true })
     .click();
-  await page.getByLabel("New status").fill("Review");
-  await submitSettingsWhilePending(
-    page,
-    `/boards/${boardId}/columns`,
-    "POST",
-    page.getByRole("button", { name: "Add status", exact: true }),
-  );
-  await expect(page.getByLabel("Status name").nth(3)).toHaveValue("Review");
+  const boardSettings = page.getByRole("dialog", {
+    name: "Board settings",
+    exact: true,
+  });
   await expect(
-    page.getByRole("button", { name: "Add status", exact: true }),
-  ).toBeFocused();
+    boardSettings.getByLabel("New status", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    boardSettings.getByLabel("Status name", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    boardSettings.getByRole("button", { name: /Board order$/ }),
+  ).toHaveCount(0);
+  await boardSettings
+    .getByLabel("Description", { exact: true })
+    .fill("Release and recovery work");
+  const saveBoard = boardSettings.getByRole("button", {
+    name: "Save board",
+    exact: true,
+  });
   await submitSettingsWhilePending(
     page,
-    "/columns/*",
+    `/boards/${boardId}`,
     "PATCH",
-    page.getByRole("button", { name: "Move Review earlier", exact: true }),
+    saveBoard,
   );
+  await expect(boardSettings.getByRole("status")).toContainText(
+    "Board updated.",
+  );
+  await expect(saveBoard).toBeFocused();
+  await boardSettings
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  const tasks = page.getByRole("grid", { name: "Task list" });
   await expect(
-    page.getByRole("button", { name: "Move Review earlier" }),
-  ).toBeFocused();
-  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
-  await expect(page.getByRole("region", { name: "In progress" })).toContainText(
-    "Prepare the release and recovery checklist",
-  );
+    tasks
+      .getByRole("row")
+      .filter({ hasText: "Prepare the release and recovery checklist" }),
+  ).toContainText("In Progress");
+  await expect(
+    page.getByRole("button", { name: "Kanban view", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "List view", exact: true }),
+  ).toHaveCount(0);
   await page.screenshot({
     path: "docs/screenshots/desktop-light.png",
     fullPage: true,
@@ -498,7 +592,15 @@ test("first installation and complete board/task workflow", async ({
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
-  await expect(page.getByRole("dialog")).toContainText("Test database restore");
+  await expect(
+    page.getByRole("dialog").getByLabel("Title", { exact: true }),
+  ).toHaveValue("Prepare the release and recovery checklist");
+  await expect(
+    page.getByRole("button", { name: "Add subtask", exact: true }),
+  ).toHaveCount(0);
+  for (const label of ["Labels", "Parent task", "Position"]) {
+    await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
+  }
   await expect(
     page.getByRole("checkbox", { name: "Verify installation", exact: true }),
   ).toBeChecked();
@@ -624,23 +726,25 @@ test("sidebar action sizing matches navigation and removed audit routes stay una
       }
     }
 });
-test("keyboard task movement, filters, mobile columns, and overlay search scrolling", async ({
+test("keyboard status changes, list filters, mobile navigation, and overlay search scrolling", async ({
   page,
-}) => {
+}, testInfo) => {
   await login(page);
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
   await page.getByRole("button", { name: /Status$/ }).focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("d");
   await page.keyboard.press("Enter");
+  await expect(page.getByRole("listbox")).toBeHidden();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "Changes saved" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await page.getByLabel("Search tasks").fill("recovery");
-  await expect(page.locator(".task-card")).toHaveCount(1);
-  await page.getByRole("button", { name: "List view" }).click();
+  await expect(
+    page.getByRole("grid", { name: "Task list" }).getByRole("link"),
+  ).toHaveCount(1);
   await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
     "Prepare the release and recovery checklist",
   );
@@ -670,42 +774,162 @@ test("keyboard task movement, filters, mobile columns, and overlay search scroll
   await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
     "Test database restore",
   );
-  for (const view of ["List view", "Kanban view"]) {
-    await page.getByRole("button", { name: view, exact: true }).click();
-    const before = await page.locator(".board-toolbar").boundingBox();
-    await page.getByLabel("Search tasks").fill("nonexistent-filter-result");
-    await expect(
-      page.getByRole("heading", {
-        name: "No tasks match these filters",
+  const allTaskLinks = page
+    .getByRole("grid", { name: "Task list" })
+    .getByRole("link");
+  await expect(allTaskLinks.first()).not.toHaveAttribute(
+    "href",
+    `/boards/${boardId}/tasks/${taskId}`,
+  );
+  for (const [width, height, theme] of [
+    [1280, 800, "light"],
+    [1280, 800, "dark"],
+    [390, 844, "light"],
+    [390, 844, "dark"],
+  ] as const) {
+    await page.setViewportSize({ width, height });
+    const appearance = page.getByRole("button", {
+      name: `Appearance: switch to ${theme} theme`,
+      exact: true,
+    });
+    if (await appearance.isVisible()) await appearance.click();
+    await page.evaluate(() => {
+      const events: unknown[] = [];
+      const describe = (target: EventTarget | null) =>
+        target instanceof Element
+          ? {
+              tagName: target.tagName,
+              role: target.getAttribute("role"),
+              href: target.getAttribute("href"),
+              taskId:
+                target.closest<HTMLElement>("[data-task-id]")?.dataset.taskId,
+            }
+          : null;
+      const record = (event: Event) => {
+        if (
+          event instanceof KeyboardEvent &&
+          !["Enter", "Escape"].includes(event.key)
+        )
+          return;
+        if (
+          !(event.target instanceof Element) ||
+          !event.target.closest('[aria-label="Task list"], [data-task-dialog]')
+        )
+          return;
+        events.push({
+          type: event.type,
+          key: event instanceof KeyboardEvent ? event.key : undefined,
+          target: describe(event.target),
+          active: describe(document.activeElement),
+        });
+        if (events.length > 80) events.shift();
+      };
+      for (const type of ["keydown", "click", "focus", "focusin"])
+        document.addEventListener(type, record, true);
+      Reflect.set(window, "millTaskFocusTrace", {
+        events,
+        describe,
+        stop: () => {
+          for (const type of ["keydown", "click", "focus", "focusin"])
+            document.removeEventListener(type, record, true);
+        },
+      });
+    });
+    try {
+      await taskLink.focus();
+      await expect(taskLink).toBeFocused();
+      await page.keyboard.press("Enter");
+      const taskDialog = page.getByRole("dialog", {
+        name: "REL-1",
         exact: true,
-      }),
-    ).toBeVisible();
-    await expect(
-      page.getByText("Adjust or clear your filters to see existing tasks.", {
-        exact: true,
-      }),
-    ).toBeVisible();
-    const filtered = await page.locator(".board-toolbar").boundingBox();
-    expect(filtered?.height).toBe(before?.height);
-    expect(filtered?.y).toBe(before?.y);
-    await page
-      .getByRole("button", { name: "Clear filters", exact: true })
-      .last()
-      .click();
-    if (view === "List view")
-      await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
-        "Test database restore",
-      );
-    else
+      });
+      await expect(taskDialog).toBeVisible();
       await expect(
-        page.locator(".task-card").filter({ hasText: "Test database restore" }),
-      ).toBeVisible();
-    const restored = await page.locator(".board-toolbar").boundingBox();
-    expect(restored?.height).toBe(before?.height);
+        taskDialog.getByRole("textbox", { name: /^Title\*?$/ }),
+      ).toHaveValue("Prepare the release and recovery checklist");
+      await expect
+        .poll(
+          () =>
+            taskDialog.evaluate((dialog) => {
+              const active = document.activeElement;
+              return {
+                inTaskDialog: dialog.contains(active),
+                tagName: active?.tagName,
+                role: active?.getAttribute("role"),
+                href: active?.getAttribute("href"),
+              };
+            }),
+          {
+            message:
+              "Keyboard focus must enter the loaded task dialog before Escape",
+          },
+        )
+        .toMatchObject({ inTaskDialog: true });
+      await page.keyboard.press("Escape");
+      await expect(taskDialog).toBeHidden();
+      await expect(taskLink).toBeFocused();
+    } catch (error) {
+      const focusTrace = await taskLink.evaluate((link) => {
+        const trace = Reflect.get(window, "millTaskFocusTrace");
+        return {
+          expected: trace.describe(link),
+          active: trace.describe(document.activeElement),
+          sameLink: document.activeElement === link,
+          rowContainsActive: link
+            .closest('[role="row"]')
+            ?.contains(document.activeElement),
+          events: trace.events,
+        };
+      });
+      await testInfo.attach(`task-focus-${width}-${theme}.json`, {
+        body: Buffer.from(JSON.stringify(focusTrace, null, 2)),
+        contentType: "application/json",
+      });
+      throw error;
+    } finally {
+      await page.evaluate(() => {
+        Reflect.get(window, "millTaskFocusTrace")?.stop();
+        Reflect.deleteProperty(window, "millTaskFocusTrace");
+      });
+    }
   }
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const lightAppearance = page.getByRole("button", {
+    name: "Appearance: switch to light theme",
+    exact: true,
+  });
+  if (await lightAppearance.isVisible()) await lightAppearance.click();
+  const before = await page.locator(".board-toolbar").boundingBox();
+  await page.getByLabel("Search tasks").fill("nonexistent-filter-result");
+  await expect(
+    page.getByRole("heading", {
+      name: "No tasks match these filters",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Adjust or clear your filters to see existing tasks.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  const filteredToolbar = await page.locator(".board-toolbar").boundingBox();
+  expect(filteredToolbar?.height).toBe(before?.height);
+  expect(filteredToolbar?.y).toBe(before?.y);
+  await page
+    .getByRole("button", { name: "Clear filters", exact: true })
+    .last()
+    .click();
+  await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
+    "Test database restore",
+  );
+  const restored = await page.locator(".board-toolbar").boundingBox();
+  expect(restored?.height).toBe(before?.height);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Kanban view" }).click();
-  await choose(page, "Board column", "Done (1)");
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await choose(page, "Status filter", "Done");
+  await expect(
+    page.getByRole("grid", { name: "Task list" }).getByRole("link"),
+  ).toHaveCount(2);
   await page.getByRole("button", { name: "Open navigation" }).click();
   await expect(
     page
@@ -719,7 +943,9 @@ test("keyboard task movement, filters, mobile columns, and overlay search scroll
   await page
     .getByRole("button", { name: "Appearance: switch to dark theme" })
     .click();
-  await expect(page.getByRole("region", { name: "Done" })).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
+    "Done",
+  );
   await page.screenshot({
     path: "docs/screenshots/mobile-dark.png",
     fullPage: true,
@@ -1010,7 +1236,7 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
   }
 });
 
-test("task deletion removes descendants and discussion permanently and retries safely", async ({
+test("task deletion removes discussion permanently, retains other tasks, and retries safely", async ({
   page,
 }) => {
   await page.goto(lifecycleInvitationUrl);
@@ -1034,21 +1260,19 @@ test("task deletion removes descendants and discussion permanently and retries s
   expect(session.user.role).toBe("admin");
   expect(session.workspace.id).toBe(workspaceId);
   expect(session.workspace.name).toBe(account.workspaceName);
-  const createTask = async (title: string, parentId?: string) => {
+  const createTask = async (title: string) => {
     const response = await page.request.post(`/api/boards/${boardId}/tasks`, {
       headers: { Origin: baseOrigin },
-      data: { title, parentId, assigneeId: session.user.id },
+      data: { title, assigneeId: session.user.id },
     });
     expect(response.ok()).toBeTruthy();
     return (await response.json()).task;
   };
-  const parent = await createTask("Task to delete permanently");
-  const child = await createTask("Child to delete permanently", parent.id);
-  const grandchild = await createTask(
-    "Grandchild to delete permanently",
-    child.id,
+  const disposable = await createTask("Task to delete permanently");
+  const retainedTask = await createTask(
+    "Independent task remains after deletion",
   );
-  const ids = [parent.id, child.id, grandchild.id];
+  const ids = [disposable.id];
   for (const id of ids) {
     const comment = await page.request.post(`/api/tasks/${id}/comments`, {
       headers: { Origin: baseOrigin },
@@ -1065,7 +1289,7 @@ test("task deletion removes descendants and discussion permanently and retries s
       );
       expect(existing.length).toBeGreaterThan(0);
     }
-    await page.goto(`/boards/${boardId}/tasks/${parent.id}`);
+    await page.goto(`/boards/${boardId}/tasks/${disposable.id}`);
     await expect(
       page.getByRole("button", { name: "Archive task", exact: true }),
     ).toHaveCount(0);
@@ -1076,9 +1300,7 @@ test("task deletion removes descendants and discussion permanently and retries s
       name: "Delete this task?",
       exact: true,
     });
-    await expect(confirmation).toContainText(
-      "all of its subtasks, and their comments",
-    );
+    await expect(confirmation).toContainText("this task and its comments");
     await expect(confirmation).toContainText("There is no restore");
     await confirmation
       .getByRole("button", { name: "Keep task", exact: true })
@@ -1102,7 +1324,7 @@ test("task deletion removes descendants and discussion permanently and retries s
         }),
       });
     };
-    await page.route(`**/api/tasks/${parent.id}`, failure);
+    await page.route(`**/api/tasks/${disposable.id}`, failure);
     await confirmation
       .getByRole("button", { name: "Delete task", exact: true })
       .click();
@@ -1111,9 +1333,9 @@ test("task deletion removes descendants and discussion permanently and retries s
     );
     expect(deletionKey).toBeTruthy();
     expect(
-      (await page.request.get(`/api/tasks/${parent.id}`)).ok(),
+      (await page.request.get(`/api/tasks/${disposable.id}`)).ok(),
     ).toBeTruthy();
-    await page.unroute(`**/api/tasks/${parent.id}`, failure);
+    await page.unroute(`**/api/tasks/${disposable.id}`, failure);
     let release!: () => void;
     let started!: () => void;
     let continued!: () => void;
@@ -1133,10 +1355,10 @@ test("task deletion removes descendants and discussion permanently and retries s
         continued();
       }
     };
-    await page.route(`**/api/tasks/${parent.id}`, delayed);
+    await page.route(`**/api/tasks/${disposable.id}`, delayed);
     const deletion = page.waitForResponse(
       (response) =>
-        new URL(response.url()).pathname === `/api/tasks/${parent.id}` &&
+        new URL(response.url()).pathname === `/api/tasks/${disposable.id}` &&
         response.request().method() === "DELETE",
     );
     try {
@@ -1162,16 +1384,32 @@ test("task deletion removes descendants and discussion permanently and retries s
     } finally {
       release();
       await requestContinued;
-      await page.unroute(`**/api/tasks/${parent.id}`, delayed);
+      await page.unroute(`**/api/tasks/${disposable.id}`, delayed);
     }
     expect(await (await deletion).json()).toEqual({ ok: true });
     await expect(page).toHaveURL(`/boards/${boardId}`);
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(
-      page.locator(".task-card").filter({ hasText: "to delete permanently" }),
+      page
+        .getByRole("grid", { name: "Task list" })
+        .getByRole("link")
+        .filter({ hasText: "Task to delete permanently" }),
     ).toHaveCount(0);
     for (const id of ids)
       expect((await page.request.get(`/api/tasks/${id}`)).status()).toBe(404);
+    const retainedResponse = await page.request.get(
+      `/api/tasks/${retainedTask.id}`,
+    );
+    expect(retainedResponse.ok()).toBeTruthy();
+    expect((await retainedResponse.json()).task.title).toBe(
+      "Independent task remains after deletion",
+    );
+    await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
+      "Independent task remains after deletion",
+    );
+    await expect(
+      page.getByRole("button", { name: "New task", exact: true }),
+    ).toBeFocused();
     for (const table of ["tasks", "comments", "activity", "notifications"]) {
       const rows = await database.unsafe(
         `SELECT id FROM "${schema}".${table} WHERE ${table === "tasks" ? "id" : "task_id"}=ANY($1::uuid[])`,
@@ -1184,7 +1422,7 @@ test("task deletion removes descendants and discussion permanently and retries s
   }
 });
 
-test("board settings keep status failures recoverable and delete boards permanently", async ({
+test("board settings keep detail failures recoverable and delete boards permanently", async ({
   page,
 }) => {
   await login(page, lifecycleAccount);
@@ -1199,62 +1437,56 @@ test("board settings keep status failures recoverable and delete boards permanen
     0,
   );
   await expect(settings).toContainText("The prefix stays fixed");
-  await settings.getByLabel("New status", { exact: true }).fill("Queue");
-  await settings
-    .getByRole("button", { name: "Add status", exact: true })
-    .click();
-  const row = settings.locator(".column-editor").last();
-  await expect(row.getByLabel("Status name", { exact: true })).toHaveValue(
-    "Queue",
+  await expect(settings.getByLabel("New status", { exact: true })).toHaveCount(
+    0,
   );
-  await row.getByLabel("Status name", { exact: true }).fill("Ready for review");
-  await row.getByRole("button", { name: /Status color$/ }).click();
-  await page.getByRole("option", { name: "Blue", exact: true }).click();
-  const saveStatus = row.getByRole("button", { name: "Save", exact: true });
-  const newStatus = settings.getByLabel("New status", { exact: true });
+  await expect(settings.getByLabel("Status name", { exact: true })).toHaveCount(
+    0,
+  );
+  await expect(
+    settings.getByRole("button", { name: /Board order$/ }),
+  ).toHaveCount(0);
+  const description = settings.getByLabel("Description", { exact: true });
+  await description.fill("A recoverable board settings draft");
+  const saveBoard = settings.getByRole("button", {
+    name: "Save board",
+    exact: true,
+  });
+  const failure = async (route: Route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "Board update temporarily unavailable" }),
+    });
+  };
+  await page.route(`**/api/boards/${boardId}`, failure);
+  await saveBoard.click();
+  await expect(settings.getByRole("alert")).toContainText(
+    "Board update temporarily unavailable",
+  );
+  await expect(description).toHaveValue("A recoverable board settings draft");
+  await expect(settings).toBeVisible();
+  await expect(saveBoard).toBeFocused();
+  await page.unroute(`**/api/boards/${boardId}`, failure);
   await submitSettingsWhilePending(
     page,
-    "/columns/*",
+    `/boards/${boardId}`,
     "PATCH",
-    saveStatus,
+    saveBoard,
     async () => {
-      await expect(newStatus).toBeEnabled();
-      await newStatus.click();
-      await expect(newStatus).toBeFocused();
+      await expect(description).toBeEnabled();
+      await description.click();
+      await expect(description).toBeFocused();
     },
   );
-  await expect(settings.getByRole("status")).toContainText("Status updated.");
-  await expect(saveStatus).toBeDisabled();
-  await expect(newStatus).toBeFocused();
-  await expect(row).toContainText("Blue");
-  const populatedStatus = settings.locator(".column-editor").nth(1);
-  await expect(
-    populatedStatus.getByLabel("Status name", { exact: true }),
-  ).toHaveValue("In progress");
-  await populatedStatus
-    .getByRole("button", { name: "Delete", exact: true })
-    .click();
-  const confirmation = page.getByRole("dialog").filter({
-    has: page.getByRole("heading", { name: "Delete status?", exact: true }),
-  });
-  await confirmation
-    .getByRole("button", { name: "Delete status", exact: true })
-    .click();
-  await expect(confirmation.getByRole("alert")).toContainText(
-    "Choose another status for the tasks in this status",
-  );
-  await expect(confirmation).toBeVisible();
-  await confirmation.getByRole("button", { name: /Move tasks to$/ }).click();
-  await page.getByRole("option", { name: "Done", exact: true }).click();
-  await confirmation
-    .getByRole("button", { name: "Delete status", exact: true })
-    .click();
-  await expect(confirmation).not.toBeVisible();
-  await expect(
-    settings.getByRole("button", { name: "Add status", exact: true }),
-  ).toBeFocused();
-  await expect(settings.getByLabel("Status name", { exact: true })).toHaveCount(
-    4,
+  await expect(settings.getByRole("status")).toContainText("Board updated.");
+  await expect(description).toBeFocused();
+  const savedDetails = await page.request
+    .get(`/api/boards/${boardId}`)
+    .then((response) => response.json());
+  expect(savedDetails.board.description).toBe(
+    "A recoverable board settings draft",
   );
   await expect(
     settings.getByRole("button", { name: "Archive board", exact: true }),
@@ -1262,7 +1494,7 @@ test("board settings keep status failures recoverable and delete boards permanen
   await settings
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
-  await expect(page.getByRole("region", { name: "Done" })).toContainText(
+  await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
     "Test database restore",
   );
   const created = await page.request.post("/api/boards", {
@@ -1275,7 +1507,7 @@ test("board settings keep status failures recoverable and delete boards permanen
     `/api/boards/${disposable.id}/tasks`,
     {
       headers: { Origin: baseOrigin },
-      data: { title: "Board deletion parent" },
+      data: { title: "Board deletion first task" },
     },
   );
   expect(rootTaskResponse.ok()).toBeTruthy();
@@ -1284,7 +1516,7 @@ test("board settings keep status failures recoverable and delete boards permanen
     `/api/boards/${disposable.id}/tasks`,
     {
       headers: { Origin: baseOrigin },
-      data: { title: "Board deletion child", parentId: rootTask.id },
+      data: { title: "Board deletion second task" },
     },
   );
   expect(childResponse.ok()).toBeTruthy();
@@ -1308,9 +1540,7 @@ test("board settings keep status failures recoverable and delete boards permanen
     name: "Delete board?",
     exact: true,
   });
-  await expect(deletion).toContainText(
-    "statuses, tasks, subtasks, and comments",
-  );
+  await expect(deletion).toContainText("all of its tasks and comments");
   await expect(deletion).toContainText("There is no restore");
   await deletion
     .getByRole("button", { name: "Keep board", exact: true })
@@ -1354,7 +1584,7 @@ test("board settings keep status failures recoverable and delete boards permanen
   ).toBe(404);
   const { database, schema } = await browserDatabase();
   try {
-    for (const table of ["boards", "columns", "tasks", "activity"]) {
+    for (const table of ["boards", "tasks", "activity"]) {
       const rows = await database.unsafe(
         `SELECT id FROM "${schema}".${table} WHERE ${table === "boards" ? "id" : "board_id"}=$1`,
         [disposable.id],
@@ -1373,7 +1603,7 @@ test("board settings keep status failures recoverable and delete boards permanen
   }
 });
 
-test("long content, many statuses, tablet/phone themes and operational errors", async ({
+test("long content, fixed statuses, tablet/phone themes and operational errors", async ({
   page,
 }) => {
   const accepted = await page.request.post("/api/auth/accept-invitation", {
@@ -1410,20 +1640,18 @@ test("long content, many statuses, tablet/phone themes and operational errors", 
       })),
     },
   });
-  for (let i = 0; i < 12; i++)
-    await page.request.post(`/api/boards/${boardId}/columns`, {
-      headers: { Origin: baseOrigin },
-      data: { name: `Additional status ${i + 1}`, color: "gray" },
-    });
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
   await page.getByRole("button", { name: /Status$/ }).click();
   const list = page.getByRole("listbox");
   await expect(list).toBeVisible();
-  await list.hover();
-  await page.mouse.wheel(0, 700);
-  await expect
-    .poll(() => list.evaluate((el) => el.scrollTop))
-    .toBeGreaterThan(0);
+  await expect(list.getByRole("option")).toHaveText([
+    "Backlog",
+    "Todo",
+    "In Progress",
+    "In Review",
+    "Done",
+    "Won't Do",
+  ]);
   await page.screenshot({
     path: "docs/screenshots/task-overlay-light.png",
     fullPage: true,
@@ -1445,10 +1673,7 @@ test("long content, many statuses, tablet/phone themes and operational errors", 
           : "Appearance: switch to dark theme",
     });
     if (await toggle.isVisible()) await toggle.click();
-    if (width < 700) {
-      await page.getByRole("button", { name: /Board column$/ }).click();
-      await page.getByRole("option", { name: /^Done \(\d+\)$/ }).click();
-    }
+    await expect(page.getByRole("grid", { name: "Task list" })).toBeVisible();
     await page.screenshot({
       path: `docs/screenshots/${name}.png`,
       fullPage: true,
@@ -1514,7 +1739,7 @@ async function browserDatabase() {
   expect(fixture).toHaveLength(1);
   return { database, schema: meta.schema };
 }
-test("larger boards preserve pagination and filters while many-member selects scroll", async ({
+test("larger boards recover changed pages, preserve filters, and scroll many-member selects", async ({
   page,
 }) => {
   await login(page, {
@@ -1522,6 +1747,7 @@ test("larger boards preserve pagination and filters while many-member selects sc
     password: "Layout-only-password-42",
   });
   const { database, schema } = await browserDatabase();
+  let seededTaskIds: string[] = [];
   try {
     await database.begin(async (tx) => {
       await tx.unsafe(
@@ -1531,14 +1757,11 @@ test("larger boards preserve pagination and filters while many-member selects sc
         `SELECT prefix,next_number FROM "${schema}".boards WHERE id=$1 FOR UPDATE`,
         [boardId],
       );
-      const [column] = await tx.unsafe(
-        `SELECT id FROM "${schema}".columns WHERE board_id=$1 ORDER BY position LIMIT 1`,
-        [boardId],
+      const seeded = await tx.unsafe(
+        `INSERT INTO "${schema}".tasks(board_id,status,identifier,title,created_by) SELECT $1,'todo',$2||'-'||($3::int+i-1),'Scale task '||lpad(i::text,3,'0'),u.id FROM "${schema}".users u CROSS JOIN generate_series(1,105) i WHERE u.email='browser-layout@example.test' RETURNING id`,
+        [boardId, board.prefix, board.next_number],
       );
-      await tx.unsafe(
-        `INSERT INTO "${schema}".tasks(board_id,column_id,identifier,title,created_by,position) SELECT $1,$2,$3||'-'||($4::int+i-1),'Scale task '||lpad(i::text,3,'0'),u.id,i-1 FROM "${schema}".users u CROSS JOIN generate_series(1,105) i WHERE u.email='browser-layout@example.test'`,
-        [boardId, column.id, board.prefix, board.next_number],
-      );
+      seededTaskIds = seeded.map((row) => row.id);
       await tx.unsafe(
         `UPDATE "${schema}".boards SET next_number=next_number+105 WHERE id=$1`,
         [boardId],
@@ -1555,17 +1778,86 @@ test("larger boards preserve pagination and filters while many-member selects sc
   );
   await page.getByLabel("Search tasks").fill("Scale task");
   await (await filtered).finished();
-  await expect(page.locator(".task-card")).toHaveCount(100);
-  await page.getByRole("button", { name: "Load more tasks" }).click();
-  await expect(page.locator(".task-card")).toHaveCount(105);
+  await expect(
+    page.getByRole("grid", { name: "Task list" }).getByRole("link"),
+  ).toHaveCount(100);
+  const sorted = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === `/api/boards/${boardId}/tasks` &&
+      url.searchParams.get("sort") === "title" &&
+      !url.searchParams.has("cursor")
+    );
+  });
+  await choose(page, "Sort", "Title");
+  expect((await sorted).status()).toBe(200);
+  const taskLinks = page
+    .getByRole("grid", { name: "Task list" })
+    .getByRole("link");
+  await expect(taskLinks).toHaveCount(100);
+  const movedTaskId = (await taskLinks
+    .filter({ hasText: "Scale task 001" })
+    .getAttribute("href"))!.split("/tasks/")[1];
+  const heldNextPage = requestGate();
+  const delayNextPage = async (route: Route) => {
+    if (!new URL(route.request().url()).searchParams.has("cursor"))
+      return route.continue();
+    return heldNextPage.hold(route);
+  };
+  await page.route(`**/api/boards/${boardId}/tasks?**`, delayNextPage);
+  const stalePage = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/boards/${boardId}/tasks` &&
+      new URL(response.url()).searchParams.has("cursor"),
+  );
+  try {
+    await page
+      .getByRole("button", { name: "Load more tasks", exact: true })
+      .click();
+    await heldNextPage.started;
+    const current = await page.request
+      .get(`/api/tasks/${movedTaskId}`)
+      .then((response) => response.json());
+    const edited = await page.request.patch(`/api/tasks/${movedTaskId}`, {
+      headers: { Origin: baseOrigin },
+      data: {
+        version: current.task.version,
+        title: "Scale task 999 moved across the page boundary",
+      },
+    });
+    expect(edited.ok()).toBeTruthy();
+  } finally {
+    await heldNextPage.finish();
+    await page.unroute(`**/api/boards/${boardId}/tasks?**`, delayNextPage);
+  }
+  expect((await stalePage).status()).toBe(409);
+  expect((await (await stalePage).json()).code).toBe("task_list_changed");
+  await expect(taskLinks).toHaveCount(100);
+  await expect(taskLinks.filter({ hasText: "Scale task 101" })).toBeVisible();
+  await expect(taskLinks.filter({ hasText: "Scale task 999" })).toHaveCount(0);
   await page
-    .locator(".task-card")
+    .getByRole("button", { name: "Load more tasks", exact: true })
+    .click();
+  await expect(taskLinks).toHaveCount(105);
+  const displayedIds = await taskLinks.evaluateAll((links) =>
+    links.map((link) => link.getAttribute("href")!.split("/tasks/")[1]),
+  );
+  expect(new Set(displayedIds).size).toBe(105);
+  expect(displayedIds.sort()).toEqual(seededTaskIds.toSorted());
+
+  await page
+    .getByRole("grid", { name: "Task list" })
+    .getByRole("link")
     .filter({ hasText: "Scale task 105" })
     .click();
-  await page
-    .getByLabel("Title", { exact: true })
-    .fill("Scale task 105 reviewed");
-  await page.getByRole("button", { name: /Assignee$/ }).click();
+  const taskDialog = page.getByRole("dialog", { name: /^REL-\d+$/ });
+  await expect(taskDialog).toBeVisible();
+  const taskTitle = taskDialog.getByRole("textbox", {
+    name: /^Title\*?$/,
+  });
+  await expect(taskTitle).toHaveValue("Scale task 105");
+  await taskTitle.fill("Scale task 105 reviewed");
+  await taskDialog.getByRole("button", { name: /Assignee$/ }).click();
   const members = page.getByRole("listbox");
   await members.hover();
   await page.mouse.wheel(0, 650);
@@ -1576,15 +1868,70 @@ test("larger boards preserve pagination and filters while many-member selects sc
     .getByRole("searchbox", { name: "Search assignee" })
     .fill("Reviewer 020");
   await page.getByRole("option", { name: "Reviewer 020", exact: true }).click();
-  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(members).toBeHidden();
+  const heldRefreshPage = requestGate();
+  const delayRefreshPage = async (route: Route) => {
+    if (!new URL(route.request().url()).searchParams.has("cursor"))
+      return route.continue();
+    return heldRefreshPage.hold(route);
+  };
+  await page.route(`**/api/boards/${boardId}/tasks?**`, delayRefreshPage);
+  const staleRefresh = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/boards/${boardId}/tasks` &&
+      new URL(response.url()).searchParams.has("cursor"),
+  );
+  try {
+    await taskDialog.getByRole("button", { name: "Save changes" }).click();
+    await expect(
+      taskDialog.getByRole("status").filter({ hasText: "Changes saved" }),
+    ).toBeVisible();
+    await heldRefreshPage.started;
+    const current = await page.request
+      .get(`/api/tasks/${movedTaskId}`)
+      .then((response) => response.json());
+    const edited = await page.request.patch(`/api/tasks/${movedTaskId}`, {
+      headers: { Origin: baseOrigin },
+      data: {
+        version: current.task.version,
+        title: "Scale task 999 changed during recovery",
+      },
+    });
+    expect(edited.ok()).toBeTruthy();
+  } finally {
+    await heldRefreshPage.finish();
+    await page.unroute(`**/api/boards/${boardId}/tasks?**`, delayRefreshPage);
+  }
+  expect((await staleRefresh).status()).toBe(409);
+  await taskDialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Task list changed.");
   await expect(
-    page.getByRole("status").filter({ hasText: "Changes saved" }),
+    page.getByRole("button", { name: "Load more tasks", exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Retry loading tasks", exact: true })
+    .click();
+  await expect(taskLinks).toHaveCount(105);
+  await expect(
+    page.getByRole("button", { name: "Retry loading tasks", exact: true }),
+  ).toHaveCount(0);
+  const recoveredIds = await taskLinks.evaluateAll((links) =>
+    links.map((link) => link.getAttribute("href")!.split("/tasks/")[1]),
+  );
+  expect(new Set(recoveredIds).size).toBe(105);
+  expect(recoveredIds.sort()).toEqual(seededTaskIds.toSorted());
+  await expect(
+    taskLinks.filter({ hasText: "Scale task 999 changed during recovery" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Close", exact: true }).click();
   await expect(page.getByLabel("Search tasks")).toHaveValue("Scale task");
-  await expect(page.locator(".task-card")).toHaveCount(105);
   await expect(
-    page.locator(".task-card").filter({ hasText: "Scale task 105 reviewed" }),
+    page.getByRole("grid", { name: "Task list" }).getByRole("link"),
+  ).toHaveCount(105);
+  await expect(
+    page
+      .getByRole("grid", { name: "Task list" })
+      .getByRole("link")
+      .filter({ hasText: "Scale task 105 reviewed" }),
   ).toBeVisible();
 });
 test("a real isolated database fault renders 500 and reload recovery", async ({
@@ -1631,7 +1978,9 @@ test("a real isolated database fault renders 500 and reload recovery", async ({
   await expect(
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
-  await expect(page.locator(".task-card")).toHaveCount(100);
+  await expect(
+    page.getByRole("grid", { name: "Task list" }).getByRole("link"),
+  ).toHaveCount(100);
 });
 
 test("existing-task load failures preserve identity and recover without creating a task", async ({
@@ -1662,9 +2011,11 @@ test("existing-task load failures preserve identity and recover without creating
     );
     renamed = true;
     await page.goto(`/boards/${boardId}/tasks/${taskId}`);
-    const dialog = page.getByRole("dialog");
+    const dialog = page.getByRole("dialog", { name: "Task", exact: true });
     await expect(dialog).toContainText("Unable to load this task");
-    await expect(dialog.getByLabel("Title", { exact: true })).toHaveCount(0);
+    await expect(
+      dialog.getByRole("textbox", { name: /^Title\*?$/ }),
+    ).toHaveCount(0);
     await expect(
       dialog.getByRole("button", { name: /Save changes|Create task/ }),
     ).toHaveCount(0);
@@ -1681,23 +2032,31 @@ test("existing-task load failures preserve identity and recover without creating
     await database.end();
   }
   await page.getByRole("button", { name: "Reload task", exact: true }).click();
-  await expect(page.getByLabel("Title", { exact: true })).not.toHaveValue("");
+  await expect(
+    page
+      .getByRole("dialog", { name: "REL-1", exact: true })
+      .getByRole("textbox", { name: /^Title\*?$/ }),
+  ).not.toHaveValue("");
   await expect(
     page.getByRole("button", { name: "Save changes", exact: true }),
   ).toBeVisible();
   await page.route(`**/api/tasks/${taskId}`, (route) => route.abort("failed"));
   await page.reload();
-  await expect(page.getByRole("dialog")).toContainText(
-    "Unable to load this task",
-  );
+  await expect(
+    page.getByRole("dialog", { name: "Task", exact: true }),
+  ).toContainText("Unable to load this task");
   await expect(
     page
-      .getByRole("dialog")
+      .getByRole("dialog", { name: "Task", exact: true })
       .getByRole("button", { name: "Create task", exact: true }),
   ).toHaveCount(0);
   await page.unroute(`**/api/tasks/${taskId}`);
   await page.getByRole("button", { name: "Reload task", exact: true }).click();
-  await expect(page.getByLabel("Title", { exact: true })).not.toHaveValue("");
+  await expect(
+    page
+      .getByRole("dialog", { name: "REL-1", exact: true })
+      .getByRole("textbox", { name: /^Title\*?$/ }),
+  ).not.toHaveValue("");
   expect(creations).toBe(0);
 });
 
@@ -1714,19 +2073,14 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     expect(board).toBeTruthy();
     for (let i = 1; i <= 234; i++) {
       const [created] = await database.unsafe(
-        `INSERT INTO "${schema}".boards(workspace_id,name,prefix,position) VALUES ($1,$2,$3,$4) RETURNING id`,
+        `INSERT INTO "${schema}".boards(workspace_id,name,prefix) VALUES ($1,$2,$3) RETURNING id`,
         [
           board.workspace_id,
           `Directory board ${String(i).padStart(3, "0")}`,
           `DIR${i}`,
-          1000 + i,
         ],
       );
       fixtureBoardIds.push(created.id);
-      await database.unsafe(
-        `INSERT INTO "${schema}".columns(board_id,name,position) VALUES ($1,'Backlog',0)`,
-        [created.id],
-      );
     }
     const accepted = await page.request.post("/api/auth/accept-invitation", {
       headers: { Origin: baseOrigin },
@@ -1778,11 +2132,14 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       await requestStarted;
       await expect(directoryLinks).toHaveCount(firstCount);
       const anchor = initial.items.at(-1);
-      const moved = await page.request.patch(`/api/boards/${anchor.id}`, {
-        headers: { Origin: baseOrigin },
-        data: { version: anchor.version, beforeId: null },
-      });
-      expect(moved.ok()).toBeTruthy();
+      const renamedAnchor = await page.request.patch(
+        `/api/boards/${anchor.id}`,
+        {
+          headers: { Origin: baseOrigin },
+          data: { version: anchor.version, name: "Directory board 999" },
+        },
+      );
+      expect(renamedAnchor.ok()).toBeTruthy();
     } finally {
       release();
       await requestContinued;
@@ -1841,10 +2198,13 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     await nav
       .getByRole("button", { name: "Create Project", exact: true })
       .click();
-    const dialog = page.getByRole("dialog");
+    const dialog = page.getByRole("dialog", {
+      name: "Create a board",
+      exact: true,
+    });
     await dialog
       .getByLabel("Board name", { exact: true })
-      .fill("Created beyond the first page");
+      .fill("Z Created beyond the first page");
     await dialog.getByLabel("Task prefix", { exact: true }).fill("LATE");
     const creation = page.waitForResponse(
       (response) =>
@@ -1859,13 +2219,13 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     fixtureBoardIds.push(created.board.id);
     await expect(
       page.getByRole("heading", {
-        name: "Created beyond the first page",
+        name: "Z Created beyond the first page",
         exact: true,
       }),
     ).toBeVisible();
     await expect(
       nav.getByRole("link", {
-        name: "Created beyond the first page",
+        name: "Z Created beyond the first page",
         exact: true,
       }),
     ).toBeVisible();
@@ -1936,7 +2296,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       });
       await boardSettings
         .getByLabel("Board name", { exact: true })
-        .fill("Saved beyond the first page");
+        .fill("Z Saved beyond the first page");
       await boardSettings
         .getByRole("button", { name: "Save board", exact: true })
         .click();
@@ -1950,7 +2310,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       await expect(directoryLinks).toHaveCount(234);
       await expect(
         nav.getByRole("link", {
-          name: "Created beyond the first page",
+          name: "Z Created beyond the first page",
           exact: true,
         }),
       ).toBeVisible();
@@ -1963,7 +2323,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       await expect(directoryLinks).toHaveCount(234);
       await expect(
         nav.getByRole("link", {
-          name: "Created beyond the first page",
+          name: "Z Created beyond the first page",
           exact: true,
         }),
       ).toBeVisible();
@@ -1979,7 +2339,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     }
     await expect(
       nav.getByRole("link", {
-        name: "Saved beyond the first page",
+        name: "Z Saved beyond the first page",
         exact: true,
       }),
     ).toBeVisible();
@@ -1992,7 +2352,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
         headers: { Origin: baseOrigin },
         data: {
           version: current.board.version,
-          name: "Server-renamed later board",
+          name: "Z Server-renamed later board",
         },
       },
     );
@@ -2000,13 +2360,13 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     await page.reload();
     await expect(
       nav.getByRole("link", {
-        name: "Server-renamed later board",
+        name: "Z Server-renamed later board",
         exact: true,
       }),
     ).toBeVisible();
     await expect(
       nav.getByRole("link", {
-        name: "Created beyond the first page",
+        name: "Z Created beyond the first page",
         exact: true,
       }),
     ).toHaveCount(0);
@@ -2024,7 +2384,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       .click();
     await expect(
       nav.getByRole("link", {
-        name: "Server-renamed later board",
+        name: "Z Server-renamed later board",
         exact: true,
       }),
     ).toHaveCount(0);
@@ -2079,10 +2439,13 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       await nav
         .getByRole("button", { name: "Create Project", exact: true })
         .click();
-      const pendingCreationDialog = page.getByRole("dialog");
+      const pendingCreationDialog = page.getByRole("dialog", {
+        name: "Create a board",
+        exact: true,
+      });
       await pendingCreationDialog
         .getByLabel("Board name", { exact: true })
-        .fill("Deleted during creation refresh");
+        .fill("Z Deleted during creation refresh");
       await pendingCreationDialog
         .getByLabel("Task prefix", { exact: true })
         .fill("PENDING");

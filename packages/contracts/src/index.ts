@@ -13,32 +13,29 @@ export type Board = {
   name: string;
   prefix: string;
   description: string;
-  position: number;
   version: number;
 };
-export type Column = {
-  id: string;
-  boardId: string;
-  name: string;
-  color: string;
-  position: number;
-  version: number;
-};
+export const TASK_STATUSES = [
+  "backlog",
+  "todo",
+  "in_progress",
+  "in_review",
+  "done",
+  "wont_do",
+] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 export type ChecklistItem = { id: string; text: string; done: boolean };
 export type Task = {
   id: string;
   boardId: string;
-  columnId: string;
+  status: TaskStatus;
   identifier: string;
   title: string;
   description: string;
   assigneeId: string | null;
   priority: "none" | "low" | "medium" | "high" | "urgent";
-  labels: string[];
   dueDate: string | null;
   checklist: ChecklistItem[];
-  parentId: string | null;
-  position: number;
   version: number;
   createdAt: string;
   updatedAt: string;

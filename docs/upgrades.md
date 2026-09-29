@@ -8,7 +8,15 @@ Migration `005_permanent_deletion.sql` removes archiving and soft deletion for b
 
 Review this change and save a full backup before starting the new application against an existing installation. Once this migration runs, the old application cannot use the new schema. Recover old deleted work from the pre-upgrade backup in a separate installation before upgrading if you need to keep it.
 
-Portable exports now use version 2 and preserve each board's next task number. Version 1 imports remain supported: archived work becomes ordinary work, and deleted work and its descendants are omitted. Importing an old export does not provide a restore path for deleted work.
+## Fixed-status task list migration
+
+Migration `007_fixed_task_statuses.sql` removes custom columns, manual board/task positions, labels, and task parent links. It keeps every remaining task and former subtask as an independent task with the same ID and identifier. Descriptions, assignments, priorities, due dates, checklists, comments, notifications, and attributed task history remain. Existing activity detail is preserved as stored, including historical field names/status UUIDs.
+
+Old names are trimmed, whitespace-normalized, and matched case-insensitively. Backlog maps to `backlog`; Todo/To do to `todo`; In progress/In_progress to `in_progress`; In review/In_review to `in_review`; Done to `done`; Won't do, Won’t do, Wont do, Wont_do, Cancelled, and Canceled to `wont_do`. All other custom names map to `todo`. Boards become alphabetical. New tasks default to Todo.
+
+The migration removes the obsolete email notification preference. Task delivery is in-app only. It also clears completed old retry response content and retains the retry identity until expiry. Exact retries return terminal `410`, including former routes, and cannot run an obsolete mutation again. Reload the reduced client before starting new work.
+
+Save and test a full database backup before starting this version against an existing installation. Older application versions cannot use the reduced schema. There is no legacy JSON/portable importer; existing portable files do not provide a v1 restore path. Recover an earlier model only from its database backup with a compatible old application in a separate project.
 
 ## Upgrade a source installation
 
@@ -46,4 +54,4 @@ An older application image may not support an upgraded schema. Do not point it a
 
 Database major-version upgrades need a tested PostgreSQL upgrade plan. Changing the container tag across majors while reusing a volume is not a supported shortcut.
 
-CI's production runner verifies startup from an earlier local schema, preserves task/comment/member data, and tests restoring the generated backup. The source checkout's `docs/b1-verification.md` records exact reviewed commits and observed results.
+The release gate must verify startup from the prior schema, preserved task/comment/member/history data, fixed-status conversion, and restoration of a generated full backup. Record the reviewed revision and observed results before using the new application version.

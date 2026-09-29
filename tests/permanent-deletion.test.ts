@@ -65,7 +65,7 @@ async function member(cookie: string, role: string) {
   };
 }
 
-test("permanent task deletion purges descendants and content, preserves other work and numbering, and replays safely", async () => {
+test("permanent task deletion purges owned content, preserves other work and numbering, and replays safely", async () => {
   const { cookie } = await setupUser();
   const colleague = await member(cookie, "member");
   const work = await board(cookie, "WORK");
@@ -78,16 +78,10 @@ test("permanent task deletion purges descendants and content, preserves other wo
   const child = await task(
     cookie,
     work.id,
-    { parentId: parent.id },
+    { status: "in_progress" },
     "child-content-cache",
   );
-  const detail = await json(
-    await request(`/api/boards/${work.id}`, { cookie }),
-  );
-  const grandchild = await task(cookie, work.id, {
-    parentId: child.id,
-    columnId: detail.columns[1].id,
-  });
+  const grandchild = await task(cookie, work.id, { status: "done" });
   const surviving = await task(
     cookie,
     work.id,
@@ -95,7 +89,7 @@ test("permanent task deletion purges descendants and content, preserves other wo
     "surviving-work-cache",
   );
   await json(
-    await request(`/api/tasks/${child.id}/comments`, {
+    await request(`/api/tasks/${parent.id}/comments`, {
       cookie,
       body: {
         body: "Private comment content",
@@ -105,7 +99,9 @@ test("permanent task deletion purges descendants and content, preserves other wo
     }),
     201,
   );
-  const ids = [parent.id, child.id, grandchild.id];
+  const ids = [parent.id];
+  const independent =
+    await sql`SELECT * FROM tasks WHERE id IN ${sql([child.id, grandchild.id])} ORDER BY id`;
   assert.equal(
     (await sql`SELECT id FROM notifications WHERE task_id IN ${sql(ids)}`)
       .length,
@@ -170,9 +166,12 @@ test("permanent task deletion purges descendants and content, preserves other wo
     0,
   );
   const [remaining] =
-    await sql`SELECT position,version FROM tasks WHERE id=${surviving.id}`;
-  assert.equal(remaining.position, 0);
-  assert.ok(remaining.version > surviving.version);
+    await sql`SELECT version FROM tasks WHERE id=${surviving.id}`;
+  assert.equal(remaining.version, surviving.version);
+  assert.deepEqual(
+    await sql`SELECT * FROM tasks WHERE id IN ${sql([child.id, grandchild.id])} ORDER BY id`,
+    independent,
+  );
   assert.equal(
     (await task(cookie, work.id, { title: "Next work" })).identifier,
     "WORK-5",
@@ -191,7 +190,7 @@ test("board deletion requires a human Admin and current version, purges owned ro
     { assigneeId: colleague.user.id },
     "board-task-content-cache",
   );
-  const child = await task(cookie, removed.id, { parentId: parent.id });
+  const child = await task(cookie, removed.id, { status: "in_review" });
   const outside = await task(cookie, kept.id, { title: "Keep this task" });
   const comment = (
     await json(
@@ -295,7 +294,7 @@ test("board deletion requires a human Admin and current version, purges owned ro
     await json(await request(`/api/boards/${removed.id}`, options)),
     { ok: true },
   );
-  for (const table of ["boards", "columns", "tasks", "activity"]) {
+  for (const table of ["boards", "tasks", "activity"]) {
     const column = table === "boards" ? "id" : "board_id";
     assert.equal(
       (
@@ -355,8 +354,8 @@ test("board deletion requires a human Admin and current version, purges owned ro
     0,
   );
   assert.equal(
-    (await sql`SELECT position FROM boards WHERE id=${kept.id}`)[0].position,
-    0,
+    (await sql`SELECT version FROM boards WHERE id=${kept.id}`)[0].version,
+    kept.version,
   );
 });
 
@@ -434,55 +433,6 @@ test("deleting a board removes pending OAuth grants and narrows issued OAuth cre
       await sql`SELECT id FROM oauth_requests WHERE ${removed.id}=ANY(board_ids)`
     ).length,
     0,
-  );
-});
-
-test("legacy portable imports activate archives, exclude deleted work and descendants, and retain skipped task numbers", async () => {
-  const { cookie } = await setupUser();
-  const active = await board(cookie, "LEGACY");
-  const removed = await board(cookie, "LEGONE");
-  const surviving = await task(cookie, active.id, {
-    title: "Archived work becomes ordinary",
-  });
-  const parent = await task(cookie, active.id, {
-    title: "Previously deleted parent",
-  });
-  await task(cookie, active.id, { parentId: parent.id });
-  await task(cookie, removed.id, { title: "Deleted board work" });
-  await json(
-    await request(`/api/tasks/${parent.id}/comments`, {
-      cookie,
-      body: { body: "Previously deleted discussion" },
-    }),
-    201,
-  );
-  const exported = await json(await request("/api/export", { cookie }));
-  exported.version = 1;
-  for (const board of exported.boards) {
-    delete board.nextNumber;
-    board.archived = true;
-    board.deletedAt = board.id === removed.id ? new Date().toISOString() : null;
-  }
-  for (const task of exported.tasks) {
-    task.archived = true;
-    task.deletedAt = task.id === parent.id ? new Date().toISOString() : null;
-  }
-  const result = await json(
-    await request("/api/import", { cookie, body: exported }),
-    201,
-  );
-  assert.equal(result.imported.boards, 1);
-  assert.equal(result.imported.tasks, 1);
-  assert.equal(result.imported.comments, 0);
-  const rows =
-    await sql`SELECT * FROM tasks WHERE board_id=${result.imported.boardIds[0]}`;
-  assert.equal(rows[0].title, surviving.title);
-  assert.equal(rows[0].parentId, null);
-  assert.equal(
-    (
-      await task(cookie, result.imported.boardIds[0], { title: "New task" })
-    ).identifier.endsWith("-4"),
-    true,
   );
 });
 

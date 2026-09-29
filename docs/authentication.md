@@ -12,7 +12,7 @@ The person following the link chooses their name and password. Their account rec
 
 | Role   | Access                                                                                                          |
 | ------ | --------------------------------------------------------------------------------------------------------------- |
-| Admin  | Everyday task work, boards and statuses, workspace settings, membership and portable export/import.             |
+| Admin  | Everyday task work, boards, permanent board deletion, workspace settings, and membership.                       |
 | Member | Read boards, create and edit tasks and comments, assign work, and use credentials within their own permissions. |
 | Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                      |
 
@@ -56,7 +56,7 @@ pnpm recover-account --email person@example.com --reset-mfa
 
 The owner follows the link, chooses a new password and signs in again. Completing recovery ends all browser sessions, invalidates pending challenges and recovery links, and revokes the owner's agent credentials. `--reset-mfa` also removes passkeys, authenticator setup and recovery codes. Re-enroll factors and issue new credentials afterward. Issuing a link alone does not change the account.
 
-Database backups contain the complete identity state. Portable workspace export intentionally excludes passwords, sessions, passkeys, authenticator secrets, recovery codes and agent credentials. Keep `MILL_SECRET` with your installation backup; changing it makes encrypted authenticator secrets unreadable. See [backup and restore](backup.md) for the full recovery procedure.
+Full database backups contain the complete identity state and private credentials. Mill v1 has no portable export/import feature. Keep `MILL_SECRET` with your installation backup; changing it makes encrypted authenticator secrets unreadable. See [backup and restore](backup.md) for the full recovery procedure.
 
 ## Identity API
 

@@ -13,6 +13,7 @@ import {
   emailSchema,
   human,
   identityResponse,
+  inAppPreferences,
   nameSchema,
   newSession,
   passwordSchema,
@@ -167,6 +168,7 @@ authRoutes.patch("/profile", async (c) => {
       timeZone: z.string().min(1).max(100).optional(),
       notificationPreferences: z
         .object({ assignments: z.boolean(), mentions: z.boolean() })
+        .strict()
         .optional(),
     }),
   );
@@ -181,7 +183,7 @@ authRoutes.patch("/profile", async (c) => {
   const [updated] = await sql<
     UserRow[]
   >`UPDATE users SET name=${input.name ?? user.name},time_zone=${input.timeZone ?? user.timeZone},
-    notification_preferences=${sql.json(input.notificationPreferences ?? user.notificationPreferences)},updated_at=now() WHERE id=${who.userId} RETURNING *`;
+    notification_preferences=${sql.json(input.notificationPreferences ?? inAppPreferences(user.notificationPreferences))},updated_at=now() WHERE id=${who.userId} RETURNING *`;
   return c.json(await identityResponse(updated));
 });
 authRoutes.get("/sessions", async (c) => {

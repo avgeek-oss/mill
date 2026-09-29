@@ -26,7 +26,7 @@ Mill B1 has in-app notifications; email delivery is unavailable. Administrators 
 
 ## A task save reports a conflict
 
-Another person or agent changed the task or its ordering after you opened it. Reload the current task and apply your change to that version. Mill checks row versions so one edit does not silently replace another. API clients must also send the current version and handle HTTP 409.
+Another person or agent changed the task or its status after you opened it. Reload the current task and apply your change to that version. Mill checks row versions so one edit does not silently replace another. API clients must also send the current version and handle HTTP 409.
 
 ## An agent gets permission denied
 

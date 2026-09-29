@@ -140,7 +140,6 @@ export type User = {
   notificationPreferences: {
     assignments?: boolean;
     mentions?: boolean;
-    email?: boolean;
   };
   totpEnabled: boolean;
   passkeyCount: number;

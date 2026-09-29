@@ -22,7 +22,6 @@ let origin: string;
 let admin: APIRequestContext;
 let userId: string;
 let memberId: string;
-let portable: Record<string, unknown>;
 const longPerson = {
   name: "Avery Alexandria Montgomery Wellington with a long display name for responsive People review",
   email:
@@ -39,12 +38,15 @@ async function json(
   data?: unknown,
   method = "POST",
 ) {
+  const requestMethod = data === undefined ? "GET" : method;
   const response = await api.fetch(`/api${path}`, {
-    method: data === undefined ? "GET" : method,
+    method: requestMethod,
     headers: { Origin: origin },
     data,
   });
-  expect(response.ok(), `${method} ${path}: ${response.status()}`).toBe(true);
+  expect(response.ok(), `${requestMethod} ${path}: ${response.status()}`).toBe(
+    true,
+  );
   return response.json();
 }
 async function login(page: Page, path = "/settings/members") {
@@ -58,17 +60,28 @@ async function login(page: Page, path = "/settings/members") {
   await page.goto(path);
   await expect(
     page.getByRole("heading", {
-      name: path.endsWith("data") ? "Export and import" : "People",
+      name: path.endsWith("workspace") ? "Workspace" : "People",
       exact: true,
+      level: 1,
     }),
   ).toBeVisible();
 }
-function file(payload: unknown, name = "mill-portable.json") {
-  return {
-    name,
-    mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify(payload)),
-  };
+async function openSettings(
+  page: Page,
+  section: "People" | "Workspace settings",
+) {
+  const openNavigation = page.getByRole("button", {
+    name: "Open navigation",
+    exact: true,
+  });
+  if ((page.viewportSize()?.width ?? 1280) < 1024) {
+    const path =
+      section === "People" ? "/settings/members" : "/settings/workspace";
+    if (new URL(page.url()).pathname !== path) await page.goto(path);
+    return;
+  }
+  if (await openNavigation.isVisible()) await openNavigation.click();
+  await page.getByRole("link", { name: section, exact: true }).click();
 }
 async function database() {
   if (!process.env.DATABASE_URL) process.loadEnvFile(".env");
@@ -93,27 +106,6 @@ test.beforeAll(async ({ baseURL }) => {
         password: bootstrap.password,
       });
   userId = identity.user.id;
-  const board = (
-    await json(admin, "/boards", {
-      name: "People and data verification",
-      prefix: "PDV",
-    })
-  ).board;
-  const detail = await json(admin, `/boards/${board.id}`);
-  const task = (
-    await json(admin, `/boards/${board.id}/tasks`, {
-      title: "Keep portable relationships",
-      columnId: detail.columns[0].id,
-      dueDate: "2027-01-02",
-      checklist: [
-        { id: randomUUID(), text: "Verify import counts", done: false },
-      ],
-    })
-  ).task;
-  await json(admin, `/tasks/${task.id}/comments`, {
-    body: "A portable comment",
-  });
-  portable = await json(admin, "/export");
 });
 test.afterAll(async () => {
   await admin?.dispose();
@@ -122,7 +114,7 @@ test.afterAll(async () => {
 test("People lists load independently, show separate recovery and protect the last administrator", async ({
   page,
 }) => {
-  await login(page, "/settings/data");
+  await login(page, "/settings/workspace");
   let failMembers = true;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -261,9 +253,10 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
     await expect(reveal.getByRole("status")).toContainText(
       "Invitation link copied",
     );
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-      inviteUrl,
-    );
+    expect(
+      (await page.evaluate(() => navigator.clipboard.readText())) === inviteUrl,
+      "Clipboard contains the exact invitation link",
+    ).toBe(true);
     await reveal.getByRole("button", { name: "Done", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Invite a person", exact: true }),
@@ -319,175 +312,68 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
   }
 });
 
-test("export downloads real portable data and import validates the file before confirmation with local retry and persisted counts", async ({
+test("workspace settings retain backup guidance without portable export or import", async ({
   page,
-}, testInfo) => {
-  await login(page, "/settings/data");
-  const exported = page.waitForEvent("download");
-  await page
-    .getByRole("button", { name: "Download export", exact: true })
-    .click();
-  const download = await exported;
-  const payload = JSON.parse(await readFile((await download.path())!, "utf8"));
-  expect(payload.format).toBe("mill-portable");
-  expect(payload.version).toBe(2);
-  expect(JSON.stringify(payload)).not.toMatch(
-    /password_hash|token_hash|encrypted_secret/,
-  );
-  expect(
-    payload.tasks.some(
-      (task: { dueDate: string }) => task.dueDate === "2027-01-02",
-    ),
-  ).toBe(true);
+}) => {
+  await login(page, "/settings/workspace");
   await expect(
-    page.getByRole("region", { name: "Workspace export" }).getByRole("status"),
-  ).toContainText("Workspace export downloaded");
-  const input = page.getByLabel("Choose Mill export", { exact: true });
-  await input.setInputFiles({
-    name: "broken.json",
-    mimeType: "application/json",
-    buffer: Buffer.from("{broken"),
-  });
-  await expect(input).toHaveAttribute("aria-invalid", "true");
-  await expect(
-    page.getByText("This file is not valid JSON. Choose a Mill export file.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Import", exact: true }),
-  ).toBeDisabled();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await input.setInputFiles(file({ format: "other" }, "wrong-format.json"));
-  await expect(
-    page.getByText("Choose a Mill export file in version 1 or 2 format.", {
-      exact: true,
-    }),
-  ).toBeVisible();
-  await input.setInputFiles(file(portable, "same-file.json"));
-  await expect(
-    page.getByRole("button", { name: "Import", exact: true }),
-  ).toBeEnabled();
-  await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("button", { name: "Import", exact: true }).click();
-  const dialog = page.getByRole("dialog", {
-    name: "Import workspace data?",
-    exact: true,
-  });
-  await expect(
-    dialog.getByText("same-file.json", { exact: true }),
-  ).toBeVisible();
-  let attempts = 0;
-  const keys: string[] = [];
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await page.route("**/api/import", async (route) => {
-    attempts++;
-    keys.push(route.request().headers()["idempotency-key"]);
-    if (attempts === 1)
-      return route.fulfill({
-        status: 503,
-        json: { error: "Import is temporarily unavailable." },
-      });
-    if (attempts === 2) {
-      await gate;
-      const committed = await route.fetch();
-      expect(committed.ok()).toBe(true);
-      return route.fulfill({ status: 200, json: {} });
-    }
-    await route.continue();
-  });
-  await dialog.getByRole("button", { name: "Import", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText(
-    "Import is temporarily unavailable",
-  );
-  await page.screenshot({
-    path: testInfo.outputPath("import-error.png"),
-    animations: "disabled",
-  });
-  await expect(
-    page
-      .getByRole("region", { name: "Import workspace data" })
-      .getByRole("alert"),
+    page.getByRole("link", { name: "Export and import", exact: true }),
   ).toHaveCount(0);
-  await dialog
-    .getByRole("button", { name: "Retry import", exact: true })
-    .click();
-  try {
-    await expect(
-      dialog.getByRole("button", { name: "Importing…", exact: true }),
-    ).toBeDisabled();
-    await expect(
-      dialog.getByRole("button", { name: "Cancel", exact: true }),
-    ).toBeDisabled();
-    await expect(
-      dialog.getByRole("button", { name: "Close dialog", exact: true }),
-    ).toBeDisabled();
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeVisible();
-    expect(attempts).toBe(2);
-    await page.screenshot({
-      path: testInfo.outputPath("import-pending.png"),
-      animations: "disabled",
-    });
-    expect(keys[0]).toBeTruthy();
-    expect(keys[1]).toBe(keys[0]);
-    release();
-    await expect(dialog.getByRole("alert")).toContainText(
-      "The server response",
-    );
-    await page.screenshot({
-      path: testInfo.outputPath("import-malformed-response.png"),
-      animations: "disabled",
-    });
-    await expect(
-      dialog.getByText("same-file.json", { exact: true }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("dialog", { name: "Import completed", exact: true }),
-    ).toHaveCount(0);
-    await dialog
-      .getByRole("button", { name: "Retry import", exact: true })
-      .click();
-    const completed = page.getByRole("dialog", {
-      name: "Import completed",
+  await expect(
+    page.getByRole("button", { name: "Download export", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Choose Mill export", { exact: true }),
+  ).toHaveCount(0);
+  await page
+    .getByRole("textbox", { name: /^Name/ })
+    .fill("Admin workspace verification");
+  await page.getByRole("button", { name: "Update", exact: true }).click();
+  await expect(page.getByRole("main").getByRole("status")).toContainText(
+    "Workspace updated",
+  );
+  expect((await json(admin, "/auth/me")).workspace.name).toBe(
+    "Admin workspace verification",
+  );
+  await page.reload();
+  await expect(page.getByRole("textbox", { name: /^Name/ })).toHaveValue(
+    "Admin workspace verification",
+  );
+  await page.goto("/settings/data");
+  await expect(
+    page.getByRole("heading", {
+      name: "This page could not be found",
       exact: true,
-    });
-    await expect(completed.getByRole("status")).toContainText(
-      "Import completed",
-    );
-    for (const label of ["Boards", "Tasks", "Comments", "Member records"])
-      await expect(completed.getByText(label, { exact: true })).toBeVisible();
-    await expect(
-      completed.getByText("same-file.json", { exact: true }),
-    ).toBeVisible();
-    await page.screenshot({
-      path: testInfo.outputPath("import-success.png"),
-      animations: "disabled",
-    });
-    expect(attempts).toBe(3);
-    expect(keys).toEqual([keys[0], keys[0], keys[0]]);
-    const after = await json(admin, "/export");
-    expect(after.boards).toHaveLength(
-      (portable.boards as unknown[]).length * 2,
-    );
-    expect(after.tasks).toHaveLength((portable.tasks as unknown[]).length * 2);
-    expect(after.comments).toHaveLength(
-      (portable.comments as unknown[]).length * 2,
-    );
-    await completed.getByRole("button", { name: "Done", exact: true }).click();
-    await input.setInputFiles(file(portable, "same-file.json"));
-    await expect(
-      page.getByRole("button", { name: "Import", exact: true }),
-    ).toBeEnabled();
-  } finally {
-    release();
-  }
+      level: 1,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Download export", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Choose Mill export", { exact: true }),
+  ).toHaveCount(0);
+  expect((await admin.get("/api/export")).status()).toBe(404);
+  expect(
+    (
+      await admin.post("/api/import", { headers: { Origin: origin }, data: {} })
+    ).status(),
+  ).toBe(404);
+  await page.goto("/settings/workspace");
+  const opened = page.waitForEvent("popup");
+  await page
+    .getByRole("link", { name: "backup and recovery guide", exact: true })
+    .click();
+  const guide = await opened;
+  await guide.waitForLoadState("domcontentloaded");
+  expect(new URL(guide.url()).pathname).toBe("/guides/backup.html");
+  await expect(
+    guide.getByRole("heading", { name: "Backup and recovery", exact: true }),
+  ).toBeVisible();
+  await guide.close();
 });
 
-test("People and data layouts remain usable in both themes at desktop and phone widths", async ({
+test("People and workspace layouts remain usable in both themes at desktop and phone widths", async ({
   page,
 }, testInfo) => {
   const invite = await json(admin, "/auth/invitations", {
@@ -523,19 +409,20 @@ test("People and data layouts remain usable in both themes at desktop and phone 
       (value) => localStorage.setItem("mill:theme", value),
       theme,
     );
-    for (const [path, name] of [
-      ["/settings/members", "people"],
-      ["/settings/data", "data"],
+    for (const [section, name] of [
+      ["People", "people"],
+      ["Workspace settings", "workspace"],
     ] as const) {
-      await page.goto(path);
+      await openSettings(page, section);
       const switcher = page.getByRole("button", {
         name: `Appearance: switch to ${theme} theme`,
       });
       if (await switcher.isVisible()) await switcher.click();
       await expect(
         page.getByRole("heading", {
-          name: name === "people" ? "People" : "Export and import",
+          name: name === "people" ? "People" : "Workspace",
           exact: true,
+          level: 1,
         }),
       ).toBeVisible();
       expect(
@@ -579,12 +466,18 @@ test("People and data layouts remain usable in both themes at desktop and phone 
           }),
         ).toBeVisible();
       } else {
-        await page
-          .getByLabel("Choose Mill export", { exact: true })
-          .setInputFiles(file(portable, "review.json"));
         await expect(
-          page.getByText("review.json", { exact: true }),
+          page.getByRole("textbox", { name: /^Name/ }),
         ).toBeVisible();
+        await expect(
+          page.getByRole("link", {
+            name: "backup and recovery guide",
+            exact: true,
+          }),
+        ).toBeVisible();
+        await expect(
+          page.getByRole("link", { name: "Export and import", exact: true }),
+        ).toHaveCount(0);
       }
       await page.screenshot({
         path: testInfo.outputPath(`${name}-${width}-${theme}.png`),
@@ -609,22 +502,6 @@ test("People and data layouts remain usable in both themes at desktop and phone 
         });
         await page.keyboard.press("Escape");
         await expect(dialog).toHaveCount(0);
-      } else {
-        await page.getByRole("button", { name: "Import", exact: true }).click();
-        const dialog = page.getByRole("dialog", {
-          name: "Import workspace data?",
-          exact: true,
-        });
-        await expect(
-          dialog.getByRole("button", { name: "Import", exact: true }),
-        ).toBeVisible();
-        await page.screenshot({
-          path: testInfo.outputPath(`import-${width}-${theme}.png`),
-          animations: "disabled",
-        });
-        await dialog
-          .getByRole("button", { name: "Cancel", exact: true })
-          .click();
       }
     }
   }
@@ -650,7 +527,12 @@ test("People and data layouts remain usable in both themes at desktop and phone 
           (value) => localStorage.setItem("mill:theme", value),
           theme,
         );
-        await touch.goto("/settings/members");
+        await openSettings(touch, "People");
+        const switcher = touch.getByRole("button", {
+          name: `Appearance: switch to ${theme} theme`,
+          exact: true,
+        });
+        if (await switcher.isVisible()) await switcher.click();
         expect(
           await touch.evaluate(() => matchMedia("(pointer: coarse)").matches),
         ).toBe(true);
@@ -746,7 +628,7 @@ test("People and data layouts remain usable in both themes at desktop and phone 
         });
       }
     }
-    await touch.goto("/settings/data");
+    await openSettings(touch, "Workspace settings");
     const opened = touch.waitForEvent("popup");
     await touch
       .getByRole("link", { name: "backup and recovery guide", exact: true })
@@ -769,6 +651,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
   const { sql, schema } = await database();
   const oldId = randomUUID();
   const oldEmail = "older-active@example.test";
+  let releaseRemoval: (() => void) | undefined;
   try {
     await sql.unsafe(`SET search_path TO "${schema}",public`);
     await sql`INSERT INTO invitations(id,email,role,token_hash,invited_by,created_at,expires_at) VALUES(${oldId},${oldEmail},'member',${randomUUID()},${userId},now()-interval '1 day',now()+interval '7 days')`;
@@ -842,6 +725,16 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       (await sql`SELECT revoked_at FROM invitations WHERE id=${oldId}`)[0]
         .revoked_at,
     ).not.toBeNull();
+    await expect(
+      page.getByRole("button", {
+        name: `Account menu for ${bootstrap.name}`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    expect(
+      memberId === userId,
+      "Removal targets a different accepted member",
+    ).toBe(false);
     await page
       .getByRole("button", { name: `Remove ${teammate.name}`, exact: true })
       .click();
@@ -849,9 +742,61 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       name: `Remove ${teammate.name}?`,
       exact: true,
     });
+    const removalGate = new Promise<void>((resolve) => {
+      releaseRemoval = resolve;
+    });
+    let removalAttempts = 0;
+    await page.route(`**/api/auth/members/${memberId}`, async (route) => {
+      if (route.request().method() !== "DELETE") return route.continue();
+      removalAttempts++;
+      if (removalAttempts === 1) {
+        await removalGate;
+        return route.fulfill({
+          status: 429,
+          json: { error: "Too many requests. Try again in a minute." },
+        });
+      }
+      await route.continue();
+    });
     await removal
       .getByRole("button", { name: "Remove access", exact: true })
       .click();
+    await expect(removal.getByRole("status")).toContainText("Removing access");
+    await expect(
+      removal.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      removal.getByRole("button", { name: "Close dialog", exact: true }),
+    ).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(removal).toBeVisible();
+    releaseRemoval!();
+    await expect(removal.getByRole("alert")).toContainText("Too many requests");
+    await expect(
+      removal.getByRole("button", { name: "Cancel", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      removal.getByRole("button", { name: "Remove access", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      removal.getByRole("button", { name: "Done", exact: true }),
+    ).toHaveCount(0);
+    const removedResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/api/auth/members/${memberId}` &&
+        response.request().method() === "DELETE",
+    );
+    await removal
+      .getByRole("button", { name: "Remove access", exact: true })
+      .click();
+    const removed = await removedResponse;
+    const acknowledgement = await removed.json();
+    expect(
+      removed.status(),
+      `Member removal: ${acknowledgement.error ?? "response received"}`,
+    ).toBe(200);
+    expect(acknowledgement.ok).toBe(true);
+    expect(removalAttempts).toBe(2);
     await expect(removal.getByRole("status")).toContainText(
       "Workspace access removed",
     );
@@ -865,6 +810,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       ),
     ).toBe(false);
   } finally {
+    releaseRemoval?.();
     await sql.end();
   }
 });

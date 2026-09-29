@@ -6,9 +6,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   Button,
-  Chip,
   Choice,
   Dialog,
   ErrorMessage,
@@ -24,19 +24,10 @@ import {
   TypographyCode,
   TypographyParagraph,
 } from "@mill/web-design-system";
-import {
-  ArrowDown,
-  ArrowUp,
-  Columns3,
-  List,
-  Plus,
-  Settings2,
-  Save,
-} from "./icons.js";
+import { List, Plus, Settings2, Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import type {
   Board,
-  Column,
   Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
@@ -50,6 +41,8 @@ import {
 } from "./api.js";
 import type { TaskSelection } from "./task-dialog.js";
 import { hasOkResponse } from "./responses.js";
+import { TASK_STATUSES } from "../../../packages/contracts/src/index.js";
+import { taskStatusLabel } from "./activity-label.js";
 const TaskDialog = lazy(() =>
   import("./task-dialog.js").then((m) => ({ default: m.TaskDialog })),
 );
@@ -74,38 +67,38 @@ export function BoardPage({
   path: string;
 }) {
   const [board, setBoard] = useState<Board | null>(null);
-  const [columns, setColumns] = useState<Column[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [moreLoading, setMoreLoading] = useState(false);
   const [errorStatus, setErrorStatus] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [taskListChanged, setTaskListChanged] = useState(false);
   const [mobileFilters, setMobileFilters] = useState(false);
   const [query, setQuery] = useState("");
   const [q, setQ] = useState("");
-  const [view, setView] = useState(
-    localStorage.getItem("mill:view") ?? "board",
-  );
   const [filters, setFilters] = useState({
     assigneeId: "",
     priority: "",
-    label: "",
-    columnId: "",
-    sort: "position",
+    status: "",
+    sort: "createdAt",
   });
   const [selection, setSelection] = useState<TaskSelection | null>(null);
-  const [mobileColumn, setMobileColumn] = useState("");
   const [confirmBoard, setConfirmBoard] = useState(false);
   const [boardDeleteKey] = useState(createRetryKey);
-  const [boardBefore, setBoardBefore] = useState("keep");
   const [settings, setSettings] = useState(false);
-  const [columnDraft, setColumnDraft] = useState({ name: "", color: "gray" });
   const [busy, setBusy] = useState(false);
   const pendingSettingsOpener = useRef<HTMLElement | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [settingsNotice, setSettingsNotice] = useState("");
   const latestLoad = useRef(0);
+  const taskOpener = useRef<{
+    taskId?: string;
+    element: HTMLElement | null;
+  } | null>(null);
+  const taskWasOpen = useRef(false);
+  const taskList = useRef<HTMLTableElement | null>(null);
+  const newTaskButton = useRef<HTMLButtonElement | null>(null);
   const writable = !!board && user.role !== "viewer";
   useEffect(() => {
     const timer = setTimeout(() => setQ(query), 250);
@@ -114,7 +107,7 @@ export function BoardPage({
   function taskQuery(cursor?: string) {
     const params = new URLSearchParams({ limit: "100", sort: filters.sort });
     if (q) params.set("q", q);
-    for (const key of ["assigneeId", "priority", "label", "columnId"] as const)
+    for (const key of ["assigneeId", "priority", "status"] as const)
       if (filters[key]) params.set(key, filters[key]);
     if (cursor) params.set("cursor", cursor);
     return params;
@@ -125,9 +118,10 @@ export function BoardPage({
     else setMoreLoading(true);
     setError("");
     setErrorStatus(0);
+    setTaskListChanged(false);
     try {
       const [info, page] = await Promise.all([
-        api<{ board: Board; columns: Column[] }>(`/boards/${boardId}`),
+        api<{ board: Board }>(`/boards/${boardId}`),
         api<Page>(
           `/boards/${boardId}/tasks?${taskQuery(more ? (nextCursor ?? undefined) : undefined)}`,
         ),
@@ -150,7 +144,6 @@ export function BoardPage({
       if (request !== latestLoad.current) return;
       setBoard(info.board);
       onBoardLoaded(info.board);
-      setColumns(info.columns);
       setTasks((prev) =>
         more
           ? [...prev, ...page.items].filter(
@@ -160,15 +153,16 @@ export function BoardPage({
           : collected,
       );
       setNextCursor(cursor);
-      setMobileColumn((prev) =>
-        info.columns.some((c) => c.id === prev)
-          ? prev
-          : (info.columns[0]?.id ?? ""),
-      );
     } catch (e) {
       if (request === latestLoad.current) {
+        const changed = e instanceof ApiError && e.status === 409;
+        if (more && changed) {
+          await load(false, true);
+          return;
+        }
         setError(errorText(e));
         setErrorStatus(e instanceof ApiError ? e.status : 0);
+        setTaskListChanged(changed);
       }
     } finally {
       if (request === latestLoad.current) {
@@ -188,15 +182,87 @@ export function BoardPage({
     q,
     filters.assigneeId,
     filters.priority,
-    filters.label,
-    filters.columnId,
+    filters.status,
     filters.sort,
   ]);
   useEffect(() => {
     const taskId = path.match(/\/tasks\/([^/]+)/)?.[1];
     setSelection((prev) => (taskId ? { id: taskId } : prev?.id ? null : prev));
   }, [path]);
+  function rememberTaskOpener(
+    taskId: string,
+    target: EventTarget | null,
+    row: HTMLElement,
+  ) {
+    taskOpener.current = {
+      taskId,
+      element:
+        target instanceof Element
+          ? (target.closest<HTMLElement>("a[href]") ?? row)
+          : row,
+    };
+  }
+  useEffect(() => {
+    if (selection) {
+      taskWasOpen.current = true;
+      taskOpener.current ??= { taskId: selection.id, element: null };
+      return;
+    }
+    if (!taskWasOpen.current || loading) return;
+    let frame = 0;
+    const restore = () => {
+      const opener = taskOpener.current;
+      taskWasOpen.current = false;
+      taskOpener.current = null;
+      const active = document.activeElement;
+      if (
+        active !== document.body &&
+        active !== opener?.element &&
+        !taskList.current?.contains(active)
+      )
+        return;
+      const currentLink = opener?.taskId
+        ? taskList.current?.querySelector<HTMLAnchorElement>(
+            `a[href="/boards/${boardId}/tasks/${opener.taskId}"]`,
+          )
+        : null;
+      const target = opener?.element?.isConnected
+        ? opener.element
+        : (currentLink ??
+          newTaskButton.current ??
+          document.getElementById("board-search"));
+      const row = target?.closest<HTMLElement>('[role="row"]');
+      if (row && taskList.current?.contains(row)) {
+        // Synchronize the table's focused row before returning to its nested link.
+        flushSync(() => row.focus({ preventScroll: true }));
+      }
+      target?.focus({ preventScroll: true });
+    };
+    const afterDialogRemoved = () => {
+      if (document.querySelector("[data-task-dialog]")) return;
+      observer.disconnect();
+      // The modal's focus scope restores on the first frame after teardown.
+      frame = requestAnimationFrame(restore);
+    };
+    const observer = new MutationObserver(afterDialogRemoved);
+    observer.observe(document.body, { childList: true, subtree: true });
+    afterDialogRemoved();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [selection, loading, tasks, boardId]);
   function choose(next: TaskSelection | null) {
+    if (next && !selection) {
+      taskOpener.current = {
+        taskId: next.id,
+        element:
+          document.activeElement instanceof HTMLElement &&
+          document.activeElement !== document.body
+            ? document.activeElement
+            : null,
+      };
+    }
     setSelection(next);
     if (next?.id) navigate(`/boards/${boardId}/tasks/${next.id}`);
     else if (path.includes("/tasks/")) navigate(`/boards/${boardId}`);
@@ -219,7 +285,7 @@ export function BoardPage({
         return;
       if (e.key.toLowerCase() === "n" && writable) {
         e.preventDefault();
-        choose({ columnId: mobileColumn });
+        choose({});
       }
       if (e.key === "/" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -228,7 +294,7 @@ export function BoardPage({
     }
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [selection, settings, mobileColumn, writable]);
+  }, [selection, settings, writable]);
   useLayoutEffect(() => {
     if (!settings) {
       pendingSettingsOpener.current = null;
@@ -305,35 +371,19 @@ export function BoardPage({
       setBusy(false);
     }
   }
-  async function shiftColumn(column: Column, index: number, delta: number) {
-    const ordered = [...columns];
-    const target = index + delta;
-    if (target < 0 || target >= ordered.length) return;
-    ordered.splice(index, 1);
-    ordered.splice(target, 0, column);
-    await settingsRun(async () => {
-      await api(
-        `/columns/${column.id}`,
-        { version: column.version, beforeId: ordered[target + 1]?.id ?? null },
-        "PATCH",
-      );
-    });
-  }
   const hasFilters = !!(
     q ||
     filters.assigneeId ||
     filters.priority ||
-    filters.label ||
-    filters.columnId
+    filters.status
   );
   function clearFilters() {
     setQuery("");
     setFilters({
       assigneeId: "",
       priority: "",
-      label: "",
-      columnId: "",
-      sort: "position",
+      status: "",
+      sort: "createdAt",
     });
   }
   const visibleTasks = tasks;
@@ -358,70 +408,10 @@ export function BoardPage({
               Clear filters
             </Button>
           ) : (
-            writable && (
-              <Button onPress={() => choose({ columnId: columns[0]?.id })}>
-                Create task
-              </Button>
-            )
+            writable && <Button onPress={() => choose({})}>Create task</Button>
           )}
         </EmptyState.Content>
       </EmptyState>
-    );
-  }
-  function card(task: Task) {
-    const member = members.find((m) => m.id === task.assigneeId);
-    return (
-      <Widget.Content key={task.id} className="m-0 p-0">
-        <button
-          className="task-card p-4 text-sm text-foreground"
-          onClick={() => choose({ id: task.id })}
-        >
-          <div className="row space-between">
-            <span className="task-id">{task.identifier}</span>
-            {task.priority !== "none" && (
-              <span className={`priority priority-${task.priority}`}>
-                {task.priority}
-              </span>
-            )}
-          </div>
-          <TypographyText
-            textRole="body"
-            className="task-title text-sm"
-            weight="medium"
-          >
-            {task.title}
-          </TypographyText>
-          <div className="task-meta">
-            {task.labels.map((label) => (
-              <Chip key={label}>{label}</Chip>
-            ))}
-            {task.dueDate && (
-              <time
-                className={
-                  new Date(task.dueDate).getTime() < Date.now() ? "overdue" : ""
-                }
-              >
-                {new Date(task.dueDate).toLocaleDateString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  timeZone: "UTC",
-                })}
-              </time>
-            )}
-            {task.checklist.length > 0 && (
-              <span className="muted small">
-                {task.checklist.filter((i) => i.done).length}/
-                {task.checklist.length}
-              </span>
-            )}
-            {member && (
-              <span title={member.name} className="avatar">
-                {member.name.slice(0, 1).toUpperCase()}
-              </span>
-            )}
-          </div>
-        </button>
-      </Widget.Content>
     );
   }
   if (!loading && errorStatus >= 500)
@@ -441,34 +431,10 @@ export function BoardPage({
     <>
       <PageHeading
         title={board?.name ?? "Loading board…"}
-        icon={<Columns3 />}
+        icon={<List />}
         description={board?.description ?? undefined}
         actions={
           <div className="flex flex-wrap items-center gap-3">
-            <div className="segmented">
-              <Button
-                aria-label="Kanban view"
-                isIconOnly
-                variant={view === "board" ? "secondary" : "ghost"}
-                onPress={() => {
-                  setView("board");
-                  localStorage.setItem("mill:view", "board");
-                }}
-              >
-                <Columns3 />
-              </Button>
-              <Button
-                aria-label="List view"
-                isIconOnly
-                variant={view === "list" ? "secondary" : "ghost"}
-                onPress={() => {
-                  setView("list");
-                  localStorage.setItem("mill:view", "list");
-                }}
-              >
-                <List />
-              </Button>
-            </div>
             {user.role !== "viewer" && (
               <Button
                 variant="ghost"
@@ -481,7 +447,7 @@ export function BoardPage({
               </Button>
             )}
             {writable && (
-              <Button onPress={() => choose({ columnId: columns[0]?.id })}>
+              <Button ref={newTaskButton} onPress={() => choose({})}>
                 <Plus />
                 New task
               </Button>
@@ -549,19 +515,12 @@ export function BoardPage({
           <Choice
             variant="secondary"
             label="Status filter"
-            value={filters.columnId}
-            onChange={(v) => setFilters({ ...filters, columnId: v })}
-            items={[{ id: "", name: "All statuses" }, ...columns]}
-          />
-        </div>
-        <div className="board-label-slot">
-          <TextField
-            variant="secondary"
-            label="Label filter"
-            className="min-w-0 w-full"
-            placeholder="Label"
-            value={filters.label}
-            onChange={(e) => setFilters({ ...filters, label: e.target.value })}
+            value={filters.status}
+            onChange={(v) => setFilters({ ...filters, status: v })}
+            items={[
+              { id: "", name: "All statuses" },
+              ...TASK_STATUSES.map((id) => ({ id, name: taskStatusLabel(id) })),
+            ]}
           />
         </div>
         <div className="board-filter-slot">
@@ -571,8 +530,8 @@ export function BoardPage({
             value={filters.sort}
             onChange={(v) => setFilters({ ...filters, sort: v })}
             items={[
-              { id: "position", name: "Board order" },
               { id: "createdAt", name: "Newest first" },
+              { id: "title", name: "Title" },
               { id: "updatedAt", name: "Recently updated" },
               { id: "dueDate", name: "Due date" },
               { id: "priority", name: "Priority" },
@@ -588,150 +547,90 @@ export function BoardPage({
         </div>
       </div>
       <ErrorMessage>{error}</ErrorMessage>
+      {taskListChanged && (
+        <div>
+          <Button
+            variant="secondary"
+            isDisabled={loading || moreLoading}
+            onPress={() => void load(false, true)}
+          >
+            Retry loading tasks
+          </Button>
+        </div>
+      )}
       {loading ? (
         <QueryLoading label="Loading tasks…" variant="list" />
       ) : !visibleTasks.length ? (
         emptyTasks()
-      ) : view === "board" ? (
-        <>
-          <div className="mobile-column">
-            <Choice
-              label="Board column"
-              value={mobileColumn}
-              onChange={setMobileColumn}
-              items={columns.map((c) => ({
-                ...c,
-                name: `${c.name} (${visibleTasks.filter((t) => t.columnId === c.id).length})`,
-              }))}
-            />
-          </div>
-          <div className="kanban" aria-label="Task board">
-            {columns.map((column) => (
-              <Widget
-                key={column.id}
-                className={`kanban-column ${mobileColumn === column.id ? "mobile-selected" : ""}`}
-                aria-label={column.name}
-                role="region"
-              >
-                <Widget.Header className="column-header">
-                  <div className="row">
-                    <span
-                      className="status-dot"
-                      style={{
-                        backgroundColor: `var(--status-${column.color},var(--muted))`,
-                      }}
-                    />
-                    <Widget.Title help={false}>{column.name}</Widget.Title>
-                    <span className="muted small">
-                      {
-                        visibleTasks.filter((t) => t.columnId === column.id)
-                          .length
-                      }
-                    </span>
-                  </div>
-                  {writable && (
-                    <Button
-                      variant="ghost"
-                      isIconOnly
-                      aria-label={`Add task to ${column.name}`}
-                      onPress={() => choose({ columnId: column.id })}
-                    >
-                      <Plus />
-                    </Button>
-                  )}
-                </Widget.Header>
-                <div className="column-tasks">
-                  {visibleTasks
-                    .filter((t) => t.columnId === column.id)
-                    .map(card)}
-                  {!visibleTasks.some((t) => t.columnId === column.id) && (
-                    <Widget.Content className="m-0 p-0">
-                      <EmptyState className="px-4 py-8">
-                        <EmptyState.Header>
-                          <EmptyState.Description>
-                            No tasks here.
-                          </EmptyState.Description>
-                        </EmptyState.Header>
-                        {writable && (
-                          <Button
-                            variant="ghost"
-                            onPress={() => choose({ columnId: column.id })}
-                          >
-                            Add a task
-                          </Button>
-                        )}
-                      </EmptyState>
-                    </Widget.Content>
-                  )}
-                </div>
-              </Widget>
-            ))}
-          </div>
-        </>
       ) : (
-        <>
-          {visibleTasks.length ? (
-            <Table>
-              <Table.ScrollContainer>
-                <Table.Content aria-label="Task list">
-                  <Table.Header>
-                    <Table.Column isRowHeader>Task</Table.Column>
-                    <Table.Column>Status</Table.Column>
-                    <Table.Column>Assignee</Table.Column>
-                    <Table.Column>Priority</Table.Column>
-                  </Table.Header>
-                  <Table.Body>
-                    {visibleTasks.map((task) => (
-                      <Table.Row
-                        key={task.id}
-                        id={task.id}
-                        href={`/boards/${boardId}/tasks/${task.id}`}
-                      >
-                        <Table.Cell>
-                          <Link
-                            href={`/boards/${boardId}/tasks/${task.id}`}
-                            className="inline-flex min-w-0 items-center gap-3 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
-                          >
-                            <span className="task-id">{task.identifier}</span>
-                            <TypographyText
-                              textRole="label"
-                              className="text-sm"
+        <div
+          onKeyDownCapture={(event) => {
+            if (event.key !== "Enter" || !(event.target instanceof Element))
+              return;
+            const row = event.target.closest<HTMLElement>("[data-task-id]");
+            if (row?.dataset.taskId)
+              rememberTaskOpener(row.dataset.taskId, event.target, row);
+          }}
+        >
+          <Table>
+            <Table.ScrollContainer>
+              <Table.Content ref={taskList} aria-label="Task list">
+                <Table.Header>
+                  <Table.Column isRowHeader>Task</Table.Column>
+                  <Table.Column>Status</Table.Column>
+                  <Table.Column>Assignee</Table.Column>
+                  <Table.Column>Priority</Table.Column>
+                </Table.Header>
+                <Table.Body>
+                  {visibleTasks.map((task) => (
+                    <Table.Row
+                      key={task.id}
+                      id={task.id}
+                      href={`/boards/${boardId}/tasks/${task.id}`}
+                      data-task-id={task.id}
+                      onClickCapture={(event) =>
+                        rememberTaskOpener(
+                          task.id,
+                          event.target,
+                          event.currentTarget,
+                        )
+                      }
+                    >
+                      <Table.Cell>
+                        <Link
+                          href={`/boards/${boardId}/tasks/${task.id}`}
+                          className="inline-flex min-w-0 items-center gap-3 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                        >
+                          <span className="task-id">{task.identifier}</span>
+                          <TypographyText textRole="label" className="text-sm">
+                            <TooltipText
+                              className="inline-block max-w-xs truncate align-middle"
+                              tooltip={task.title}
                             >
-                              <TooltipText
-                                className="inline-block max-w-xs truncate align-middle"
-                                tooltip={task.title}
-                              >
-                                {task.title}
-                              </TooltipText>
-                            </TypographyText>
-                          </Link>
-                        </Table.Cell>
-                        <Table.Cell>
-                          {columns.find((c) => c.id === task.columnId)?.name}
-                        </Table.Cell>
-                        <Table.Cell>
-                          {members.find((m) => m.id === task.assigneeId)
-                            ?.name ?? "Unassigned"}
-                        </Table.Cell>
-                        <Table.Cell>
-                          <span
-                            className={`priority priority-${task.priority}`}
-                          >
-                            {task.priority}
-                          </span>
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
-                  </Table.Body>
-                </Table.Content>
-              </Table.ScrollContainer>
-            </Table>
-          ) : (
-            emptyTasks()
-          )}
-        </>
+                              {task.title}
+                            </TooltipText>
+                          </TypographyText>
+                        </Link>
+                      </Table.Cell>
+                      <Table.Cell>{taskStatusLabel(task.status)}</Table.Cell>
+                      <Table.Cell>
+                        {members.find((m) => m.id === task.assigneeId)?.name ??
+                          "Unassigned"}
+                      </Table.Cell>
+                      <Table.Cell>
+                        <span className={`priority priority-${task.priority}`}>
+                          {task.priority}
+                        </span>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table.Content>
+            </Table.ScrollContainer>
+          </Table>
+        </div>
       )}
-      {nextCursor && (
+      {nextCursor && !taskListChanged && (
         <div className="load-more">
           <Button
             variant="secondary"
@@ -742,15 +641,13 @@ export function BoardPage({
           </Button>
         </div>
       )}
-      {selection && columns.length > 0 && (
+      {selection && (
         <Suspense fallback={<div role="status">Opening task…</div>}>
           <TaskDialog
-            key={selection.id ?? `${selection.columnId}:${selection.parentId}`}
+            key={selection.id ?? "new"}
             selection={selection}
             boardId={boardId}
-            columns={columns}
             members={members}
-            tasks={tasks}
             user={user}
             readOnly={!writable}
             onClose={() => choose(null)}
@@ -768,7 +665,6 @@ export function BoardPage({
             setSettings(false);
           }}
           title="Board settings"
-          wide
           footer={
             <div className="grid w-full gap-2">
               <ErrorMessage>{settingsError}</ErrorMessage>
@@ -778,7 +674,7 @@ export function BoardPage({
             </div>
           }
         >
-          <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
+          <div className="content-grid min-w-0">
             <div className="content-grid min-w-0">
               <Widget>
                 <Widget.Header>
@@ -799,9 +695,6 @@ export function BoardPage({
                             version: board.version,
                             name: data.get("name"),
                             description: data.get("description"),
-                            ...(boardBefore === "keep"
-                              ? {}
-                              : { beforeId: boardBefore || null }),
                           },
                           "PATCH",
                         );
@@ -828,20 +721,6 @@ export function BoardPage({
                       defaultValue={board.description}
                       multiline
                       maxLength={2000}
-                      disabled={!writable}
-                      className="min-w-0 w-full"
-                    />
-                    <Choice
-                      label="Board order"
-                      value={boardBefore}
-                      onChange={setBoardBefore}
-                      items={[
-                        { id: "keep", name: "Keep current order" },
-                        { id: "", name: "Move to the end" },
-                        ...boards
-                          .filter((b) => b.id !== board.id)
-                          .map((b) => ({ id: b.id, name: `Before ${b.name}` })),
-                      ]}
                       disabled={!writable}
                       className="min-w-0 w-full"
                     />
@@ -883,93 +762,6 @@ export function BoardPage({
                 </Widget>
               )}
             </div>
-            <Widget className="min-w-0">
-              <Widget.Header>
-                <Widget.Title help={false}>Statuses</Widget.Title>
-              </Widget.Header>
-              <Widget.Content className="content-grid min-w-0">
-                <TypographyParagraph size="sm" color="muted">
-                  Use the arrows to reorder statuses. Tasks keep their order
-                  within each status.
-                </TypographyParagraph>
-                <div className="grid min-w-0">
-                  {columns.map((column, index) => (
-                    <ColumnEditor
-                      key={column.id}
-                      column={column}
-                      columns={columns}
-                      busy={busy}
-                      readOnly={!writable}
-                      error={settingsError}
-                      onSave={(name, color) =>
-                        void settingsRun(async () => {
-                          await api(
-                            `/columns/${column.id}`,
-                            { version: column.version, name, color },
-                            "PATCH",
-                          );
-                        }, "Status updated.")
-                      }
-                      onShift={(delta) =>
-                        void shiftColumn(column, index, delta)
-                      }
-                      first={index === 0}
-                      last={index === columns.length - 1}
-                      onDelete={async (moveToColumnId) => {
-                        const ok = await settingsRun(async () => {
-                          await api(
-                            `/columns/${column.id}`,
-                            {
-                              version: column.version,
-                              ...(moveToColumnId ? { moveToColumnId } : {}),
-                            },
-                            "DELETE",
-                          );
-                        }, "Status deleted.");
-                        if (ok)
-                          requestAnimationFrame(() =>
-                            document.getElementById("add-status")?.focus(),
-                          );
-                        return ok;
-                      }}
-                    />
-                  ))}
-                </div>
-                <form
-                  className="flex min-w-0 flex-wrap items-end gap-2"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void settingsRun(async () => {
-                      await api(`/boards/${board.id}/columns`, columnDraft);
-                      setColumnDraft({ ...columnDraft, name: "" });
-                    }, "Status added.");
-                  }}
-                >
-                  <div className="min-w-0 flex-1 basis-40">
-                    <TextField
-                      label="New status"
-                      value={columnDraft.name}
-                      onChange={(e) =>
-                        setColumnDraft({ ...columnDraft, name: e.target.value })
-                      }
-                      required
-                      maxLength={80}
-                      disabled={!writable}
-                      className="min-w-0 w-full"
-                    />
-                  </div>
-                  <Button
-                    id="add-status"
-                    type="submit"
-                    isPending={busy}
-                    isDisabled={!writable}
-                  >
-                    <Plus />
-                    Add status
-                  </Button>
-                </form>
-              </Widget.Content>
-            </Widget>
           </div>
         </Dialog>
       )}
@@ -999,177 +791,12 @@ export function BoardPage({
           }
         >
           <TypographyParagraph size="sm">
-            Permanently delete “{board.name}” and all of its statuses, tasks,
-            subtasks, and comments? This cannot be undone. There is no restore.
+            Permanently delete “{board.name}” and all of its tasks and comments?
+            This cannot be undone. There is no restore.
           </TypographyParagraph>
           <ErrorMessage>{settingsError}</ErrorMessage>
         </Dialog>
       )}
     </>
-  );
-}
-function ColumnEditor({
-  column,
-  columns,
-  busy,
-  readOnly,
-  error,
-  onSave,
-  onShift,
-  first,
-  last,
-  onDelete,
-}: {
-  column: Column;
-  columns: Column[];
-  busy: boolean;
-  readOnly: boolean;
-  error: string;
-  onSave: (name: string, color: string) => void;
-  onShift: (delta: number) => void;
-  first: boolean;
-  last: boolean;
-  onDelete: (moveToColumnId?: string) => Promise<boolean>;
-}) {
-  const [name, setName] = useState(column.name);
-  const [color, setColor] = useState(column.color);
-  const [moveTo, setMoveTo] = useState("");
-  const [confirm, setConfirm] = useState(false);
-  useEffect(() => {
-    setName(column.name);
-    setColor(column.color);
-  }, [column.name, column.color]);
-  const colorName = color[0].toUpperCase() + color.slice(1);
-  return (
-    <div className="column-editor min-w-0 border-b border-separator py-3 first:pt-0 last:border-0 last:pb-0">
-      <div className="min-w-0">
-        <TextField
-          label="Status name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          maxLength={80}
-          disabled={busy || readOnly}
-          className="min-w-0 w-full"
-        />
-      </div>
-      <Choice
-        label="Status color"
-        value={color}
-        onChange={setColor}
-        items={[
-          "gray",
-          "blue",
-          "green",
-          "yellow",
-          "orange",
-          "red",
-          "purple",
-          "pink",
-        ].map((id) => ({ id, name: id[0].toUpperCase() + id.slice(1) }))}
-        disabled={busy || readOnly}
-        className="min-w-0 w-full"
-      />
-      <div className="col-span-full flex flex-wrap items-center gap-2">
-        <Chip
-          variant="secondary"
-          size="small"
-          icon={
-            <span
-              className="status-dot"
-              style={{ background: `var(--status-${color})` }}
-            />
-          }
-        >
-          {colorName}
-        </Chip>
-        <Button
-          variant="secondary"
-          isPending={busy}
-          isDisabled={
-            readOnly ||
-            (name === column.name && color === column.color) ||
-            !name.trim()
-          }
-          onPress={() => onSave(name, color)}
-        >
-          <Save />
-          Save
-        </Button>
-        <Button
-          variant="ghost"
-          isIconOnly
-          aria-label={`Move ${column.name} earlier`}
-          isPending={busy}
-          isDisabled={readOnly || first}
-          onPress={() => onShift(-1)}
-        >
-          <ArrowUp />
-        </Button>
-        <Button
-          variant="ghost"
-          isIconOnly
-          aria-label={`Move ${column.name} later`}
-          isPending={busy}
-          isDisabled={readOnly || last}
-          onPress={() => onShift(1)}
-        >
-          <ArrowDown />
-        </Button>
-        <Button
-          variant="danger-ghost"
-          isPending={busy}
-          isDisabled={readOnly}
-          onPress={() => setConfirm(true)}
-        >
-          Delete
-        </Button>
-      </div>
-      <Dialog
-        isDismissDisabled={busy}
-        open={confirm}
-        onClose={() => setConfirm(false)}
-        title="Delete status?"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              onPress={() => setConfirm(false)}
-              isPending={busy}
-            >
-              Keep status
-            </Button>
-            <Button
-              variant="danger"
-              isPending={busy}
-              isDisabled={readOnly}
-              onPress={async () => {
-                if (await onDelete(moveTo || undefined)) setConfirm(false);
-              }}
-            >
-              Delete status
-            </Button>
-          </>
-        }
-      >
-        <div className="content-grid min-w-0">
-          <TypographyParagraph size="sm">
-            Choose another status to receive any tasks in {column.name}. An
-            empty status can be deleted directly.
-          </TypographyParagraph>
-          <Choice
-            label="Move tasks to"
-            value={moveTo}
-            onChange={setMoveTo}
-            items={[
-              { id: "", name: "Do not move tasks" },
-              ...columns.filter((item) => item.id !== column.id),
-            ]}
-            search
-            disabled={busy}
-          />
-          <ErrorMessage>{error}</ErrorMessage>
-        </div>
-      </Dialog>
-    </div>
   );
 }

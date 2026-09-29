@@ -8,6 +8,7 @@ import {
   FieldGroup,
   FieldLabel,
   Input,
+  Link,
 } from "@mill/web-design-system";
 import { Settings2, Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
@@ -16,7 +17,6 @@ import { api, errorText, type Session } from "./api.js";
 import { AccountSettings } from "./account-settings.js";
 import { PeopleSettings } from "./people-settings.js";
 import { AgentSettings } from "./agent-settings.js";
-import { DataSettings } from "./data-settings.js";
 
 export function SettingsPage({
   section,
@@ -41,7 +41,6 @@ export function SettingsPage({
         members: "People",
         agents: "Agent access",
         workspace: "Workspace",
-        data: "Export and import",
       } as Record<string, string>
     )[section] ?? "Settings";
   useEffect(() => {
@@ -71,7 +70,7 @@ export function SettingsPage({
       />
     );
   if (
-    ["members", "workspace", "data"].includes(section) &&
+    ["members", "workspace"].includes(section) &&
     session.user.role !== "admin"
   )
     return (
@@ -96,7 +95,6 @@ export function SettingsPage({
     return (
       <AgentSettings session={session} boards={boards} onRefresh={onRefresh} />
     );
-  if (section === "data") return <DataSettings onRefresh={onRefresh} />;
   return (
     <section className="settings-page">
       {section === "workspace" ? (
@@ -159,6 +157,25 @@ export function SettingsPage({
                   </Button>
                 </div>
               </form>
+            </Widget.Content>
+          </Widget>
+          <Widget>
+            <Widget.Header>
+              <Widget.Title help={false}>Backups</Widget.Title>
+            </Widget.Header>
+            <Widget.Content>
+              <p className="text-sm text-muted">
+                Keep a PostgreSQL backup of your workspace, accounts, and task
+                history. Follow the{" "}
+                <Link
+                  href="/guides/backup.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  backup and recovery guide
+                </Link>
+                .
+              </p>
             </Widget.Content>
           </Widget>
         </div>

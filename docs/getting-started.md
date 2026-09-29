@@ -4,13 +4,13 @@ Install Mill using [the installation guide](installation.md), then open its URL.
 
 ## Make a board
 
-Choose **Create Project** at the end of the sidebar’s **Boards** list and give the board a short, recognizable name. New boards start with Backlog, In progress, and Done. Open board settings when you need to rename statuses, change their order, or permanently delete the board. Only a human administrator can delete a board.
+Choose **Create Project** at the end of the sidebar's **Boards** list and give the board a short, recognizable name. Boards appear alphabetically. Board settings let you rename the board, edit its description, or permanently delete it. Only a human administrator can delete a board.
 
-Create a task in Backlog, give it a clear title, and open its detail view. Add a Markdown description, assignment, priority, labels, due date, or checklist as needed. Preview the description before saving. Task links keep their stable identifier even when the title changes.
+Create a task, give it a clear title, and open its detail view. New tasks default to Todo. Add a Markdown description, assignment, priority, due date, or checklist as needed. Preview the description before saving. Task links keep their stable identifier when the title changes.
 
-Move the task to In progress using its status control. This works with a keyboard or touch and is an alternative to dragging. Leave a comment, then move it to Done. Reload the page to see the persisted result.
+Use the status control to change Todo to In Progress, then In Review or Done. The six fixed choices are Backlog, Todo, In Progress, In Review, Done, and Won't Do. They work with a keyboard and touch. Leave a comment and reload to check the saved result.
 
-Switch between Kanban and list view to find the layout that suits the work. Combine search with status, assignee, priority, and label filters. Opening and saving a task preserves the board context. See [everyday workflows](workflows.md) for permanent deletion and permission behavior. Deleted boards, tasks, subtasks, and comments cannot be restored in Mill.
+Use the task list's search, status/assignee/priority filters, and sort controls to find work. Opening and saving a task preserves your list context. See [everyday workflows](workflows.md) for roles and permanent deletion. There are no Kanban lanes, custom statuses, labels, manual ordering, or task parents/subtasks. Older subtasks become independent tasks when you upgrade. Deleted tasks and boards cannot be restored in Mill.
 
 ## Invite your team
 

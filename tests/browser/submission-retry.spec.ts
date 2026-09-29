@@ -29,12 +29,35 @@ test.beforeAll(async ({ baseURL }) => {
     const detail = await api
       .get(`/api/boards/${boardId}`)
       .then((r) => r.json());
+    expect(Object.keys(detail)).toEqual(["board"]);
+    expect(detail.board.id).toBe(boardId);
+    expect(detail.board).not.toHaveProperty("position");
     const task = await api.post(`/api/boards/${boardId}/tasks`, {
       headers: { Origin: baseURL! },
-      data: { title: "Comment retry fixture", columnId: detail.columns[0].id },
+      data: { title: "Comment retry fixture", status: "backlog" },
     });
     expect(task.ok()).toBeTruthy();
-    taskId = (await task.json()).task.id;
+    const created = (await task.json()).task;
+    expect(created.status).toBe("backlog");
+    for (const field of ["columnId", "labels", "parentId", "position"])
+      expect(created).not.toHaveProperty(field);
+    taskId = created.id;
+    expect((await api.get(`/api/boards/${boardId}/columns`)).status()).toBe(
+      404,
+    );
+    expect(
+      (
+        await api.post(`/api/tasks/${taskId}/move`, {
+          headers: { Origin: baseURL! },
+          data: { version: created.version, status: "done" },
+        })
+      ).status(),
+    ).toBe(404);
+    const unchanged = await api
+      .get(`/api/tasks/${taskId}`)
+      .then((response) => response.json());
+    expect(unchanged.task.status).toBe("backlog");
+    expect(unchanged.task.version).toBe(created.version);
     sessionCookies = (await api.storageState()).cookies;
   } finally {
     await api.dispose();

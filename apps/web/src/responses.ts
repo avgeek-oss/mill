@@ -1,4 +1,5 @@
 import { hasResponseRecord, isResponseObject } from "./api.js";
+import { TASK_STATUSES } from "../../../packages/contracts/src/index.js";
 
 function record(value: unknown, key: string) {
   return hasResponseRecord(value, key) &&
@@ -21,8 +22,6 @@ export function hasBoardResponse(value: unknown) {
     board.name.length > 0 &&
     typeof board.prefix === "string" &&
     typeof board.description === "string" &&
-    typeof board.position === "number" &&
-    Number.isFinite(board.position) &&
     version(board.version)
   );
 }
@@ -41,9 +40,10 @@ export function hasTaskResponse(value: unknown) {
   const task = record(value, "task");
   return (
     !!task &&
-    ["title", "identifier", "boardId", "columnId"].every(
+    ["title", "identifier", "boardId"].every(
       (key) => typeof task[key] === "string" && task[key].length > 0,
     ) &&
+    TASK_STATUSES.some((status) => status === task.status) &&
     version(task.version)
   );
 }

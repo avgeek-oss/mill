@@ -343,7 +343,7 @@ test("consent completes a coherent large directory after rename, deletion and cr
     const fixture = await database();
     try {
       await fixture.sql.unsafe(
-        `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix,position) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Consent directory fixture '||n,'CDF'||n,2000+n FROM generate_series(1,105)n`,
+        `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Consent directory fixture '||n,'CDF'||n FROM generate_series(1,105)n`,
       );
     } finally {
       await fixture.sql.end();

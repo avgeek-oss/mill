@@ -703,7 +703,7 @@ test("board choices and scope names include later pages independently of the sid
   let laterId = "";
   try {
     const rows = await fixture.sql.unsafe(
-      `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix,position) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Continued agent board '||n,'CAB'||n,1000+n FROM generate_series(1,105)n RETURNING id,name`,
+      `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Continued agent board '||lpad(n::text,3,'0'),'CAB'||n FROM generate_series(1,105)n RETURNING id,name`,
     );
     laterId = rows.find((row) => row.name === "Continued agent board 105")!.id;
   } finally {
@@ -716,7 +716,7 @@ test("board choices and scope names include later pages independently of the sid
     await json(
       admin,
       `/boards/${laterId}`,
-      { version: 1, beforeId: board.id },
+      { version: 1, description: "Refreshed during directory pagination" },
       "PATCH",
     );
     const response = await route.fetch();
@@ -815,7 +815,7 @@ test("one complete directory refreshes after rename, deletion and creation while
   const fixture = await database();
   try {
     await fixture.sql.unsafe(
-      `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix,position) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Transition directory fixture '||n,'TDF'||n,2000+n FROM generate_series(1,105)n`,
+      `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Transition directory fixture '||lpad(n::text,3,'0'),'TDF'||n FROM generate_series(1,105)n`,
     );
   } finally {
     await fixture.sql.end();

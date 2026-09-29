@@ -1,23 +1,25 @@
 # Mill B1 release candidate
 
-The proposed tag is `v1.0.0-beta.1`. The repository and build artifacts remain private during review. These notes describe the release scope; release readiness is established by [the verification matrix](b1-verification.md) and the coordinating owner's independent review.
+The proposed tag is `v1.0.0-beta.1`. The repository and build artifacts remain private. These notes describe the September 29 reduced scope; implementation and fresh verification are tracked in [B1 verification](b1-verification.md). Earlier candidate receipts and screenshots remain historical.
 
-## Task board
+## Task lists
 
-Mill centers on boards with ordered statuses, Kanban and list views, task detail links, combined search/filtering, and keyboard/touch task movement. Tasks support assignments, priorities, labels, due dates, checklists, safe Markdown, comments, mentions, and activity. The fixed Boards list loads every board and places Create Project last. Deleting a task permanently removes its descendant subtasks and comments; a human administrator can permanently delete a board and all its work. There are no archive or restore states. Concurrent edits use versions and return an explicit conflict.
+Boards appear alphabetically in the fixed Boards sidebar, with Create Project last. Each board has a task list using Backlog, Todo, In Progress, In Review, Done, and Won't Do. Tasks retain stable links, Markdown, assignment, priority, due dates, checklists, comments, mentions, and attributed activity. Search, combined filters, sorting, and pagination help find work.
 
-## Team and agents
+Task edits and status changes use versions to reject stale writes. Members can permanently delete tasks; human administrators can permanently delete boards and their work. Deletion requires confirmation and cannot be undone in Mill. There are no archive or restore states.
 
-The first installation creates its administrator once. Teams use Admin, Member, and Viewer roles, invitations, profiles, time zones, session controls, passkeys, authenticator verification, and recovery. B1 uses a notification bell for in-app assignment/mention notifications and private invitation links. Email delivery is unavailable.
+Kanban, editable statuses, manual board/task ordering, labels, task parents/subtasks, portable export/import, and email task notifications are excluded from v1. Upgrading preserves existing task and subtask records as independent tasks; unknown old custom statuses become Todo. Follow [upgrade guidance](upgrades.md) and make a full backup first.
 
-External agents use scoped, revocable credentials or OAuth with REST and remote MCP. Restrictions apply across boards and resource IDs; human-only administrative actions stay unavailable to agent credentials. Retry-sensitive mutations support idempotency and bounded rate limits. Task activity identifies human and agent actions. Workspace-wide audit history is excluded from v1.
+## People and agents
 
-## Self-hosting
+First setup creates the administrator once. Teams use roles, invitations, profiles, time zones, sessions, passkeys, authenticator verification, and recovery. Assignments and mentions produce in-app notifications in the compact header bell. The account/invitation email provider is currently unavailable; administrators share private invitation links and operators can issue recovery links.
 
-The production image runs the web application and API as a non-root process. Docker Compose requires PostgreSQL only, persists its data, validates configuration, and applies checked migrations at startup. Full backup/restore and portable work export/import cover different recovery needs. Portable export version 2 omits archive/deletion state and preserves board task numbering; older exports skip deleted work and import archived work as ordinary work. Installation, team workflows, agents, operations, and contributor documentation are included.
+External agents use scoped, revocable credentials or OAuth with REST and remote MCP. Current membership and board restrictions apply to every operation. Human-only administration remains unavailable to agent credentials. Mutations support retry keys, versions, and bounded rate limits; task activity identifies human and agent actions. Workspace-wide audit history is excluded.
 
-## Review and publication
+## Self-hosting and release review
 
-CI requires formatting, lint, types, integration tests, browser journeys, dependency audit, production image build, fresh installation, schema upgrade, and backup restore. Packaging produces private image/source archives, checksums, and a source/version manifest. It does not publish a public registry image or release.
+The production image serves the application and API as a non-root process. Compose needs PostgreSQL, persistent storage, and private configuration. Mill applies checksummed migrations at startup. Full PostgreSQL backup and restore preserve work, account state, notifications, and credentials; there is no portable-work export/import feature.
 
-Physical passkey devices and an operator's chosen HTTPS proxy need verification in that operator's environment. Local software-authenticator or loopback smoke evidence must remain identified as such. See [B1 verification](b1-verification.md) for exact results and open gaps on the reviewed commit.
+CI and release review must verify source checks, real database behavior, browser journeys, dependency audit, production installation, prior-schema migration, and backup restore for this revision. Packaging produces private archives, checksums, and a source/version manifest. It does not publish a registry image or release.
+
+Physical passkeys and the operator's chosen HTTPS proxy need checks in that environment. Local virtual-authenticator and loopback proof must remain labeled accordingly. Publication requires independent review and applicable owner authorization.

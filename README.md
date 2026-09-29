@@ -1,12 +1,10 @@
 # Mill
 
-Mill is a self-hosted task board for people and external agents, created by Avgeek, Inc. It runs one web/API service and PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
+Mill is a self-hosted task list for people and external agents, created by Avgeek, Inc. It runs one web/API service and PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
 
-Create boards, organize their statuses, and work in Kanban or list view. Tasks have stable identifiers, Markdown descriptions, assignments, labels, priorities, due dates, checklists, comments, and activity. Team members use Admin, Member, or Viewer access. External agents use revocable credentials or OAuth and the same permission checks through REST and MCP.
+Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have stable identifiers, Markdown descriptions, assignments, priorities, due dates, checklists, comments, and activity. Team members use Admin, Member, or Viewer access. External agents use revocable credentials or OAuth and the same permission checks through REST and MCP.
 
-The repository remains private during B1 review. The proposed release is `v1.0.0-beta.1`. Check [B1 verification](docs/b1-verification.md) for observed evidence and remaining gaps; this README does not establish release readiness.
-
-![Mill board in light mode with release-planning tasks](docs/screenshots/desktop-light.png)
+The repository remains private during B1 review. The proposed release is `v1.0.0-beta.1`. The September 29 scope reduction is implemented locally; browser, upgrade, container, and hosted CI evidence remain separate release gates. Check [B1 verification](docs/b1-verification.md) for the current requirements and separately labeled historical evidence.
 
 ## Install locally
 

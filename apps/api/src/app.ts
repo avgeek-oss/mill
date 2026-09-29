@@ -37,23 +37,7 @@ const standardBodyLimit = bodyLimit({
   maxSize: 2 * 1024 * 1024,
   onError: (c) => c.json({ error: "Request is too large" }, 413),
 });
-app.use("*", async (c, next) =>
-  c.req.path === "/api/import" ? next() : standardBodyLimit(c, next),
-);
-app.use(
-  "/api/import",
-  bodyLimit({
-    maxSize: 32 * 1024 * 1024,
-    onError: (c) =>
-      c.json(
-        {
-          error:
-            "Portable imports are limited to 32 MiB. Use a database restore for larger backups.",
-        },
-        413,
-      ),
-  }),
-);
+app.use("*", standardBodyLimit);
 app.onError((error, c) => {
   if (error instanceof HTTPException)
     return c.json({ error: error.message }, error.status);
