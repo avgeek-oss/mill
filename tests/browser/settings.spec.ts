@@ -108,6 +108,7 @@ async function confirmPassword(page: Page, value = password) {
   await expect(dialog).toBeVisible();
   await dialog.getByLabel("Password", { exact: true }).fill(value);
   await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
 }
 async function contextPage(browser: Browser) {
   const context = await browser.newContext({ baseURL: origin });
