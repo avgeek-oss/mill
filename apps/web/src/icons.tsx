@@ -8,6 +8,7 @@ import {
   Add01Icon,
   ListViewIcon,
   Settings01Icon,
+  MoreHorizontalIcon,
 } from "@hugeicons/core-free-icons";
 
 function controlIcon(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
@@ -21,6 +22,7 @@ function controlIcon(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
 export const Plus = controlIcon(Add01Icon);
 export const List = controlIcon(ListViewIcon);
 export const Settings2 = controlIcon(Settings01Icon);
+export const MoreHorizontal = controlIcon(MoreHorizontalIcon);
 
 export const Save = controlIcon(FloppyDiskIcon);
 export const Check = controlIcon(CheckmarkCircle02Icon);

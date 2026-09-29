@@ -6,9 +6,15 @@ import {
   Choice,
   ErrorMessage,
   Spinner,
+  Link,
 } from "@mill/web-design-system";
 import { ApiError, errorText, isResponseObject, type Session } from "./api.js";
 import { useBoardDirectory } from "./board-directory.js";
+import {
+  useAgentDirectory,
+  validAgent,
+  type Agent,
+} from "./agents-settings.js";
 import { AuthFrame } from "./identity-ui.js";
 
 type ConsentDetails = {
@@ -17,6 +23,9 @@ type ConsentDetails = {
   clientTrust: "unverified" | "metadata-document";
   redirectUri: string;
   scope: string;
+  agents: Agent[];
+  requiresAgent: true;
+  canApprove: boolean;
   user: { name: string; role: "admin" | "member" | "viewer" };
 };
 type ConnectionState =
@@ -35,6 +44,10 @@ function validDetails(value: unknown): value is ConsentDetails {
     !["unverified", "metadata-document"].includes(value.clientTrust) ||
     typeof value.redirectUri !== "string" ||
     typeof value.scope !== "string" ||
+    value.requiresAgent !== true ||
+    typeof value.canApprove !== "boolean" ||
+    !Array.isArray(value.agents) ||
+    !value.agents.every(validAgent) ||
     typeof value.user.name !== "string" ||
     typeof value.user.role !== "string" ||
     !["admin", "member", "viewer"].includes(value.user.role)
@@ -91,7 +104,7 @@ function decisionRedirect(
 async function consentRequest(
   id: string,
   signal: AbortSignal,
-  decision?: { allow: boolean; boardIds?: string[] },
+  decision?: { allow: boolean; agentId?: string; boardIds?: string[] },
 ): Promise<unknown> {
   let response: Response;
   try {
@@ -188,6 +201,7 @@ function ConsentRequest({
   });
   const [attempt, setAttempt] = useState(0);
   const [boardId, setBoardId] = useState("");
+  const [agentId, setAgentId] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const [decision, setDecision] = useState<"allow" | "deny" | null>(null);
   const [complete, setComplete] = useState(false);
@@ -196,6 +210,9 @@ function ConsentRequest({
   const decisionController = useRef<AbortController | null>(null);
   const active = useRef(true);
   const directory = useBoardDirectory(
+    id ? `${session.user.id}:${session.user.role}:${id}` : null,
+  );
+  const agents = useAgentDirectory(
     id ? `${session.user.id}:${session.user.role}:${id}` : null,
   );
   useEffect(() => {
@@ -236,12 +253,18 @@ function ConsentRequest({
   const choices = directory.boards;
   const selectedAvailable =
     !boardId || choices.some((board) => board.id === boardId);
+  const selectedAgentAvailable = agents.items.some(
+    (agent) => agent.id === agentId,
+  );
   const allowAvailable =
     !!details &&
     validScope &&
     (!write || canWrite) &&
     !directory.pending &&
     !directory.error &&
+    !agents.pending &&
+    !agents.error &&
+    selectedAgentAvailable &&
     selectedAvailable;
 
   async function decide(allow: boolean) {
@@ -261,6 +284,7 @@ function ConsentRequest({
     try {
       const response = await consentRequest(id, controller.signal, {
         allow,
+        ...(allow ? { agentId } : {}),
         ...(allow && boardId ? { boardIds: [boardId] } : {}),
       });
       if (!active.current || controller.signal.aborted) return;
@@ -276,6 +300,12 @@ function ConsentRequest({
     } catch (cause: unknown) {
       if (!active.current || controller.signal.aborted) return;
       setDecisionError(errorText(cause));
+      if (
+        allow &&
+        cause instanceof ApiError &&
+        [400, 403, 404].includes(cause.status)
+      )
+        void agents.reload();
       setDecision(null);
       decisionPending.current = false;
     }
@@ -345,7 +375,7 @@ function ConsentRequest({
                 ? "Can view and make changes allowed by your Mill role."
                 : "Can only view data allowed by your Mill role."}{" "}
               Cannot manage accounts or reveal stored credentials. Revoke access
-              anytime in Agent access.
+              anytime in API keys.
             </p>
             <p className="text-muted">
               Returns to{" "}
@@ -364,6 +394,63 @@ function ConsentRequest({
             )}
           </div>
           <div className="content-grid min-w-0">
+            <Choice
+              label="Agent"
+              value={agentId}
+              onChange={setAgentId}
+              items={agents.items.map((agent) => ({
+                id: agent.id,
+                name: agent.name,
+              }))}
+              search
+              disabled={!!decision || agents.pending || !!agents.error}
+            />
+            {agents.pending && (
+              <p role="status" className="text-sm text-muted">
+                Loading agents…
+              </p>
+            )}
+            <ErrorMessage>{agents.error}</ErrorMessage>
+            {agents.error && (
+              <Button
+                variant="secondary"
+                isDisabled={!!decision}
+                onPress={() => void agents.reload()}
+              >
+                Retry agents
+              </Button>
+            )}
+            {!agents.pending && !agents.error && !agents.items.length && (
+              <>
+                <p className="text-sm text-muted">
+                  Create a personal agent in{" "}
+                  <Link
+                    href="/settings/agents"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Agents
+                  </Link>{" "}
+                  or ask an administrator to assign you to a team agent before
+                  connecting.
+                </p>
+                <Button
+                  variant="secondary"
+                  isDisabled={!!decision}
+                  onPress={() => void agents.reload()}
+                >
+                  Refresh agents
+                </Button>
+              </>
+            )}
+            {agentId &&
+              !agents.pending &&
+              !agents.error &&
+              !selectedAgentAvailable && (
+                <ErrorMessage>
+                  This agent is no longer available. Choose another agent.
+                </ErrorMessage>
+              )}
             <Choice
               label="Approved boards"
               value={boardId}

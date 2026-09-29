@@ -7,6 +7,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -390,7 +391,12 @@ test("removed workflow and portable routes return 404 for human and agent client
   const { token } = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Writer", scopes: ["read", "write"], boardIds: [board.id] },
+      body: {
+        agentId: (await setupAgent(cookie)).id,
+        name: "Writer",
+        scopes: ["read", "write"],
+        boardIds: [board.id],
+      },
     }),
     201,
   );

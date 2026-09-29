@@ -2,9 +2,11 @@
 
 Mill is a self-hosted task list for people and external agents, created by Avgeek, Inc. It runs one web/API service and PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
 
-Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have stable identifiers, Markdown descriptions, assignments, priorities, due dates, checklists, comments, and activity. Team members use Admin, Member, or Viewer access. External agents use revocable credentials or OAuth and the same permission checks through REST and MCP.
+Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have stable identifiers, Markdown descriptions, human assignees, optional Agents, priorities, due dates, checklists, comments, and activity. Team members use Admin, Member, or Viewer access.
 
-The repository remains private during B1 review. The proposed release is `v1.0.0-beta.1`. The September 29 scope reduction is implemented locally; browser, upgrade, container, and hosted CI evidence remain separate release gates. Check [B1 verification](docs/b1-verification.md) for the current requirements and separately labeled historical evidence.
+People and Agents are separate. Create an Agent in the human interface, keep it personal or let an administrator grant named team members access, then select it when creating a personal API key or approving OAuth. A task's Agent is separate from its human assignee and never runs work automatically. REST and MCP enforce the same membership, Agent access, scope, and board checks as the browser.
+
+The repository remains private during B1 review. The proposed release is `v1.0.0-beta.1`. The current revision adds explicit Agents and the requested Towbar interface changes. Complete local source verification and all 76 browser cases pass, with independent desktop/phone review in both themes. Exact-commit packaged installation/restore and hosted CI results are tracked separately on the private review PR. Check [B1 verification](docs/b1-verification.md) for the current requirements; receipts through the preceding `7fc132` candidate are historical for this revision.
 
 ## Install locally
 

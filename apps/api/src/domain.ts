@@ -35,7 +35,10 @@ import {
   type TaskRow,
 } from "./domain/helpers.js";
 
+import { agentRoutes, validateTaskAgent } from "./agents.js";
+
 export const domainRoutes = new Hono<Env>();
+domainRoutes.route("/", agentRoutes);
 const boardCreate = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -261,6 +264,9 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
   const assigneeRaw = c.req.query("assigneeId");
   const assigneeId =
     assigneeRaw && assigneeRaw !== "unassigned" ? id(assigneeRaw) : null;
+  const agentRaw = c.req.query("agentId");
+  const agentId = agentRaw && agentRaw !== "unassigned" ? id(agentRaw) : null;
+  if (agentRaw === "") badRequest("Choose a valid agent");
   const priority = c.req.query("priority");
   if (priority && !priorities.includes(priority as (typeof priorities)[number]))
     badRequest("Choose a valid priority");
@@ -285,6 +291,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     q,
     status,
     assigneeRaw,
+    agentRaw,
     priority,
     sort,
   });
@@ -295,6 +302,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     ${q ? sql`AND (tasks.title ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.description ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.identifier ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"})` : sql``}
     ${status ? sql`AND tasks.status=${status}` : sql``}
     ${assigneeRaw === "unassigned" ? sql`AND tasks.assignee_id IS NULL` : assigneeId ? sql`AND tasks.assignee_id=${assigneeId}` : sql``}
+    ${agentRaw === "unassigned" ? sql`AND tasks.agent_id IS NULL` : agentId ? sql`AND tasks.agent_id=${agentId}` : sql``}
     ${priority ? sql`AND tasks.priority=${priority}` : sql``}`;
   const result = await sql.begin(
     "isolation level repeatable read read only",
@@ -314,7 +322,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
       }
       const rows = await tx<
         (TaskRow & { sortKey: string })[]
-      >`SELECT tasks.*,${sortKey} AS sort_key FROM tasks WHERE ${filters}
+      >`SELECT tasks.*,agents.name AS agent_name,${sortKey} AS sort_key FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE ${filters}
       ${cursor ? (descending ? sql`AND (${sortKey},tasks.id)<(${cursor.key},${cursor.id}::uuid)` : sql`AND (${sortKey},tasks.id)>(${cursor.key},${cursor.id}::uuid)`) : sql``}
       ORDER BY ${sortKey} ${descending ? sql`DESC` : sql`ASC`},tasks.id ${descending ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
       const hasMore = rows.length > limit;
@@ -355,9 +363,16 @@ domainRoutes.post("/boards/:id/tasks", async (c) => {
     const row = await lockBoard(c, tx, boardId);
     await validateAssignee(tx, input.assigneeId);
     const a = requireRole(c, "member", boardId);
+    const selectedAgent = await validateTaskAgent(
+      tx,
+      a.userId,
+      input.agentId ?? null,
+      input.assigneeId ?? null,
+      true,
+    );
     const [created] = await tx<
       TaskRow[]
-    >`INSERT INTO tasks (board_id,status,identifier,title,description,assignee_id,priority,due_date,checklist,created_by) VALUES (${boardId},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.priority ?? "none"},${input.dueDate ?? null},${tx.json(input.checklist ?? [])},${a.userId}) RETURNING *`;
+    >`INSERT INTO tasks (board_id,status,identifier,title,description,assignee_id,agent_id,priority,due_date,checklist,created_by) VALUES (${boardId},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.agentId ?? null},${input.priority ?? "none"},${input.dueDate ?? null},${tx.json(input.checklist ?? [])},${a.userId}) RETURNING *`;
     await tx`UPDATE boards SET next_number=next_number+1 WHERE id=${boardId}`;
     await recordActivity(
       tx,
@@ -370,7 +385,7 @@ domainRoutes.post("/boards/:id/tasks", async (c) => {
     if (created.assigneeId)
       await notify(tx, a, created.id, created.assigneeId, "assignment");
     await mentionNotifications(tx, a, created.id, created.description);
-    return created;
+    return { ...created, agentName: selectedAgent?.name ?? null };
   });
   return c.json({ task: result }, 201);
 });
@@ -407,10 +422,21 @@ domainRoutes.patch("/tasks/:id", async (c) => {
     const row = await lockedTask(c, tx, taskId, input.version);
     const a = requireRole(c, "member", row.boardId);
     await validateAssignee(tx, input.assigneeId);
-    await tx`UPDATE tasks SET status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},priority=${input.priority ?? row.priority},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},checklist=${tx.json(input.checklist ?? row.checklist)},version=version+1,updated_at=now() WHERE id=${taskId}`;
+    const effectiveAssignee =
+      input.assigneeId === undefined ? row.assigneeId : input.assigneeId;
+    const effectiveAgent =
+      input.agentId === undefined ? row.agentId : input.agentId;
+    await validateTaskAgent(
+      tx,
+      a.userId,
+      effectiveAgent,
+      effectiveAssignee,
+      effectiveAgent !== row.agentId || effectiveAssignee !== row.assigneeId,
+    );
+    await tx`UPDATE tasks SET status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},agent_id=${effectiveAgent},priority=${input.priority ?? row.priority},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},checklist=${tx.json(input.checklist ?? row.checklist)},version=version+1,updated_at=now() WHERE id=${taskId}`;
     const [updated] = await tx<
       TaskRow[]
-    >`SELECT * FROM tasks WHERE id=${taskId}`;
+    >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId}`;
     const fields = Object.keys(input).filter(
       (key) => key !== "version" && key !== "status",
     );
@@ -481,7 +507,9 @@ domainRoutes.post("/tasks/:id/comments", async (c) => {
   const result = await sql.begin(async (tx) => {
     const row = await task(c, taskId, "member", tx);
     await lockBoard(c, tx, row.boardId);
-    const [fresh] = await tx<TaskRow[]>`SELECT * FROM tasks WHERE id=${taskId}`;
+    const [fresh] = await tx<
+      TaskRow[]
+    >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId}`;
     if (!fresh) missing("Task not found");
     const a = requireRole(c, "member", row.boardId);
     const [created] =

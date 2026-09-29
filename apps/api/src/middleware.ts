@@ -12,6 +12,7 @@ import {
 } from "../../../packages/database/src/index.js";
 import { clientAddress, type Env } from "./http.js";
 import { config } from "./config.js";
+import { lockAgentAuthority, requireAgentAccess } from "./agents.js";
 class RetryTransactionRollback extends Error {}
 function encryptResponse(value: unknown) {
   const iv = randomBytes(12);
@@ -76,6 +77,7 @@ export const rateLimit: MiddlewareHandler<Env> = async (c, next) => {
 function responseResources(path: string, response: unknown) {
   const boardIds = new Set<string>();
   const taskIds = new Set<string>();
+  const agentIds = new Set<string>();
   const validId = (value: unknown): value is string =>
     typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -85,6 +87,8 @@ function responseResources(path: string, response: unknown) {
   const taskId = path.match(/^\/api\/tasks\/([^/]+)/)?.[1];
   if (validId(boardId)) boardIds.add(boardId);
   if (validId(taskId)) taskIds.add(taskId);
+  const agentId = path.match(/^\/api\/agents\/([^/]+)/)?.[1];
+  if (validId(agentId)) agentIds.add(agentId);
   function visit(value: unknown, parent?: string) {
     if (Array.isArray(value)) {
       for (const item of value) visit(item, parent);
@@ -92,9 +96,11 @@ function responseResources(path: string, response: unknown) {
       for (const [key, item] of Object.entries(value)) {
         if (key === "boardId" && validId(item)) boardIds.add(item);
         if (key === "taskId" && validId(item)) taskIds.add(item);
+        if (key === "agentId" && validId(item)) agentIds.add(item);
         if (key === "id" && validId(item)) {
           if (parent === "board" || parent === "boards") boardIds.add(item);
           if (parent === "task" || parent === "tasks") taskIds.add(item);
+          if (parent === "agent" || parent === "agents") agentIds.add(item);
         }
         if (key === "boardIds" && Array.isArray(item))
           for (const id of item) if (validId(id)) boardIds.add(id);
@@ -103,7 +109,11 @@ function responseResources(path: string, response: unknown) {
     }
   }
   visit(response);
-  return { boardIds: [...boardIds], taskIds: [...taskIds] };
+  return {
+    boardIds: [...boardIds],
+    taskIds: [...taskIds],
+    agentIds: [...agentIds],
+  };
 }
 export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
   const key = c.req.header("idempotency-key");
@@ -128,6 +138,8 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
     )
     .digest("hex");
   return withDatabaseTransaction(async () => {
+    await sql.begin(lockAgentAuthority);
+    await currentAuthority(c);
     await sql`DELETE FROM api_idempotency WHERE created_at < now()-interval '24 hours'`;
     const rows =
       await sql`INSERT INTO api_idempotency (actor_key,key,request_hash) VALUES (${actorKey},${key},${hash}) ON CONFLICT DO NOTHING RETURNING key`;
@@ -167,7 +179,31 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
       .catch(() => null);
     if (c.res.status >= 400) throw new RetryTransactionRollback();
     const resources = responseResources(c.req.path, response);
-    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds} WHERE actor_key=${actorKey} AND key=${key}`;
+    const consentId = c.req.path.match(
+      /^\/api\/oauth\/consent\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
+    )?.[1];
+    if (
+      c.req.method === "POST" &&
+      actor.kind === "human" &&
+      consentId &&
+      response &&
+      typeof response === "object" &&
+      "redirectTo" in response &&
+      typeof response.redirectTo === "string"
+    ) {
+      const [grant] = await sql<
+        { agentId: string; boardIds: string[] | null }[]
+      >`SELECT agent_id,board_ids FROM oauth_requests WHERE id=${consentId} AND user_id=${actor.userId} AND code_hash IS NOT NULL AND agent_id IS NOT NULL`;
+      if (grant) {
+        resources.agentIds = [
+          ...new Set([...resources.agentIds, grant.agentId]),
+        ];
+        resources.boardIds = [
+          ...new Set([...resources.boardIds, ...(grant.boardIds ?? [])]),
+        ];
+      }
+    }
+    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds},agent_ids=${resources.agentIds} WHERE actor_key=${actorKey} AND key=${key}`;
   }).catch((error) => {
     if (!(error instanceof RetryTransactionRollback)) throw error;
   });
@@ -177,9 +213,10 @@ async function currentAuthority(c: Context<Env>) {
   const a = c.get("actor");
   if (a.kind === "agent") {
     const [row] =
-      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId!} AND u.id=${a.userId} FOR SHARE OF u,c`;
+      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at,c.agent_id FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId!} AND u.id=${a.userId} FOR SHARE OF u,c`;
     if (
       !row ||
+      !row.agentId ||
       row.disabledAt ||
       row.revokedAt ||
       new Date(row.expiresAt).getTime() <= Date.now()
@@ -187,6 +224,7 @@ async function currentAuthority(c: Context<Env>) {
       throw new HTTPException(401, {
         message: "This credential is no longer valid",
       });
+    await sql.begin((tx) => requireAgentAccess(tx, a.userId, row.agentId));
     if (row.role !== a.role)
       throw new HTTPException(403, {
         message: "Your permissions changed. Reload Mill before trying again.",
@@ -223,6 +261,7 @@ export const mutationAuthority: MiddlewareHandler<Env> = async (c, next) => {
   )
     return next();
   return withDatabaseTransaction(async () => {
+    await sql.begin(lockAgentAuthority);
     await next();
     if (c.res.status >= 400) throw new RetryTransactionRollback();
     await currentAuthority(c);

@@ -29,6 +29,7 @@ import {
   Key01Icon,
   Settings01Icon,
   UserGroupIcon,
+  BotIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { Board, Member } from "../../../packages/contracts/src/index.js";
@@ -65,6 +66,7 @@ const Plus = iconComponent(Add01Icon);
 const Settings = iconComponent(Settings01Icon);
 const Users = iconComponent(UserGroupIcon);
 const KeyRound = iconComponent(Key01Icon);
+const AgentIcon = iconComponent(BotIcon);
 const Auth = lazy(() => import("./auth.js").then((m) => ({ default: m.Auth })));
 const BoardPage = lazy(() =>
   import("./board.js").then((m) => ({ default: m.BoardPage })),
@@ -91,6 +93,15 @@ function usePath() {
   }, []);
   return path;
 }
+const settingsTitles: Record<string, string> = {
+  profile: "Profile",
+  security: "Account security",
+  members: "People",
+  agents: "Agents",
+  "api-keys": "API keys",
+  workspace: "Team settings",
+};
+
 export function App() {
   const path = usePath();
   const [session, setSession] = useState<Session | null>(null);
@@ -256,8 +267,10 @@ export function App() {
     }
   }, [session?.user.id]);
   useEffect(() => {
-    if (session && path.startsWith("/settings/"))
-      document.title = `${path.split("/").pop()?.replaceAll("-", " ")} · Mill`;
+    if (session && path.startsWith("/settings/")) {
+      const section = path.split("/").pop() ?? "";
+      document.title = `${settingsTitles[section] ?? "Settings"} · Mill`;
+    }
     if (session && path === "/") document.title = "Boards · Mill";
   }, [path, session?.user.id]);
   useEffect(() => {
@@ -317,6 +330,7 @@ export function App() {
     "security",
     "members",
     "agents",
+    "api-keys",
     "workspace",
   ];
   function nav(label: string, url: string, icon: ReactNode): ShellLinkConfig {
@@ -345,29 +359,32 @@ export function App() {
         groups: [
           {
             id: "boards",
-            label: "Boards",
-            items: [
-              ...boards.map((board) => ({
-                id: board.id,
-                href: `/boards/${board.id}`,
-                label: board.name,
-                icon: <BoardIcon />,
-                active: activeBoardId === board.id,
-              })),
-              ...(session.user.role === "viewer"
-                ? []
-                : [
-                    {
-                      id: "create-project",
-                      label: "Create Project",
-                      icon: <Plus />,
-                      onPress: () => {
-                        setNewBoard(true);
-                        setCreateError("");
-                      },
-                    },
-                  ]),
-            ],
+            header: (
+              <div className="flex min-h-8 items-center justify-between gap-2 ps-2">
+                <h2 className="text-xs font-medium text-muted">Boards</h2>
+                {session.user.role !== "viewer" && (
+                  <Button
+                    aria-label="Create board"
+                    variant="ghost"
+                    isIconOnly
+                    className="board-create-button size-8 text-muted"
+                    onPress={() => {
+                      setCreateError("");
+                      setNewBoard(true);
+                    }}
+                  >
+                    <Plus />
+                  </Button>
+                )}
+              </div>
+            ),
+            items: boards.map((board) => ({
+              id: board.id,
+              href: `/boards/${board.id}`,
+              label: board.name,
+              icon: <BoardIcon />,
+              active: activeBoardId === board.id,
+            })),
             content: (
               <div className="grid min-w-0 gap-1">
                 <ErrorMessage>{boardsError}</ErrorMessage>
@@ -393,15 +410,10 @@ export function App() {
             label: "Workspace",
             items: [
               ...(admin ? [nav("People", "/settings/members", <Users />)] : []),
-              nav("Agent access", "/settings/agents", <KeyRound />),
+              nav("Agents", "/settings/agents", <AgentIcon />),
+              nav("API keys", "/settings/api-keys", <KeyRound />),
               ...(admin
-                ? [
-                    nav(
-                      "Workspace settings",
-                      "/settings/workspace",
-                      <Settings />,
-                    ),
-                  ]
+                ? [nav("Team settings", "/settings/workspace", <Settings />)]
                 : []),
             ],
           },
@@ -427,13 +439,6 @@ export function App() {
       }}
     />
   );
-  const settingsTitles: Record<string, string> = {
-    profile: "Profile",
-    security: "Account security",
-    members: "People",
-    agents: "Agent access",
-    workspace: "Workspace",
-  };
   const navbarTitle = activeBoardId
     ? (boards.find((board) => board.id === activeBoardId)?.name ??
       (routeBoard?.id === activeBoardId ? routeBoard.name : "Board"))
@@ -648,7 +653,6 @@ export function App() {
             onChange={(e) => setBoardPrefix(e.target.value.toUpperCase())}
             maxLength={12}
             placeholder="e.g. WEB"
-            description="Optional. Mill creates stable identifiers such as WEB-12."
           />
           <ErrorMessage>{createError}</ErrorMessage>
         </form>

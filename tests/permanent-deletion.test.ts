@@ -6,6 +6,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -206,6 +207,7 @@ test("board deletion requires a human Admin and current version, purges owned ro
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "Removed only",
         scopes: ["read", "write"],
         boardIds: [removed.id],
@@ -218,6 +220,7 @@ test("board deletion requires a human Admin and current version, purges owned ro
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "Both boards",
         scopes: ["read", "write"],
         boardIds: [removed.id, kept.id],
@@ -361,6 +364,7 @@ test("board deletion requires a human Admin and current version, purges owned ro
 
 test("deleting a board removes pending OAuth grants and narrows issued OAuth credentials", async () => {
   const { cookie } = await setupUser();
+  const agent = await setupAgent(cookie);
   const removed = await board(cookie, "OAUTH");
   const kept = await board(cookie, "OTHER");
   const redirect = "http://127.0.0.1:4182/callback";
@@ -386,7 +390,7 @@ test("deleting a board removes pending OAuth grants and narrows issued OAuth cre
     const consent = await json(
       await request(`/api/oauth/consent/${id}`, {
         cookie,
-        body: { allow: true, boardIds },
+        body: { allow: true, agentId: agent.id, boardIds },
       }),
     );
     return {

@@ -16,6 +16,7 @@ import {
   ErrorMessage,
   Spinner,
   Table,
+  Tooltip,
   TextField,
   Widget,
 } from "@mill/web-design-system";
@@ -126,7 +127,7 @@ function PeopleWidget({
       >
         <div className="flex items-center gap-2 text-muted">
           {icon}
-          <h2 className="text-sm font-medium">{title}</h2>
+          <h2 className="text-xs font-medium">{title}</h2>
         </div>
         {children}
       </section>
@@ -135,7 +136,7 @@ function PeopleWidget({
     <Widget role="region" aria-label={title} className="min-w-0">
       <Widget.Header>
         <Widget.Title icon={icon} help={false}>
-          <h2 className="text-sm font-medium">{title}</h2>
+          <h2 className="text-xs font-medium">{title}</h2>
         </Widget.Title>
       </Widget.Header>
       <Widget.Content className="min-w-0">
@@ -144,6 +145,49 @@ function PeopleWidget({
     </Widget>
   );
 }
+function RemovalHint({
+  name,
+  isProtected,
+  children,
+}: {
+  name: string;
+  isProtected: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!isProtected) return children;
+  return (
+    <Tooltip isOpen={open} onOpenChange={setOpen}>
+      <Tooltip.Trigger<"span">
+        role="group"
+        aria-label={`Removal unavailable for ${name}`}
+        tabIndex={0}
+        className="inline-flex rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-focus [&_button]:pointer-events-none"
+        onFocus={(event) => event.stopPropagation()}
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setOpen((value) => !value);
+          }
+          if (event.key === "Escape") setOpen(false);
+        }}
+      >
+        {children}
+      </Tooltip.Trigger>
+      <Tooltip.Content
+        placement="top"
+        showArrow
+        className="max-w-[min(16rem,calc(100vw-2rem))] whitespace-normal text-xs"
+      >
+        <Tooltip.Arrow />
+        This is the last administrator. Make another person an administrator
+        before removing access.
+      </Tooltip.Content>
+    </Tooltip>
+  );
+}
+
 function LoadingPeople({ children }: { children: ReactNode }) {
   return (
     <div role="status" className="flex items-center gap-2 text-sm text-muted">
@@ -226,7 +270,7 @@ export function PeopleSettings({
     <section className="settings-page">
       <PageHeading
         title="People"
-        icon={<HugeiconsIcon icon={UserMultipleIcon} size={24} />}
+        icon={<HugeiconsIcon icon={UserMultipleIcon} size={20} />}
         actions={
           <Button
             ref={inviteTrigger}
@@ -298,8 +342,8 @@ export function PeopleSettings({
                       return (
                         <Table.Row key={member.id} id={member.id}>
                           <Table.Cell className="whitespace-normal!">
-                            <div className="grid min-w-0 gap-1 whitespace-normal">
-                              <span className="break-words text-sm font-medium">
+                            <div className="grid min-w-0 gap-0.5 whitespace-normal text-sm/5 font-normal">
+                              <span className="break-words">
                                 {member.name}
                                 {member.id === session.user.id && (
                                   <span className="font-normal text-muted">
@@ -308,17 +352,12 @@ export function PeopleSettings({
                                   </span>
                                 )}
                               </span>
-                              <span className="break-all text-sm text-muted">
+                              <span className="break-all text-xs/4 font-normal text-muted">
                                 {member.email}
                               </span>
                               <div className="pt-1 md:hidden">
                                 <Chip>{roleNames[member.role]}</Chip>
                               </div>
-                              {lastAdmin && (
-                                <span className="text-sm text-muted">
-                                  Last administrator
-                                </span>
-                              )}
                             </div>
                           </Table.Cell>
                           <Table.Cell className="hidden align-middle md:table-cell">
@@ -345,22 +384,27 @@ export function PeopleSettings({
                                   size={16}
                                 />
                               </Button>
-                              <Button
-                                ref={rememberAction(`remove:${member.id}`)}
-                                onFocus={(event) => {
-                                  event.stopPropagation();
-                                }}
-                                variant="danger-ghost"
-                                isIconOnly
-                                aria-label={`Remove ${member.name}`}
-                                isDisabled={members.loading || lastAdmin}
-                                onPress={() => {
-                                  actionTrigger.current = `remove:${member.id}`;
-                                  setAction({ kind: "remove", member });
-                                }}
+                              <RemovalHint
+                                name={member.name}
+                                isProtected={lastAdmin}
                               >
-                                <Trash2 />
-                              </Button>
+                                <Button
+                                  ref={rememberAction(`remove:${member.id}`)}
+                                  onFocus={(event) => {
+                                    event.stopPropagation();
+                                  }}
+                                  variant="danger-ghost"
+                                  isIconOnly
+                                  aria-label={`Remove ${member.name}`}
+                                  isDisabled={members.loading || lastAdmin}
+                                  onPress={() => {
+                                    actionTrigger.current = `remove:${member.id}`;
+                                    setAction({ kind: "remove", member });
+                                  }}
+                                >
+                                  <Trash2 />
+                                </Button>
+                              </RemovalHint>
                             </div>
                           </Table.Cell>
                         </Table.Row>
@@ -373,8 +417,7 @@ export function PeopleSettings({
           )}
           {!completeDirectory && (
             <p className="text-sm text-muted">
-              This directory shows the first 1,000 people. Workspace exports
-              include all member details.
+              This directory shows the first 1,000 people.
             </p>
           )}
         </PeopleWidget>
@@ -440,11 +483,11 @@ export function PeopleSettings({
                       return (
                         <Table.Row key={invitation.id} id={invitation.id}>
                           <Table.Cell className="whitespace-normal!">
-                            <div className="grid min-w-0 gap-1 whitespace-normal">
-                              <span className="break-all text-sm font-medium">
+                            <div className="grid min-w-0 gap-0.5 whitespace-normal text-sm/5 font-normal">
+                              <span className="break-all">
                                 {invitation.email}
                               </span>
-                              <span className="text-sm text-muted">
+                              <span className="text-xs/4 font-normal text-muted">
                                 {roleNames[invitation.role]} · Expires{" "}
                                 {new Date(
                                   invitation.expiresAt,

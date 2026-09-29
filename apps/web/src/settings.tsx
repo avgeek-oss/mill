@@ -8,7 +8,6 @@ import {
   FieldGroup,
   FieldLabel,
   Input,
-  Link,
 } from "@mill/web-design-system";
 import { Settings2, Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
@@ -17,6 +16,7 @@ import { api, errorText, type Session } from "./api.js";
 import { AccountSettings } from "./account-settings.js";
 import { PeopleSettings } from "./people-settings.js";
 import { AgentSettings } from "./agent-settings.js";
+import { AgentsSettings } from "./agents-settings.js";
 
 export function SettingsPage({
   section,
@@ -39,8 +39,9 @@ export function SettingsPage({
         profile: "Profile",
         security: "Account security",
         members: "People",
-        agents: "Agent access",
-        workspace: "Workspace",
+        agents: "Agents",
+        "api-keys": "API keys",
+        workspace: "Team settings",
       } as Record<string, string>
     )[section] ?? "Settings";
   useEffect(() => {
@@ -91,7 +92,8 @@ export function SettingsPage({
     );
   if (section === "members")
     return <PeopleSettings session={session} onRefresh={onRefresh} />;
-  if (section === "agents")
+  if (section === "agents") return <AgentsSettings session={session} />;
+  if (section === "api-keys")
     return (
       <AgentSettings session={session} boards={boards} onRefresh={onRefresh} />
     );
@@ -112,13 +114,8 @@ export function SettingsPage({
         </p>
       )}
       {section === "workspace" && (
-        <div className="content-grid lg:grid-cols-2 lg:items-start">
+        <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
           <Widget>
-            <Widget.Header>
-              <Widget.Title icon={<Settings2 />} help={false}>
-                Workspace details
-              </Widget.Title>
-            </Widget.Header>
             <Widget.Content>
               <form
                 className="content-grid"
@@ -157,25 +154,6 @@ export function SettingsPage({
                   </Button>
                 </div>
               </form>
-            </Widget.Content>
-          </Widget>
-          <Widget>
-            <Widget.Header>
-              <Widget.Title help={false}>Backups</Widget.Title>
-            </Widget.Header>
-            <Widget.Content>
-              <p className="text-sm text-muted">
-                Keep a PostgreSQL backup of your workspace, accounts, and task
-                history. Follow the{" "}
-                <Link
-                  href="/guides/backup.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  backup and recovery guide
-                </Link>
-                .
-              </p>
             </Widget.Content>
           </Widget>
         </div>

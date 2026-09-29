@@ -6,7 +6,18 @@ export type Actor = {
   kind: "human" | "agent";
   scopes: string[];
   credentialId?: string;
+  agentId?: string;
   boardIds?: string[];
+};
+export type Agent = {
+  id: string;
+  name: string;
+  scope: "personal" | "team";
+  creatorId: string;
+  memberIds: string[];
+  version: number;
+  createdAt: string;
+  updatedAt: string;
 };
 export type Board = {
   id: string;
@@ -33,6 +44,8 @@ export type Task = {
   title: string;
   description: string;
   assigneeId: string | null;
+  agentId: string | null;
+  agentName: string | null;
   priority: "none" | "low" | "medium" | "high" | "urgent";
   dueDate: string | null;
   checklist: ChecklistItem[];

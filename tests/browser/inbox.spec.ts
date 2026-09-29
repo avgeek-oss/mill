@@ -360,10 +360,19 @@ test("Viewer members can read their own inbox and read-only agent credentials ca
 }) => {
   const who = await account("Viewer Inbox", "viewer");
   const fixture = await seed(who, 3);
+  const { agent } = await json(admin, "/agents", {
+    name: "Read-only Inbox agent",
+    scope: "team",
+    memberIds: [who.id],
+  });
   const credential = await json(who.api, "/credentials", {
     name: "Read-only Inbox",
+    agentId: agent.id,
     scopes: ["read"],
   });
+  expect(credential.credential.userId).toBe(who.id);
+  expect(credential.credential.agentId).toBe(agent.id);
+  expect(credential.credential.scopes).toEqual(["read"]);
   const denied = await admin.patch("/api/notifications", {
     headers: { Origin: origin, Authorization: `Bearer ${credential.token}` },
     data: { ids: [fixture.items[0]!.id], read: true },

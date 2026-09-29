@@ -18,6 +18,14 @@ The migration removes the obsolete email notification preference. Task delivery 
 
 Save and test a full database backup before starting this version against an existing installation. Older application versions cannot use the reduced schema. There is no legacy JSON/portable importer; existing portable files do not provide a v1 restore path. Recover an earlier model only from its database backup with a compatible old application in a separate project.
 
+## Explicit Agent migration
+
+Migration `008_agents.sql` adds Agents separate from People, explicit team access grants, and task Agent bindings. It revokes preexisting credentials that lack an Agent binding, including earlier OAuth connections. It creates no Agents automatically and preserves existing tasks, task history, and human sessions. Earlier applied migrations remain unchanged.
+
+After upgrade, open Agents in the human interface. Create a personal Agent or have an administrator create a team Agent and assign eligible people. Open API keys to issue a new personal key bound to an Agent you can access, or reconnect OAuth and select that Agent at consent. A person without an eligible Agent cannot approve a connection. Revoked old keys do not become usable again by creating an Agent.
+
+An Agent on a task is optional, separate from the human assignee, and never executes work automatically. Selecting one requires an active human assignee and access for both actor and assignee. Test that binding and your external connection after upgrade. Keep the pre-upgrade backup and compatible old application if you need to recover the earlier credential model in a separate project.
+
 ## Upgrade a source installation
 
 ```sh
@@ -54,4 +62,4 @@ An older application image may not support an upgraded schema. Do not point it a
 
 Database major-version upgrades need a tested PostgreSQL upgrade plan. Changing the container tag across majors while reusing a volume is not a supported shortcut.
 
-The release gate must verify startup from the prior schema, preserved task/comment/member/history data, fixed-status conversion, and restoration of a generated full backup. Record the reviewed revision and observed results before using the new application version.
+The release gate must verify startup from the prior schema, preserved task/comment/member/history/session data, fixed-status conversion, migration 008's unbound-credential revocation without automatic Agent creation, and restoration of a generated full backup including Agents/access grants. Record the reviewed revision and observed results before using the new application version.

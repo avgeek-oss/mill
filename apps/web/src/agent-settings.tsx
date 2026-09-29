@@ -10,19 +10,18 @@ import {
   ErrorMessage,
   Table,
   TextField,
-  Widget,
   Link,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Key01Icon,
-  Link01Icon,
   Copy01Icon,
   ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { Plus } from "./icons.js";
 import {
   api,
+  ApiError,
   createRetryKey,
   errorText,
   isResponseObject,
@@ -30,10 +29,13 @@ import {
 } from "./api.js";
 import { PageHeading } from "./page-heading.js";
 import { useBoardDirectory } from "./board-directory.js";
+import { useAgentDirectory } from "./agents-settings.js";
 
 type Credential = {
   id: string;
   name: string;
+  agentId: string | null;
+  agentName: string | null;
   scopes: string[];
   boardIds: string[] | null;
   tokenType: "api-key" | "oauth";
@@ -58,6 +60,10 @@ function validCreationResponse(value: unknown) {
     credential.id.length > 0 &&
     typeof credential.name === "string" &&
     credential.name.length > 0 &&
+    typeof credential.agentId === "string" &&
+    credential.agentId.length > 0 &&
+    typeof credential.agentName === "string" &&
+    credential.agentName.length > 0 &&
     Array.isArray(credential.scopes) &&
     credential.scopes.includes("read") &&
     credential.scopes.every((scope) => scope === "read" || scope === "write") &&
@@ -101,6 +107,15 @@ function CreateCredential({
   const formId = useId();
   const [retryKey] = useState(createRetryKey);
   const [name, setName] = useState("");
+  const agents = useAgentDirectory(`${session.user.id}:${session.user.role}`);
+  const [agentId, setAgentId] = useState("");
+  const selectedAgent = agents.items.some((agent) => agent.id === agentId);
+  const blocked =
+    boardsPending ||
+    !!boardsError ||
+    agents.pending ||
+    !!agents.error ||
+    !selectedAgent;
   const [permission, setPermission] = useState("read");
   const [boardId, setBoardId] = useState("all");
   const [expiry, setExpiry] = useState("30");
@@ -115,9 +130,10 @@ function CreateCredential({
     onClose();
   }
   async function create() {
-    if (pending || boardsPending || boardsError) return;
+    if (pending || blocked) return;
     const payload = {
       name: name.trim(),
+      agentId,
       scopes: permission === "write" ? ["read", "write"] : ["read"],
       ...(boardId === "all" ? {} : { boardIds: [boardId] }),
       expiresInDays: Number(expiry),
@@ -141,6 +157,8 @@ function CreateCredential({
       onCreated(result.credential);
     } catch (cause) {
       setError(errorText(cause));
+      if (cause instanceof ApiError && [400, 403, 404].includes(cause.status))
+        void agents.reload();
     } finally {
       setPending(false);
     }
@@ -151,13 +169,13 @@ function CreateCredential({
       await navigator.clipboard.writeText(token);
       setCopied(true);
     } catch {
-      setError("Copy failed. Select the credential and copy it manually.");
+      setError("Copy failed. Select the key and copy it manually.");
     }
   }
   return (
     <Dialog
       open
-      title={token ? "Copy your credential" : "Create credential"}
+      title={token ? "Copy your API key" : "Create API key"}
       onClose={close}
       isDismissDisabled={pending}
       footer={
@@ -165,7 +183,7 @@ function CreateCredential({
           <>
             <Button variant="secondary" onPress={() => void copy()}>
               <HugeiconsIcon icon={Copy01Icon} size={16} />{" "}
-              {copied ? "Copied" : "Copy credential"}
+              {copied ? "Copied" : "Copy API key"}
             </Button>
             <Button onPress={close}>Done</Button>
           </>
@@ -174,12 +192,8 @@ function CreateCredential({
             <Button variant="secondary" isDisabled={pending} onPress={close}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              form={formId}
-              isDisabled={pending || boardsPending || Boolean(boardsError)}
-            >
-              {pending ? "Creating…" : "Create credential"}
+            <Button type="submit" form={formId} isDisabled={pending || blocked}>
+              {pending ? "Creating…" : "Create API key"}
             </Button>
           </>
         )
@@ -188,11 +202,11 @@ function CreateCredential({
       {token ? (
         <div className="content-grid">
           <p className="text-sm text-muted">
-            Save this credential in your agent’s secret storage. It is shown
-            only in this dialog and cannot be viewed again after you close it.
+            Save this key in your agent’s secret storage. It is shown only in
+            this dialog and cannot be viewed again after you close it.
           </p>
           <TextField
-            label="Credential"
+            label="API key"
             className="max-md:text-base!"
             value={token}
             readOnly
@@ -201,7 +215,7 @@ function CreateCredential({
           <ErrorMessage>{error}</ErrorMessage>
           {copied && (
             <p role="status" className="text-sm text-success">
-              Credential copied.
+              API key copied.
             </p>
           )}
         </div>
@@ -225,6 +239,41 @@ function CreateCredential({
             disabled={pending}
           />
           <Choice
+            label="Agent"
+            value={agentId}
+            onChange={setAgentId}
+            search
+            disabled={pending || agents.pending || !!agents.error}
+            items={agents.items.map((agent) => ({
+              id: agent.id,
+              name: agent.name,
+            }))}
+          />
+          {agents.pending && (
+            <p role="status" className="text-sm text-muted">
+              Loading agents…
+            </p>
+          )}
+          <ErrorMessage>{agents.error}</ErrorMessage>
+          {agents.error && (
+            <Button variant="secondary" onPress={() => void agents.reload()}>
+              Retry agents
+            </Button>
+          )}
+          {!agents.pending && !agents.error && !agents.items.length && (
+            <p className="text-sm text-muted">
+              {session.user.role === "viewer"
+                ? "Ask an administrator to assign you to a team agent."
+                : "Create a personal agent or ask an administrator to assign you to a team agent."}{" "}
+              <Link href="/settings/agents">Go to Agents</Link>
+            </p>
+          )}
+          {agentId && !agents.pending && !agents.error && !selectedAgent && (
+            <ErrorMessage>
+              This agent is no longer available. Choose another agent.
+            </ErrorMessage>
+          )}
+          <Choice
             label="Access"
             value={permission}
             onChange={setPermission}
@@ -237,8 +286,7 @@ function CreateCredential({
             ]}
           />
           <p className="text-sm text-muted">
-            Agents inherit your current workspace role. Credentials cannot
-            manage members, workspace settings, or other credentials.
+            This key uses your current workspace role.
           </p>
           <Choice
             label="Board access"
@@ -269,7 +317,7 @@ function CreateCredential({
           )}
           <p className="text-sm text-muted">
             All boards includes boards created later. Choose a board to limit
-            this credential to its tasks and discussion.
+            this key to its tasks and discussion.
           </p>
           <TextField
             label="Expires in days"
@@ -332,7 +380,7 @@ function RevokeCredential({
   return (
     <Dialog
       open
-      title="Revoke credential?"
+      title="Revoke API key?"
       onClose={close}
       isDismissDisabled={pending}
       footer={
@@ -348,7 +396,7 @@ function RevokeCredential({
               onPress={() => void revoke()}
               isDisabled={pending}
             >
-              {pending ? "Revoking…" : "Revoke credential"}
+              {pending ? "Revoking…" : "Revoke API key"}
             </Button>
           </>
         )
@@ -364,15 +412,14 @@ function RevokeCredential({
           ) : (
             <>
               Agents using <strong>{credential.name}</strong> will lose access
-              immediately. You can create a new credential if they need access
-              again.
+              immediately. You can create a new key if they need access again.
             </>
           )}
         </p>
         <ErrorMessage>{error}</ErrorMessage>
         {complete && (
           <p role="status" className="text-sm text-success">
-            Credential revoked.
+            API key revoked.
           </p>
         )}
       </div>
@@ -402,7 +449,6 @@ export function AgentSettings({
     error: boardsError,
     reload: loadBoards,
   } = useBoardDirectory(`${session.user.id}:${session.user.role}`);
-  const [endpointNotice, setEndpointNotice] = useState("");
   const generation = useRef(0);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
@@ -478,49 +524,44 @@ export function AgentSettings({
       timeZone: session.user.timeZone,
     }).format(new Date(value));
   }
-  const endpoint = `${window.location.origin}/mcp`;
   return (
     <div className="content-grid min-w-0">
       <PageHeading
-        title="Agent access"
+        title="API keys"
         icon={<HugeiconsIcon icon={Key01Icon} size={24} />}
-        description="Manage how external agents connect to Mill."
+
         actions={
           <Button onPress={() => setCreating(true)}>
-            <Plus /> Create credential
+            <Plus /> Create API key
           </Button>
         }
       />
       <section
         className="min-w-0 space-y-3"
-        aria-label="Credentials"
+        aria-label="API keys"
         role="region"
       >
-        <h2 className="flex items-center gap-2 text-sm font-medium">
-          <HugeiconsIcon icon={Key01Icon} size={16} />
-          Credentials
-        </h2>
         <div className="min-w-0">
           {pending && items === null ? (
             <p role="status" className="text-sm text-muted">
-              Loading credentials…
+              Loading API keys…
             </p>
           ) : error && items === null ? (
             <div className="content-grid">
               <ErrorMessage>{error}</ErrorMessage>
               <Button variant="secondary" onPress={() => void refresh()}>
-                Retry loading credentials
+                Retry loading API keys
               </Button>
             </div>
           ) : items?.length ? (
             <Table>
               <Table.ScrollContainer>
                 <Table.Content
-                  aria-label="Credentials"
+                  aria-label="API keys"
                   className="max-md:w-full! max-md:table-fixed!"
                 >
                   <Table.Header>
-                    <Table.Column isRowHeader>Credential</Table.Column>
+                    <Table.Column isRowHeader>API key</Table.Column>
                     <Table.Column className="hidden md:table-cell">
                       Status
                     </Table.Column>
@@ -587,6 +628,9 @@ export function AgentSettings({
                                   : "Read only"}{" "}
                                 · {boardNames}
                               </p>
+                              <p className="text-sm text-muted">
+                                {credential.agentName ?? "Agent unavailable"}
+                              </p>
                               {credential.tokenType === "oauth" && (
                                 <p className="text-sm text-muted">
                                   OAuth connection
@@ -636,9 +680,9 @@ export function AgentSettings({
           ) : (
             <EmptyState>
               <EmptyState.Header>
-                <EmptyState.Title>No credentials yet</EmptyState.Title>
+                <EmptyState.Title>No API keys yet</EmptyState.Title>
                 <EmptyState.Description>
-                  Create a credential to give an external agent access to Mill.
+                  Create a key for an existing agent.
                 </EmptyState.Description>
               </EmptyState.Header>
             </EmptyState>
@@ -647,7 +691,7 @@ export function AgentSettings({
             <div className="content-grid">
               <ErrorMessage>{error}</ErrorMessage>
               <Button variant="secondary" onPress={() => void refresh()}>
-                Retry loading credentials
+                Retry loading API keys
               </Button>
             </div>
           )}
@@ -665,67 +709,12 @@ export function AgentSettings({
                   ? "Loading more…"
                   : moreError
                     ? "Retry loading more"
-                    : "Load more credentials"}
+                    : "Load more API keys"}
               </Button>
             </div>
           </div>
         )}
       </section>
-      <Widget className="min-w-0" aria-label="Remote MCP" role="region">
-        <Widget.Header>
-          <Widget.Title
-            icon={<HugeiconsIcon icon={Link01Icon} size={16} />}
-            help={false}
-          >
-            <h2 className="text-sm font-medium">Remote MCP</h2>
-          </Widget.Title>
-        </Widget.Header>
-        <Widget.Content>
-          <div className="content-grid">
-            <p className="text-sm text-muted">
-              Add this endpoint to your agent’s MCP settings. Use HTTPS for a
-              remote instance.
-            </p>
-            <p className="text-sm">
-              <Link
-                href="/guides/agents.html"
-                className="underline underline-offset-2"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Agent setup guide
-              </Link>
-            </p>
-            <TextField
-              label="MCP endpoint"
-              className="max-md:text-base!"
-              value={endpoint}
-              readOnly
-            />
-            <div>
-              <Button
-                variant="secondary"
-                onPress={() => {
-                  void navigator.clipboard.writeText(endpoint).then(
-                    () => setEndpointNotice("Endpoint copied."),
-                    () =>
-                      setEndpointNotice(
-                        "Copy failed. Select the endpoint and copy it manually.",
-                      ),
-                  );
-                }}
-              >
-                <HugeiconsIcon icon={Copy01Icon} size={16} /> Copy endpoint
-              </Button>
-            </div>
-            {endpointNotice && (
-              <p role="status" className="text-sm text-muted">
-                {endpointNotice}
-              </p>
-            )}
-          </div>
-        </Widget.Content>
-      </Widget>
       {creating && (
         <CreateCredential
           session={session}

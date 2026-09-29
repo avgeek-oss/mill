@@ -13,6 +13,7 @@ import { TASK_STATUSES } from "../../../../packages/contracts/src/index.js";
 import { badRequest, conflict, requireRole, type Env } from "../http.js";
 import { sessionToken } from "../auth/model.js";
 import { hashToken } from "../auth/security.js";
+import { lockAgentAuthority, requireAgentAccess } from "../agents.js";
 
 export type Tx = postgres.TransactionSql;
 export type BoardRow = Board & { workspaceId: string; nextNumber: number };
@@ -39,6 +40,7 @@ export const taskFields = {
   title: z.string().trim().min(1).max(300),
   description: z.string().max(100000),
   assigneeId: uuid.nullable(),
+  agentId: uuid.nullable(),
   priority: z.enum(priorities),
   status: z.enum(TASK_STATUSES),
   dueDate: z.iso.date().nullable(),
@@ -92,6 +94,7 @@ export async function revalidateAuthority(
   min: "viewer" | "member" | "admin",
   boardId?: string,
 ) {
+  await lockAgentAuthority(tx);
   const existing = requireRole(c, min, boardId);
   const [member] = await tx<
     { role: Actor["role"]; name: string; securityEpoch: number }[]
@@ -102,14 +105,25 @@ export async function revalidateAuthority(
     });
   if (existing.kind === "agent") {
     const [credential] = await tx<
-      { scopes: string[]; boardIds: string[] | null }[]
-    >`SELECT scopes,board_ids FROM credentials WHERE id=${existing.credentialId!} AND user_id=${existing.userId} AND revoked_at IS NULL AND expires_at>now() FOR SHARE`;
+      { scopes: string[]; boardIds: string[] | null; agentId: string | null }[]
+    >`SELECT scopes,board_ids,agent_id FROM credentials WHERE id=${existing.credentialId!} AND user_id=${existing.userId} AND revoked_at IS NULL AND expires_at>now() FOR SHARE`;
     if (!credential)
       throw new HTTPException(401, {
         message: "This credential expired or was revoked",
       });
+    if (!credential.agentId)
+      throw new HTTPException(401, {
+        message: "This credential is no longer valid",
+      });
+    const selectedAgent = await requireAgentAccess(
+      tx,
+      existing.userId,
+      credential.agentId,
+    );
     c.set("actor", {
       ...existing,
+      name: `${selectedAgent.name} via ${member.name}`,
+      agentId: selectedAgent.id,
       role: member.role,
       scopes: credential.scopes,
       boardIds: credential.boardIds ?? undefined,
@@ -133,6 +147,7 @@ export async function lockBoard(
   boardId: string,
   min: "member" | "admin" = "member",
 ): Promise<BoardRow> {
+  await lockAgentAuthority(tx);
   requireRole(c, min, boardId);
   const [row] = await tx<
     BoardRow[]
@@ -149,7 +164,9 @@ export async function task(
 ): Promise<TaskRow> {
   requireRole(c, min);
   const db = tx ?? sql;
-  const [row] = await db<TaskRow[]>`SELECT * FROM tasks WHERE id=${taskId}`;
+  const [row] = await db<
+    TaskRow[]
+  >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId}`;
   if (!row) missing("Task not found");
   await board(c, row.boardId, min, tx);
   return row;
@@ -164,7 +181,7 @@ export async function lockedTask(
   await lockBoard(c, tx, original.boardId);
   const [row] = await tx<
     TaskRow[]
-  >`SELECT * FROM tasks WHERE id=${taskId} FOR UPDATE`;
+  >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId} FOR UPDATE OF tasks`;
   if (!row) missing("Task not found");
   assertVersion(row, expected);
   return row;
@@ -182,7 +199,7 @@ export async function recordActivity(
 export async function validateAssignee(tx: Tx, assigneeId?: string | null) {
   if (!assigneeId) return;
   const [member] =
-    await tx`SELECT id FROM users WHERE id=${assigneeId} AND disabled_at IS NULL`;
+    await tx`SELECT id FROM users WHERE id=${assigneeId} AND disabled_at IS NULL FOR SHARE`;
   if (!member) badRequest("Choose an active workspace member");
 }
 export async function notify(

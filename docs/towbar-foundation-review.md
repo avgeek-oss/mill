@@ -1,6 +1,6 @@
 # Towbar foundation review
 
-> Historical review of candidates before the final September 29 v1 task-list reduction. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below are retained as evidence of that earlier scope. They do not establish current behavior or readiness. See [the current scope and evidence](b1-verification.md).
+> Historical review of earlier candidates, retained through the preceding `7fc132` fixed-list candidate. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below do not verify the current explicit-Agent architecture or the 14 requested interface changes. See [the current scope and evidence](b1-verification.md).
 
 This records the controlled first UI foundation pass for the private Mill B1 draft. Foundation acceptance is limited to this checkpoint; it does not establish overall UI approval or release readiness. The earlier B1 screenshots and functional verification do not establish acceptance of the Towbar visual composition.
 

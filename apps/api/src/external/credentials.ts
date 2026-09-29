@@ -4,11 +4,18 @@ import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest } from "../http.js";
 import { HTTPException } from "hono/http-exception";
 import type { Tx } from "../domain/helpers.js";
+import {
+  findAccessibleAgent,
+  lockAgentAuthority,
+  requireAgentAccess,
+} from "../agents.js";
 import { digest, mcpResource, secret } from "./protocol.js";
 
 export type Credential = {
   id: string;
   userId: string;
+  agentId: string | null;
+  agentName: string | null;
   name: string;
   tokenPrefix: string;
   scopes: string[];
@@ -22,6 +29,7 @@ export type Credential = {
 };
 export type CredentialInput = {
   name: string;
+  agentId: string;
   scopes: string[];
   boardIds?: string[];
   expiresInDays: number;
@@ -42,7 +50,7 @@ export async function listCredentials(
     badRequest("This credential cursor does not belong to your account");
   const rows = await sql<
     Credential[]
-  >`SELECT id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at FROM credentials WHERE user_id=${a.userId} ${anchor ? sql`AND (created_at,id)<(SELECT created_at,id FROM credentials WHERE id=${anchor.id} AND user_id=${a.userId})` : sql``} ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`;
+  >`SELECT c.id,c.user_id,c.agent_id,g.name AS agent_name,c.name,c.token_prefix,c.scopes,c.board_ids,c.token_type,c.oauth_client_id,c.created_at,c.expires_at,c.last_used_at,c.revoked_at FROM credentials c LEFT JOIN agents g ON g.id=c.agent_id WHERE c.user_id=${a.userId} ${anchor ? sql`AND (c.created_at,c.id)<(SELECT created_at,id FROM credentials WHERE id=${anchor.id} AND user_id=${a.userId})` : sql``} ORDER BY c.created_at DESC,c.id DESC LIMIT ${limit + 1}`;
   const items = rows.slice(0, limit);
   const hasMore = rows.length > limit;
   return { items, hasMore, nextCursor: hasMore ? items.at(-1)!.id : null };
@@ -56,6 +64,7 @@ export async function validateBoards(boardIds: string[] | undefined, tx: Tx) {
 }
 export async function createCredential(a: Actor, input: CredentialInput) {
   return sql.begin(async (tx) => {
+    await lockAgentAuthority(tx);
     await validateBoards(input.boardIds, tx);
     const [owner] = await tx<
       { role: Role }[]
@@ -68,12 +77,13 @@ export async function createCredential(a: Actor, input: CredentialInput) {
       throw new HTTPException(403, {
         message: "Viewer accounts can only grant read access",
       });
+    const agent = await requireAgentAccess(tx, a.userId, input.agentId);
     const token = `mill_${secret()}`;
     const [credential] = await tx<
       Credential[]
-    >`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,board_ids,expires_at) VALUES(${a.userId},${input.name},${digest(token)},${token.slice(0, 12)},${input.scopes},${input.boardIds ?? null},${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
+    >`INSERT INTO credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,board_ids,expires_at) VALUES(${a.userId},${agent.id},${input.name},${digest(token)},${token.slice(0, 12)},${input.scopes},${input.boardIds ?? null},${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,agent_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
 
-    return { credential: credential!, token };
+    return { credential: { ...credential!, agentName: agent.name }, token };
   });
 }
 export async function revokeCredential(a: Actor, id: string) {
@@ -93,16 +103,18 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
       id: string;
       name: string;
       userId: string;
+      agentId: string | null;
       userName: string;
       role: Role;
       scopes: string[];
       boardIds: string[] | null;
       tokenType: string;
       resource: string | null;
+      lastUsedAt: Date | null;
     }[]
-  >`SELECT c.id,c.name,c.user_id,u.name AS user_name,u.role,c.scopes,c.board_ids,c.token_type,c.resource FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.token_hash=${digest(token)} AND c.revoked_at IS NULL AND c.expires_at>now() AND u.disabled_at IS NULL`;
+  >`SELECT c.id,c.name,c.user_id,c.agent_id,u.name AS user_name,u.role,c.scopes,c.board_ids,c.token_type,c.resource,c.last_used_at FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.token_hash=${digest(token)} AND c.revoked_at IS NULL AND c.expires_at>now() AND u.disabled_at IS NULL`;
   if (
-    !principal ||
+    !principal?.agentId ||
     (principal.tokenType === "oauth" &&
       (principal.resource !== mcpResource() ||
         (new URL(request.url).pathname !== "/mcp" &&
@@ -110,11 +122,18 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
           mcpDispatchTokens.getStore() !== digest(token))))
   )
     return null;
+  const agent = await findAccessibleAgent(principal.userId, principal.agentId);
+  if (!agent) return null;
   // A token never holds permissions beyond its owner's current membership.
-  await sql`UPDATE credentials SET last_used_at=now() WHERE id=${principal.id} AND (last_used_at IS NULL OR last_used_at<now()-interval '5 minutes')`;
+  if (
+    !principal.lastUsedAt ||
+    principal.lastUsedAt.getTime() < Date.now() - 300000
+  )
+    await sql`UPDATE credentials SET last_used_at=now() WHERE id=${principal.id} AND (last_used_at IS NULL OR last_used_at<now()-interval '5 minutes')`;
   return {
     userId: principal.userId,
-    name: `${principal.userName} via ${principal.name}`,
+    agentId: agent.id,
+    name: `${agent.name} via ${principal.userName}`,
     role: principal.role,
     kind: "agent",
     scopes: principal.scopes,

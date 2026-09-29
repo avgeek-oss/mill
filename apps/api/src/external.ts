@@ -102,6 +102,7 @@ externalRoutes.post("/api/credentials", async (c) => {
   const parsed = z
     .object({
       name: z.string().trim().min(1).max(120),
+      agentId: z.uuid(),
       scopes: z
         .array(z.enum(["read", "write"]))
         .min(1)
@@ -122,7 +123,7 @@ externalRoutes.post("/api/credentials", async (c) => {
     .safeParse(await c.req.json());
   if (!parsed.success)
     badRequest(
-      "Choose a name, read/write access, existing boards, and an expiry between 1 and 365 days",
+      "Choose an Agent, a name, read/write access, existing boards, and an expiry between 1 and 365 days",
     );
   if (a.role === "viewer" && parsed.data.scopes.includes("write"))
     throw new HTTPException(403, {
@@ -225,6 +226,7 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
   const parsed = z
     .object({
       allow: z.boolean(),
+      agentId: z.uuid().optional(),
       boardIds: z
         .array(z.uuid())
         .min(1)
@@ -243,6 +245,7 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
         a,
         parsed.data.allow,
         parsed.data.boardIds,
+        parsed.data.agentId,
       ),
     });
   } catch (error) {

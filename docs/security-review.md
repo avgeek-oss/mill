@@ -1,6 +1,21 @@
 # B1 security review
 
-## September 29 fixed-status task list
+## Current explicit-Agent review
+
+The independent backend review accepted the explicit-Agent boundaries after rechecking the two final findings below. Personal Agents are available only to their creator; team Agents require explicit grants to active people, without an implicit Admin or creator grant. Personal API keys and OAuth bind an eligible existing Agent. Empty eligibility prevents approval, OAuth creates no Agent, and external credentials cannot manage Agent identities.
+
+Task Agent attribution remains separate from the human assignee and requires an active eligible person. Changes to either effective binding check both actor and assignee access; unchanged valid bindings survive unrelated edits. The reviewed boundary includes role and board scope, personal key ownership, grant removal/deletion, revoked credentials and pending OAuth, current authority during writes, version conflicts, and absence of execution side effects. Migration 008 revokes legacy unbound credentials, creates no Agents and preserves work, human sessions and recorded history while earlier migration checksums remain unchanged.
+
+| Finding                                                                                 | Corrected behavior                                                                                                                  | Independent recheck                                                                                               |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| A completed OAuth approval could remain replayable after its selected Agent was deleted | Agent references are retained in the retry identity; deletion clears encrypted response content and makes the old approval terminal | Exact approval replay returns `410`, its cached response is null, and the real code exchange is denied with `400` |
+| Disabling a granted member changed directory content without changing the Agent version | The eligible directory revision includes current membership/grant state                                                             | Continuation returns `409 agent_list_changed`; a clean restart returns the complete current directory             |
+
+The original independent recheck is retained in `tmp/security-agents-boundary-probes-fixed.log`. It confirms both corrected boundaries and removal of its isolated namespace. Root's complete source verification now passes **146 real PostgreSQL API/security tests, 14 tooling tests and 28 documentation checks**, formatting, lint, type checks, dependency audit and the production build.
+
+This is accepted local backend review, not a production or publication claim. The complete nine-installation browser run passed all 76 cases on `index-D0aEy3Kr.js`; independent desktop/phone review in both themes accepted the current Agent/API-key captures. Their exact local receipts are recorded in [B1 verification](b1-verification.md). Exact-commit packaged migration/restore and hosted CI results are tracked separately on the private PR. Physical authenticators and the operator's HTTPS/proxy environment require their own deployment checks. Earlier review receipts below are historical through `7fc132`.
+
+## Historical fixed-status review through 7fc132
 
 The independent backend review passed 71 focused PostgreSQL/API/security checks for the reduced model. A separate prior-schema upgrade probe verified preserved task content, former subtasks as independent tasks, unchanged historical activity details, retained sessions and retry identities, and removal of obsolete storage and API/tool surfaces. Existing completed retry responses become content-free terminal records after the upgrade.
 

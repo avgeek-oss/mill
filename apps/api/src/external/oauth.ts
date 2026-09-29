@@ -2,6 +2,12 @@ import { sql } from "../../../../packages/database/src/index.js";
 import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
 import { resolveClient } from "./clients.js";
 import { validateBoards } from "./credentials.js";
+import { HTTPException } from "hono/http-exception";
+import {
+  listAccessibleAgents,
+  lockAgentAuthority,
+  requireAgentAccess,
+} from "../agents.js";
 import {
   authorizationResponse,
   digest,
@@ -25,6 +31,7 @@ type Grant = {
   state: string | null;
   challenge: string;
   userId: string | null;
+  agentId: string | null;
   boardIds: string[] | null;
   codeHash: string | null;
   credentialId: string | null;
@@ -84,6 +91,7 @@ export async function consentDetails(id: string, a: Actor) {
       "invalid_request",
       "This connection link has expired or was already used. Start again from your app.",
     );
+  const agents = await listAccessibleAgents(a.userId);
   return {
     clientName: grant.clientName,
     clientId: grant.clientId,
@@ -92,6 +100,9 @@ export async function consentDetails(id: string, a: Actor) {
     scope: grant.scope,
     expiresIn: tokenLifetimeSeconds,
     user: { name: a.name, role: a.role },
+    agents,
+    requiresAgent: true,
+    canApprove: agents.length > 0,
   };
 }
 export async function decideConsent(
@@ -99,6 +110,7 @@ export async function decideConsent(
   a: Actor,
   allow: boolean,
   boardIds?: string[],
+  agentId?: string,
 ) {
   if (a.kind !== "human")
     throw new OAuthError(
@@ -107,7 +119,7 @@ export async function decideConsent(
       403,
     );
   return sql.begin(async (tx) => {
-    await validateBoards(boardIds, tx);
+    await lockAgentAuthority(tx);
     const [user] = await tx<
       { role: Role }[]
     >`SELECT role FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
@@ -136,8 +148,26 @@ export async function decideConsent(
         "Requested access exceeds your role",
         403,
       );
+    if (!agentId)
+      throw new OAuthError(
+        "access_denied",
+        "Choose an existing Agent before approving this connection",
+        403,
+      );
+    try {
+      await requireAgentAccess(tx, a.userId, agentId);
+    } catch (error) {
+      if (error instanceof HTTPException && error.status === 403)
+        throw new OAuthError(
+          "access_denied",
+          "This Agent is no longer available to your account",
+          403,
+        );
+      throw error;
+    }
+    await validateBoards(boardIds, tx);
     const code = secret();
-    await tx`UPDATE oauth_requests SET user_id=${a.userId},board_ids=${boardIds ?? null},code_hash=${digest(code)},expires_at=${new Date(Date.now() + 120000)} WHERE id=${id}`;
+    await tx`UPDATE oauth_requests SET user_id=${a.userId},agent_id=${agentId},board_ids=${boardIds ?? null},code_hash=${digest(code)},expires_at=${new Date(Date.now() + 120000)} WHERE id=${id}`;
 
     return authorizationResponse(grant, { code });
   });
@@ -155,6 +185,7 @@ export async function exchangeCode(
   if (!/^[A-Za-z0-9._~-]{43,128}$/.test(params.code_verifier ?? ""))
     throw new OAuthError("invalid_grant", "Invalid PKCE verifier");
   const result = await sql.begin(async (tx) => {
+    await lockAgentAuthority(tx);
     const [grant] = await tx<
       Grant[]
     >`SELECT * FROM oauth_requests WHERE code_hash=${digest(params.code ?? "")} FOR UPDATE`;
@@ -172,15 +203,25 @@ export async function exchangeCode(
       }
       return null;
     }
-    if (grant.expiresAt <= new Date() || !grant.userId) return null;
+    if (grant.expiresAt <= new Date() || !grant.userId || !grant.agentId)
+      return null;
     const [user] = await tx<
       { role: Role; name: string }[]
     >`SELECT role,name FROM users WHERE id=${grant.userId} AND disabled_at IS NULL FOR SHARE`;
     if (!user || (user.role === "viewer" && grant.scope.includes("write")))
       return null;
+    try {
+      await requireAgentAccess(tx, grant.userId, grant.agentId);
+    } catch (error) {
+      if (error instanceof HTTPException && error.status === 403) {
+        await tx`UPDATE oauth_requests SET consumed_at=now() WHERE id=${grant.id}`;
+        return null;
+      }
+      throw error;
+    }
     const token = `mill_${secret()}`;
     const [credential] =
-      await tx`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at) VALUES(${grant.userId},${grant.clientName},${digest(token)},${token.slice(0, 12)},${grant.scope.split(" ")},${grant.boardIds},'oauth',${clientId},${mcpResource()},${new Date(Date.now() + tokenLifetimeSeconds * 1000)}) RETURNING id`;
+      await tx`INSERT INTO credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at) VALUES(${grant.userId},${grant.agentId},${grant.clientName},${digest(token)},${token.slice(0, 12)},${grant.scope.split(" ")},${grant.boardIds},'oauth',${clientId},${mcpResource()},${new Date(Date.now() + tokenLifetimeSeconds * 1000)}) RETURNING id`;
     await tx`UPDATE oauth_requests SET consumed_at=now(),credential_id=${credential!.id} WHERE id=${grant.id}`;
 
     return {
@@ -199,6 +240,7 @@ export async function exchangeCode(
 }
 export async function revokeOAuthToken(clientId: string, token: string) {
   await sql.begin(async (tx) => {
+    await lockAgentAuthority(tx);
     await tx`UPDATE credentials SET revoked_at=now() WHERE token_hash=${digest(token)} AND oauth_client_id=${clientId} AND token_type='oauth' AND revoked_at IS NULL`;
   });
 }

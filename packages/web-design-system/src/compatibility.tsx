@@ -76,6 +76,7 @@ export type ChoiceProps = Omit<
   items: { id: string; name: string }[];
   disabled?: boolean;
   search?: boolean;
+  hideLabel?: boolean;
 };
 
 export function Choice({
@@ -85,10 +86,11 @@ export function Choice({
   items,
   disabled,
   search = false,
+  hideLabel = false,
   ...props
 }: ChoiceProps) {
   const options = (
-    <ListBox>
+    <ListBox shouldSelectOnPressUp={false}>
       {items.map((item) => (
         <ListBox.Item key={item.id} id={item.id} textValue={item.name}>
           {item.name}
@@ -106,7 +108,7 @@ export function Choice({
       onSelectionChange={(key) => typeof key === "string" && onChange(key)}
       isDisabled={disabled ?? props.isDisabled}
     >
-      <Label>{label}</Label>
+      <Label className={hideLabel ? "sr-only" : undefined}>{label}</Label>
       <Select.Trigger className="min-w-0">
         <Select.Value className="min-w-0 flex-1 truncate">
           {items.find((item) => item.id === value)?.name ?? "Choose…"}

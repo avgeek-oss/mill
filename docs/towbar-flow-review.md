@@ -1,6 +1,6 @@
 # Towbar flow review
 
-> Historical review of candidates before the final September 29 v1 task-list reduction. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below are retained as evidence of that earlier scope. They do not establish current behavior or readiness. See [the current scope and evidence](b1-verification.md).
+> Historical review of earlier candidates, retained through the preceding `7fc132` fixed-list candidate. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below do not verify the current explicit-Agent architecture or the 14 requested interface changes. See [the current scope and evidence](b1-verification.md).
 
 The coordinator accepted the Account/Auth and Task/Board gate on 2026-09-28 after independent review of the running preview in both themes at measured CSS widths of 390 and 1280. This follows the separately accepted [foundation](towbar-foundation-review.md). It does not establish complete B1 acceptance, final-candidate CI, container verification, or release readiness.
 

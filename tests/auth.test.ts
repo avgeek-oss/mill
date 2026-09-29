@@ -10,6 +10,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -322,7 +323,11 @@ test("profiles validate time zones, preserve omitted preferences and reject agen
   const credential = await (
     await request("/api/credentials", {
       cookie: admin.cookie,
-      body: { name: "Agent", scopes: ["read", "write"] },
+      body: {
+        agentId: (await setupAgent(admin.cookie)).id,
+        name: "Agent",
+        scopes: ["read", "write"],
+      },
     })
   ).json();
   assert.equal(
@@ -472,7 +477,11 @@ test("last administrator protection survives concurrent demotion and member remo
   const credential = await (
     await request("/api/credentials", {
       cookie: member.cookie,
-      body: { name: "Member agent", scopes: ["read"] },
+      body: {
+        agentId: (await setupAgent(member.cookie)).id,
+        name: "Member agent",
+        scopes: ["read"],
+      },
     })
   ).json();
   assert.equal(
@@ -765,7 +774,11 @@ test("password changes revoke other sessions and agent credentials, preserving t
   const credential = await (
     await request("/api/credentials", {
       cookie: admin.cookie,
-      body: { name: "Agent", scopes: ["read"] },
+      body: {
+        agentId: (await setupAgent(admin.cookie)).id,
+        name: "Agent",
+        scopes: ["read"],
+      },
     })
   ).json();
   const changed = await request("/api/auth/password", {
@@ -815,7 +828,11 @@ test("operator recovery links expire, are single-use, revoke credentials and can
   const credential = await (
     await request("/api/credentials", {
       cookie: admin.cookie,
-      body: { name: "Agent", scopes: ["read"] },
+      body: {
+        agentId: (await setupAgent(admin.cookie)).id,
+        name: "Agent",
+        scopes: ["read"],
+      },
     })
   ).json();
   const token = await createOperatorRecovery(admin.user.email, true);

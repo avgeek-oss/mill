@@ -2,7 +2,7 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-const { cleanupDatabase, request, resetDatabase, setupUser, sql } =
+const { cleanupDatabase, request, resetDatabase, setupAgent, setupUser, sql } =
   await import("./support.js");
 const { credentialActor } =
   await import("../apps/api/src/external/credentials.js");
@@ -45,7 +45,7 @@ async function credential(cookie: string, name = "Older active access") {
   return json(
     await request("/api/credentials", {
       cookie,
-      body: { name, scopes: ["read"] },
+      body: { agentId: (await setupAgent(cookie)).id, name, scopes: ["read"] },
     }),
     201,
   );
@@ -76,7 +76,7 @@ test("credential pages retain stable ordering and expose older active access for
   const { cookie, user } = await setupUser();
   const older = await credential(cookie);
   await sql`UPDATE credentials SET created_at='2020-01-01T00:00:00Z' WHERE id=${older.credential.id}`;
-  await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT ${user.id},'History '||sequence,gen_random_uuid()::text,'mill_fixture',ARRAY['read'],timestamptz '2026-01-01T00:00:00Z'+(sequence/3)*interval '1 microsecond',now()+interval '1 day',now() FROM generate_series(1,207) sequence`;
+  await sql`INSERT INTO credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT ${user.id},${older.credential.agentId},'History '||sequence,gen_random_uuid()::text,'mill_fixture',ARRAY['read'],timestamptz '2026-01-01T00:00:00Z'+(sequence/3)*interval '1 microsecond',now()+interval '1 day',now() FROM generate_series(1,207) sequence`;
   const expected = (
     await sql`SELECT id FROM credentials WHERE user_id=${user.id} ORDER BY created_at DESC,id DESC`
   ).map((row) => row.id);

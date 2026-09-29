@@ -4,6 +4,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -128,6 +129,7 @@ test("task detail, comments and activity resolve permissions through the owning 
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "Limited reader",
         scopes: ["read"],
         boardIds: [allowed.id],

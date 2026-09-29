@@ -4,6 +4,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -155,6 +156,7 @@ for (const action of ["edit", "comment"] as const) {
 for (const winner of ["delete", "issuance"] as const) {
   test(`no-key credential creation and board deletion retain scope locks when ${winner} goes first`, async () => {
     const { cookie, user, board } = await fixture();
+    const agent = await setupAgent(cookie);
     const gate = await barrier((tx) =>
       winner === "delete"
         ? tx`SELECT id FROM boards WHERE id=${board.id} FOR UPDATE`
@@ -170,6 +172,7 @@ for (const winner of ["delete", "issuance"] as const) {
       request("/api/credentials", {
         cookie,
         body: {
+          agentId: agent.id,
           name: "Concurrent scope",
           scopes: ["read", "write"],
           boardIds: [board.id],
@@ -210,6 +213,7 @@ for (const winner of ["delete", "issuance"] as const) {
 }
 
 async function oauth(cookie: string, boardId: string) {
+  const agent = await setupAgent(cookie);
   const redirect = "http://127.0.0.1:4182/callback";
   const client = await json(
     await request("/oauth/register", {
@@ -232,7 +236,7 @@ async function oauth(cookie: string, boardId: string) {
   const consent = () =>
     request(`/api/oauth/consent/${grantId}`, {
       cookie,
-      body: { allow: true, boardIds: [boardId] },
+      body: { allow: true, agentId: agent.id, boardIds: [boardId] },
     });
   const exchange = async (code: string) =>
     app.request("/oauth/token", {
@@ -378,7 +382,7 @@ for (const winner of ["delete", "issuance"] as const) {
 }
 
 for (const change of ["role", "revoke"] as const) {
-  test(`a task delete waiting for its board rechecks ${change} authority`, async () => {
+  test(`a task delete queued after ${change} rechecks workspace authority`, async () => {
     const { cookie, board, task } = await fixture();
     const invitation = await json(
       await request("/api/auth/invitations", {
@@ -400,6 +404,7 @@ for (const change of ["role", "revoke"] as const) {
       await request("/api/credentials", {
         cookie: memberCookie,
         body: {
+          agentId: (await setupAgent(memberCookie)).id,
           name: "Pending delete",
           scopes: ["read", "write"],
           boardIds: [board.id],
@@ -407,31 +412,38 @@ for (const change of ["role", "revoke"] as const) {
       }),
       201,
     );
-    const gate = await barrier(
-      (tx) => tx`SELECT id FROM boards WHERE id=${board.id} FOR UPDATE`,
-    );
-    const pending = request(`/api/tasks/${task.id}`, {
-      token: credential.token,
-      method: "DELETE",
-      body: { version: task.version },
-    });
+    await json(await request("/api/boards", { token: credential.token }));
+    const gate = await barrier((tx) => tx`SELECT id FROM workspace FOR UPDATE`);
+    let pending!: Promise<Response>;
+    let changed!: Promise<Response>;
     try {
-      await waitForBlocked(gate.pid);
-      const changed =
+      changed =
         change === "role"
-          ? await request(`/api/auth/members/${user.id}`, {
+          ? request(`/api/auth/members/${user.id}`, {
               cookie,
               method: "PATCH",
               body: { role: "viewer" },
             })
-          : await request(`/api/credentials/${credential.credential.id}`, {
+          : request(`/api/credentials/${credential.credential.id}`, {
               cookie: memberCookie,
               method: "DELETE",
             });
-      assert.equal(changed.status, 200, await changed.clone().text());
+      await waitForBlocked(gate.pid);
+      pending = request(`/api/tasks/${task.id}`, {
+        token: credential.token,
+        method: "DELETE",
+        body: { version: task.version },
+      });
+      await waitForBlocked(gate.pid, 2);
     } finally {
       await gate.release();
     }
+    const changedResponse = await changed;
+    assert.equal(
+      changedResponse.status,
+      200,
+      await changedResponse.clone().text(),
+    );
     const result = await pending;
     assert.ok([401, 403].includes(result.status), await result.clone().text());
     assert.equal(

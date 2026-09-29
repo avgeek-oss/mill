@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Button,
   Chip,
@@ -20,6 +20,7 @@ import {
 import { Check, LinkIcon, Plus, Trash2 } from "./icons.js";
 import type {
   Activity,
+  Agent,
   ChecklistItem,
   Comment,
   Member,
@@ -33,6 +34,7 @@ import {
   type TaskStatus,
 } from "../../../packages/contracts/src/index.js";
 import {
+  hasAgentsResponse,
   hasCommentResponse,
   hasOkResponse,
   hasTaskResponse,
@@ -73,9 +75,14 @@ export function TaskDialog({
     description: "",
     status: "todo" as TaskStatus,
     assigneeId: "",
+    agentId: "",
     priority: "none",
     dueDate: "",
   });
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const latestAgentsLoad = useRef(0);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [agentsError, setAgentsError] = useState("");
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [itemText, setItemText] = useState("");
   const [commentsCursor, setCommentsCursor] = useState<string | null>(null);
@@ -131,6 +138,7 @@ export function TaskDialog({
         description: next.task.description,
         status: next.task.status,
         assigneeId: next.task.assigneeId ?? "",
+        agentId: next.task.agentId ?? "",
         priority: next.task.priority,
         dueDate: next.task.dueDate?.slice(0, 10) ?? "",
       });
@@ -141,6 +149,61 @@ export function TaskDialog({
     } finally {
       setLoading(false);
     }
+  }
+  async function loadAgents() {
+    const request = ++latestAgentsLoad.current;
+    setAgentsLoading(true);
+    setAgentsError("");
+    try {
+      const collected: Agent[] = [];
+      let cursor: string | null = null;
+      do {
+        const params = new URLSearchParams({ limit: "100" });
+        if (cursor) params.set("cursor", cursor);
+        const page = await api<{
+          items: Agent[];
+          hasMore: boolean;
+          nextCursor: string | null;
+        }>(`/agents?${params}`, undefined, "GET", {
+          validateResponse: hasAgentsResponse,
+        });
+        if (request !== latestAgentsLoad.current) return;
+        collected.push(...page.items);
+        cursor = page.nextCursor;
+      } while (cursor);
+      if (request === latestAgentsLoad.current) setAgents(collected);
+    } catch (error) {
+      if (request === latestAgentsLoad.current)
+        setAgentsError(errorText(error));
+    } finally {
+      if (request === latestAgentsLoad.current) setAgentsLoading(false);
+    }
+  }
+  useEffect(() => {
+    if (writable) void loadAgents();
+    return () => {
+      ++latestAgentsLoad.current;
+    };
+  }, [writable, user.id]);
+  function agentBindingError() {
+    if (!form.agentId) return "";
+    if (!members.some((member) => member.id === form.assigneeId))
+      return "Choose an active human assignee before assigning an agent.";
+    if (
+      detail?.task.agentId === form.agentId &&
+      detail.task.assigneeId === form.assigneeId
+    )
+      return "";
+    const selected = agents.find((agent) => agent.id === form.agentId);
+    if (!selected)
+      return "Choose an agent available to you, or clear the agent.";
+    const available =
+      selected.scope === "personal"
+        ? selected.creatorId === form.assigneeId
+        : selected.memberIds.includes(form.assigneeId);
+    return available
+      ? ""
+      : "This agent is not available to the selected assignee.";
   }
   useEffect(() => {
     void load();
@@ -170,10 +233,18 @@ export function TaskDialog({
   async function save(event: FormEvent) {
     event.preventDefault();
     if (selection.id && !detail) return;
+    const bindingError = agentBindingError();
+    if (bindingError) {
+      setError(bindingError);
+      setErrorAction("task");
+      setConflict(false);
+      return;
+    }
     await run(async () => {
       const payload = {
         ...form,
         assigneeId: form.assigneeId || null,
+        agentId: form.agentId || null,
         dueDate: form.dueDate || null,
         checklist,
         ...(detail ? { version: detail.task.version } : {}),
@@ -594,6 +665,45 @@ export function TaskDialog({
                 disabled={!editable}
                 search
               />
+              <Choice
+                className="min-w-0 w-full"
+                label="Agent"
+                value={form.agentId}
+                onChange={(value) => patch("agentId", value)}
+                items={[
+                  { id: "", name: "No agent" },
+                  ...agents,
+                  ...(form.agentId &&
+                  !agents.some((agent) => agent.id === form.agentId) &&
+                  detail?.task.agentId === form.agentId
+                    ? [
+                        {
+                          id: form.agentId,
+                          name: detail.task.agentName ?? "Unavailable agent",
+                        },
+                      ]
+                    : []),
+                ]}
+                disabled={!editable || agentsLoading || busy}
+                search
+              />
+              {agentsError && (
+                <div className="content-grid">
+                  <ErrorMessage>{agentsError}</ErrorMessage>
+                  <Button
+                    variant="secondary"
+                    isDisabled={agentsLoading || busy}
+                    onPress={() => void loadAgents()}
+                  >
+                    Retry loading agents
+                  </Button>
+                </div>
+              )}
+              {form.agentId && !form.assigneeId && (
+                <TypographyParagraph size="sm" color="muted">
+                  Choose a human assignee to use an agent.
+                </TypographyParagraph>
+              )}
               <Choice
                 className="min-w-0 w-full"
                 label="Priority"

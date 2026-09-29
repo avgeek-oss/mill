@@ -36,6 +36,33 @@ export function hasBoardsResponse(value: unknown) {
       : value.nextCursor === null)
   );
 }
+export function hasAgentResponse(value: unknown) {
+  const agent = record(value, "agent");
+  return (
+    !!agent &&
+    typeof agent.name === "string" &&
+    agent.name.length > 0 &&
+    (agent.scope === "personal" || agent.scope === "team") &&
+    typeof agent.creatorId === "string" &&
+    agent.creatorId.length > 0 &&
+    Array.isArray(agent.memberIds) &&
+    agent.memberIds.every(
+      (memberId) => typeof memberId === "string" && memberId.length > 0,
+    ) &&
+    version(agent.version)
+  );
+}
+export function hasAgentsResponse(value: unknown) {
+  return (
+    isResponseObject(value) &&
+    Array.isArray(value.items) &&
+    value.items.every((agent) => hasAgentResponse({ agent })) &&
+    typeof value.hasMore === "boolean" &&
+    (value.hasMore
+      ? typeof value.nextCursor === "string" && value.nextCursor.length > 0
+      : value.nextCursor === null)
+  );
+}
 export function hasTaskResponse(value: unknown) {
   const task = record(value, "task");
   return (
@@ -44,6 +71,10 @@ export function hasTaskResponse(value: unknown) {
       (key) => typeof task[key] === "string" && task[key].length > 0,
     ) &&
     TASK_STATUSES.some((status) => status === task.status) &&
+    (task.agentId === null ||
+      (typeof task.agentId === "string" && task.agentId.length > 0)) &&
+    (task.agentName === null ||
+      (typeof task.agentName === "string" && task.agentName.length > 0)) &&
     version(task.version)
   );
 }

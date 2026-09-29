@@ -27,6 +27,8 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "Connect an agent", exact: true }),
     ).toBeVisible();
+    await expect(page.getByRole("main")).toContainText("Agents");
+    await expect(page.getByRole("main")).toContainText("API keys");
     await expect(page.locator("script")).toHaveCount(0);
     expect(
       await page.locator('link[rel="stylesheet"]').count(),
@@ -49,6 +51,7 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "REST API", exact: true }),
     ).toBeVisible();
+    await expect(page.getByRole("main")).toContainText("agentId");
     for (const status of [
       "backlog",
       "todo",

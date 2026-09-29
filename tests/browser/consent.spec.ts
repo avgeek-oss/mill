@@ -37,7 +37,11 @@ async function json(
   expect(response.ok(), `${method} ${path}: ${response.status()}`).toBe(true);
   return response.json();
 }
-async function account(page: Page, role: "member" | "viewer" = "member") {
+async function account(
+  page: Page,
+  role: "member" | "viewer" = "member",
+  eligible = true,
+) {
   const email = `consent-${randomUUID()}@example.test`;
   const invitation = await json(admin, "/api/auth/invitations", {
     email,
@@ -49,6 +53,15 @@ async function account(page: Page, role: "member" | "viewer" = "member") {
     name: "Consent operator",
     password,
   });
+  const agent = eligible
+    ? ((
+        await json(role === "viewer" ? admin : api, "/api/agents", {
+          name: "Consent assigned agent",
+          scope: role === "viewer" ? "team" : "personal",
+          ...(role === "viewer" ? { memberIds: [accepted.user.id] } : {}),
+        })
+      ).agent as { id: string; name: string; version: number })
+    : null;
   await page.goto("/");
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
@@ -56,7 +69,11 @@ async function account(page: Page, role: "member" | "viewer" = "member") {
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),
   ).toBeVisible();
-  return { api, email, id: accepted.user.id };
+  return { api, email, id: accepted.user.id, agent };
+}
+async function selectAgent(page: Page, name: string) {
+  await page.getByRole("button", { name: /Agent$/ }).click();
+  await page.getByRole("option", { name, exact: true }).click();
 }
 async function grant(api: APIRequestContext, name: string, scope = "read") {
   const callback = `${origin}/consent-return?app=${encodeURIComponent(name)}`;
@@ -153,6 +170,96 @@ test.afterAll(async () => {
   await admin?.dispose();
 });
 
+test("consent without an assigned agent cannot approve but denial stays available", async ({
+  page,
+}) => {
+  const operator = await account(page, "member", false);
+  try {
+    await clientCallback(page);
+    const connection = await grant(operator.api, "No eligible agent");
+    await page.goto(connection.url);
+    await expect(
+      page.getByText("No eligible agent", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Allow access", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("link", { name: "Agents", exact: true }),
+    ).toHaveAttribute("href", "/settings/agents");
+    await expect(
+      page.getByText(/ask an administrator to assign you/),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /Agent$/ }).click();
+    await expect(page.getByRole("option")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    await page.waitForURL(/\/consent-return\?/);
+    expect(new URL(page.url()).searchParams.get("error")).toBe("access_denied");
+    expect((await json(operator.api, "/api/credentials")).items).toHaveLength(
+      0,
+    );
+  } finally {
+    await operator.api.dispose();
+  }
+});
+
+test("selection is required and an agent deleted after consent loads cannot be approved", async ({
+  page,
+}) => {
+  const operator = await account(page);
+  try {
+    await clientCallback(page);
+    const connection = await grant(
+      operator.api,
+      "Agent removed before approval",
+    );
+    await page.goto(connection.url);
+    const allow = page.getByRole("button", {
+      name: "Allow access",
+      exact: true,
+    });
+    await expect(page.getByRole("button", { name: /Agent$/ })).toBeEnabled();
+    await expect(allow).toBeDisabled();
+    await selectAgent(page, operator.agent!.name);
+    await expect(allow).toBeEnabled();
+    expect(
+      await json(
+        operator.api,
+        `/api/agents/${operator.agent!.id}`,
+        { version: operator.agent!.version },
+        "DELETE",
+      ),
+    ).toEqual({ ok: true });
+    const decided = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/oauth/consent/${connection.id}`) &&
+        response.request().method() === "POST",
+    );
+    await allow.click();
+    const response = await decided;
+    expect(response.ok()).toBe(false);
+    expect(response.request().postDataJSON()).toEqual({
+      allow: true,
+      agentId: operator.agent!.id,
+    });
+    await expect(page.getByRole("alert").first()).toBeVisible();
+    await expect(allow).toBeDisabled();
+    expect(new URL(page.url()).pathname).toBe("/oauth/consent");
+    await expect(
+      page.getByRole("button", { name: "Deny", exact: true }),
+    ).toBeEnabled();
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    await page.waitForURL(/\/consent-return\?/);
+    expect(new URL(page.url()).searchParams.get("error")).toBe("access_denied");
+    expect((await json(operator.api, "/api/credentials")).items).toHaveLength(
+      0,
+    );
+  } finally {
+    await operator.api.dispose();
+  }
+});
+
 test("delayed real details for request A cannot enable or replace request B and denial stays bound to B", async ({
   page,
 }) => {
@@ -187,6 +294,7 @@ test("delayed real details for request A cannot enable or replace request B and 
     await expect(
       page.getByText("Current app B", { exact: true }),
     ).toBeVisible();
+    await selectAgent(page, operator.agent!.name);
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
     ).toBeEnabled();
@@ -238,6 +346,7 @@ test("a delayed old decision cannot redirect a new request and scoped consent gr
       await route.fulfill({ response }).catch(() => undefined);
     });
     await page.goto(a.url);
+    await selectAgent(page, operator.agent!.name);
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
     ).toBeEnabled();
@@ -255,6 +364,7 @@ test("a delayed old decision cannot redirect a new request and scoped consent gr
     await expect(
       page.getByText("Selected board agent", { exact: true }),
     ).toBeVisible();
+    await selectAgent(page, operator.agent!.name);
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
     ).toBeEnabled();
@@ -276,6 +386,7 @@ test("a delayed old decision cannot redirect a new request and scoped consent gr
       .click();
     expect((await decided).request().postDataJSON()).toEqual({
       allow: true,
+      agentId: operator.agent!.id,
       boardIds: [selected.id],
     });
     await page.waitForURL(/\/consent-return\?/);
@@ -394,6 +505,7 @@ test("consent completes a coherent large directory after rename, deletion and cr
     await clientCallback(page);
     const connection = await grant(operator.api, "Complete directory agent");
     await page.goto(connection.url);
+    await selectAgent(page, operator.agent!.name);
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
     ).toBeEnabled();
@@ -440,6 +552,7 @@ test("consent completes a coherent large directory after rename, deletion and cr
     expect(response.status()).toBe(200);
     expect(response.request().postDataJSON()).toEqual({
       allow: true,
+      agentId: operator.agent!.id,
       boardIds: [created!.id],
     });
     await page.waitForURL(/\/consent-return\?/);
@@ -525,6 +638,7 @@ test("phone consent in both themes keeps long context readable and supports keyb
         const mobile = await context.newPage();
         await clientCallback(mobile);
         await mobile.goto(connection.url);
+        await selectAgent(mobile, operator.agent!.name);
         await expect(
           mobile.getByRole("button", { name: "Allow access", exact: true }),
         ).toBeEnabled();
@@ -652,6 +766,7 @@ test("malformed trust and role enums cannot suppress the warning or enable decis
       await expect(
         page.getByText("Unverified app.", { exact: false }),
       ).toBeVisible();
+      await selectAgent(page, operator.agent!.name);
       await expect(
         page.getByRole("button", { name: "Allow access", exact: true }),
       ).toBeEnabled();
@@ -701,6 +816,7 @@ test("malformed decision acknowledgements cannot navigate, claim success, or cha
         },
       );
       await page.goto(connection.url);
+      await selectAgent(page, operator.agent!.name);
       await expect(
         page.getByRole("button", { name: "Allow access", exact: true }),
       ).toBeEnabled();

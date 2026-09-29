@@ -3,6 +3,7 @@ import {
   request,
   resetDatabase,
   setupUser,
+  setupAgent,
   sql,
 } from "./support.js";
 import assert from "node:assert/strict";
@@ -29,6 +30,9 @@ type TaskResult = {
     description: string;
     version: number;
     checklist: unknown[];
+    assigneeId: string | null;
+    agentId: string | null;
+    agentName: string | null;
   };
 };
 type CredentialResult = {
@@ -37,6 +41,8 @@ type CredentialResult = {
     name: string;
     scopes: string[];
     boardIds: string[] | null;
+    agentId: string | null;
+    agentName: string | null;
   };
   token: string;
 };
@@ -57,6 +63,7 @@ async function result<T>(
 test("External credentials and actual MCP task workflows enforce current permission boundaries", async (t) => {
   await resetDatabase();
   const { cookie, user } = await setupUser();
+  const agent = await setupAgent(cookie, { name: "Integration Agent" });
   const first = await ok<BoardResult>(
     await request("/api/boards", {
       cookie,
@@ -80,6 +87,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
       cookie,
       body: {
         name: "Integration worker",
+        agentId: agent.id,
         scopes: ["read", "write"],
         boardIds: [first.board.id],
       },
@@ -90,6 +98,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
       cookie,
       body: {
         name: "Read worker",
+        agentId: agent.id,
         scopes: ["read"],
         boardIds: [first.board.id],
       },
@@ -99,10 +108,26 @@ test("External credentials and actual MCP task workflows enforce current permiss
     await t.test(
       "one-time hashed expiring credentials and human-only ownership management",
       async () => {
-        assert.match(write.token, /^mill_[A-Za-z0-9_-]{43}$/);
+        assert(
+          /^mill_[A-Za-z0-9_-]{43}$/.test(write.token),
+          "Credential token has the expected format",
+        );
+        assert.equal(write.credential.agentId, agent.id);
+        assert.equal(write.credential.agentName, agent.name);
+        const principal = await credentialActor(
+          new Request(`${process.env.MILL_BASE_URL}/mcp`, {
+            headers: { Authorization: `Bearer ${write.token}` },
+          }),
+        );
+        assert.equal(principal?.agentId, agent.id);
+        assert.equal(principal?.userId, user.id);
+        assert.equal(principal?.name, `${agent.name} via ${user.name}`);
         const [stored] =
           await sql`SELECT * FROM credentials WHERE id=${write.credential.id}`;
-        assert.notEqual(stored.tokenHash, write.token);
+        assert(
+          stored.tokenHash !== write.token,
+          "Credential storage does not contain the bearer token",
+        );
         assert(!JSON.stringify(write.credential).includes("tokenHash"));
         assert(
           new Date(stored.expiresAt).getTime() > Date.now() + 29 * 86400000,
@@ -126,6 +151,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
               cookie,
               body: {
                 name: "Invalid boards",
+                agentId: agent.id,
                 scopes: ["read"],
                 boardIds: [randomUUID()],
               },
@@ -137,7 +163,12 @@ test("External credentials and actual MCP task workflows enforce current permiss
           (
             await request("/api/credentials", {
               cookie,
-              body: { name: "Unbounded", scopes: ["read"], expiresInDays: 366 },
+              body: {
+                name: "Unbounded",
+                agentId: agent.id,
+                scopes: ["read"],
+                expiresInDays: 366,
+              },
             })
           ).status,
           400,
@@ -368,7 +399,11 @@ test("External credentials and actual MCP task workflows enforce current permiss
           assert(listed.tools.some((tool) => tool.name === "create_task"));
           assert(!listed.tools.some((tool) => tool.name === "create_board"));
           assert(!listed.tools.some((tool) => tool.name === "list_members"));
+          assert(listed.tools.some((tool) => tool.name === "list_agents"));
           for (const name of [
+            "create_agent",
+            "update_agent",
+            "delete_agent",
             "list_columns",
             "create_column",
             "update_column",
@@ -385,6 +420,12 @@ test("External credentials and actual MCP task workflows enforce current permiss
               name,
             );
           }
+          const availableAgents = await result<{ items: { id: string }[] }>(
+            client,
+            "list_agents",
+            {},
+          );
+          assert(availableAgents.items.some((item) => item.id === agent.id));
           for (const name of ["create_task", "update_task", "list_tasks"]) {
             const schema = listed.tools.find((tool) => tool.name === name)!
               .inputSchema.properties!;
@@ -452,6 +493,8 @@ test("External credentials and actual MCP task workflows enforce current permiss
           const args = {
             boardId: first.board.id,
             title: "Actual MCP task",
+            assigneeId: user.id,
+            agentId: agent.id,
             description: "**Markdown** task",
             checklist: [{ id: "one", text: "Verify SDK", done: false }],
             priority: "high",
@@ -460,6 +503,33 @@ test("External credentials and actual MCP task workflows enforce current permiss
           };
           let task = await result<TaskResult>(client, "create_task", args);
           assert.equal(task.task.status, "todo");
+          assert.equal(task.task.agentId, agent.id);
+          assert.equal(task.task.agentName, agent.name);
+          assert.equal(task.task.assigneeId, user.id);
+          const withoutHuman = await client.callTool({
+            name: "create_task",
+            arguments: {
+              ...args,
+              title: "Agent without human",
+              assigneeId: null,
+              idempotencyKey: "mcp-agent-without-human",
+            },
+          });
+          assert.equal(withoutHuman.isError, true);
+          const assigned = await result<{ items: TaskResult["task"][] }>(
+            client,
+            "list_tasks",
+            { boardId: first.board.id, agentId: agent.id },
+          );
+          assert.deepEqual(
+            assigned.items.map((item) => item.id),
+            [task.task.id],
+          );
+          const detail = await result<TaskResult>(client, "get_task", {
+            taskId: task.task.id,
+          });
+          assert.equal(detail.task.agentId, agent.id);
+          assert.equal(detail.task.agentName, agent.name);
           for (const [name, arguments_] of [
             [
               "update_board",
@@ -614,7 +684,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
             activity.items.some(
               (entry) =>
                 entry.actorKind === "agent" &&
-                entry.actorName.includes("Integration worker"),
+                entry.actorName === `${agent.name} via ${user.name}`,
             ),
           );
           const filter = await result<{ items: { id: string }[] }>(
@@ -814,10 +884,19 @@ test("External credentials and actual MCP task workflows enforce current permiss
           (
             await request("/api/credentials", {
               cookie,
-              body: { name: "Cannot grant write", scopes: ["read", "write"] },
+              body: {
+                name: "Cannot grant write",
+                agentId: agent.id,
+                scopes: ["read", "write"],
+              },
             })
           ).status,
           403,
+        );
+        await sql`UPDATE credentials SET expires_at=now()-interval '1 second' WHERE id=${read.credential.id}`;
+        assert.equal(
+          (await request("/api/boards", { token: read.token })).status,
+          401,
         );
         await sql`UPDATE users SET role='admin',disabled_at=now() WHERE id=${user.id}`;
         assert.equal(
@@ -829,16 +908,25 @@ test("External credentials and actual MCP task workflows enforce current permiss
           null,
         );
         await sql`UPDATE users SET disabled_at=NULL WHERE id=${user.id}`;
-        await sql`UPDATE credentials SET expires_at=now()-interval '1 second' WHERE id=${read.credential.id}`;
-        assert.equal(
-          (await request("/api/boards", { token: read.token })).status,
-          401,
+        const revocable = await ok<CredentialResult>(
+          await request("/api/credentials", {
+            cookie,
+            body: {
+              name: "Fresh revocation",
+              agentId: agent.id,
+              scopes: ["read", "write"],
+            },
+          }),
         );
         await ok(
-          await request(`/api/credentials/${write.credential.id}`, {
+          await request(`/api/credentials/${revocable.credential.id}`, {
             cookie,
             method: "DELETE",
           }),
+        );
+        assert.equal(
+          (await request("/api/boards", { token: revocable.token })).status,
+          401,
         );
         assert.equal(
           (await request("/api/boards", { token: write.token })).status,

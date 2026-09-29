@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { URLSearchParams } from "node:url";
 import { verifyConfiguredStaticContent } from "./static-smoke.mjs";
 
 const origin = process.env.MILL_VERIFY_URL;
@@ -274,7 +276,196 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     password,
   });
 }
+const owner = (await request("/api/auth/me")).user;
+const legacyAgentState =
+  process.env.MILL_VERIFY_AGENT_UPGRADE_STATE ??
+  process.env.MILL_VERIFY_AGENT_RESTORE_STATE;
+if (legacyAgentState) {
+  const legacy = JSON.parse(await readFile(legacyAgentState, "utf8"));
+  for (const field of [
+    "legacyApiCredentialId",
+    "legacyOAuthCredentialId",
+    "legacyOAuthRequestId",
+  ])
+    assert.match(
+      legacy[field],
+      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,
+    );
+  if (process.env.MILL_VERIFY_AGENT_UPGRADE_STATE)
+    assert.equal(
+      (await request("/api/agents")).items.length,
+      0,
+      "The upgrade does not invent Agents",
+    );
+  for (const token of [
+    process.env.MILL_VERIFY_LEGACY_API_TOKEN,
+    process.env.MILL_VERIFY_LEGACY_OAUTH_TOKEN,
+  ]) {
+    assert.ok(
+      typeof token === "string" && /^mill_[A-Za-z0-9_-]{43}$/.test(token),
+      "Supply disposable legacy bearer tokens through environment variables",
+    );
+    await request("/api/boards", "GET", undefined, 401, new Map(), {
+      Authorization: `Bearer ${token}`,
+    });
+    const response = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "legacy-agent-upgrade", version: "1" },
+        },
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    assert.equal(
+      response.status,
+      401,
+      "Legacy unbound credentials cannot initialize MCP",
+    );
+  }
+  const existing = await request("/api/credentials");
+  for (const id of [
+    legacy.legacyApiCredentialId,
+    legacy.legacyOAuthCredentialId,
+  ]) {
+    const credential = existing.items.find((item) => item.id === id);
+    assert.ok(
+      credential?.revokedAt,
+      "Legacy credential metadata remains as a revoked record",
+    );
+    assert.equal(credential.agentId, null);
+  }
+  await request(
+    `/api/oauth/consent/${legacy.legacyOAuthRequestId}`,
+    "GET",
+    undefined,
+    400,
+  );
+  assert.ok(
+    typeof legacy.retryKey === "string" &&
+      legacy.retryKey.length >= 8 &&
+      legacy.retryKey.length <= 128,
+    "Supply the existing logical retry key in public fixture metadata",
+  );
+  async function boardIds() {
+    const ids = [];
+    let cursor = null;
+    do {
+      const page = await request(
+        `/api/boards?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      );
+      ids.push(...page.items.map((board) => board.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    return ids;
+  }
+  const before = await boardIds();
+  const retry = await fetch(`${origin}/api/boards`, {
+    method: "POST",
+    headers: {
+      Origin: origin,
+      "Content-Type": "application/json",
+      Cookie: [...cookies]
+        .map(([name, value]) => `${name}=${value}`)
+        .join("; "),
+      "Idempotency-Key": legacy.retryKey,
+    },
+    body: JSON.stringify({
+      name: "Earlier Agent installation",
+      prefix: "INST",
+    }),
+    signal: AbortSignal.timeout(15000),
+    redirect: "error",
+  });
+  assert.equal(retry.status, 410, "The exact legacy retry remains terminal");
+  assert.equal(retry.headers.get("Idempotency-Replayed"), "true");
+  assert.equal((await retry.json()).code, "retry_invalidated");
+  assert.deepEqual(
+    await boardIds(),
+    before,
+    "The invalidated retry creates no board",
+  );
+  if (process.env.MILL_VERIFY_AGENT_UPGRADE_STATE)
+    assert.equal(
+      (await request("/api/agents")).items.length,
+      0,
+      "Rejected legacy credentials and consent cannot create Agents",
+    );
+  pass("Legacy Agent credentials, consent and cached retries remain terminal");
+}
+if (!state.agentId) {
+  const { agent } = await request(
+    "/api/agents",
+    "POST",
+    { name: "Installation personal Agent", scope: "personal" },
+    201,
+  );
+  const { agent: team } = await request(
+    "/api/agents",
+    "POST",
+    {
+      name: "Installation team Agent",
+      scope: "team",
+      memberIds: [owner.id, state.memberId],
+    },
+    201,
+  );
+  const detail = await request(`/api/tasks/${state.taskId}`);
+  await request(`/api/tasks/${state.taskId}`, "PATCH", {
+    version: detail.task.version,
+    assigneeId: owner.id,
+    agentId: agent.id,
+  });
+  state.agentId = agent.id;
+  state.teamAgentId = team.id;
+  state.ownerId = owner.id;
+  await writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
+}
+const availableAgents = await request("/api/agents");
+const personalAgent = availableAgents.items.find(
+  (item) => item.id === state.agentId,
+);
+const teamAgent = availableAgents.items.find(
+  (item) => item.id === state.teamAgentId,
+);
+assert.equal(personalAgent?.scope, "personal");
+assert.equal(personalAgent?.creatorId, state.ownerId);
+assert.equal(teamAgent?.scope, "team");
+assert.deepEqual(
+  new Set(teamAgent.memberIds),
+  new Set([state.ownerId, state.memberId]),
+);
+pass("Explicit personal and team Agents with current human grants persist");
 const { task, comments } = await request(`/api/tasks/${state.taskId}`);
+assert.equal(task.agentId, state.agentId);
+assert.equal(task.agentName, personalAgent.name);
+assert.equal(task.assigneeId, state.ownerId);
+if (state.oauthCredentialId) {
+  const listed = await request("/api/credentials");
+  const metadata = listed.items.find(
+    (item) => item.id === state.oauthCredentialId,
+  );
+  assert.equal(metadata?.agentId, state.agentId);
+  assert.equal(metadata?.agentName, personalAgent.name);
+  assert.equal(metadata?.tokenType, "oauth");
+  assert.equal(metadata?.oauthClientId, state.oauthClientId);
+  assert.equal(metadata?.revokedAt, null);
+}
+if (state.agentTaskId) {
+  const persistedAgentTask = await request(`/api/tasks/${state.agentTaskId}`);
+  assert.equal(persistedAgentTask.task.agentId, state.agentId);
+  assert.equal(persistedAgentTask.task.assigneeId, state.ownerId);
+}
 const history = await request(`/api/tasks/${state.taskId}/activity`);
 assert.ok(
   history.items.some(
@@ -336,6 +527,9 @@ pass(
 );
 if (
   process.env.MILL_VERIFY_MODE === "fresh" ||
+  process.env.MILL_VERIFY_MODE === "agents" ||
+  process.env.MILL_VERIFY_AGENT_UPGRADE_STATE ||
+  process.env.MILL_VERIFY_AGENT_RESTORE_STATE ||
   process.env.MILL_VERIFY_UPGRADE_STATE
 ) {
   for (const [path, method, data] of [
@@ -427,6 +621,7 @@ if (
     "POST",
     {
       name: "Disposable production capability check",
+      agentId: state.agentId,
       scopes: ["read", "write"],
       boardIds: [state.boardId],
       expiresInDays: 1,
@@ -435,6 +630,124 @@ if (
   );
   const transport = { id: 0, protocolVersion: undefined };
   try {
+    if (!state.oauthCredentialId) {
+      const agentsBefore = (await request("/api/agents")).items.map(
+        (item) => item.id,
+      );
+      const redirect = `${origin}/installation-oauth-callback`;
+      const resource = `${origin}/mcp`;
+      const verifier = randomBytes(32).toString("base64url");
+      const oauthState = randomBytes(16).toString("base64url");
+      const client = await request(
+        "/oauth/register",
+        "POST",
+        {
+          client_name: "Installation OAuth Agent",
+          redirect_uris: [redirect],
+          token_endpoint_auth_method: "none",
+        },
+        201,
+      );
+      const authorization = await fetch(
+        `${origin}/oauth/authorize?${new URLSearchParams({ client_id: client.client_id, redirect_uri: redirect, resource, response_type: "code", scope: "read", state: oauthState, code_challenge_method: "S256", code_challenge: createHash("sha256").update(verifier).digest("base64url") })}`,
+        { redirect: "manual", signal: AbortSignal.timeout(15000) },
+      );
+      assert.equal(authorization.status, 302);
+      const requestId = new URL(
+        authorization.headers.get("location"),
+      ).searchParams.get("request");
+      assert.ok(requestId);
+      const details = await request(`/api/oauth/consent/${requestId}`);
+      assert.equal(details.requiresAgent, true);
+      assert.ok(details.agents.some((agent) => agent.id === state.agentId));
+      await request(
+        `/api/oauth/consent/${requestId}`,
+        "POST",
+        { allow: true },
+        403,
+      );
+      const decision = await request(
+        `/api/oauth/consent/${requestId}`,
+        "POST",
+        {
+          allow: true,
+          agentId: state.agentId,
+          boardIds: [state.boardId],
+        },
+      );
+      const callback = new URL(decision.redirectTo);
+      assert.equal(callback.searchParams.get("state"), oauthState);
+      assert.equal(callback.searchParams.get("iss"), origin);
+      const response = await fetch(`${origin}/oauth/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: client.client_id,
+          redirect_uri: redirect,
+          resource,
+          grant_type: "authorization_code",
+          code: callback.searchParams.get("code"),
+          code_verifier: verifier,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      assert.equal(
+        response.status,
+        200,
+        "Selected-Agent PKCE exchange succeeds",
+      );
+      const issued = await response.json();
+      assert.ok(
+        /^mill_[A-Za-z0-9_-]{43}$/.test(issued.access_token),
+        "OAuth returns a bearer credential",
+      );
+      const oauthTransport = { id: 0, protocolVersion: undefined };
+      const initialization = await mcpRequest(
+        issued.access_token,
+        oauthTransport,
+        "initialize",
+        {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "mill-install-oauth", version: "1" },
+        },
+      );
+      oauthTransport.protocolVersion = initialization.protocolVersion;
+      await mcpRequest(
+        issued.access_token,
+        oauthTransport,
+        "notifications/initialized",
+        undefined,
+        true,
+      );
+      const oauthRead = await mcpRequest(
+        issued.access_token,
+        oauthTransport,
+        "tools/call",
+        { name: "get_task", arguments: { taskId: state.taskId } },
+      );
+      assert.equal(oauthRead.isError, false);
+      assert.equal(oauthRead.structuredContent.task.agentId, state.agentId);
+      const metadata = (await request("/api/credentials")).items.find(
+        (item) => item.oauthClientId === client.client_id,
+      );
+      assert.equal(metadata?.agentId, state.agentId);
+      assert.equal(metadata?.agentName, personalAgent.name);
+      assert.equal(metadata?.tokenType, "oauth");
+      assert.deepEqual(
+        (await request("/api/agents")).items.map((item) => item.id),
+        agentsBefore,
+        "OAuth never creates an Agent",
+      );
+      state.oauthCredentialId = metadata.id;
+      state.oauthClientId = client.client_id;
+      await writeFile(stateFile, JSON.stringify(state, null, 2), {
+        mode: 0o600,
+      });
+      pass(
+        "Actual selected-Agent OAuth consent, PKCE exchange and MCP retain bound metadata for backup",
+      );
+    }
     const initialized = await mcpRequest(
       external.token,
       transport,
@@ -467,11 +780,15 @@ if (
       {},
     );
     assert.ok(tools.some((item) => item.name === "update_task"));
+    assert.ok(tools.some((item) => item.name === "list_agents"));
     assert.ok(
       !tools.some((item) => item.name === "create_board"),
       "Board-restricted MCP cannot create workspace boards",
     );
     for (const name of [
+      "create_agent",
+      "update_agent",
+      "delete_agent",
       "list_columns",
       "create_column",
       "update_column",
@@ -488,6 +805,7 @@ if (
     for (const name of ["create_task", "update_task"]) {
       const tool = tools.find((item) => item.name === name);
       assert.ok(tool);
+      assert.ok("agentId" in tool.inputSchema.properties);
       assert.deepEqual(tool.inputSchema.properties.status.enum, [
         "backlog",
         "todo",
@@ -511,6 +829,37 @@ if (
     });
     assert.ok(!read.isError);
     assert.equal(read.structuredContent.task.status, "todo");
+    assert.equal(read.structuredContent.task.agentId, state.agentId);
+    if (!state.agentTaskId) {
+      const createdAgentTask = await mcpRequest(
+        external.token,
+        transport,
+        "tools/call",
+        {
+          name: "create_task",
+          arguments: {
+            boardId: state.boardId,
+            title: "Persist explicit MCP Agent assignment",
+            assigneeId: state.ownerId,
+            agentId: state.agentId,
+            idempotencyKey: "install-explicit-agent-task",
+          },
+        },
+      );
+      assert.equal(createdAgentTask.isError, false);
+      assert.equal(
+        createdAgentTask.structuredContent.task.agentId,
+        state.agentId,
+      );
+      assert.equal(
+        createdAgentTask.structuredContent.task.assigneeId,
+        state.ownerId,
+      );
+      state.agentTaskId = createdAgentTask.structuredContent.task.id;
+      await writeFile(stateFile, JSON.stringify(state, null, 2), {
+        mode: 0o600,
+      });
+    }
     const rejected = await mcpRequest(external.token, transport, "tools/call", {
       name: "create_task",
       arguments: {

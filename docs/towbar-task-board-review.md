@@ -1,6 +1,6 @@
 # Towbar task and board flow review
 
-> Historical review of candidates before the final September 29 v1 task-list reduction. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below are retained as evidence of that earlier scope. They do not establish current behavior or readiness. See [the current scope and evidence](b1-verification.md).
+> Historical review of earlier candidates, retained through the preceding `7fc132` fixed-list candidate. The screenshots, feature descriptions, test/CI receipts, and acceptance statements below do not verify the current explicit-Agent architecture or the 14 requested interface changes. See [the current scope and evidence](b1-verification.md).
 
 This records the bounded Gate 2B task and board flow changes after the accepted [foundation checkpoint](towbar-foundation-review.md). The coordinator accepted Gate 2B after the focused browser results and independent desktop/phone review in both themes. This gate does not establish overall B1 approval, final CI, or release readiness.
 

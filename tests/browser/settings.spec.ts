@@ -42,6 +42,15 @@ async function json(
   ).toBeTruthy();
   return result.json();
 }
+async function setupAgent(api: APIRequestContext, name: string) {
+  const result = await json(api, "/agents", { name, scope: "personal" });
+  expect(typeof result.agent?.id, "Created Agent has a persisted ID").toBe(
+    "string",
+  );
+  expect(result.agent.name).toBe(name);
+  expect(result.agent.scope).toBe("personal");
+  return result.agent as { id: string; name: string; scope: "personal" };
+}
 async function createAccount(
   email: string,
   name: string,
@@ -595,33 +604,38 @@ test("assignment and mention notifications open the correct task and preferences
   await expect(unreadItems).toHaveCount(0);
 });
 
-test("a scoped credential created through the interface works on its board and loses access when revoked", async ({
+test("a scoped API key created through the interface works on its board and loses access when revoked", async ({
   page,
   playwright,
 }) => {
+  const selectedAgent = await setupAgent(
+    adminApi,
+    "Settings board agent identity",
+  );
   await login(page, admin);
-  await page.getByRole("link", { name: "Agent access", exact: true }).click();
+  await page.getByRole("link", { name: "API keys", exact: true }).click();
   await page
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   const create = page.getByRole("dialog", {
-    name: "Create credential",
+    name: "Create API key",
     exact: true,
   });
   await create.getByLabel("Name", { exact: true }).fill("Settings board agent");
+  await choose(page, "Agent", selectedAgent.name, create);
   await choose(page, "Access", "Read and write", create);
   await choose(page, "Board access", board.name, create);
   await create.getByLabel("Expires in days", { exact: true }).fill("7");
   await create
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   const success = page.getByRole("dialog", {
-    name: "Copy your credential",
+    name: "Copy your API key",
     exact: true,
   });
   await expect(success).toBeVisible();
   const token = await success
-    .getByLabel("Credential", { exact: true })
+    .getByLabel("API key", { exact: true })
     .inputValue();
   await success.getByRole("button", { name: "Done", exact: true }).click();
   const agent = await playwright.request.newContext({
@@ -646,21 +660,19 @@ test("a scoped credential created through the interface works on its board and l
       (await agent.get(`/api/boards/${other.board.id}/tasks`)).status(),
     ).toBe(403);
     await page.reload();
-    await expect(page.getByLabel("Credential", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
     const row = page
-      .getByRole("region", { name: "Credentials", exact: true })
+      .getByRole("region", { name: "API keys", exact: true })
       .getByRole("row")
       .filter({ hasText: "Settings board agent" });
     await row
       .getByRole("button", { name: "Revoke Settings board agent", exact: true })
       .click();
-    const revoke = page.getByRole("dialog", { name: "Revoke credential?" });
+    const revoke = page.getByRole("dialog", { name: "Revoke API key?" });
     await revoke
-      .getByRole("button", { name: "Revoke credential", exact: true })
+      .getByRole("button", { name: "Revoke API key", exact: true })
       .click();
-    await expect(revoke.getByRole("status")).toContainText(
-      "Credential revoked",
-    );
+    await expect(revoke.getByRole("status")).toContainText("API key revoked");
     await revoke.getByRole("button", { name: "Done", exact: true }).click();
     await expect(row).toContainText("Revoked");
     expect((await agent.get(`/api/boards/${board.id}/tasks`)).status()).toBe(
@@ -671,18 +683,16 @@ test("a scoped credential created through the interface works on its board and l
   }
 });
 
-test("workspace settings persist while portable export and import are unavailable", async ({
+test("team settings persist without backup or portable data surfaces", async ({
   page,
 }) => {
   await login(page, admin);
   await expect(
     page.getByRole("link", { name: "Export and import", exact: true }),
   ).toHaveCount(0);
-  await page
-    .getByRole("link", { name: "Workspace settings", exact: true })
-    .click();
+  await page.getByRole("link", { name: "Team settings", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Workspace", exact: true, level: 1 }),
+    page.getByRole("heading", { name: "Team settings", exact: true, level: 1 }),
   ).toBeVisible();
   const name = page.getByRole("textbox", { name: /^Name/ });
   await name.fill("Settings workspace verification");
@@ -695,12 +705,13 @@ test("workspace settings persist while portable export and import are unavailabl
   );
   await page.reload();
   await expect(name).toHaveValue("Settings workspace verification");
-  const guide = page.getByRole("link", {
-    name: "backup and recovery guide",
-    exact: true,
-  });
-  await expect(guide).toHaveAttribute("href", "/guides/backup.html");
-  await expect(guide).toHaveAttribute("target", "_blank");
+  await expect(page.getByText("Backups", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "backup and recovery guide", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("main").locator('[data-slot="widget-header"]'),
+  ).toHaveCount(0);
   await page.goto("/settings/data");
   await expect(
     page.getByRole("heading", {

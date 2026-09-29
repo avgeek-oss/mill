@@ -1,12 +1,14 @@
 # Everyday work
 
-Mill opens on your task lists. The sidebar's **Boards** section lists every accessible board alphabetically. Choose **Create Project** after the final board to create one with a short name and a prefix such as `ENG`.
+Mill opens on your task lists. The sidebar's **Boards** section lists every accessible board alphabetically. Choose its **plus button** to create one with a short name and a prefix such as `ENG`.
 
 A board's prefix is permanent. Its tasks receive identifiers such as `ENG-1`; editing a title or changing a status keeps that identifier. Share the task's link with teammates.
 
 ## Create and update a task
 
-Open a board and choose New task. Enter a title and choose Backlog, Todo, In Progress, In Review, Done, or Won't Do. A new task defaults to Todo. You can add a description, assignee, priority, due date, and checklist.
+Open a board and choose New task. Enter a title and choose Backlog, Todo, In Progress, In Review, Done, or Won't Do. A new task defaults to Todo. You can add a description, human assignee, Agent, priority, due date, and checklist.
+
+An Agent is optional and separate from the human assignee. Choose the human first; both you and that person must have access to an Agent when you change the binding. A task cannot have an Agent without an active human assignee. Unrelated edits preserve an existing valid binding. Selecting an Agent does not run work or contact an external service.
 
 Descriptions and comments support Markdown. Preview a description before saving. Links must use a safe web protocol; Mill does not accept file uploads. Checklist items have independent completion states.
 
@@ -36,7 +38,7 @@ Task activity shows changes and human/agent attribution. Workspace-wide audit hi
 
 Delete a task from its detail view when it is no longer needed. Confirming permanently removes that task, its comments, notifications, and task activity. Other independent tasks remain. Members and administrators can delete tasks; viewers cannot.
 
-A human administrator can delete a board from Board settings. Confirmation covers every task and its associated discussion in that board. Mill removes the board from navigation and opens another board or the empty view.
+A human administrator opens the ellipsis menu after New task and chooses Delete board. The separate confirmation dialog covers every task and its associated discussion in that board. Board settings in the same menu contains the board's name and description. After deletion, Mill removes the board from navigation and opens another board or the empty view.
 
 There is no archive, trash, or restore view. Save a [full database backup](backup.md) before deleting work you may need later. There is no portable export/import feature. Task numbers are not reused within an existing board.
 
@@ -50,7 +52,13 @@ There is no archive, trash, or restore view. Save a [full database backup](backu
 | Permanently delete tasks                        | No     | Yes    | Yes                |
 | Moderate another person's comments              | No     | No     | Yes, human session |
 | Permanently delete a board                      | No     | No     | Yes, human session |
-| Manage membership and workspace settings        | No     | No     | Yes, human session |
+| Manage membership and Team settings             | No     | No     | Yes, human session |
+
+## People, Agents, and API keys
+
+People are accounts that sign in to Mill. Manage invitations and roles in People, and the workspace name in Team settings. Agents are separate identities created in the human Agents interface. Members and administrators can create personal Agents; only their creator can use and manage them. An administrator creates and manages team Agents, granting access to specific active people. Administrator status alone does not grant use of a team Agent.
+
+API keys belong to the person who creates them. Open API keys and select an existing Agent you can access, then choose its scopes, boards, and expiry. Another administrator does not own your keys. OAuth consent uses the same eligible Agent selection. If none is available, create a personal Agent or ask an administrator for team access before connecting. Neither REST/MCP clients nor OAuth create Agent identities.
 
 Every active member can read workspace boards. Credentials can narrow an agent to selected boards and read or read/write scope, within its owner's current role. Role changes, removal, or revocation also prevent a waiting mutation from committing without current authority.
 

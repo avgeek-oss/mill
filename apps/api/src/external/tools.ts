@@ -24,6 +24,7 @@ const taskFields = {
   title: domainTaskFields.title,
   description: domainTaskFields.description.optional(),
   assigneeId: domainTaskFields.assigneeId.optional(),
+  agentId: domainTaskFields.agentId.optional(),
   priority: domainTaskFields.priority.optional(),
   status: z.enum(TASK_STATUSES).optional(),
   dueDate: domainTaskFields.dueDate.optional(),
@@ -33,6 +34,7 @@ const query = {
   q: z.string().max(300).optional(),
   status: z.enum(TASK_STATUSES).optional(),
   assigneeId: z.union([id, z.literal("unassigned")]).optional(),
+  agentId: z.union([id, z.literal("unassigned")]).optional(),
   priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
   sort: z
     .enum(["createdAt", "updatedAt", "dueDate", "priority", "title"])
@@ -107,7 +109,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_tasks",
-    "Search and filter tasks in one board. Combine q, status, assigneeId, priority and sort. Tasks are newest first by default. Maximum 100 results.",
+    "Search and filter tasks in one board. Combine q, status, assigneeId, agentId, priority and sort. Tasks are newest first by default. Maximum 100 results.",
     "GET",
     "/api/boards/:boardId/tasks",
     { ...board, ...query },
@@ -125,14 +127,14 @@ export const tools: Tool[] = [
   ),
   tool(
     "create_task",
-    "Create a task, optionally with a fixed status, assignment, priority, due date and checklist. Status defaults to todo. Reuse idempotencyKey on retries.",
+    "Create a task, optionally with a fixed status, human assignee, Agent, priority, due date and checklist. An Agent requires an active human assignee, and both you and the assignee must have access to that existing Agent. Status defaults to todo. Reuse idempotencyKey on retries.",
     "POST",
     "/api/boards/:boardId/tasks",
     { ...board, ...taskFields, ...retry },
   ),
   tool(
     "update_task",
-    "Edit a task or change its fixed status using the current version. A stale version returns a conflict.",
+    "Edit a task or change its fixed status using the current version. agentId and assigneeId may be set together; an Agent requires a human assignee accessible to that Agent. A stale version returns a conflict.",
     "PATCH",
     "/api/tasks/:taskId",
     {
@@ -231,6 +233,16 @@ export const tools: Tool[] = [
       all: z.literal(true).optional(),
       read: z.boolean().optional(),
       ...retry,
+    },
+  ),
+  tool(
+    "list_agents",
+    "List existing Agents available to your human credential owner, to resolve task agentId assignments. Agents are created and managed only by people in Mill. Use the returned cursor to continue.",
+    "GET",
+    "/api/agents",
+    {
+      limit: z.number().int().min(1).max(100).optional(),
+      cursor: z.string().max(1000).optional(),
     },
   ),
   tool(

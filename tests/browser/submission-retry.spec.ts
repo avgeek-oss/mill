@@ -111,9 +111,7 @@ test("a committed board retries with the original key after a lost response", as
 }) => {
   await open(page);
   const attempts = await interruptFirstResponse(page, "/boards");
-  await page
-    .getByRole("button", { name: "Create Project", exact: true })
-    .click();
+  await page.getByRole("button", { name: "Create board", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Create a board" });
   const name = `Lost board response ${randomBytes(3).toString("hex")}`;
   await dialog.getByLabel("Board name", { exact: true }).fill(name);

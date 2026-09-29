@@ -80,6 +80,14 @@ a {
     @apply w-[34px] px-0;
   }
 
+  .button.button--sm:is(.navigation-toggle, .board-create-button) {
+    @apply size-8;
+
+    & svg {
+      @apply size-4;
+    }
+  }
+
   .table__column {
     @apply py-[10px];
   }
@@ -346,7 +354,7 @@ a {
   }
 
   .widget__title {
-    @apply text-muted text-sm font-semibold;
+    @apply text-muted text-xs font-medium;
   }
 
   .widget__content {

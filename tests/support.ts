@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
+import type { Agent } from "../packages/contracts/src/index.js";
 process.env.DATABASE_URL ??=
   "postgres://mill:mill-test-disposable@127.0.0.1:55432/mill";
 process.env.MILL_BASE_URL ??= "http://localhost:4321";
@@ -67,4 +68,22 @@ export async function setupUser(overrides: Record<string, unknown> = {}) {
   if (!response.ok) throw new Error(`Setup failed: ${JSON.stringify(body)}`);
   const cookie = response.headers.get("set-cookie")?.split(";")[0] ?? "";
   return { cookie, body, user: body.user };
+}
+
+export async function setupAgent(
+  cookie: string,
+  input: {
+    name?: string;
+    scope?: "personal" | "team";
+    memberIds?: string[];
+  } = {},
+): Promise<Agent> {
+  const response = await request("/api/agents", {
+    cookie,
+    body: { name: "Test agent", scope: "personal", ...input },
+  });
+  const body = await response.json();
+  if (response.status !== 201 || !body.agent?.id)
+    throw new Error(`Agent setup failed: ${response.status}`);
+  return body.agent;
 }

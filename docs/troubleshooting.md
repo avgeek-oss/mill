@@ -30,7 +30,9 @@ Another person or agent changed the task or its status after you opened it. Relo
 
 ## An agent gets permission denied
 
-Check the credential's owner membership, read/write scopes, allowed boards, and revocation/expiry state. A viewer-owned credential cannot write. Agent credentials cannot perform human-only workspace administration, account settings, credential management, or OAuth consent. Use [the agent guide](agents.md) for discovery and authentication requirements.
+Check the key owner's membership, access to its selected Agent, read/write scopes, allowed boards, and revocation/expiry state. A viewer-owned key cannot write. Agent credentials cannot perform human-only workspace administration, account settings, Agent/key management, or OAuth consent. If an OAuth Agent selector is empty, create a personal Agent in the human interface or ask an administrator for access to a team Agent before reconnecting. Migration 008 revokes earlier unbound keys; issue a new bound key rather than retrying the old token. Use [the agent guide](agents.md) for discovery and authentication requirements.
+
+When assigning an Agent to a task, choose an active human assignee first. Both the acting person and assignee need access to that Agent when changing the binding. Setting the Agent does not start an external job.
 
 ## A restore is rejected
 

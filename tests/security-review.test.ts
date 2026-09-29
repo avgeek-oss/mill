@@ -2,7 +2,7 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-const { cleanupDatabase, request, resetDatabase, setupUser, sql } =
+const { cleanupDatabase, request, resetDatabase, setupAgent, setupUser, sql } =
   await import("./support.js");
 const { digest, secret } = await import("../apps/api/src/external/protocol.js");
 beforeEach(resetDatabase);
@@ -25,7 +25,12 @@ async function fixture(scopes: string[] = ["read", "write"]) {
   const created = await (
     await request("/api/credentials", {
       cookie,
-      body: { name: "Scoped reviewer", scopes, boardIds: [second.board.id] },
+      body: {
+        agentId: (await setupAgent(cookie)).id,
+        name: "Scoped reviewer",
+        scopes,
+        boardIds: [second.board.id],
+      },
     })
   ).json();
   assert.ok(created.token);
@@ -39,7 +44,7 @@ async function fixture(scopes: string[] = ["read", "write"]) {
 }
 
 test("a board-restricted agent cannot change other boards or gain administration", async () => {
-  const { token, allowedBoard, privateBoard } = await fixture();
+  const { cookie, token, allowedBoard, privateBoard } = await fixture();
   const before = await sql`SELECT id,name,version FROM boards ORDER BY id`;
   const update = await request(`/api/boards/${privateBoard.id}`, {
     token,
@@ -55,7 +60,11 @@ test("a board-restricted agent cannot change other boards or gain administration
     [
       "/api/credentials",
       "POST",
-      { name: "Escalation", scopes: ["read", "write"] },
+      {
+        agentId: (await setupAgent(cookie)).id,
+        name: "Escalation",
+        scopes: ["read", "write"],
+      },
     ],
     [
       "/api/auth/invitations",
@@ -158,13 +167,14 @@ test("mixed accessible and inaccessible notification IDs fail without any update
 });
 
 test("OAuth tokens must match the canonical MCP resource and cannot call REST directly", async () => {
-  const { user } = await setupUser();
+  const { cookie, user } = await setupUser();
+  const agent = await setupAgent(cookie);
   const baseUrl = new URL(process.env.MILL_BASE_URL!);
   const resource = new URL("/mcp", baseUrl).href;
   const restUrl = new URL("/api/boards", baseUrl);
   const token = `mill_${secret()}`;
   const [credential] =
-    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,resource,expires_at) VALUES(${user.id},'Wrong audience',${digest(token)},${token.slice(0, 12)},${["read"]},'oauth','https://old.example.test/mcp',now()+interval '1 day') RETURNING id`;
+    await sql`INSERT INTO credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,token_type,resource,expires_at) VALUES(${user.id},${agent.id},'Wrong audience',${digest(token)},${token.slice(0, 12)},${["read"]},'oauth','https://old.example.test/mcp',now()+interval '1 day') RETURNING id`;
   const { credentialActor } =
     await import("../apps/api/src/external/credentials.js");
   const headers = { authorization: `Bearer ${token}` };
@@ -323,6 +333,7 @@ async function changeAccessWhileWriteWaits(
       ? await request("/api/credentials", {
           cookie: memberCookie,
           body: {
+            agentId: (await setupAgent(memberCookie)).id,
             name: "Pending agent",
             scopes: ["read", "write"],
             boardIds: [board.id],
@@ -332,6 +343,11 @@ async function changeAccessWhileWriteWaits(
   const credential = credentialResponse
     ? await credentialResponse.json()
     : null;
+  if (credential)
+    assert.equal(
+      (await request("/api/boards", { token: credential.token })).status,
+      200,
+    );
   let release!: () => void;
   let locked!: () => void;
   let holderPid = 0;
@@ -344,54 +360,55 @@ async function changeAccessWhileWriteWaits(
   const holder = sql.begin(async (tx) => {
     const [backend] = await tx`SELECT pg_backend_pid() AS pid`;
     holderPid = backend.pid;
-    await tx`SELECT id FROM boards WHERE id=${board.id} FOR UPDATE`;
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     locked();
     await unblock;
   });
   await ready;
-  const pending = request(`/api/boards/${board.id}/tasks`, {
-    ...(credential ? { token: credential.token } : { cookie: memberCookie }),
-    body: { title: "Access changed while waiting" },
-  });
-  let observed = false;
-  let changedStatus = 0;
-  try {
+  async function waitForBlocked(expected: number) {
     for (let attempt = 0; attempt < 100; attempt++) {
-      const [wait] =
-        await sql`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND ${holderPid}=ANY(pg_blocking_pids(pid))) AS blocked`;
-      if (wait.blocked) {
-        observed = true;
-        break;
-      }
+      const [wait] = await sql`WITH RECURSIVE blocked(pid) AS (
+          SELECT pid FROM pg_stat_activity WHERE ${holderPid}=ANY(pg_blocking_pids(pid))
+          UNION SELECT activity.pid FROM pg_stat_activity activity JOIN blocked ON blocked.pid=ANY(pg_blocking_pids(activity.pid))
+        ) SELECT count(DISTINCT pid)::int AS total FROM blocked`;
+      if (wait.total >= expected) return;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    assert.equal(
-      observed,
-      true,
-      "The actual domain write must be waiting on the held board lock",
+    assert.fail(
+      `Expected ${expected} actual requests waiting on the workspace authority lock`,
     );
-    const changed =
+  }
+  let changed!: Promise<Response>;
+  let pending!: Promise<Response>;
+  try {
+    changed =
       action === "revoke"
-        ? await request(`/api/credentials/${credential.credential.id}`, {
+        ? request(`/api/credentials/${credential.credential.id}`, {
             cookie: memberCookie,
             method: "DELETE",
           })
         : action === "downgrade"
-          ? await request(`/api/auth/members/${memberId}`, {
+          ? request(`/api/auth/members/${memberId}`, {
               cookie,
               method: "PATCH",
               body: { role: "viewer" },
             })
-          : await request(`/api/auth/members/${memberId}`, {
+          : request(`/api/auth/members/${memberId}`, {
               cookie,
               method: "DELETE",
             });
-    changedStatus = changed.status;
+    await waitForBlocked(1);
+    pending = request(`/api/boards/${board.id}/tasks`, {
+      ...(credential ? { token: credential.token } : { cookie: memberCookie }),
+      body: { title: "Access changed while waiting" },
+    });
+    await waitForBlocked(2);
   } finally {
     release();
     await holder;
   }
-  assert.equal(changedStatus, 200);
+  const changedResponse = await changed;
+  assert.equal(changedResponse.status, 200);
   const result = await pending;
   assert.ok(
     [401, 403].includes(result.status),
@@ -405,7 +422,7 @@ async function changeAccessWhileWriteWaits(
 }
 
 for (const action of ["remove", "downgrade", "revoke"] as const) {
-  test(`access ${action} prevents a mutation already waiting on a board lock`, async () =>
+  test(`access ${action} queued first prevents a mutation waiting on workspace authority`, async () =>
     changeAccessWhileWriteWaits(action));
 }
 
@@ -449,9 +466,10 @@ test("anonymous rate limits isolate actual peers and ignore untrusted forwarded 
 
 test("retrying credential creation returns the same secret while encrypting stored retry responses", async () => {
   const { cookie } = await setupUser();
+  const agent = await setupAgent(cookie);
   const options = {
     cookie,
-    body: { name: "Retried credential", scopes: ["read"] },
+    body: { agentId: agent.id, name: "Retried credential", scopes: ["read"] },
     headers: { "Idempotency-Key": "security-credential-retry" },
   };
   const firstResponse = await request("/api/credentials", options);

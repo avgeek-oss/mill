@@ -29,7 +29,7 @@ export function PageHeading({
             {icon && (
               <span
                 aria-hidden="true"
-                className="inline-flex shrink-0 [&_svg]:size-6"
+                className="inline-flex shrink-0 [&_svg]:size-5"
               >
                 {icon}
               </span>
@@ -42,7 +42,7 @@ export function PageHeading({
         {actions}
       </header>
       {description && (
-        <TypographyParagraph className="mt-2" color="muted" size="sm">
+        <TypographyParagraph className="mt-2" color="muted">
           {description}
         </TypographyParagraph>
       )}

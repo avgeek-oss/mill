@@ -14,17 +14,22 @@ import {
   ErrorMessage,
   TextField,
   SearchField,
-  Widget,
+  Dropdown,
   EmptyState,
   TypographyText,
   Table,
   Link,
   TooltipText,
-  FieldDescription,
-  TypographyCode,
   TypographyParagraph,
 } from "@mill/web-design-system";
-import { List, Plus, Settings2, Save } from "./icons.js";
+import {
+  List,
+  Plus,
+  Settings2,
+  Save,
+  MoreHorizontal,
+  Trash2,
+} from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import type {
   Board,
@@ -99,6 +104,8 @@ export function BoardPage({
   const taskWasOpen = useRef(false);
   const taskList = useRef<HTMLTableElement | null>(null);
   const newTaskButton = useRef<HTMLButtonElement | null>(null);
+  const boardActionsButton = useRef<HTMLButtonElement | null>(null);
+  const boardDialogWasOpen = useRef(false);
   const writable = !!board && user.role !== "viewer";
   useEffect(() => {
     const timer = setTimeout(() => setQ(query), 250);
@@ -318,6 +325,37 @@ export function BoardPage({
     },
     [],
   );
+  useEffect(() => {
+    if (settings || confirmBoard) {
+      boardDialogWasOpen.current = true;
+      return;
+    }
+    if (!boardDialogWasOpen.current) return;
+    let frame = 0;
+    const restore = () => {
+      boardDialogWasOpen.current = false;
+      const active = document.activeElement;
+      if (
+        active === document.body ||
+        active === boardActionsButton.current ||
+        active?.closest('[role="menu"]') ||
+        taskList.current?.contains(active)
+      )
+        boardActionsButton.current?.focus({ preventScroll: true });
+    };
+    const afterDialogRemoved = () => {
+      if (document.querySelector("[data-board-dialog]")) return;
+      observer.disconnect();
+      frame = requestAnimationFrame(restore);
+    };
+    const observer = new MutationObserver(afterDialogRemoved);
+    observer.observe(document.body, { childList: true, subtree: true });
+    afterDialogRemoved();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [settings, confirmBoard]);
   async function settingsRun(
     action: () => Promise<void>,
     notice = "Changes saved.",
@@ -332,7 +370,7 @@ export function BoardPage({
     setSettingsNotice("");
     try {
       await action();
-      await load();
+      await load(false, true);
       onBoardsChanged();
       setSettingsNotice(notice);
       return true;
@@ -430,27 +468,60 @@ export function BoardPage({
   return (
     <>
       <PageHeading
-        title={board?.name ?? "Loading board…"}
+        title={
+          board?.name ??
+          boards.find((item) => item.id === boardId)?.name ??
+          "Board"
+        }
         icon={<List />}
         description={board?.description ?? undefined}
         actions={
           <div className="flex flex-wrap items-center gap-3">
-            {user.role !== "viewer" && (
-              <Button
-                variant="ghost"
-                aria-label="Board settings"
-                isIconOnly
-                isDisabled={!board}
-                onPress={() => setSettings(true)}
-              >
-                <Settings2 />
-              </Button>
-            )}
             {writable && (
               <Button ref={newTaskButton} onPress={() => choose({})}>
                 <Plus />
                 New task
               </Button>
+            )}
+            {user.role !== "viewer" && (
+              <Dropdown>
+                <Button
+                  ref={boardActionsButton}
+                  variant="secondary"
+                  aria-label="Board actions"
+                  isIconOnly
+                  isDisabled={!board || busy}
+                >
+                  <MoreHorizontal />
+                </Button>
+                <Dropdown.Popover placement="bottom end" className="min-w-44">
+                  <Dropdown.Menu
+                    aria-label="Board actions"
+                    onAction={(key) => {
+                      setSettingsError("");
+                      setSettingsNotice("");
+                      if (key === "settings") setSettings(true);
+                      else if (key === "delete" && user.role === "admin")
+                        setConfirmBoard(true);
+                    }}
+                  >
+                    <Dropdown.Item id="settings" textValue="Board settings">
+                      <Settings2 />
+                      Board settings
+                    </Dropdown.Item>
+                    {user.role === "admin" && (
+                      <Dropdown.Item
+                        id="delete"
+                        textValue="Delete board"
+                        variant="danger"
+                      >
+                        <Trash2 />
+                        Delete board
+                      </Dropdown.Item>
+                    )}
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown>
             )}
           </div>
         }
@@ -486,6 +557,7 @@ export function BoardPage({
           <Choice
             variant="secondary"
             label="Assignee filter"
+            hideLabel
             value={filters.assigneeId}
             onChange={(v) => setFilters({ ...filters, assigneeId: v })}
             items={[
@@ -500,6 +572,7 @@ export function BoardPage({
           <Choice
             variant="secondary"
             label="Priority filter"
+            hideLabel
             value={filters.priority}
             onChange={(v) => setFilters({ ...filters, priority: v })}
             items={[
@@ -515,6 +588,7 @@ export function BoardPage({
           <Choice
             variant="secondary"
             label="Status filter"
+            hideLabel
             value={filters.status}
             onChange={(v) => setFilters({ ...filters, status: v })}
             items={[
@@ -527,6 +601,7 @@ export function BoardPage({
           <Choice
             variant="secondary"
             label="Sort"
+            hideLabel
             value={filters.sort}
             onChange={(v) => setFilters({ ...filters, sort: v })}
             items={[
@@ -579,6 +654,7 @@ export function BoardPage({
                   <Table.Column isRowHeader>Task</Table.Column>
                   <Table.Column>Status</Table.Column>
                   <Table.Column>Assignee</Table.Column>
+                  <Table.Column>Agent</Table.Column>
                   <Table.Column>Priority</Table.Column>
                 </Table.Header>
                 <Table.Body>
@@ -599,17 +675,19 @@ export function BoardPage({
                       <Table.Cell>
                         <Link
                           href={`/boards/${boardId}/tasks/${task.id}`}
-                          className="inline-flex min-w-0 items-center gap-3 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                          className="grid min-w-0 gap-0.5 rounded-lg text-sm/5 font-normal outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
                         >
-                          <span className="task-id">{task.identifier}</span>
-                          <TypographyText textRole="label" className="text-sm">
+                          <span className="min-w-0 text-sm/5 font-normal">
                             <TooltipText
                               className="inline-block max-w-xs truncate align-middle"
                               tooltip={task.title}
                             >
                               {task.title}
                             </TooltipText>
-                          </TypographyText>
+                          </span>
+                          <span className="font-mono text-xs/4 font-normal text-muted">
+                            {task.identifier}
+                          </span>
                         </Link>
                       </Table.Cell>
                       <Table.Cell>{taskStatusLabel(task.status)}</Table.Cell>
@@ -617,6 +695,7 @@ export function BoardPage({
                         {members.find((m) => m.id === task.assigneeId)?.name ??
                           "Unassigned"}
                       </Table.Cell>
+                      <Table.Cell>{task.agentName}</Table.Cell>
                       <Table.Cell>
                         <span className={`priority priority-${task.priority}`}>
                           {task.priority}
@@ -658,6 +737,7 @@ export function BoardPage({
       )}
       {settings && board && (
         <Dialog
+          data-board-dialog
           isDismissDisabled={busy}
           open
           onClose={() => {
@@ -674,99 +754,54 @@ export function BoardPage({
             </div>
           }
         >
-          <div className="content-grid min-w-0">
-            <div className="content-grid min-w-0">
-              <Widget>
-                <Widget.Header>
-                  <Widget.Title icon={<Settings2 />} help={false}>
-                    Board details
-                  </Widget.Title>
-                </Widget.Header>
-                <Widget.Content>
-                  <form
-                    className="content-grid min-w-0"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const data = new FormData(e.currentTarget);
-                      void settingsRun(async () => {
-                        await api(
-                          `/boards/${board.id}`,
-                          {
-                            version: board.version,
-                            name: data.get("name"),
-                            description: data.get("description"),
-                          },
-                          "PATCH",
-                        );
-                      }, "Board updated.");
-                    }}
-                  >
-                    <TextField
-                      label="Board name"
-                      name="name"
-                      defaultValue={board.name}
-                      required
-                      maxLength={100}
-                      disabled={!writable}
-                      className="min-w-0 w-full"
-                    />
-                    <FieldDescription>
-                      Task identifiers use{" "}
-                      <TypographyCode>{board.prefix}</TypographyCode>. The
-                      prefix stays fixed so existing links remain stable.
-                    </FieldDescription>
-                    <TextField
-                      label="Description"
-                      name="description"
-                      defaultValue={board.description}
-                      multiline
-                      maxLength={2000}
-                      disabled={!writable}
-                      className="min-w-0 w-full"
-                    />
-                    <div>
-                      <Button
-                        type="submit"
-                        isPending={busy}
-                        isDisabled={!writable}
-                      >
-                        <Save />
-                        Save board
-                      </Button>
-                    </div>
-                  </form>
-                </Widget.Content>
-              </Widget>
-              {user.role === "admin" && (
-                <Widget>
-                  <Widget.Header>
-                    <Widget.Title help={false}>Delete board</Widget.Title>
-                  </Widget.Header>
-                  <Widget.Content className="content-grid min-w-0">
-                    <TypographyParagraph size="sm" color="muted">
-                      Permanently remove this board and all of its work.
-                    </TypographyParagraph>
-                    <div>
-                      <Button
-                        variant="danger-ghost"
-                        isDisabled={busy}
-                        onPress={() => {
-                          setSettingsError("");
-                          setConfirmBoard(true);
-                        }}
-                      >
-                        Delete board
-                      </Button>
-                    </div>
-                  </Widget.Content>
-                </Widget>
-              )}
+          <form
+            className="content-grid min-w-0"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const data = new FormData(e.currentTarget);
+              void settingsRun(async () => {
+                await api(
+                  `/boards/${board.id}`,
+                  {
+                    version: board.version,
+                    name: data.get("name"),
+                    description: data.get("description"),
+                  },
+                  "PATCH",
+                );
+              }, "Board updated.");
+            }}
+          >
+            <TextField
+              label="Board name"
+              name="name"
+              defaultValue={board.name}
+              required
+              maxLength={100}
+              disabled={!writable}
+              className="min-w-0 w-full"
+            />
+            <TextField
+              label="Description"
+              name="description"
+              defaultValue={board.description}
+              multiline
+              maxLength={2000}
+              disabled={!writable}
+              className="min-w-0 w-full"
+            />
+            <div>
+              <Button type="submit" isPending={busy} isDisabled={!writable}>
+                <Save />
+                Save board
+              </Button>
             </div>
-          </div>
+          </form>
         </Dialog>
       )}
       {confirmBoard && board && user.role === "admin" && (
         <Dialog
+          data-board-dialog
           isDismissDisabled={busy}
           open
           onClose={() => setConfirmBoard(false)}

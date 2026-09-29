@@ -6,6 +6,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -53,6 +54,7 @@ test("workspace audit is absent for every role while task history retains human,
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie, { name: "Task helper" })).id,
         name: "Task helper",
         scopes: ["read", "write"],
         boardIds: [board.id],
@@ -166,7 +168,7 @@ test("workspace audit is absent for every role while task history retains human,
     agentEvents.every(
       (event: { actorId: string; actorName: string }) =>
         event.actorId === user.id &&
-        event.actorName === "Admin via Task helper",
+        event.actorName === "Task helper via Admin",
     ),
   );
   assert.ok(
@@ -243,6 +245,7 @@ test("status changes retain attributed history, reject stale versions and dedupl
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie, { name: "Status helper" })).id,
         name: "Status helper",
         scopes: ["read", "write"],
         boardIds: [board.id],
@@ -297,7 +300,7 @@ test("status changes retain attributed history, reject stale versions and dedupl
   assert.equal(event.boardId, board.id);
   assert.equal(event.actorId, user.id);
   assert.equal(event.actorKind, "agent");
-  assert.equal(event.actorName, "Admin via Status helper");
+  assert.equal(event.actorName, "Status helper via Admin");
   assert.deepEqual(event.detail, {
     fromStatus: "backlog",
     status: "in_progress",

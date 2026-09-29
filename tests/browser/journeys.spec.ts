@@ -20,6 +20,7 @@ const baseOrigin = process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323";
 let workspaceId = "";
 let boardId = "";
 let taskId = "";
+let releaseAgentId = "";
 let layoutInvitationToken = "";
 let detailInvitationToken = "";
 let sidebarInvitationToken = "";
@@ -54,6 +55,17 @@ async function choose(page: Page, label: string, value: string) {
   await page.getByRole("button", { name: new RegExp(`${label}$`) }).click();
   await page.getByRole("option", { name: value, exact: true }).click();
   await expect(page.getByRole("listbox")).toBeHidden();
+}
+async function openBoardAction(
+  page: Page,
+  action: "Board settings" | "Delete board",
+) {
+  await page
+    .getByRole("button", { name: "Board actions", exact: true })
+    .click();
+  const menu = page.getByRole("menu", { name: "Board actions", exact: true });
+  await menu.getByRole("menuitem", { name: action, exact: true }).click();
+  await expect(menu).toBeHidden();
 }
 async function submitWhilePending(
   page: Page,
@@ -223,13 +235,7 @@ test("first installation and complete board/task workflow", async ({
   page.on("response", recordPhantomRead);
   try {
     await page.goto(`/boards/${onlyBoard.id}`);
-    await page
-      .getByRole("button", { name: "Board settings", exact: true })
-      .click();
-    await page
-      .getByRole("dialog", { name: "Board settings", exact: true })
-      .getByRole("button", { name: "Delete board", exact: true })
-      .click();
+    await openBoardAction(page, "Delete board");
     await page
       .getByRole("dialog", { name: "Delete board?", exact: true })
       .getByRole("button", { name: "Delete board", exact: true })
@@ -324,6 +330,49 @@ test("first installation and complete board/task workflow", async ({
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
   boardId = page.url().split("/boards/")[1];
+  const boardRead = requestGate();
+  const delayBoardRead = async (route: Route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    return boardRead.hold(route);
+  };
+  await page.route(`**/api/boards/${boardId}`, delayBoardRead);
+  try {
+    await page.reload();
+    await boardRead.started;
+    await expect(
+      page.getByRole("heading", { name: "Release planning", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Loading board…", exact: true }),
+    ).toHaveCount(0);
+    await expect(page).not.toHaveTitle(/Loading board/);
+  } finally {
+    await boardRead.finish();
+    await page.unroute(`**/api/boards/${boardId}`, delayBoardRead);
+  }
+  await expect(
+    page.getByRole("button", { name: "Board actions", exact: true }),
+  ).toBeEnabled();
+  expect(
+    await page
+      .getByRole("button", { name: "New task", exact: true })
+      .evaluate((button) => {
+        const actions = document.querySelector('[aria-label="Board actions"]');
+        return (
+          !!actions &&
+          !!(
+            button.compareDocumentPosition(actions) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+          )
+        );
+      }),
+  ).toBe(true);
+  const releaseAgentResponse = await page.request.post("/api/agents", {
+    headers: { Origin: baseOrigin },
+    data: { name: "Release helper", scope: "personal" },
+  });
+  expect(releaseAgentResponse.status()).toBe(201);
+  releaseAgentId = (await releaseAgentResponse.json()).agent.id;
   await page.screenshot({
     path: "docs/screenshots/empty-board-light.png",
     fullPage: true,
@@ -354,6 +403,39 @@ test("first installation and complete board/task workflow", async ({
     );
   await page.getByLabel("New checklist item").fill("Verify installation");
   await page.getByRole("button", { name: "Add checklist item" }).click();
+  const draftTask = page.getByRole("dialog", { name: "New task", exact: true });
+  const taskWrites: string[] = [];
+  const recordTaskWrites = (request: import("@playwright/test").Request) => {
+    if (
+      request.method() === "POST" &&
+      new URL(request.url()).pathname === `/api/boards/${boardId}/tasks`
+    )
+      taskWrites.push(request.url());
+  };
+  page.on("request", recordTaskWrites);
+  try {
+    await choose(page, "Agent", "Release helper");
+    await expect(
+      draftTask.getByRole("button", { name: /Assignee$/ }),
+    ).toContainText("Unassigned");
+    await draftTask
+      .getByRole("button", { name: "Create task", exact: true })
+      .click();
+    await expect(draftTask.getByRole("alert")).toContainText(
+      "Choose an active human assignee before assigning an agent",
+    );
+    await expect(
+      draftTask.getByRole("textbox", { name: /^Title\*?$/ }),
+    ).toHaveValue("Prepare the release checklist");
+    await expect(
+      draftTask.getByRole("button", { name: /Agent$/ }),
+    ).toContainText("Release helper");
+    expect(taskWrites).toHaveLength(0);
+    await choose(page, "Assignee", account.name);
+    expect(taskWrites).toHaveLength(0);
+  } finally {
+    page.off("request", recordTaskWrites);
+  }
   await submitWhilePending(
     page,
     `/boards/${boardId}/tasks`,
@@ -369,6 +451,12 @@ test("first installation and complete board/task workflow", async ({
       .getByRole("heading", { name: "REL-1" }),
   ).toBeVisible();
   taskId = page.url().split("/tasks/")[1];
+  const assignedTaskResponse = await page.request.get(`/api/tasks/${taskId}`);
+  expect(assignedTaskResponse.ok()).toBeTruthy();
+  const assignedTask = (await assignedTaskResponse.json()).task;
+  expect(assignedTask.agentId).toBe(releaseAgentId);
+  expect(assignedTask.agentName).toBe("Release helper");
+  expect(assignedTask.assigneeId).toBe(bootstrap.identity.user.id);
   await page
     .getByLabel("Title", { exact: true })
     .fill("Prepare the release and recovery checklist");
@@ -526,9 +614,7 @@ test("first installation and complete board/task workflow", async ({
       .getByRole("heading", { name: "REL-2" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
-  await page
-    .getByRole("button", { name: "Board settings", exact: true })
-    .click();
+  await openBoardAction(page, "Board settings");
   const boardSettings = page.getByRole("dialog", {
     name: "Board settings",
     exact: true,
@@ -562,7 +648,18 @@ test("first installation and complete board/task workflow", async ({
   await boardSettings
     .getByRole("button", { name: "Close dialog", exact: true })
     .click();
+  await expect(
+    page.getByRole("button", { name: "Board actions", exact: true }),
+  ).toBeFocused();
   const tasks = page.getByRole("grid", { name: "Task list" });
+  const releaseRow = tasks
+    .getByRole("row")
+    .filter({ hasText: "Prepare the release and recovery checklist" });
+  await expect(releaseRow).toContainText(account.name);
+  await expect(releaseRow).toContainText("Release helper");
+  await expect(
+    tasks.getByRole("columnheader", { name: "Agent", exact: true }),
+  ).toBeVisible();
   await expect(
     tasks
       .getByRole("row")
@@ -620,7 +717,7 @@ test("first installation and complete board/task workflow", async ({
     animations: "disabled",
   });
 });
-test("sidebar action sizing matches navigation and removed audit routes stay unavailable", async ({
+test("sidebar header action sizing and removed audit routes stay unavailable", async ({
   page,
   browser,
 }) => {
@@ -669,11 +766,11 @@ test("sidebar action sizing matches navigation and removed audit routes stay una
           name: "Workspace navigation",
         });
         const create = nav.getByRole("button", {
-          name: "Create Project",
+          name: "Create board",
           exact: true,
         });
         const reference = nav.getByRole("link", {
-          name: "Agent access",
+          name: "API keys",
           exact: true,
         });
         await expect(create).toBeVisible();
@@ -699,7 +796,11 @@ test("sidebar action sizing matches navigation and removed audit routes stay una
           await metrics(create);
         const { iconGeometry: referenceIcon, ...referenceStyles } =
           await metrics(reference);
-        expect(createStyles).toEqual(referenceStyles);
+        expect(createStyles.height).toBe(width === 390 ? 44 : 32);
+        expect(referenceStyles.height).toBe(width === 390 ? 44 : 36);
+        expect(referenceStyles.fontSize).toBe("14px");
+        expect(referenceStyles.gap).toBe("12px");
+        expect(referenceStyles.fontWeight).toBe("400");
         expect(createStyles.iconCssWidth).toBe("16px");
         expect(createStyles.iconCssHeight).toBe("16px");
         for (const dimension of ["width", "height"] as const)
@@ -707,7 +808,7 @@ test("sidebar action sizing matches navigation and removed audit routes stay una
             Math.abs(createIcon[dimension] - referenceIcon[dimension]),
           ).toBeLessThanOrEqual(0.001);
         expect((await create.boundingBox())!.height).toBe(
-          width === 390 ? 44 : 36,
+          width === 390 ? 44 : 32,
         );
         await expect(
           nav.getByRole("link", { name: "Audit history", exact: true }),
@@ -731,6 +832,38 @@ test("keyboard status changes, list filters, mobile navigation, and overlay sear
 }, testInfo) => {
   await login(page);
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
+  const agentTask = page.getByRole("dialog", { name: "REL-1", exact: true });
+  await expect(
+    agentTask.getByRole("textbox", { name: /^Title\*?$/ }),
+  ).toHaveValue("Prepare the release and recovery checklist");
+  const changedBindings: string[] = [];
+  const recordBindingWrite = (request: import("@playwright/test").Request) => {
+    if (
+      request.method() === "PATCH" &&
+      new URL(request.url()).pathname === `/api/tasks/${taskId}`
+    )
+      changedBindings.push(request.url());
+  };
+  page.on("request", recordBindingWrite);
+  try {
+    await choose(page, "Assignee", "Sidebar Sizing Review");
+    await agentTask
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(agentTask.getByRole("alert")).toContainText(
+      "This agent is not available to the selected assignee",
+    );
+    await expect(
+      agentTask.getByRole("button", { name: /Agent$/ }),
+    ).toContainText("Release helper");
+    await expect(
+      agentTask.getByRole("button", { name: /Assignee$/ }),
+    ).toContainText("Sidebar Sizing Review");
+    expect(changedBindings).toHaveLength(0);
+    await choose(page, "Assignee", account.name);
+  } finally {
+    page.off("request", recordBindingWrite);
+  }
   await page.getByRole("button", { name: /Status$/ }).focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("d");
@@ -1072,6 +1205,64 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
   expect(permissionsIdentity.user.email).toBe(permissionsAccount.email);
   expect(permissionsIdentity.user.role).toBe("admin");
   expect(permissionsIdentity.workspace.id).toBe(workspaceId);
+  const editorAgentsResponse = await page.request.get("/api/agents?limit=100");
+  expect(editorAgentsResponse.ok()).toBeTruthy();
+  expect(
+    (await editorAgentsResponse.json()).items.some(
+      (agent: { id: string }) => agent.id === releaseAgentId,
+    ),
+  ).toBe(false);
+  const bindingBeforeEditResponse = await page.request.get(
+    `/api/tasks/${taskId}`,
+  );
+  expect(bindingBeforeEditResponse.ok()).toBeTruthy();
+  const bindingBeforeEdit = (await bindingBeforeEditResponse.json()).task;
+  expect(bindingBeforeEdit.agentId).toBe(releaseAgentId);
+  expect(bindingBeforeEdit.agentName).toBe("Release helper");
+  await page.goto(`/boards/${boardId}/tasks/${taskId}`);
+  const editorTask = page.getByRole("dialog", { name: "REL-1", exact: true });
+  const editorTitle = editorTask.getByRole("textbox", { name: /^Title\*?$/ });
+  await expect(editorTitle).toHaveValue(bindingBeforeEdit.title);
+  await expect(
+    editorTask.getByRole("button", { name: /Agent$/ }),
+  ).toContainText("Release helper");
+  await expect(
+    editorTask.getByRole("button", { name: /Assignee$/ }),
+  ).toContainText(account.name);
+  await editorTitle.fill("Release checklist reviewed by another human");
+  await choose(page, "Status", "In Review");
+  const unrelatedEditResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === `/api/tasks/${taskId}` &&
+      response.request().method() === "PATCH",
+  );
+  await editorTask
+    .getByRole("button", { name: "Save changes", exact: true })
+    .click();
+  const unrelatedEdit = await unrelatedEditResponse;
+  expect(unrelatedEdit.ok()).toBeTruthy();
+  const unchangedBindingPayload = unrelatedEdit.request().postDataJSON();
+  expect(unchangedBindingPayload.agentId).toBe(bindingBeforeEdit.agentId);
+  expect(unchangedBindingPayload.assigneeId).toBe(bindingBeforeEdit.assigneeId);
+  await expect(editorTask.getByRole("status")).toContainText("Changes saved.");
+  const bindingAfterEditResponse = await page.request.get(
+    `/api/tasks/${taskId}`,
+  );
+  expect(bindingAfterEditResponse.ok()).toBeTruthy();
+  const bindingAfterEdit = (await bindingAfterEditResponse.json()).task;
+  expect(bindingAfterEdit.title).toBe(
+    "Release checklist reviewed by another human",
+  );
+  expect(bindingAfterEdit.status).toBe("in_review");
+  expect(bindingAfterEdit.agentId).toBe(bindingBeforeEdit.agentId);
+  expect(bindingAfterEdit.agentName).toBe(bindingBeforeEdit.agentName);
+  expect(bindingAfterEdit.assigneeId).toBe(bindingBeforeEdit.assigneeId);
+  await expect(
+    editorTask.getByRole("button", { name: /Agent$/ }),
+  ).toContainText("Release helper");
+  await expect(
+    editorTask.getByRole("button", { name: /Assignee$/ }),
+  ).toContainText(account.name);
   await page.goto("/settings/members");
   await page
     .getByRole("button", { name: "Invite a person", exact: true })
@@ -1116,13 +1307,34 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
   const viewerUser = await viewer.request
     .get("/api/auth/me")
     .then((r) => r.json());
+  await viewer.goto(`/boards/${boardId}/tasks/${taskId}`);
+  const readOnlyTask = viewer.getByRole("dialog", {
+    name: "REL-1",
+    exact: true,
+  });
+  await expect(
+    readOnlyTask.getByRole("button", { name: /Agent$/ }),
+  ).toBeDisabled();
+  await expect(
+    readOnlyTask.getByRole("button", { name: /Agent$/ }),
+  ).toContainText("Release helper");
+  const viewerAgentsResponse = await viewer.request.get(
+    "/api/agents?limit=100",
+  );
+  expect(viewerAgentsResponse.ok()).toBeTruthy();
+  expect((await viewerAgentsResponse.json()).items).toHaveLength(0);
   const original = await page.request
     .get(`/api/tasks/${taskId}`)
     .then((r) => r.json());
-  await page.request.patch(`/api/tasks/${taskId}`, {
+  const reassigned = await page.request.patch(`/api/tasks/${taskId}`, {
     headers: { Origin: baseOrigin },
-    data: { version: original.task.version, assigneeId: viewerUser.user.id },
+    data: {
+      version: original.task.version,
+      assigneeId: viewerUser.user.id,
+      agentId: null,
+    },
   });
+  expect(reassigned.ok()).toBeTruthy();
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
   await page
     .getByLabel("Add a comment")
@@ -1168,22 +1380,25 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
     viewer.getByRole("button", { name: "Save changes" }),
   ).toHaveCount(0);
   await viewerContext.close();
-  await page.goto("/settings/agents");
+  const credentialAgentResponse = await page.request.post("/api/agents", {
+    headers: { Origin: baseOrigin },
+    data: { name: "Review integration", scope: "personal" },
+  });
+  expect(credentialAgentResponse.status()).toBe(201);
+  const credentialAgent = (await credentialAgentResponse.json()).agent;
+  await page.goto("/settings/api-keys");
   await page
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   await page.getByLabel("Name", { exact: true }).fill("Review agent");
+  await choose(page, "Agent", credentialAgent.name);
   await choose(page, "Access", "Read only");
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
-  await expect(page.getByLabel("Credential", { exact: true })).not.toHaveValue(
-    "",
-  );
-  const token = await page
-    .getByLabel("Credential", { exact: true })
-    .inputValue();
+  await expect(page.getByLabel("API key", { exact: true })).not.toHaveValue("");
+  const token = await page.getByLabel("API key", { exact: true }).inputValue();
   const agent = await request.newContext({
     baseURL: baseOrigin,
     extraHTTPHeaders: { Authorization: `Bearer ${token}`, Origin: baseOrigin },
@@ -1202,20 +1417,20 @@ test("invitations, viewer permissions, mentions, and scoped credentials", async 
       .click();
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "Revoke credential", exact: true })
+      .getByRole("button", { name: "Revoke API key", exact: true })
       .click();
     const revokedDialog = page.getByRole("dialog", {
-      name: "Revoke credential?",
+      name: "Revoke API key?",
       exact: true,
     });
     await expect(revokedDialog.getByRole("status")).toHaveText(
-      "Credential revoked.",
+      "API key revoked.",
     );
     await revokedDialog
       .getByRole("button", { name: "Done", exact: true })
       .click();
     const credentialRow = page
-      .getByRole("grid", { name: "Credentials", exact: true })
+      .getByRole("grid", { name: "API keys", exact: true })
       .getByRole("row")
       .filter({ hasText: "Review agent" });
     await expect(
@@ -1427,16 +1642,20 @@ test("board settings keep detail failures recoverable and delete boards permanen
 }) => {
   await login(page, lifecycleAccount);
   await page.goto(`/boards/${boardId}`);
-  await page
-    .getByRole("button", { name: "Board settings", exact: true })
-    .click();
+  await openBoardAction(page, "Board settings");
   const settings = page.getByRole("dialog").filter({
     has: page.getByRole("heading", { name: "Board settings", exact: true }),
   });
   await expect(settings.getByLabel("Task prefix", { exact: true })).toHaveCount(
     0,
   );
-  await expect(settings).toContainText("The prefix stays fixed");
+  await expect(settings).not.toContainText("The prefix stays fixed");
+  await expect(
+    settings.getByRole("button", { name: "Delete board", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    settings.getByRole("heading", { name: "Board details", exact: true }),
+  ).toHaveCount(0);
   await expect(settings.getByLabel("New status", { exact: true })).toHaveCount(
     0,
   );
@@ -1530,12 +1749,7 @@ test("board settings keep detail failures recoverable and delete boards permanen
   );
   expect(commentResponse.ok()).toBeTruthy();
   await page.goto(`/boards/${disposable.id}`);
-  await page
-    .getByRole("button", { name: "Board settings", exact: true })
-    .click();
-  await settings
-    .getByRole("button", { name: "Delete board", exact: true })
-    .click();
+  await openBoardAction(page, "Delete board");
   const deletion = page.getByRole("dialog", {
     name: "Delete board?",
     exact: true,
@@ -1546,11 +1760,9 @@ test("board settings keep detail failures recoverable and delete boards permanen
     .getByRole("button", { name: "Keep board", exact: true })
     .click();
   await expect(
-    settings.getByRole("button", { name: "Delete board", exact: true }),
+    page.getByRole("button", { name: "Board actions", exact: true }),
   ).toBeFocused();
-  await settings
-    .getByRole("button", { name: "Delete board", exact: true })
-    .click();
+  await openBoardAction(page, "Delete board");
   const boardDeletion = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === `/api/boards/${disposable.id}` &&
@@ -2060,7 +2272,7 @@ test("existing-task load failures preserve identity and recover without creating
   expect(creations).toBe(0);
 });
 
-test("sidebar autoloads every board, retries directory failures, and keeps Create Project last", async ({
+test("sidebar autoloads every board, retries directory failures, and keeps its create action available", async ({
   page,
 }) => {
   const { database, schema } = await browserDatabase();
@@ -2159,9 +2371,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     await expect(
       nav.getByRole("button", { name: "Load more boards", exact: true }),
     ).toHaveCount(0);
-    await expect(section.locator("a,button").last()).toHaveText(
-      "Create Project",
-    );
+    await expect(
+      section.getByRole("button", { name: "Create board", exact: true }),
+    ).toBeVisible();
+    await expect(
+      section.getByText("Create Project", { exact: true }),
+    ).toHaveCount(0);
     const abortContinuation = async (route: Route) => {
       if (!new URL(route.request().url()).searchParams.has("cursor"))
         return route.continue();
@@ -2177,9 +2392,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       item.name.startsWith("Directory board "),
     ).length;
     await expect(directoryLinks).toHaveCount(retainedCount);
-    await expect(section.locator("a,button").last()).toHaveText(
-      "Create Project",
-    );
+    await expect(
+      section.getByRole("button", { name: "Create board", exact: true }),
+    ).toBeVisible();
+    await expect(
+      section.getByText("Create Project", { exact: true }),
+    ).toHaveCount(0);
     await page.unroute("**/api/boards?**", abortContinuation);
     await nav
       .getByRole("button", { name: "Retry loading boards", exact: true })
@@ -2192,11 +2410,14 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       .getByRole("menuitem", { name: "Profile", exact: true })
       .click();
     await expect(directoryLinks).toHaveCount(234);
-    await expect(section.locator("a,button").last()).toHaveText(
-      "Create Project",
-    );
+    await expect(
+      section.getByRole("button", { name: "Create board", exact: true }),
+    ).toBeVisible();
+    await expect(
+      section.getByText("Create Project", { exact: true }),
+    ).toHaveCount(0);
     await nav
-      .getByRole("button", { name: "Create Project", exact: true })
+      .getByRole("button", { name: "Create board", exact: true })
       .click();
     const dialog = page.getByRole("dialog", {
       name: "Create a board",
@@ -2230,9 +2451,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       }),
     ).toBeVisible();
     await expect(directoryLinks).toHaveCount(234);
-    await expect(section.locator("a,button").last()).toHaveText(
-      "Create Project",
-    );
+    await expect(
+      section.getByRole("button", { name: "Create board", exact: true }),
+    ).toBeVisible();
+    await expect(
+      section.getByText("Create Project", { exact: true }),
+    ).toHaveCount(0);
     await expect(
       nav.getByRole("status").filter({ hasText: "Loading boards" }),
     ).toHaveCount(0);
@@ -2287,9 +2511,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     };
     await page.route("**/api/boards?**", holdRefresh);
     try {
-      await page
-        .getByRole("button", { name: "Board settings", exact: true })
-        .click();
+      await openBoardAction(page, "Board settings");
       const boardSettings = page.getByRole("dialog", {
         name: "Board settings",
         exact: true,
@@ -2314,9 +2536,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
           exact: true,
         }),
       ).toBeVisible();
-      await expect(section.locator("a,button").last()).toHaveText(
-        "Create Project",
-      );
+      await expect(
+        section.getByRole("button", { name: "Create board", exact: true }),
+      ).toBeVisible();
+      await expect(
+        section.getByText("Create Project", { exact: true }),
+      ).toHaveCount(0);
       releaseRefreshFirst();
       await refreshFirstComplete;
       await refreshSecondRequest;
@@ -2327,9 +2552,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
           exact: true,
         }),
       ).toBeVisible();
-      await expect(section.locator("a,button").last()).toHaveText(
-        "Create Project",
-      );
+      await expect(
+        section.getByRole("button", { name: "Create board", exact: true }),
+      ).toBeVisible();
+      await expect(
+        section.getByText("Create Project", { exact: true }),
+      ).toHaveCount(0);
     } finally {
       releaseRefreshFirst();
       releaseRefreshSecond();
@@ -2371,13 +2599,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       }),
     ).toHaveCount(0);
     await expect(directoryLinks).toHaveCount(234);
-    await page
-      .getByRole("button", { name: "Board settings", exact: true })
-      .click();
-    await page
-      .getByRole("dialog", { name: "Board settings", exact: true })
-      .getByRole("button", { name: "Delete board", exact: true })
-      .click();
+    await openBoardAction(page, "Delete board");
     await page
       .getByRole("dialog", { name: "Delete board?", exact: true })
       .getByRole("button", { name: "Delete board", exact: true })
@@ -2389,9 +2611,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       }),
     ).toHaveCount(0);
     await expect(directoryLinks).toHaveCount(234);
-    await expect(section.locator("a,button").last()).toHaveText(
-      "Create Project",
-    );
+    await expect(
+      section.getByRole("button", { name: "Create board", exact: true }),
+    ).toBeVisible();
+    await expect(
+      section.getByText("Create Project", { exact: true }),
+    ).toHaveCount(0);
     expect(
       (await page.request.get(`/api/boards/${created.board.id}`)).status(),
     ).toBe(404);
@@ -2437,7 +2662,7 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
     await page.route("**/api/boards?**", delayPendingBoardPages);
     try {
       await nav
-        .getByRole("button", { name: "Create Project", exact: true })
+        .getByRole("button", { name: "Create board", exact: true })
         .click();
       const pendingCreationDialog = page.getByRole("dialog", {
         name: "Create a board",
@@ -2470,16 +2695,13 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       await expect(
         nav.getByRole("link", { name: "Directory board 234", exact: true }),
       ).toBeVisible();
-      await expect(section.locator("a,button").last()).toHaveText(
-        "Create Project",
-      );
-      await page
-        .getByRole("button", { name: "Board settings", exact: true })
-        .click();
-      await page
-        .getByRole("dialog", { name: "Board settings", exact: true })
-        .getByRole("button", { name: "Delete board", exact: true })
-        .click();
+      await expect(
+        section.getByRole("button", { name: "Create board", exact: true }),
+      ).toBeVisible();
+      await expect(
+        section.getByText("Create Project", { exact: true }),
+      ).toHaveCount(0);
+      await openBoardAction(page, "Delete board");
       deletingPendingBoard = true;
       const pendingDeletion = page.waitForResponse(
         (response) =>
@@ -2515,9 +2737,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       await expect(
         nav.getByRole("link", { name: "Directory board 234", exact: true }),
       ).toBeVisible();
-      await expect(section.locator("a,button").last()).toHaveText(
-        "Create Project",
-      );
+      await expect(
+        section.getByRole("button", { name: "Create board", exact: true }),
+      ).toBeVisible();
+      await expect(
+        section.getByText("Create Project", { exact: true }),
+      ).toHaveCount(0);
       await deletionContinuation.finish();
       await expect(
         nav.getByRole("status").filter({ hasText: "Loading boards" }),
@@ -2529,9 +2754,12 @@ test("sidebar autoloads every board, retries directory failures, and keeps Creat
       await expect(
         nav.getByRole("link", { name: "Directory board 234", exact: true }),
       ).toBeVisible();
-      await expect(section.locator("a,button").last()).toHaveText(
-        "Create Project",
-      );
+      await expect(
+        section.getByRole("button", { name: "Create board", exact: true }),
+      ).toBeVisible();
+      await expect(
+        section.getByText("Create Project", { exact: true }),
+      ).toHaveCount(0);
       expect(
         (await page.request.get(`/api/boards/${pendingBoard.id}`)).status(),
       ).toBe(404);

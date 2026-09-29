@@ -23,6 +23,7 @@ export {
   Switch,
   Spinner,
   Popover,
+  Dropdown,
   ScrollShadow,
   Autocomplete,
 } from "@heroui/react";

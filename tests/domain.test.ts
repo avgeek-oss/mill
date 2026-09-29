@@ -4,6 +4,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -189,6 +190,7 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "Board agent",
         scopes: ["read", "write"],
         boardIds: [board.id],
@@ -259,6 +261,7 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "Reader",
         scopes: ["read"],
         boardIds: [board.id],
@@ -502,6 +505,7 @@ test("assignments and mentions respect preferences and notifications remain priv
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "Limited notifications",
         scopes: ["read", "write"],
         boardIds: [board.id],

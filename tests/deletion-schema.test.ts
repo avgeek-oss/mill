@@ -4,6 +4,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -64,6 +65,7 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
       await request("/api/credentials", {
         cookie,
         body: {
+          agentId: (await setupAgent(cookie)).id,
           name: "Removed scope",
           scopes: ["read"],
           boardIds: [removed.id],
@@ -76,6 +78,7 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
       await request("/api/credentials", {
         cookie,
         body: {
+          agentId: (await setupAgent(cookie)).id,
           name: "Mixed scope",
           scopes: ["read"],
           boardIds: [removed.id, kept.id],
@@ -85,9 +88,9 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
       201,
     );
     const [soleGrant] =
-      await sql`INSERT INTO oauth_requests(client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,board_ids,expires_at) VALUES ('schema-agent','Agent','registered','https://example.test/callback','https://example.test/mcp','read','challenge',${user.id},ARRAY[${removed.id}::uuid],now()+interval '1 day') RETURNING id`;
+      await sql`INSERT INTO oauth_requests(client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,agent_id,board_ids,expires_at) VALUES ('schema-agent','Agent','registered','https://example.test/callback','https://example.test/mcp','read','challenge',${user.id},${sole.credential.agentId},ARRAY[${removed.id}::uuid],now()+interval '1 day') RETURNING id`;
     const [mixedGrant] =
-      await sql`INSERT INTO oauth_requests(client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,board_ids,expires_at) VALUES ('schema-agent','Agent','registered','https://example.test/callback','https://example.test/mcp','read','challenge',${user.id},ARRAY[${removed.id}::uuid,${kept.id}::uuid],now()+interval '1 day') RETURNING id`;
+      await sql`INSERT INTO oauth_requests(client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,agent_id,board_ids,expires_at) VALUES ('schema-agent','Agent','registered','https://example.test/callback','https://example.test/mcp','read','challenge',${user.id},${mixed.credential.agentId},ARRAY[${removed.id}::uuid,${kept.id}::uuid],now()+interval '1 day') RETURNING id`;
     const originalCaches =
       await sql`SELECT actor_key,key,request_hash,created_at FROM api_idempotency ORDER BY key`;
     const schema = process.env.MILL_DB_SCHEMA!;

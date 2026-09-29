@@ -19,6 +19,7 @@ test.describe.configure({ mode: "serial" });
 let origin: string;
 let admin: APIRequestContext;
 let board: { id: string; name: string };
+let selectedAgent: { id: string; name: string };
 let planning: { id: string; name: string };
 let scenarioOwner: { id: string; baseline: string[] } | null = null;
 async function json(
@@ -30,7 +31,10 @@ async function json(
   const response = await api.fetch(`/api${path}`, {
     method: data === undefined ? "GET" : method,
     headers: { Origin: origin },
-    data,
+    data:
+      path === "/credentials" && data && method === "POST"
+        ? { agentId: selectedAgent.id, ...(data as Record<string, unknown>) }
+        : data,
   });
   expect(response.ok(), `${method} ${path}: ${response.status()}`).toBe(true);
   return response.json();
@@ -52,6 +56,20 @@ async function account(page: Page, role: "member" | "viewer" = "member") {
     } finally {
       await state.sql.end();
     }
+    const directory = await json(page.request, "/agents?limit=100");
+    selectedAgent = directory.items.find(
+      (item: { name: string }) => item.name === `Browser ${role} agent`,
+    );
+    if (!selectedAgent)
+      selectedAgent = (
+        await json(role === "viewer" ? admin : page.request, "/agents", {
+          name: `Browser ${role} agent`,
+          scope: role === "viewer" ? "team" : "personal",
+          ...(role === "viewer"
+            ? { memberIds: [fixture.identity.user.id] }
+            : {}),
+        })
+      ).agent;
     await page.goto("/");
     await expect(
       page.getByRole("navigation", { name: "Workspace navigation" }),
@@ -61,29 +79,82 @@ async function account(page: Page, role: "member" | "viewer" = "member") {
     await fixture.api.dispose();
   }
 }
-async function openAgents(page: Page) {
-  await page.goto("/settings/agents");
+async function directoryAccount(page: Page) {
+  const invitation = await json(admin, "/auth/invitations", {
+    email: "browser-agent-directory-member@example.test",
+    role: "member",
+  });
+  await json(page.request, "/auth/accept-invitation", {
+    token: invitation.token,
+    name: "Directory fixture member",
+    password: "Browser-directory-fixture-password-42",
+  });
+  const identity = await json(page.request, "/auth/me");
+  expect(identity.user.role).toBe("member");
+  expect(identity.workspace.id).toBe(
+    (await json(admin, "/auth/me")).workspace.id,
+  );
+  selectedAgent = (
+    await json(page.request, "/agents", {
+      name: "Directory fixture agent",
+      scope: "personal",
+    })
+  ).agent;
+  scenarioOwner = { id: identity.user.id, baseline: [] };
+  await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Agent access", exact: true }),
+    page.getByRole("navigation", { name: "Workspace navigation" }),
   ).toBeVisible();
 }
-async function createDialog(page: Page, name: string) {
+async function openAgents(page: Page) {
+  await page.goto("/settings/api-keys");
+  await expect(
+    page.getByRole("heading", { name: "API keys", exact: true }),
+  ).toBeVisible();
+}
+async function createDialog(
+  page: Page,
+  name: string,
+  activation: "pointer" | "touch" | "keyboard" = "pointer",
+) {
   await page
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   const dialog = page.getByRole("dialog", {
-    name: "Create credential",
+    name: "Create API key",
     exact: true,
   });
   await dialog.getByLabel("Name", { exact: true }).fill(name);
+  await choose(page, "Agent", selectedAgent.name, activation);
   await expect(
-    dialog.getByRole("button", { name: "Create credential", exact: true }),
+    dialog.getByRole("button", { name: "Create API key", exact: true }),
   ).toBeEnabled();
   return dialog;
 }
-async function choose(page: Page, label: string, name: string) {
-  await page.getByRole("button", { name: new RegExp(`${label}$`) }).click();
-  await page.getByRole("option", { name, exact: true }).click();
+async function choose(
+  page: Page,
+  label: string,
+  name: string,
+  activation: "pointer" | "touch" | "keyboard" = "pointer",
+) {
+  const trigger = page.getByRole("button", { name: new RegExp(`${label}$`) });
+  await expect(trigger).toBeEnabled();
+  if (activation === "touch") await trigger.tap();
+  else await trigger.click();
+  if (activation === "keyboard") {
+    const search = page.getByLabel(`Search ${label.toLowerCase()}`, {
+      exact: true,
+    });
+    await search.fill(name);
+    await search.press("ArrowDown");
+    await search.press("Enter");
+  } else {
+    const option = page.getByRole("option", { name, exact: true });
+    if (activation === "touch") await option.tap();
+    else await option.click();
+  }
+  await expect(trigger).toHaveText(name);
+  await expect(page.getByRole("option", { name, exact: true })).toHaveCount(0);
 }
 async function database() {
   if (!process.env.DATABASE_URL) process.loadEnvFile(".env");
@@ -134,6 +205,250 @@ test.afterEach(async () => {
   }
 });
 
+test("personal agents are created, edited with conflict recovery, and deleted without removing task history", async ({
+  page,
+}) => {
+  await account(page);
+  await page.goto("/settings/agents");
+  await expect(
+    page.getByRole("heading", { name: "Agents", exact: true }),
+  ).toBeVisible();
+  const create = page.getByRole("button", {
+    name: "Create agent",
+    exact: true,
+  });
+  await create.click();
+  const dialog = page.getByRole("dialog", {
+    name: "Create agent",
+    exact: true,
+  });
+  await dialog
+    .getByLabel("Name", { exact: true })
+    .fill("Browser personal assistant");
+  await dialog.getByRole("button", { name: /Access$/ }).click();
+  await expect(
+    page.getByRole("option", { name: "Team", exact: true }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await dialog.getByLabel("Name", { exact: true }).press("Enter");
+  await expect(dialog.getByRole("status")).toHaveText("Agent created.");
+  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(create).toBeFocused();
+  const created = (await json(page.request, "/agents?limit=100")).items.find(
+    (item: { name: string }) => item.name === "Browser personal assistant",
+  );
+  expect(created.scope).toBe("personal");
+  expect(created.memberIds).toEqual([]);
+  await page
+    .getByRole("button", {
+      name: "Edit Browser personal assistant",
+      exact: true,
+    })
+    .click();
+  const edit = page.getByRole("dialog", { name: "Edit agent", exact: true });
+  await edit
+    .getByLabel("Name", { exact: true })
+    .fill("My preserved local draft");
+  await json(
+    page.request,
+    `/agents/${created.id}`,
+    { version: created.version, name: "Changed elsewhere" },
+    "PATCH",
+  );
+  await edit.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(edit.getByRole("alert")).toBeVisible();
+  await expect(edit.getByLabel("Name", { exact: true })).toHaveValue(
+    "My preserved local draft",
+  );
+  await expect(
+    edit.getByRole("button", { name: "Save changes", exact: true }),
+  ).toBeDisabled();
+  await edit.getByRole("button", { name: "Reload agent", exact: true }).click();
+  await expect(edit.getByLabel("Name", { exact: true })).toHaveValue(
+    "Changed elsewhere",
+  );
+  await edit
+    .getByLabel("Name", { exact: true })
+    .fill("Browser personal assistant edited");
+  await edit.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect(edit.getByRole("status")).toHaveText("Agent updated.");
+  await edit.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(
+    page.getByRole("row", { name: /Browser personal assistant edited/ }),
+  ).toBeVisible();
+  const key = await json(page.request, "/credentials", {
+    name: "Deleted-agent bound key",
+    agentId: created.id,
+    scopes: ["read", "write"],
+    expiresInDays: 30,
+  });
+  const taskResponse = await page.request.post(
+    `/api/boards/${board.id}/tasks`,
+    {
+      headers: { Authorization: `Bearer ${key.token}`, Origin: origin },
+      data: { title: "History survives agent deletion" },
+    },
+  );
+  expect(taskResponse.ok()).toBe(true);
+  const task = (await taskResponse.json()).task;
+  const comment = await page.request.post(`/api/tasks/${task.id}/comments`, {
+    headers: { Authorization: `Bearer ${key.token}`, Origin: origin },
+    data: { body: "Agent discussion remains available" },
+  });
+  expect(comment.ok()).toBe(true);
+  const history = await json(page.request, `/tasks/${task.id}/activity`);
+  expect(
+    history.items.some(
+      (item: { actorKind: string }) => item.actorKind === "agent",
+    ),
+  ).toBe(true);
+  const before = await page.request.get(`/api/boards/${board.id}`);
+  expect(before.ok()).toBe(true);
+  await page
+    .getByRole("button", {
+      name: "Delete Browser personal assistant edited",
+      exact: true,
+    })
+    .click();
+  const removal = page.getByRole("dialog", {
+    name: "Delete agent?",
+    exact: true,
+  });
+  await expect(removal).toContainText("Task history stays available");
+  await removal
+    .getByRole("button", { name: "Keep agent", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", {
+      name: "Delete Browser personal assistant edited",
+      exact: true,
+    }),
+  ).toBeFocused();
+  await page
+    .getByRole("button", {
+      name: "Delete Browser personal assistant edited",
+      exact: true,
+    })
+    .click();
+  await removal
+    .getByRole("button", { name: "Delete agent", exact: true })
+    .click();
+  await expect(removal.getByRole("status")).toHaveText("Agent deleted.");
+  await removal.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(create).toBeFocused();
+  await expect(
+    page.getByRole("row", { name: /Browser personal assistant edited/ }),
+  ).toHaveCount(0);
+  expect((await page.request.get(`/api/boards/${board.id}`)).ok()).toBe(true);
+  expect((await json(page.request, `/tasks/${task.id}`)).task.id).toBe(task.id);
+  expect(
+    (await json(page.request, `/tasks/${task.id}/comments`)).items,
+  ).toHaveLength(1);
+  expect(
+    (await json(page.request, `/tasks/${task.id}/activity`)).items,
+  ).toEqual(history.items);
+  expect(
+    (
+      await page.request.get("/api/boards", {
+        headers: { Authorization: `Bearer ${key.token}` },
+      })
+    ).status(),
+  ).toBe(401);
+});
+
+test("team agents use explicit named people and viewers cannot manage them", async ({
+  page,
+}) => {
+  const fixture = await getBrowserBootstrap(origin);
+  try {
+    await authenticateBrowserFixture(page, fixture);
+  } finally {
+    await fixture.api.dispose();
+  }
+  const member = await getBrowserRoleFixture(origin, "member");
+  const viewer = await getBrowserRoleFixture(origin, "viewer");
+  try {
+    await page.goto("/settings/agents");
+    await page
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Create agent",
+      exact: true,
+    });
+    await dialog
+      .getByLabel("Name", { exact: true })
+      .fill("Explicit team assistant");
+    await choose(page, "Access", "Team");
+    const assigned = dialog.getByRole("group", {
+      name: "Assigned people",
+      exact: true,
+    });
+    const person = assigned.getByRole("checkbox", {
+      name: `${viewer.identity.user.name} (${viewer.identity.user.email})`,
+      exact: true,
+    });
+    await expect(person).toBeVisible();
+    await expect(assigned.getByRole("checkbox", { checked: true })).toHaveCount(
+      0,
+    );
+    await assigned
+      .getByText(viewer.identity.user.email, { exact: true })
+      .click();
+    await expect(person).toBeChecked();
+    await person.focus();
+    await expect(person).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(person).not.toBeChecked();
+    await page.keyboard.press("Space");
+    await expect(person).toBeChecked();
+    await dialog
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    await expect(dialog.getByRole("status")).toHaveText("Agent created.");
+    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    const created = (
+      await json(admin, "/agents?manage=true&limit=100")
+    ).items.find(
+      (item: { name: string }) => item.name === "Explicit team assistant",
+    );
+    expect(created.memberIds).toEqual([viewer.identity.user.id]);
+    expect(
+      (await json(admin, "/agents?limit=100")).items.some(
+        (item: { id: string }) => item.id === created.id,
+      ),
+    ).toBe(false);
+    await authenticateBrowserFixture(page, viewer);
+    await page.goto("/settings/agents");
+    await expect(
+      page.getByRole("row", { name: /Explicit team assistant/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Create agent", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", {
+        name: "Edit Explicit team assistant",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await authenticateBrowserFixture(page, member);
+    await page.goto("/settings/agents");
+    await expect(
+      page.getByRole("row", { name: /Explicit team assistant/ }),
+    ).toHaveCount(0);
+    await json(
+      admin,
+      `/agents/${created.id}`,
+      { version: created.version },
+      "DELETE",
+    );
+  } finally {
+    await member.api.dispose();
+    await viewer.api.dispose();
+  }
+});
+
 test("initial loading, failed loading, empty list and board lookup retry remain distinct", async ({
   page,
 }) => {
@@ -151,11 +466,11 @@ test("initial loading, failed loading, empty list and board lookup retry remain 
     await route.abort("failed");
   });
   await openAgents(page);
-  const region = page.getByRole("region", { name: "Credentials", exact: true });
+  const region = page.getByRole("region", { name: "API keys", exact: true });
   try {
-    await expect(region.getByRole("status")).toHaveText("Loading credentials…");
+    await expect(region.getByRole("status")).toHaveText("Loading API keys…");
     await expect(
-      region.getByText("No credentials yet", { exact: true }),
+      region.getByText("No API keys yet", { exact: true }),
     ).toHaveCount(0);
   } finally {
     release();
@@ -163,11 +478,9 @@ test("initial loading, failed loading, empty list and board lookup retry remain 
   await expect(region.getByRole("alert")).toContainText(
     "Mill could not be reached",
   );
-  await region
-    .getByRole("button", { name: "Retry loading credentials" })
-    .click();
+  await region.getByRole("button", { name: "Retry loading API keys" }).click();
   await expect(
-    region.getByText("No credentials yet", { exact: true }),
+    region.getByText("No API keys yet", { exact: true }),
   ).toBeVisible();
   let boardFailure = true;
   await page.route("**/api/boards?directory=true", async (route) => {
@@ -179,21 +492,22 @@ test("initial loading, failed loading, empty list and board lookup retry remain 
   });
   await openAgents(page);
   await page
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   const dialog = page.getByRole("dialog", {
-    name: "Create credential",
+    name: "Create API key",
     exact: true,
   });
   await expect(dialog.getByRole("alert")).toContainText(
     "Mill could not be reached",
   );
   await expect(
-    dialog.getByRole("button", { name: "Create credential", exact: true }),
+    dialog.getByRole("button", { name: "Create API key", exact: true }),
   ).toBeDisabled();
   await dialog.getByRole("button", { name: "Retry loading boards" }).click();
+  await choose(page, "Agent", selectedAgent.name);
   await expect(
-    dialog.getByRole("button", { name: "Create credential", exact: true }),
+    dialog.getByRole("button", { name: "Create API key", exact: true }),
   ).toBeEnabled();
   await choose(page, "Board access", planning.name);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
@@ -232,7 +546,7 @@ test("response loss retries the same creation, reveals the original token locall
   await expect(dialog.getByLabel("Expires in days")).toHaveValue("30");
   await choose(page, "Board access", board.name);
   await dialog
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   try {
     await expect(
@@ -250,21 +564,21 @@ test("response loss retries the same creation, reveals the original token locall
     "Mill could not be reached",
   );
   await dialog
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
-  const reveal = page.getByRole("dialog", { name: "Copy your credential" });
+  const reveal = page.getByRole("dialog", { name: "Copy your API key" });
   await expect(reveal).toBeVisible();
   expect(keys.length).toBe(2);
   expect(keys[0] === keys[1]).toBe(true);
   expect(
-    (await reveal.getByLabel("Credential", { exact: true }).inputValue()) ===
+    (await reveal.getByLabel("API key", { exact: true }).inputValue()) ===
       original,
     "The retried creation reveals the original credential",
   ).toBe(true);
   expect(
     (
       await page
-        .getByRole("region", { name: "Credentials", exact: true })
+        .getByRole("region", { name: "API keys", exact: true })
         .textContent()
     )?.includes(original),
     "The credential is absent from the metadata table",
@@ -273,15 +587,15 @@ test("response loss retries the same creation, reveals the original token locall
     origin,
   });
   await reveal
-    .getByRole("button", { name: "Copy credential", exact: true })
+    .getByRole("button", { name: "Copy API key", exact: true })
     .click();
-  await expect(reveal.getByRole("status")).toHaveText("Credential copied.");
+  await expect(reveal.getByRole("status")).toHaveText("API key copied.");
   expect(
     (await page.evaluate(() => navigator.clipboard.readText())) === original,
     "Copy places the original credential on the clipboard",
   ).toBe(true);
   await reveal.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(page.getByLabel("Credential", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
   const list = await json(page.request, "/credentials");
   const created = list.items.filter(
     (item: { name: string }) => item.name === "Response recovery assistant",
@@ -295,10 +609,10 @@ test("response loss retries the same creation, reveals the original token locall
   const next = await createDialog(page, "Response recovery assistant");
   await choose(page, "Board access", board.name);
   await next
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   await expect(
-    page.getByRole("dialog", { name: "Copy your credential" }),
+    page.getByRole("dialog", { name: "Copy your API key" }),
   ).toBeVisible();
   expect(keys[2] !== keys[1]).toBe(true);
   await page
@@ -354,9 +668,9 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
   await page
     .getByRole("button", { name: "Revoke Revocation retry agent", exact: true })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Revoke credential?" });
+  const dialog = page.getByRole("dialog", { name: "Revoke API key?" });
   await dialog
-    .getByRole("button", { name: "Revoke credential", exact: true })
+    .getByRole("button", { name: "Revoke API key", exact: true })
     .click();
   try {
     await expect(
@@ -378,15 +692,15 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
     dialog.getByRole("button", { name: "Cancel", exact: true }),
   ).toBeEnabled();
   await dialog
-    .getByRole("button", { name: "Revoke credential", exact: true })
+    .getByRole("button", { name: "Revoke API key", exact: true })
     .click();
   await expect(dialog.getByRole("alert")).toContainText(
     "The server response was incomplete",
   );
   await dialog
-    .getByRole("button", { name: "Revoke credential", exact: true })
+    .getByRole("button", { name: "Revoke API key", exact: true })
     .click();
-  await expect(dialog.getByRole("status")).toHaveText("Credential revoked.");
+  await expect(dialog.getByRole("status")).toHaveText("API key revoked.");
   expect(keys[0] === keys[1]).toBe(true);
   expect(keys[1] === keys[2]).toBe(true);
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
@@ -413,15 +727,15 @@ test("older active credentials remain reachable and revocable after the default 
   const { sql, schema } = await database();
   try {
     await sql.unsafe(
-      `INSERT INTO "${schema}".credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT $1::uuid,'Recent revoked agent '||n,md5($1||n::text),'redacted',ARRAY['read'],now()+n*interval '1 second',now()+interval '30 days',now() FROM generate_series(1,205)n`,
-      [owner.id],
+      `INSERT INTO "${schema}".credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT $1::uuid,$2::uuid,'Recent revoked agent '||n,md5($1||n::text),'redacted',ARRAY['read'],now()+n*interval '1 second',now()+interval '30 days',now() FROM generate_series(1,205)n`,
+      [owner.id, selectedAgent.id],
     );
   } finally {
     await sql.end();
   }
   await openAgents(page);
   await expect(
-    page.getByRole("button", { name: "Load more credentials" }),
+    page.getByRole("button", { name: "Load more API keys" }),
   ).toBeVisible();
   await expect(
     page.getByText("Older active agent", { exact: true }),
@@ -442,7 +756,7 @@ test("older active credentials remain reachable and revocable after the default 
       await route.fulfill({ response });
     }
   });
-  await page.getByRole("button", { name: "Load more credentials" }).click();
+  await page.getByRole("button", { name: "Load more API keys" }).click();
   await expect(
     page.getByRole("button", { name: "Retry loading more" }),
   ).toBeVisible();
@@ -456,10 +770,10 @@ test("older active credentials remain reachable and revocable after the default 
     ).toBeDisabled();
     const creation = await createDialog(page, "Created during continuation");
     await creation
-      .getByRole("button", { name: "Create credential", exact: true })
+      .getByRole("button", { name: "Create API key", exact: true })
       .click();
     await expect(
-      page.getByRole("dialog", { name: "Copy your credential" }),
+      page.getByRole("dialog", { name: "Copy your API key" }),
     ).toBeVisible();
     await page
       .getByRole("dialog")
@@ -476,10 +790,10 @@ test("older active credentials remain reachable and revocable after the default 
     .click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Revoke credential", exact: true })
+    .getByRole("button", { name: "Revoke API key", exact: true })
     .click();
   await expect(page.getByRole("dialog").getByRole("status")).toHaveText(
-    "Credential revoked.",
+    "API key revoked.",
   );
   await page
     .getByRole("dialog")
@@ -509,6 +823,7 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
     headers: { Origin: origin },
     data: {
       name: "Forbidden writer",
+      agentId: selectedAgent.id,
       scopes: ["read", "write"],
       expiresInDays: 30,
     },
@@ -541,23 +856,16 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
   await expect(
     page.getByRole("row", { name: /Release planning reader/ }),
   ).toContainText(board.name);
-  const dialog = await createDialog(page, "Viewer assistant");
+  const dialog = await createDialog(page, "Viewer assistant", "keyboard");
   await page.getByRole("button", { name: /Access$/ }).click();
   await expect(
     page.getByRole("option", { name: "Read and write", exact: true }),
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  const guideTab = page.context().waitForEvent("page");
-  await page
-    .getByRole("link", { name: "Agent setup guide", exact: true })
-    .click();
-  const guide = await guideTab;
-  await expect(guide).toHaveURL(`${origin}/guides/agents.html`);
   await expect(
-    guide.getByRole("heading", { name: "Connect an agent", exact: true }),
-  ).toBeVisible();
-  await guide.close();
+    page.getByRole("region", { name: "Remote MCP", exact: true }),
+  ).toHaveCount(0);
   for (const theme of ["light", "dark"]) {
     if (theme === "dark")
       await page
@@ -569,7 +877,7 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
       ),
     ).toBe(true);
     const columns = await page
-      .getByRole("region", { name: "Credentials", exact: true })
+      .getByRole("region", { name: "API keys", exact: true })
       .locator("thead th")
       .evaluateAll((elements) =>
         elements
@@ -591,10 +899,28 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
       JSON.stringify(columns, null, 2),
     );
     await page.screenshot({
-      path: testInfo.outputPath(`agents-desktop-${theme}.png`),
+      path: testInfo.outputPath(`api-keys-desktop-${theme}.png`),
       fullPage: true,
       animations: "disabled",
     });
+    await page.goto("/settings/agents");
+    await expect(
+      page.getByRole("row", { name: new RegExp(selectedAgent.name) }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    await page.screenshot({
+      path: testInfo.outputPath(`agent-directory-desktop-${theme}.png`),
+      fullPage: true,
+      animations: "disabled",
+    });
+    await openAgents(page);
+    await expect(
+      page.getByRole("row", { name: /Release planning reader/ }),
+    ).toBeVisible();
   }
   const phone = await browser.newContext({
     baseURL: origin,
@@ -605,7 +931,7 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
   });
   try {
     const mobile = await phone.newPage();
-    await mobile.goto("/settings/agents");
+    await mobile.goto("/settings/api-keys");
     await expect(
       mobile.getByRole("row", { name: /Release planning reader/ }),
     ).toBeVisible();
@@ -619,7 +945,7 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
     ).toBe(true);
     await action.click();
     await expect(
-      mobile.getByRole("dialog", { name: "Revoke credential?" }),
+      mobile.getByRole("dialog", { name: "Revoke API key?" }),
     ).toBeVisible();
     await mobile
       .getByRole("dialog")
@@ -652,7 +978,7 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
           .click();
       await mobile.evaluate(() => window.scrollTo(0, 0));
       const cells = await mobile
-        .getByRole("region", { name: "Credentials", exact: true })
+        .getByRole("region", { name: "API keys", exact: true })
         .locator("tbody tr")
         .first()
         .locator("td")
@@ -676,11 +1002,33 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
         ),
       ).toBe(true);
       await mobile.screenshot({
-        path: testInfo.outputPath(`agents-phone-${theme}.png`),
+        path: testInfo.outputPath(`api-keys-phone-${theme}.png`),
         fullPage: true,
         animations: "disabled",
       });
-      const form = await createDialog(mobile, "Phone viewer assistant");
+      await mobile.goto("/settings/agents");
+      await expect(
+        mobile.getByRole("row", { name: new RegExp(selectedAgent.name) }),
+      ).toBeVisible();
+      expect(
+        await mobile.evaluate(
+          () => document.documentElement.scrollWidth <= window.innerWidth,
+        ),
+      ).toBe(true);
+      await mobile.screenshot({
+        path: testInfo.outputPath(`agent-directory-phone-${theme}.png`),
+        fullPage: true,
+        animations: "disabled",
+      });
+      await openAgents(mobile);
+      await expect(
+        mobile.getByRole("row", { name: /Release planning reader/ }),
+      ).toBeVisible();
+      const form = await createDialog(
+        mobile,
+        "Phone viewer assistant",
+        "touch",
+      );
       expect(
         await form
           .getByLabel("Name", { exact: true })
@@ -734,10 +1082,10 @@ test("board choices and scope names include later pages independently of the sid
     .click();
   expect(changed).toBe(true);
   await dialog
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   await expect(
-    page.getByRole("dialog", { name: "Copy your credential" }),
+    page.getByRole("dialog", { name: "Copy your API key" }),
   ).toBeVisible();
   await page
     .getByRole("dialog")
@@ -776,23 +1124,23 @@ test("incomplete creation responses preserve unresolved keys when a draft is cha
   for (const name of names) {
     await dialog.getByLabel("Name", { exact: true }).fill(name);
     await dialog
-      .getByRole("button", { name: "Create credential", exact: true })
+      .getByRole("button", { name: "Create API key", exact: true })
       .click();
     await expect(dialog.getByRole("alert")).toContainText(
       "The server response was incomplete",
     );
-    await expect(page.getByLabel("Credential", { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
   }
   await dialog.getByLabel("Name", { exact: true }).fill(names[0]);
   await dialog
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
-  const reveal = page.getByRole("dialog", { name: "Copy your credential" });
+  const reveal = page.getByRole("dialog", { name: "Copy your API key" });
   await expect(reveal).toBeVisible();
   expect(keys[0] !== keys[1]).toBe(true);
   expect(keys[0] === keys[2]).toBe(true);
   expect(
-    (await reveal.getByLabel("Credential", { exact: true }).inputValue()) ===
+    (await reveal.getByLabel("API key", { exact: true }).inputValue()) ===
       original,
     "Reverting an unresolved draft reveals its original credential",
   ).toBe(true);
@@ -811,7 +1159,7 @@ test("incomplete creation responses preserve unresolved keys when a draft is cha
 test("one complete directory refreshes after rename, deletion and creation while empty scopes stay revoked", async ({
   page,
 }) => {
-  await account(page);
+  await directoryAccount(page);
   const fixture = await database();
   try {
     await fixture.sql.unsafe(
@@ -926,10 +1274,10 @@ test("one complete directory refreshes after rename, deletion and creation while
     .fill(renamedName);
   await page.getByRole("option", { name: renamedName, exact: true }).click();
   await dialog
-    .getByRole("button", { name: "Create credential", exact: true })
+    .getByRole("button", { name: "Create API key", exact: true })
     .click();
   await expect(
-    page.getByRole("dialog", { name: "Copy your credential" }),
+    page.getByRole("dialog", { name: "Copy your API key" }),
   ).toBeVisible();
   await page
     .getByRole("dialog")

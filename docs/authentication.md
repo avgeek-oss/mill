@@ -12,11 +12,13 @@ The person following the link chooses their name and password. Their account rec
 
 | Role   | Access                                                                                                          |
 | ------ | --------------------------------------------------------------------------------------------------------------- |
-| Admin  | Everyday task work, boards, permanent board deletion, workspace settings, and membership.                       |
+| Admin  | Everyday task work, boards, permanent board deletion, Team settings, membership and team Agent management.      |
 | Member | Read boards, create and edit tasks and comments, assign work, and use credentials within their own permissions. |
 | Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                      |
 
 Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Agents inherit their owner's current role and credential scopes. Identity, membership, sessions and security settings require a signed-in human; an unscoped read credential may read the basic team directory for assignments and mentions.
+
+People are human accounts. **Agents** are separate identities created through the human interface. A personal Agent is available only to its creator; a team Agent is available only to people explicitly assigned by an administrator. Admin status does not grant use of every team Agent. **API keys** belong to their creator and must select an Agent they can access. OAuth uses the same eligible selection and creates no Agent. See [the Agent guide](agents.md) for connection and task-assignment rules.
 
 ## Passkeys and authenticator apps
 

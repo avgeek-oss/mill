@@ -2,7 +2,7 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-const { cleanupDatabase, request, resetDatabase, setupUser, sql } =
+const { cleanupDatabase, request, resetDatabase, setupAgent, setupUser, sql } =
   await import("./support.js");
 
 beforeEach(resetDatabase);
@@ -128,7 +128,12 @@ test("board pagination keeps credential board restrictions on every page", async
   const credential = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Filtered reader", scopes: ["read"], boardIds: allowedIds },
+      body: {
+        agentId: (await setupAgent(cookie)).id,
+        name: "Filtered reader",
+        scopes: ["read"],
+        boardIds: allowedIds,
+      },
     }),
     201,
   );
@@ -172,7 +177,11 @@ test("board page validation rejects malformed, missing and wrong-collection anch
   const credential = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Cursor boundary", scopes: ["read"] },
+      body: {
+        agentId: (await setupAgent(cookie)).id,
+        name: "Cursor boundary",
+        scopes: ["read"],
+      },
     }),
     201,
   );
@@ -338,6 +347,7 @@ test("directory pages preserve actor restrictions and reject cross-mode or ambig
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "Directory reader",
         scopes: ["read"],
         boardIds: allowedIds,
@@ -405,7 +415,11 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
   const read = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "MCP read access", scopes: ["read"] },
+      body: {
+        agentId: (await setupAgent(cookie)).id,
+        name: "MCP read access",
+        scopes: ["read"],
+      },
     }),
     201,
   );
@@ -413,6 +427,7 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
     await request("/api/credentials", {
       cookie,
       body: {
+        agentId: (await setupAgent(cookie)).id,
         name: "MCP selected boards",
         scopes: ["read"],
         boardIds: restrictedIds,

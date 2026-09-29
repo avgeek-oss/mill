@@ -6,7 +6,7 @@ Start with [Connect an agent](agents.md) for agent authentication, or [accounts 
 
 ## Authentication and limits
 
-Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST clients use `Authorization: Bearer mill_…`. OAuth tokens authorize `/mcp` only, not public REST.
+Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST clients use `Authorization: Bearer mill_…` from a personal API key bound to an eligible existing Agent. OAuth tokens also bind a selected Agent and authorize `/mcp` only, not public REST.
 
 Authenticated requests are limited to 240 per minute per person or credential; anonymous requests to 120 per minute per client address. MCP dispatch also uses the REST limit. `429` includes `Retry-After: 60`. Ordinary request bodies are bounded to 2 MiB, credential/OAuth bodies to 16 KiB, and MCP requests/tool responses to 1 MiB.
 
@@ -16,11 +16,11 @@ Permanent deletion clears cached response content referencing removed work while
 
 ## Responses and pagination
 
-Collections return `{items}`; paginated collections also return `{hasMore,nextCursor}`. Treat cursors as opaque and continue with the same filters. Tasks, comments, activity, and notifications default to 50 items and accept `limit=1..100`; boards default to 100 with the same maximum. Credentials default/max 200 and invitations default/max 100. The team directory returns at most 1,000 members without continuation metadata.
+Collections return `{items}`; paginated collections also return `{hasMore,nextCursor}`. Treat cursors as opaque and continue with the same filters. Tasks, comments, activity, and notifications default to 50 items and accept `limit=1..100`; boards and Agents default to 100 with the same maximum. Credentials default/max 200 and invitations default/max 100. The team directory returns at most 1,000 members without continuation metadata.
 
 Boards use case-insensitive name order, then the exact name and UUID to resolve ties: `lower(name),name,id`. `directory=true` supports the same complete accessible directory for navigation. A board cursor binds the person, accessible board set, directory mode, and list revision. A changed board list returns `409` with `code:"board_list_changed"`; restart without a cursor. Invalid/foreign cursors return `400`. Task continuation also binds a list revision: a concurrent edit, status change, insertion, or deletion returns `409` with `code:"task_list_changed"`. Restart the current filtered/sorted task list without a cursor; do not continue old pages. Credential/invitation cursors are owner/workspace-scoped UUID anchors.
 
-Single mutations return `{board}`, `{task}`, or `{comment}`. Deletes return `{ok:true}`. Fields are camelCase. Resource IDs are UUIDs; a task's stable human identifier such as `OPS-17` is a label, not the API path ID.
+Single mutations return `{board}`, `{task}`, `{comment}`, or `{agent}`. Domain and Agent deletes return `{ok:true}`. Fields are camelCase. Resource IDs are UUIDs; a task's stable human identifier such as `OPS-17` is a label, not the API path ID.
 
 Failures return `{error:"Description"}` and may include a stable `code`.
 
@@ -40,7 +40,26 @@ Failures return `{error:"Description"}` and may include a stable `code`.
 
 Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Human Admins additionally manage membership/workspace settings and permanently delete boards. Every active member can access workspace boards; credentials can restrict this to approved boards and read or read/write scope.
 
-Agents inherit their owner's current role and active membership. Administration, credentials, identity settings, and consent require a human session. Board-restricted agents cannot create boards, read the team directory, or read workspace settings. Notifications stay within the owner's account and approved boards. Authorization is rechecked before a mutation commits.
+External credentials inherit their owner's current role and active membership and require current access to their selected Agent. Administration, Agent management, credentials, identity settings, and consent require a human session. Board-restricted credentials cannot create boards, read the team directory, or read workspace settings. Notifications stay within the owner's account and approved boards. Authorization is rechecked before a mutation commits.
+
+## Agents
+
+Agents are separate from human People/accounts. Human management endpoints support the Agents UI; external credentials cannot create or manage Agent identities, and MCP exposes no Agent creation tool. A personal Agent is usable/manageable only by its creator. A team Agent is usable only by explicitly assigned active people and managed by a human Admin. Admin status alone does not grant use of a team Agent.
+
+| Method and path               | Request                                                              | Response                     |
+| ----------------------------- | -------------------------------------------------------------------- | ---------------------------- |
+| `GET /api/agents`             | Eligible Agents; optional `limit`, `cursor`                          | `{items,hasMore,nextCursor}` |
+| `GET /api/agents?manage=true` | Human Member/Admin management view; optional `limit`, `cursor`       | `{items,hasMore,nextCursor}` |
+| `POST /api/agents`            | Human Member for personal, Admin for team; `{name,scope,memberIds?}` | `201 {agent}`                |
+| `GET /api/agents/:id`         | Eligible Agent; optional human `manage=true`                         | `{agent}`                    |
+| `PATCH /api/agents/:id`       | Personal creator or human team Admin; `{version,name?,memberIds?}`   | `{agent}`                    |
+| `DELETE /api/agents/:id`      | Personal creator or human team Admin; `{version}`                    | `{ok:true}`                  |
+
+`agent` contains `id`, `name`, `scope` (`personal` or `team`), `creatorId`, active `memberIds`, `version`, `createdAt`, and `updatedAt`. Names are trimmed, nonempty and at most 100 characters. Team grants accept at most 1,000 unique active member UUIDs. Personal Agents do not accept access grants; scope and creator cannot be changed by PATCH. Creating a team Agent does not automatically grant its creator access.
+
+Eligible reads return personal Agents owned by the person plus team Agents explicitly granted to them. The human Admin management view additionally returns every team Agent; other human Members see their eligible list. Agents sort by `lower(name),name,id`, using filter/actor-bound revision cursors. Invalid/foreign cursors return `400`; a changed list returns `409` with `code:"agent_list_changed"`, requiring a restart without a cursor.
+
+Removing a team grant clears that person's task Agent bindings and revokes their keys/connections bound to the Agent. Deleting an Agent clears its task bindings and revokes its keys/connections; tasks and human assignees remain. Cleared task bindings increment the task version and retain attributed activity. Restoring access permits a fresh connection but does not reactivate a revoked token.
 
 ## Boards
 
@@ -79,17 +98,20 @@ Every board uses these same values; there are no status resources or custom-stat
 | `PATCH /api/tasks/:id`       | `{version,...changed task fields}`       | `{task}`                                             |
 | `DELETE /api/tasks/:id`      | `{version}`; Member                      | `{ok:true}`                                          |
 
-| Field         | Accepted value                                                           |
-| ------------- | ------------------------------------------------------------------------ |
-| `title`       | Nonempty text, at most 300 characters                                    |
-| `status`      | One fixed value above; creation defaults to `todo`                       |
-| `description` | Markdown text, at most 100,000 characters                                |
-| `assigneeId`  | Active member UUID or `null`                                             |
-| `priority`    | `none`, `low`, `medium`, `high`, `urgent`                                |
-| `dueDate`     | `YYYY-MM-DD` or `null`                                                   |
-| `checklist`   | At most 100 unique `{id,text,done}` entries; text at most 500 characters |
+| Field         | Accepted value                                                            |
+| ------------- | ------------------------------------------------------------------------- |
+| `title`       | Nonempty text, at most 300 characters                                     |
+| `status`      | One fixed value above; creation defaults to `todo`                        |
+| `description` | Markdown text, at most 100,000 characters                                 |
+| `assigneeId`  | Active member UUID or `null`                                              |
+| `agentId`     | Eligible existing Agent UUID or `null`; requires an active human assignee |
+| `priority`    | `none`, `low`, `medium`, `high`, `urgent`                                 |
+| `dueDate`     | `YYYY-MM-DD` or `null`                                                    |
+| `checklist`   | At most 100 unique `{id,text,done}` entries; text at most 500 characters  |
 
 PATCH can change status and other fields atomically. It requires the current row version, which increments on mutation. An actual status change records `task.moved` with `{fromStatus,status}`; edited non-status fields record `task.updated`. Existing historical activity details remain intact after migration and may contain earlier field names.
+
+Task responses include nullable `agentId` and derived `agentName`; `agentName` is read-only. Agent attribution is independent of the human `assigneeId`. On creation or when the effective Agent or human assignee changes in PATCH, both the actor and effective human assignee must have access to the selected Agent. Sending identical binding IDs with unrelated edits preserves the existing valid binding. A non-null Agent without an active human assignee returns `400`; inaccessible Agent access returns `403`. To clear the human assignee, also send `agentId:null` when an Agent is attached. Unrelated edits preserve an existing valid binding, even if the actor does not personally have access to that Agent. Selecting an Agent produces no execution, job, or external-call side effects.
 
 Task deletion removes only that task and its discussion, notifications, and activity. Former subtasks are independent tasks after migration and survive deletion of their former parent. Repeating a delete without its retry key returns `404`. Task numbers are not reused within an existing board.
 
@@ -102,6 +124,7 @@ Task list queries can be combined:
 | `q`               | Title, description, or identifier search; at most 300 characters   |
 | `status`          | One fixed status code                                              |
 | `assigneeId`      | Member UUID or `unassigned`                                        |
+| `agentId`         | Agent UUID or `unassigned`                                         |
 | `priority`        | One priority value                                                 |
 | `sort`            | `createdAt` (default), `updatedAt`, `title`, `dueDate`, `priority` |
 | `limit`, `cursor` | Maximum 100 and a cursor from the same filter/sort context         |
@@ -148,13 +171,15 @@ A retained completed retry key from before migration returns terminal `410`, inc
 
 ## Credentials
 
-| Method and path               | Request                                                 | Response                                                    |
-| ----------------------------- | ------------------------------------------------------- | ----------------------------------------------------------- |
-| `GET /api/credentials`        | Human session; optional `limit`, `cursor`               | `{items,hasMore,nextCursor}` with metadata, no token hashes |
-| `POST /api/credentials`       | Human session; `{name,scopes,boardIds?,expiresInDays?}` | `{credential,token}` once                                   |
-| `DELETE /api/credentials/:id` | Owner's human session                                   | `{revoked:true}`                                            |
+| Method and path               | Request                                                         | Response                                                    |
+| ----------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------- |
+| `GET /api/credentials`        | Human session; optional `limit`, `cursor`                       | `{items,hasMore,nextCursor}` with metadata, no token hashes |
+| `POST /api/credentials`       | Human session; `{name,agentId,scopes,boardIds?,expiresInDays?}` | `{credential,token}` once                                   |
+| `DELETE /api/credentials/:id` | Owner's human session                                           | `{revoked:true}`                                            |
 
-Scopes are `["read"]` or `["read","write"]`. Omit `boardIds` for workspace board access, or supply 1 to 100 existing board UUIDs. Expiry defaults to 30 days and accepts 1 to 365. A credential remains tied to its owner's current role and active membership. It cannot create other credentials.
+API keys belong to the person who creates them; an Admin does not gain another person's key ownership. `agentId` must select an existing Agent that the owner can access. The key's own name labels the connection and does not create an Agent. Credential metadata includes `agentId` and derived `agentName`; legacy revoked records may have null values. The token is revealed once.
+
+Scopes are `["read"]` or `["read","write"]`. Omit `boardIds` for workspace board access, or supply 1 to 100 existing board UUIDs. Expiry defaults to 30 days and accepts 1 to 365. A credential remains tied to its owner's current role, active membership and selected-Agent access. It cannot create other credentials or Agent identities. Migration 008 revokes earlier unbound credentials; issue a new bound key after upgrade.
 
 ## Health and backups
 
@@ -162,19 +187,21 @@ Scopes are `["read"]` or `["read","write"]`. Omit `boardIds` for workspace board
 
 ## OAuth and MCP
 
-| Method and path                                 | Purpose                                                      |
-| ----------------------------------------------- | ------------------------------------------------------------ |
-| `GET /.well-known/oauth-authorization-server`   | Issuer, endpoints, PKCE, client auth, and supported scopes   |
-| `GET /.well-known/oauth-protected-resource/mcp` | MCP resource and authorization server                        |
-| `POST /oauth/register`                          | Public dynamic client registration with JSON client metadata |
-| `GET /oauth/authorize`                          | Code authorization request; redirects to human consent       |
-| `GET /api/oauth/consent/:id`                    | Human session reads requesting client and access             |
-| `POST /api/oauth/consent/:id`                   | Human session; `{allow,boardIds?}`; returns `{redirectTo}`   |
-| `POST /oauth/token`                             | Form-encoded authorization-code exchange                     |
-| `POST /oauth/revoke`                            | Form-encoded RFC 7009 token revocation                       |
-| `POST /mcp`                                     | MCP Streamable HTTP JSON-RPC                                 |
+| Method and path                                 | Purpose                                                                                           |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `GET /.well-known/oauth-authorization-server`   | Issuer, endpoints, PKCE, client auth, and supported scopes                                        |
+| `GET /.well-known/oauth-protected-resource/mcp` | MCP resource and authorization server                                                             |
+| `POST /oauth/register`                          | Public dynamic client registration with JSON client metadata                                      |
+| `GET /oauth/authorize`                          | Code authorization request; redirects to human consent                                            |
+| `GET /api/oauth/consent/:id`                    | Human session reads requesting client and access                                                  |
+| `POST /api/oauth/consent/:id`                   | Human session; `{allow,agentId?,boardIds?}`; approving requires `agentId`; returns `{redirectTo}` |
+| `POST /oauth/token`                             | Form-encoded authorization-code exchange                                                          |
+| `POST /oauth/revoke`                            | Form-encoded RFC 7009 token revocation                                                            |
+| `POST /mcp`                                     | MCP Streamable HTTP JSON-RPC                                                                      |
 
 The base protected-resource discovery path is also supported. Registration accepts `client_name`, `redirect_uris`, `token_endpoint_auth_method` (`none`, `client_secret_basic`, `client_secret_post`), `grant_types:["authorization_code"]`, and `response_types:["code"]`. Confidential clients receive a one-time secret; public clients use PKCE without a secret.
+
+Consent details include eligible `agents`, `requiresAgent:true`, and `canApprove` alongside client, scope and signed-in user details. Approval requires a selected existing Agent the person can currently access; denial does not. No eligible Agent means approval cannot proceed. Missing, foreign, or inaccessible approval selections are rejected. Consent and token exchange recheck Agent access and never create an Agent automatically. A credential's bound Agent identifies its actions; setting a task Agent remains a separate explicit mutation.
 
 Authorization needs `response_type=code`, `client_id`, exact `redirect_uri`, `resource`, `scope=read` or `scope=read write`, `code_challenge`, and `code_challenge_method=S256`. `state` is returned unchanged, and `iss` identifies Mill. Token exchange needs `grant_type=authorization_code`, `code`, `code_verifier`, the same `redirect_uri` and `resource`, and the client's declared authentication method. Consent codes expire after two minutes and can be consumed once. Tokens expire after 30 days; refresh-token grants are not supported.
 

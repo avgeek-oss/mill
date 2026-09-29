@@ -25,7 +25,14 @@ import {
   TextField,
   Widget,
 } from "@mill/web-design-system";
-import { KeyRound, Monitor, Shield, UserRound } from "lucide-react";
+import {
+  Bell,
+  KeyRound,
+  LockKeyhole,
+  Monitor,
+  Shield,
+  UserRound,
+} from "lucide-react";
 import { Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import { api, errorText, type Session } from "./api.js";
@@ -60,7 +67,7 @@ function AccountWidget({
     <Widget className="min-w-0" aria-label={title} role="region">
       <Widget.Header endContent={status}>
         <Widget.Title icon={icon}>
-          <h2 className="text-sm font-medium">{title}</h2>
+          <h2 className="font-medium">{title}</h2>
         </Widget.Title>
       </Widget.Header>
       <Widget.Content>
@@ -270,7 +277,7 @@ function ProfileSettings({
             </div>
           </form>
         </AccountWidget>
-        <AccountWidget title="Notifications" icon={<Monitor />}>
+        <AccountWidget title="Notifications" icon={<Bell />}>
           <form
             className="content-grid"
             aria-busy={busy}
@@ -634,7 +641,7 @@ function SecuritySettings({
             </div>
           )}
         </AccountWidget>
-        <AccountWidget title="Password" icon={<KeyRound />}>
+        <AccountWidget title="Password" icon={<LockKeyhole />}>
           <p className="text-sm text-muted">
             Use a unique password with at least 15 characters.
           </p>

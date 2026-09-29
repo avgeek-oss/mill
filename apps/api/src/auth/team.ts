@@ -30,6 +30,7 @@ import {
   rateLimit,
   secretToken,
 } from "./security.js";
+import { recordActivity } from "../domain/helpers.js";
 
 export const teamRoutes = new Hono<Env>();
 const uuid = (value: string) => {
@@ -197,10 +198,22 @@ teamRoutes.delete("/members/:id", async (c) => {
   const who = admin(c);
   const id = uuid(c.req.param("id"));
   await sql.begin(async (tx) => {
-    await lockedAdmin(who.userId, tx);
+    const operator = await lockedAdmin(who.userId, tx);
     const user = await activeUser(id, tx);
     await protectLastAdmin(user, tx);
+    const cleared = await tx<
+      { id: string; boardId: string }[]
+    >`SELECT id,board_id FROM tasks WHERE assignee_id=${id} AND agent_id IS NOT NULL`;
     await tx`UPDATE users SET disabled_at=now(),security_epoch=security_epoch+1,updated_at=now() WHERE id=${id}`;
+    for (const task of cleared)
+      await recordActivity(
+        tx,
+        { ...who, name: operator.name, role: operator.role },
+        "task.updated",
+        { fields: ["agentId"] },
+        task.boardId,
+        task.id,
+      );
     await tx`DELETE FROM sessions WHERE user_id=${id}`;
     await tx`DELETE FROM auth_challenges WHERE user_id=${id}`;
     await tx`DELETE FROM account_recovery WHERE user_id=${id}`;

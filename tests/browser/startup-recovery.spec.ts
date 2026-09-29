@@ -282,7 +282,7 @@ test("board read failure retries through an owning loading state", async ({
       page.getByRole("button", { name: "New task", exact: true }),
     ).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Board settings", exact: true }),
+      page.getByRole("button", { name: "Board actions", exact: true }),
     ).toBeDisabled();
     await expect(
       page.getByRole("button", { name: "Try again", exact: true }),

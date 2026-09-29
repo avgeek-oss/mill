@@ -60,16 +60,13 @@ async function login(page: Page, path = "/settings/members") {
   await page.goto(path);
   await expect(
     page.getByRole("heading", {
-      name: path.endsWith("workspace") ? "Workspace" : "People",
+      name: path.endsWith("workspace") ? "Team settings" : "People",
       exact: true,
       level: 1,
     }),
   ).toBeVisible();
 }
-async function openSettings(
-  page: Page,
-  section: "People" | "Workspace settings",
-) {
+async function openSettings(page: Page, section: "People" | "Team settings") {
   const openNavigation = page.getByRole("button", {
     name: "Open navigation",
     exact: true,
@@ -167,6 +164,21 @@ test("People lists load independently, show separate recovery and protect the la
         exact: true,
       }),
     ).toBeDisabled();
+    await expect(
+      members.getByText("Last administrator", { exact: true }),
+    ).toHaveCount(0);
+    const protectedRemoval = members.getByRole("group", {
+      name: `Removal unavailable for ${bootstrap.name}`,
+      exact: true,
+    });
+    await protectedRemoval.focus();
+    await expect(protectedRemoval).toBeFocused();
+    await expect(page.getByRole("tooltip")).toContainText(
+      "Make another person an administrator before removing access",
+    );
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(protectedRemoval).toBeFocused();
     release();
     await expect(
       invitations.getByText("No invitations yet", { exact: true }),
@@ -312,7 +324,7 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
   }
 });
 
-test("workspace settings retain backup guidance without portable export or import", async ({
+test("team settings persist without backup or portable data surfaces", async ({
   page,
 }) => {
   await login(page, "/settings/workspace");
@@ -360,20 +372,19 @@ test("workspace settings retain backup guidance without portable export or impor
     ).status(),
   ).toBe(404);
   await page.goto("/settings/workspace");
-  const opened = page.waitForEvent("popup");
-  await page
-    .getByRole("link", { name: "backup and recovery guide", exact: true })
-    .click();
-  const guide = await opened;
-  await guide.waitForLoadState("domcontentloaded");
-  expect(new URL(guide.url()).pathname).toBe("/guides/backup.html");
   await expect(
-    guide.getByRole("heading", { name: "Backup and recovery", exact: true }),
+    page.getByRole("heading", { name: "Team settings", exact: true, level: 1 }),
   ).toBeVisible();
-  await guide.close();
+  await expect(page.getByText("Backups", { exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "backup and recovery guide", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("main").locator('[data-slot="widget-header"]'),
+  ).toHaveCount(0);
 });
 
-test("People and workspace layouts remain usable in both themes at desktop and phone widths", async ({
+test("People and team settings layouts remain usable in both themes at desktop and phone widths", async ({
   page,
 }, testInfo) => {
   const invite = await json(admin, "/auth/invitations", {
@@ -411,7 +422,7 @@ test("People and workspace layouts remain usable in both themes at desktop and p
     );
     for (const [section, name] of [
       ["People", "people"],
-      ["Workspace settings", "workspace"],
+      ["Team settings", "workspace"],
     ] as const) {
       await openSettings(page, section);
       const switcher = page.getByRole("button", {
@@ -420,7 +431,7 @@ test("People and workspace layouts remain usable in both themes at desktop and p
       if (await switcher.isVisible()) await switcher.click();
       await expect(
         page.getByRole("heading", {
-          name: name === "people" ? "People" : "Workspace",
+          name: name === "people" ? "People" : "Team settings",
           exact: true,
           level: 1,
         }),
@@ -470,11 +481,9 @@ test("People and workspace layouts remain usable in both themes at desktop and p
           page.getByRole("textbox", { name: /^Name/ }),
         ).toBeVisible();
         await expect(
-          page.getByRole("link", {
-            name: "backup and recovery guide",
-            exact: true,
-          }),
+          page.getByRole("button", { name: "Update", exact: true }),
         ).toBeVisible();
+        await expect(page.getByText("Backups", { exact: true })).toHaveCount(0);
         await expect(
           page.getByRole("link", { name: "Export and import", exact: true }),
         ).toHaveCount(0);
@@ -560,6 +569,19 @@ test("People and workspace layouts remain usable in both themes at desktop and p
           expect(primary!.width).toBeGreaterThanOrEqual(width - 140);
           expect(Math.abs(actions!.width - 80)).toBeLessThanOrEqual(1);
         }
+        const protectedRemoval = members.getByRole("group", {
+          name: `Removal unavailable for ${bootstrap.name}`,
+          exact: true,
+        });
+        const hintBounds = await protectedRemoval.boundingBox();
+        expect(hintBounds!.width).toBeGreaterThanOrEqual(44);
+        expect(hintBounds!.height).toBeGreaterThanOrEqual(44);
+        await protectedRemoval.click();
+        await expect(touch.getByRole("tooltip")).toContainText(
+          "Make another person an administrator before removing access",
+        );
+        await touch.keyboard.press("Escape");
+        await expect(touch.getByRole("tooltip")).toHaveCount(0);
         const edit = members.getByRole("button", {
           name: `Edit role for ${longPerson.name}`,
           exact: true,
@@ -628,18 +650,23 @@ test("People and workspace layouts remain usable in both themes at desktop and p
         });
       }
     }
-    await openSettings(touch, "Workspace settings");
-    const opened = touch.waitForEvent("popup");
-    await touch
-      .getByRole("link", { name: "backup and recovery guide", exact: true })
-      .click();
-    const guide = await opened;
-    await guide.waitForLoadState("domcontentloaded");
-    expect(new URL(guide.url()).pathname).toBe("/guides/backup.html");
+    await openSettings(touch, "Team settings");
     await expect(
-      guide.getByRole("heading", { name: "Backup and recovery", exact: true }),
+      touch.getByRole("heading", {
+        name: "Team settings",
+        exact: true,
+        level: 1,
+      }),
     ).toBeVisible();
-    await guide.close();
+    await expect(
+      touch.getByRole("button", { name: "Update", exact: true }),
+    ).toBeVisible();
+    await expect(
+      touch.getByRole("link", {
+        name: "backup and recovery guide",
+        exact: true,
+      }),
+    ).toHaveCount(0);
   } finally {
     await touchContext.close();
   }

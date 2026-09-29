@@ -4,6 +4,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -90,7 +91,7 @@ test("failed retry response persistence rolls back the mutation and permits safe
 test("successful empty DELETE responses replay as 204 with an empty body", async () => {
   const { Hono } = await import("hono");
   const { idempotency } = await import("../apps/api/src/middleware.js");
-  const { user } = await setupUser();
+  const { cookie, user } = await setupUser();
   const harness = new Hono<import("../apps/api/src/http.js").Env>();
   harness.use("*", async (c, next) => {
     c.set("actor", {
@@ -107,7 +108,10 @@ test("successful empty DELETE responses replay as 204 with an empty body", async
   for (const replay of [false, true]) {
     const response = await harness.request("/api/empty", {
       method: "DELETE",
-      headers: { "Idempotency-Key": "integration-empty-001" },
+      headers: {
+        Cookie: cookie,
+        "Idempotency-Key": "integration-empty-001",
+      },
     });
     assert.equal(response.status, 204);
     assert.equal(await response.text(), "");
@@ -119,9 +123,15 @@ test("successful empty DELETE responses replay as 204 with an empty body", async
 });
 test("retry records encrypt credential issuance secrets", async () => {
   const { cookie } = await setupUser();
+  const agent = await setupAgent(cookie);
   const options = {
     cookie,
-    body: { name: "Retry credential", scopes: ["read"], expiresInDays: 1 },
+    body: {
+      agentId: agent.id,
+      name: "Retry credential",
+      scopes: ["read"],
+      expiresInDays: 1,
+    },
     headers: { "Idempotency-Key": "integration-secret-001" },
   };
   const response = await request("/api/credentials", options);
