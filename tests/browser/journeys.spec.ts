@@ -579,18 +579,31 @@ test("sidebar action sizing matches navigation and removed audit routes stay una
         const metrics = async (element: Locator) =>
           element.evaluate((node) => {
             const style = getComputedStyle(node);
-            const icon = node.querySelector("svg")!.getBoundingClientRect();
+            const iconNode = node.querySelector("svg")!;
+            const iconStyle = getComputedStyle(iconNode);
+            const icon = iconNode.getBoundingClientRect();
             return {
               height: node.getBoundingClientRect().height,
               fontSize: style.fontSize,
               fontWeight: style.fontWeight,
               gap: style.gap,
               padding: style.padding,
-              iconWidth: icon.width,
-              iconHeight: icon.height,
+              iconCssWidth: iconStyle.width,
+              iconCssHeight: iconStyle.height,
+              iconGeometry: { width: icon.width, height: icon.height },
             };
           });
-        expect(await metrics(create)).toEqual(await metrics(reference));
+        const { iconGeometry: createIcon, ...createStyles } =
+          await metrics(create);
+        const { iconGeometry: referenceIcon, ...referenceStyles } =
+          await metrics(reference);
+        expect(createStyles).toEqual(referenceStyles);
+        expect(createStyles.iconCssWidth).toBe("16px");
+        expect(createStyles.iconCssHeight).toBe("16px");
+        for (const dimension of ["width", "height"] as const)
+          expect(
+            Math.abs(createIcon[dimension] - referenceIcon[dimension]),
+          ).toBeLessThanOrEqual(0.001);
         expect((await create.boundingBox())!.height).toBe(
           width === 390 ? 44 : 36,
         );
