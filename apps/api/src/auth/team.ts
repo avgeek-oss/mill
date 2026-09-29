@@ -13,7 +13,6 @@ import {
 import {
   activeUser,
   admin,
-  audit,
   body,
   emailSchema,
   identityResponse,
@@ -104,12 +103,7 @@ teamRoutes.post("/invitations", async (c) => {
       await tx`INSERT INTO invitations(id,email,role,token_hash,invited_by,expires_at)
       VALUES(${randomUUID()},${input.email},${input.role},${hashToken(token)},${user.id},now()+interval '7 days')
       RETURNING id,email,role,created_at,expires_at`;
-    await audit(
-      user,
-      "member.invited",
-      { email: input.email, role: input.role },
-      tx,
-    );
+
     return created;
   });
   const inviteUrl = `${appOrigin()}/invite?token=${token}`;
@@ -122,17 +116,11 @@ teamRoutes.delete("/invitations/:id", async (c) => {
   const who = admin(c);
   const id = uuid(c.req.param("id"));
   await sql.begin(async (tx) => {
-    const user = await lockedAdmin(who.userId, tx);
+    await lockedAdmin(who.userId, tx);
     const [revoked] =
       await tx`UPDATE invitations SET revoked_at=now() WHERE id=${id} AND accepted_at IS NULL AND revoked_at IS NULL RETURNING email`;
     if (!revoked)
       throw new HTTPException(404, { message: "Active invitation not found" });
-    await audit(
-      user,
-      "member.invitation-revoked",
-      { email: revoked.email },
-      tx,
-    );
   });
   return c.json({ ok: true });
 });
@@ -185,7 +173,7 @@ teamRoutes.post("/accept-invitation", async (c) => {
       VALUES(${randomUUID()},${workspace.id},${input.name},${invitation.email},${passwordHash},${invitation.role}) RETURNING *`;
     await tx`UPDATE invitations SET accepted_at=now() WHERE id=${invitation.id}`;
     await newSession(c, user.id, tx);
-    await audit(user, "member.joined", {}, tx);
+
     return c.json(await identityResponse(user, tx), 201);
   });
 });
@@ -194,18 +182,13 @@ teamRoutes.patch("/members/:id", async (c) => {
   const id = uuid(c.req.param("id"));
   const input = await body(c, z.object({ role: roleSchema }));
   const member = await sql.begin(async (tx) => {
-    const operator = await lockedAdmin(who.userId, tx);
+    await lockedAdmin(who.userId, tx);
     const user = await activeUser(id, tx);
     if (user.role === "admin" && input.role !== "admin")
       await protectLastAdmin(user, tx);
     const [updated] =
       await tx`UPDATE users SET role=${input.role},updated_at=now() WHERE id=${id} RETURNING id,name,email,role,time_zone`;
-    await audit(
-      operator,
-      "member.role-changed",
-      { memberId: id, role: input.role },
-      tx,
-    );
+
     return updated;
   });
   return c.json({ member });
@@ -214,7 +197,7 @@ teamRoutes.delete("/members/:id", async (c) => {
   const who = admin(c);
   const id = uuid(c.req.param("id"));
   await sql.begin(async (tx) => {
-    const operator = await lockedAdmin(who.userId, tx);
+    await lockedAdmin(who.userId, tx);
     const user = await activeUser(id, tx);
     await protectLastAdmin(user, tx);
     await tx`UPDATE users SET disabled_at=now(),security_epoch=security_epoch+1,updated_at=now() WHERE id=${id}`;
@@ -223,7 +206,6 @@ teamRoutes.delete("/members/:id", async (c) => {
     await tx`DELETE FROM account_recovery WHERE user_id=${id}`;
     await tx`UPDATE credentials SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=${id}`;
     await tx`UPDATE oauth_requests SET consumed_at=COALESCE(consumed_at,now()),expires_at=now() WHERE user_id=${id}`;
-    await audit(operator, "member.removed", { memberId: id }, tx);
   });
   return c.json({ ok: true });
 });

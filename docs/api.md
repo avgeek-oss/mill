@@ -36,7 +36,7 @@ REST failures return `{ "error": "Description of the problem" }`.
 
 ## Permissions
 
-Viewers read boards, tasks, comments, and activity. Members also create and change work. Admins manage membership, workspace settings, audit, export/import, and permanent board deletion. Every account has access to the workspace's boards. A credential can narrow this to an explicit board list and read or read/write scope.
+Viewers read boards, tasks, comments, and activity. Members also create and change work. Admins manage membership, workspace settings, export/import, and permanent board deletion. Every account has access to the workspace's boards. A credential can narrow this to an explicit board list and read or read/write scope.
 
 Agents can perform board and task workflows within that ceiling. Administration requires a human administrator session even when the credential owner is an Admin. Credential and consent management require a human session. Board-scoped credentials cannot read the team directory or workspace settings; notifications are restricted to the owner's allowed boards.
 
@@ -58,7 +58,7 @@ Board names are at most 100 characters; status names are at most 80. A custom pr
 
 For ordering, `beforeId` inserts before the named item. Explicit `null` moves to the end. Board/status changes carry the current `version`. Mill locks and normalizes the order transactionally; a concurrent edit returns a conflict instead of silently replacing it. Deleting a status that contains tasks requires another status in the same board. Keep at least one status.
 
-Deleting a board requires a human Admin and its current version. It permanently removes its statuses, tasks, descendant subtasks, comments, notifications, and work activity. Scoped credentials lose the board reference and are revoked when no allowed boards remain; pending OAuth grants are narrowed or removed. The audit retains only deletion attribution and the removed UUID. There is no archive, trash, or restore endpoint.
+Deleting a board requires a human Admin and its current version. It permanently removes its statuses, tasks, descendant subtasks, comments, notifications, and work activity. Scoped credentials lose the board reference and are revoked when no allowed boards remain; pending OAuth grants are narrowed or removed. There is no archive, trash, or restore endpoint.
 
 ## Tasks
 
@@ -87,7 +87,7 @@ Task fields:
 | `checklist`   | At most 100 `{id,text,done}` entries with unique IDs; text at most 500 characters |
 | `parentId`    | Parent task UUID in the same board, or `null`; cycles are rejected                |
 
-The status can be chosen at creation. Use the move endpoint for later status/order changes, or include `columnId` and optional `beforeId` in a task PATCH to change its status and other fields together. A task mutation increments `version`. Moving also updates ranks and affected row versions, so read the current task before another edit. Delete permanently removes the task, all descendant subtasks, comments, notifications, and task activity. It requires Member access and the current version. The audit retains deletion attribution and the removed UUID without task content. Repeating a delete without its retry key returns `404`. Task numbers are never reused within an existing board.
+The status can be chosen at creation. Use the move endpoint for later status/order changes, or include `columnId` and optional `beforeId` in a task PATCH to change its status and other fields together. A task mutation increments `version`. Moving also updates ranks and affected row versions, so read the current task before another edit. Delete permanently removes the task, all descendant subtasks, comments, notifications, and task activity. It requires Member access and the current version. Repeating a delete without its retry key returns `404`. Task numbers are never reused within an existing board.
 
 Task list query parameters can be combined:
 
@@ -126,13 +126,12 @@ Comment bodies are nonempty Markdown with at most 10,000 characters. Mention a m
 
 ## Notifications and settings
 
-| Method and path            | Request                                   | Response                                            |
-| -------------------------- | ----------------------------------------- | --------------------------------------------------- |
-| `GET /api/notifications`   | Optional `unread=true`, `limit`, `cursor` | `{items,unreadCount,hasMore,nextCursor}`            |
-| `PATCH /api/notifications` | `{ids,read?}` or `{all:true,read?}`       | `{ok:true,updated}`                                 |
-| `GET /api/workspace`       | Human member session                      | `{workspace}`                                       |
-| `PATCH /api/workspace`     | Human Admin; `{name}`                     | `{workspace}`                                       |
-| `GET /api/audit`           | Human Admin; `limit`, `cursor`            | Combined work/security `{items,hasMore,nextCursor}` |
+| Method and path            | Request                                   | Response                                 |
+| -------------------------- | ----------------------------------------- | ---------------------------------------- |
+| `GET /api/notifications`   | Optional `unread=true`, `limit`, `cursor` | `{items,unreadCount,hasMore,nextCursor}` |
+| `PATCH /api/notifications` | `{ids,read?}` or `{all:true,read?}`       | `{ok:true,updated}`                      |
+| `GET /api/workspace`       | Human member session                      | `{workspace}`                            |
+| `PATCH /api/workspace`     | Human Admin; `{name}`                     | `{workspace}`                            |
 
 Notification changes default to `read:true`. `read:false` marks them unread. An agent's notification list and updates stay within its board scope and its owner's account. Use `PATCH /api/auth/profile` with `notificationPreferences:{assignments,mentions}` to change preferences from a human session.
 

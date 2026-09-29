@@ -10,7 +10,7 @@ Mill centers on boards with ordered statuses, Kanban and list views, task detail
 
 The first installation creates its administrator once. Teams use Admin, Member, and Viewer roles, invitations, profiles, time zones, session controls, passkeys, authenticator verification, and recovery. B1 uses a notification bell for in-app assignment/mention notifications and private invitation links. Email delivery is unavailable.
 
-External agents use scoped, revocable credentials or OAuth with REST and remote MCP. Restrictions apply across boards and resource IDs; human-only administrative actions stay unavailable to agent credentials. Retry-sensitive mutations support idempotency and bounded rate limits. Activity and audit history identify human and agent actions.
+External agents use scoped, revocable credentials or OAuth with REST and remote MCP. Restrictions apply across boards and resource IDs; human-only administrative actions stay unavailable to agent credentials. Retry-sensitive mutations support idempotency and bounded rate limits. Task activity identifies human and agent actions. Workspace-wide audit history is excluded from v1.
 
 ## Self-hosting
 

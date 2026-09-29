@@ -35,7 +35,7 @@ Add `--reset-mfa` only when the account owner also lost their second factor. In 
 
 - Back up PostgreSQL and the encryption secret regularly. Verify restores in a separate project.
 - Keep the host, Docker, reverse proxy, and reviewed Mill image current.
-- Review memberships, active sessions, agent credentials, and audit events when a person leaves or access changes.
+- Review memberships, active sessions, and agent credentials when a person leaves or access changes.
 - Check disk capacity for the database and backups. Store another encrypted backup off the Docker host.
 - Test changes to the public origin, proxy, and authentication using an account with a working fallback.
 

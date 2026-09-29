@@ -185,7 +185,7 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
     ).status,
     403,
   );
-  for (const path of ["/api/audit", "/api/export"])
+  for (const path of ["/api/export"])
     assert.equal((await request(path, { cookie: writer.cookie })).status, 403);
   const privateBoard = (
     await json(
@@ -254,7 +254,6 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
     `/api/tasks/${privateTask.id}`,
     `/api/tasks/${privateTask.id}/comments`,
     `/api/tasks/${privateTask.id}/activity`,
-    "/api/audit",
     "/api/export",
     "/api/workspace",
   ])
@@ -818,7 +817,7 @@ test("exports remain internally consistent while tasks and comments are concurre
   );
 });
 
-test("comment, activity, notification and audit pagination preserve PostgreSQL microsecond ordering", async () => {
+test("comment, activity and notification pagination preserve PostgreSQL microsecond ordering", async () => {
   const { cookie, board, user } = await fixture();
   const item = await createTask(cookie, board.id);
   for (let index = 0; index < 7; index++)
@@ -837,12 +836,6 @@ test("comment, activity, notification and audit pagination preserve PostgreSQL m
     [`/api/tasks/${item.id}/comments`, 7],
     [`/api/tasks/${item.id}/activity`, 8],
     ["/api/notifications", 7],
-    [
-      "/api/audit",
-      (
-        await sql`SELECT (SELECT count(*) FROM activity)+(SELECT count(*) FROM auth_audit) AS total`
-      )[0].total,
-    ],
   ] as const) {
     const ids: string[] = [];
     let cursor: string | null = null;

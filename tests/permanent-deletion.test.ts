@@ -163,13 +163,12 @@ test("permanent task deletion purges descendants and content, preserves other wo
     (await request(`/api/tasks/${parent.id}`, { cookie })).status,
     404,
   );
-  const auditRows =
-    await sql`SELECT * FROM activity WHERE action='task.deleted'`;
-  assert.equal(auditRows.length, 1);
-  const [audit] = auditRows;
-  assert.equal(audit.taskId, null);
-  assert.deepEqual(audit.detail, { taskId: parent.id });
-  assert.equal(audit.actorId, colleague.user.id);
+  assert.equal(
+    (
+      await sql`SELECT id FROM activity WHERE task_id IS NULL OR action='task.deleted'`
+    ).length,
+    0,
+  );
   const [remaining] =
     await sql`SELECT position,version FROM tasks WHERE id=${surviving.id}`;
   assert.equal(remaining.position, 0);
@@ -349,11 +348,12 @@ test("board deletion requires a human Admin and current version, purges owned ro
     ).status,
     404,
   );
-  const [audit] =
-    await sql`SELECT * FROM activity WHERE action='board.deleted'`;
-  assert.equal(audit.boardId, null);
-  assert.equal(audit.taskId, null);
-  assert.deepEqual(audit.detail, { boardId: removed.id });
+  assert.equal(
+    (
+      await sql`SELECT id FROM activity WHERE task_id IS NULL OR action='board.deleted'`
+    ).length,
+    0,
+  );
   assert.equal(
     (await sql`SELECT position FROM boards WHERE id=${kept.id}`)[0].position,
     0,

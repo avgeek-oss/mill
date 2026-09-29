@@ -1,5 +1,4 @@
 import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
-import type postgres from "postgres";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest } from "../http.js";
@@ -30,13 +29,7 @@ export type CredentialInput = {
 // Only in-process MCP dispatch can use a resource-bound OAuth token on REST handlers.
 export const mcpDispatchRequests = new WeakSet<Request>();
 export const mcpDispatchTokens = new AsyncLocalStorage<string>();
-export async function externalAudit(
-  a: Actor,
-  action: string,
-  detail: Record<string, unknown>,
-) {
-  await sql`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${a.name},${a.kind},${action},${sql.json(detail as postgres.JSONValue)})`;
-}
+
 export async function listCredentials(
   a: Actor,
   limit: number,
@@ -65,8 +58,8 @@ export async function createCredential(a: Actor, input: CredentialInput) {
   return sql.begin(async (tx) => {
     await validateBoards(input.boardIds, tx);
     const [owner] = await tx<
-      { role: Role; name: string }[]
-    >`SELECT role,name FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
+      { role: Role }[]
+    >`SELECT role FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
     if (!owner || a.kind !== "human")
       throw new HTTPException(403, {
         message: "Your membership no longer permits this action",
@@ -79,7 +72,7 @@ export async function createCredential(a: Actor, input: CredentialInput) {
     const [credential] = await tx<
       Credential[]
     >`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,board_ids,expires_at) VALUES(${a.userId},${input.name},${digest(token)},${token.slice(0, 12)},${input.scopes},${input.boardIds ?? null},${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
-    await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${owner.name},'human','credential.created',${tx.json({ credentialId: credential!.id, name: input.name, scopes: input.scopes, boardIds: input.boardIds ?? null })})`;
+
     return { credential: credential!, token };
   });
 }
@@ -87,10 +80,7 @@ export async function revokeCredential(a: Actor, id: string) {
   const [credential] =
     await sql`UPDATE credentials SET revoked_at=COALESCE(revoked_at,now()) WHERE id=${id} AND user_id=${a.userId} RETURNING id,name`;
   if (!credential) return false;
-  await externalAudit(a, "credential.revoked", {
-    credentialId: id,
-    name: credential.name,
-  });
+
   return true;
 }
 export async function credentialActor(request: Request): Promise<Actor | null> {

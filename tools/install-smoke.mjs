@@ -178,6 +178,28 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
   });
 }
 const { task, comments } = await request(`/api/tasks/${state.taskId}`);
+const history = await request(`/api/tasks/${state.taskId}/activity`);
+assert.ok(
+  history.items.some(
+    (item) =>
+      item.action === "task.created" &&
+      item.actorKind === "human" &&
+      item.actorName === "Install verifier",
+  ),
+  "Persisted task creation history remains readable",
+);
+const removedAudit = await fetch(`${origin}/api/audit`, {
+  headers: {
+    Origin: origin,
+    Cookie: [...cookies].map(([name, value]) => `${name}=${value}`).join("; "),
+  },
+  signal: AbortSignal.timeout(15_000),
+  redirect: "error",
+});
+assert.equal(removedAudit.status, 404, "Workspace Audit endpoint is removed");
+pass(
+  "Task actions history remains readable and workspace Audit is unavailable",
+);
 const deepLink = await fetch(
   `${origin}/boards/${state.boardId}/tasks/${state.taskId}`,
   { signal: AbortSignal.timeout(10_000) },
@@ -256,6 +278,41 @@ if (process.env.MILL_VERIFY_UPGRADE_STATE) {
       (comment) => comment.body === "Legacy migration content",
     ),
   );
+  if (upgrade.taskHistory) {
+    assert.equal(upgrade.taskHistory.length, 3);
+    const migratedHistory = await request(
+      `/api/tasks/${upgrade.archivedTaskId}/activity?limit=100`,
+    );
+    for (const event of upgrade.taskHistory) {
+      assert.equal(event.task_id, upgrade.archivedTaskId);
+      assert.equal(event.board_id, upgrade.archivedBoardId);
+      assert.deepEqual(
+        migratedHistory.items.find((item) => item.id === event.id),
+        {
+          id: event.id,
+          taskId: event.task_id,
+          boardId: event.board_id,
+          actorId: event.actor_id,
+          actorName: event.actor_name,
+          actorKind: event.actor_kind,
+          action: event.action,
+          detail: event.detail,
+          createdAt: new Date(event.created_at).toISOString(),
+        },
+        "Task history preserves actor attribution, action, details and time",
+      );
+    }
+    assert.ok(
+      migratedHistory.items.some(
+        (item) =>
+          item.actorKind === "agent" &&
+          item.actorName === "Upgrade history agent",
+      ),
+    );
+    pass(
+      "Migrated human and agent task actions retain complete history through the API",
+    );
+  }
   const deletedIds = [
     upgrade.deletedParentId,
     upgrade.deletedChildId,

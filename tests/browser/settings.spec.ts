@@ -532,7 +532,9 @@ test("assignment and mention notifications open the correct task and preferences
     fullPage: true,
     animations: "disabled",
   });
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
+  await expect(
+    page.getByRole("tablist", { name: "Notifications filter" }),
+  ).toHaveCount(0);
   await page
     .getByRole("list", { name: "Notification list", exact: true })
     .getByRole("listitem")
@@ -549,12 +551,11 @@ test("assignment and mention notifications open the correct task and preferences
     .click();
   await expect(unreadItems).toHaveCount(1);
   await page.getByRole("button", { name: "Mark all read" }).click();
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
+  await expect(unreadItems).toHaveCount(0);
+  await expect(notificationItems).toHaveCount(2);
   await expect(
-    page
-      .getByRole("dialog", { name: "Notifications", exact: true })
-      .getByRole("heading", { name: "You’re all caught up", exact: true }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeDisabled();
   await page.keyboard.press("Escape");
   await accountAction(page, "Profile");
   await expect(
@@ -580,16 +581,13 @@ test("assignment and mention notifications open the correct task and preferences
   await page
     .getByRole("button", { name: "Open notifications", exact: true })
     .click();
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
+  await expect(unreadItems).toHaveCount(0);
   await expect(
-    page
-      .getByRole("dialog", { name: "Notifications", exact: true })
-      .getByRole("heading", { name: "You’re all caught up", exact: true }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeDisabled();
   const notifications = await json(page.request, "/notifications");
   expect(notifications.items).toHaveLength(2);
   expect(notifications.unreadCount).toBe(0);
-  await page.getByRole("tab", { name: "All", exact: true }).click();
   await expect(notificationItems).toHaveCount(2);
   await expect(unreadItems).toHaveCount(0);
 });

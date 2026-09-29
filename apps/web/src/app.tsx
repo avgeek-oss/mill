@@ -25,7 +25,6 @@ import {
 } from "@mill/web-design-system";
 import {
   Add01Icon,
-  Audit01Icon,
   Download01Icon,
   KanbanIcon,
   Key01Icon,
@@ -54,7 +53,7 @@ function iconComponent(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
       <HugeiconsIcon
         aria-hidden="true"
         size={16}
-        className="shrink-0"
+        className="size-4 shrink-0"
         {...props}
         icon={icon}
       />
@@ -67,7 +66,6 @@ const Settings = iconComponent(Settings01Icon);
 const Users = iconComponent(UserGroupIcon);
 const KeyRound = iconComponent(Key01Icon);
 const Download = iconComponent(Download01Icon);
-const ScrollText = iconComponent(Audit01Icon);
 const Auth = lazy(() => import("./auth.js").then((m) => ({ default: m.Auth })));
 const BoardPage = lazy(() =>
   import("./board.js").then((m) => ({ default: m.BoardPage })),
@@ -323,7 +321,6 @@ export function App() {
     "members",
     "agents",
     "workspace",
-    "audit",
     "data",
   ];
   function nav(label: string, url: string, icon: ReactNode): ShellLinkConfig {
@@ -353,14 +350,29 @@ export function App() {
           {
             id: "boards",
             label: "Boards",
-            items: boards.map((board) => ({
-              id: board.id,
-              href: `/boards/${board.id}`,
-              label: board.name,
-              icon: <Columns3 />,
-              active: activeBoardId === board.id,
-            })),
-            footerContent: (
+            items: [
+              ...boards.map((board) => ({
+                id: board.id,
+                href: `/boards/${board.id}`,
+                label: board.name,
+                icon: <Columns3 />,
+                active: activeBoardId === board.id,
+              })),
+              ...(session.user.role === "viewer"
+                ? []
+                : [
+                    {
+                      id: "create-project",
+                      label: "Create Project",
+                      icon: <Plus />,
+                      onPress: () => {
+                        setNewBoard(true);
+                        setCreateError("");
+                      },
+                    },
+                  ]),
+            ],
+            content: (
               <div className="grid min-w-0 gap-1">
                 <ErrorMessage>{boardsError}</ErrorMessage>
                 {boardsPending && (
@@ -375,19 +387,6 @@ export function App() {
                     onPress={() => void loadBoards()}
                   >
                     Retry loading boards
-                  </Button>
-                )}
-                {session.user.role !== "viewer" && (
-                  <Button
-                    variant="ghost"
-                    className="min-h-11 w-full justify-start gap-3 rounded-2xl px-2 text-sm font-normal text-muted"
-                    onPress={() => {
-                      setNewBoard(true);
-                      setCreateError("");
-                    }}
-                  >
-                    <Plus />
-                    Create Project
                   </Button>
                 )}
               </div>
@@ -407,7 +406,6 @@ export function App() {
                       <Settings />,
                     ),
                     nav("Export and import", "/settings/data", <Download />),
-                    nav("Audit history", "/settings/audit", <ScrollText />),
                   ]
                 : []),
             ],
@@ -440,7 +438,6 @@ export function App() {
     members: "People",
     agents: "Agent access",
     workspace: "Workspace",
-    audit: "Audit history",
     data: "Export and import",
   };
   const navbarTitle = activeBoardId
@@ -487,6 +484,7 @@ export function App() {
                 </Suspense>
                 <ThemeSwitcher
                   size="small"
+                  className="pointer-coarse:size-11"
                   theme={theme}
                   onThemeChange={setTheme}
                 />

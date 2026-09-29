@@ -335,6 +335,16 @@ a {
     @apply h-11! min-h-11!;
   }
 
+  .widget__header--notification :is(button, .button) {
+    @apply h-8! min-h-8!;
+  }
+
+  @media (pointer: coarse) {
+    .widget__header--notification :is(button, .button) {
+      @apply h-11! min-h-11!;
+    }
+  }
+
   .widget__title {
     @apply text-muted text-sm font-semibold;
   }

@@ -254,13 +254,7 @@ domainRoutes.post("/boards", async (c) => {
       await tx`INSERT INTO boards (workspace_id,name,prefix,description,position) VALUES (${workspace.id},${input.name},${prefix},${input.description},${count.total}) RETURNING *`;
     for (const [position, name] of ["Backlog", "In progress", "Done"].entries())
       await tx`INSERT INTO columns (board_id,name,color,position) VALUES (${created.id},${name},${["gray", "blue", "green"][position]},${position})`;
-    await recordActivity(
-      tx,
-      a,
-      "board.created",
-      { name: input.name },
-      created.id,
-    );
+
     return created;
   });
   return c.json({ board: result }, 201);
@@ -301,20 +295,14 @@ domainRoutes.patch("/boards/:id", async (c) => {
     }
     const [updated] =
       await tx`UPDATE boards SET name=${input.name ?? row.name},description=${input.description ?? row.description},position=${row.position},version=version+1,updated_at=now() WHERE id=${boardId} RETURNING *`;
-    await recordActivity(
-      tx,
-      a,
-      "board.updated",
-      { fields: Object.keys(input).filter((k) => k !== "version") },
-      boardId,
-    );
+
     return updated;
   });
   return c.json({ board: result });
 });
 domainRoutes.delete("/boards/:id", async (c) => {
   const boardId = id(c.req.param("id"));
-  const a = administrative(c, true);
+  administrative(c, true);
   const input = await body(c, z.object({ version }).strict());
   await sql.begin(async (tx) => {
     await tx`SELECT id FROM workspace FOR UPDATE`;
@@ -324,7 +312,6 @@ domainRoutes.delete("/boards/:id", async (c) => {
     const rows = await tx`SELECT id FROM boards ORDER BY position,id`;
     for (const [position, row] of rows.entries())
       await tx`UPDATE boards SET position=${position},version=version+1,updated_at=now() WHERE id=${row.id} AND position<>${position}`;
-    await recordActivity(tx, a, "board.deleted", { boardId });
   });
   return c.json({ ok: true });
 });
@@ -337,7 +324,7 @@ domainRoutes.get("/boards/:id/columns", async (c) => {
 });
 domainRoutes.post("/boards/:id/columns", async (c) => {
   const boardId = id(c.req.param("id"));
-  const a = requireRole(c, "member", boardId);
+  requireRole(c, "member", boardId);
   const input = await body(c, columnCreate);
   const result = await sql.begin(async (tx) => {
     await lockBoard(c, tx, boardId);
@@ -346,13 +333,7 @@ domainRoutes.post("/boards/:id/columns", async (c) => {
     if (count.total >= 50) badRequest("A board supports up to 50 statuses");
     const [created] =
       await tx`INSERT INTO columns (board_id,name,color,position) VALUES (${boardId},${input.name},${input.color},${count.total}) RETURNING *`;
-    await recordActivity(
-      tx,
-      a,
-      "column.created",
-      { name: input.name },
-      boardId,
-    );
+
     return created;
   });
   return c.json({ column: result }, 201);
@@ -366,7 +347,7 @@ domainRoutes.patch("/columns/:id", async (c) => {
       Column[]
     >`SELECT * FROM columns WHERE id=${columnId}`;
     if (!original) missing("Status not found");
-    const a = requireRole(c, "member", original.boardId);
+    requireRole(c, "member", original.boardId);
     await lockBoard(c, tx, original.boardId);
     const [row] = await tx<
       Column[]
@@ -386,13 +367,7 @@ domainRoutes.patch("/columns/:id", async (c) => {
     }
     const [updated] =
       await tx`UPDATE columns SET name=${input.name ?? row.name},color=${input.color ?? row.color},version=version+1 WHERE id=${columnId} RETURNING *`;
-    await recordActivity(
-      tx,
-      a,
-      "column.updated",
-      { name: updated.name, reordered: input.beforeId !== undefined },
-      row.boardId,
-    );
+
     return updated;
   });
   return c.json({ column: result });
@@ -409,7 +384,7 @@ domainRoutes.delete("/columns/:id", async (c) => {
       Column[]
     >`SELECT * FROM columns WHERE id=${columnId}`;
     if (!original) missing("Status not found");
-    const a = requireRole(c, "member", original.boardId);
+    requireRole(c, "member", original.boardId);
     await lockBoard(c, tx, original.boardId);
     const [row] = await tx<
       Column[]
@@ -431,18 +406,25 @@ domainRoutes.delete("/columns/:id", async (c) => {
         conflict("Choose another status for the tasks in this status");
       const [count] =
         await tx`SELECT count(*)::int AS total FROM tasks WHERE column_id=${destination.id}`;
-      for (const [offset, rowTask] of tasks.entries())
+      const a = requireRole(c, "member", row.boardId);
+      for (const [offset, rowTask] of tasks.entries()) {
         await tx`UPDATE tasks SET column_id=${destination.id},position=${count.total + offset},version=version+1,updated_at=now() WHERE id=${rowTask.id}`;
+        await recordActivity(
+          tx,
+          a,
+          "task.moved",
+          {
+            fromColumnId: columnId,
+            columnId: destination.id,
+            status: destination.name,
+          },
+          row.boardId,
+          rowTask.id,
+        );
+      }
     }
     await tx`DELETE FROM columns WHERE id=${columnId}`;
     await normalizeColumns(tx, row.boardId);
-    await recordActivity(
-      tx,
-      a,
-      "column.deleted",
-      { name: row.name, movedTasks: tasks.length },
-      row.boardId,
-    );
   });
   return c.json({ ok: true });
 });
@@ -727,14 +709,13 @@ domainRoutes.delete("/tasks/:id", async (c) => {
   const input = await body(c, z.object({ version }).strict());
   await sql.begin(async (tx) => {
     const row = await lockedTask(c, tx, taskId, input.version);
-    const a = requireRole(c, "member", row.boardId);
+    requireRole(c, "member", row.boardId);
     const affected = await tx<
       { columnId: string }[]
     >`WITH RECURSIVE descendants AS (SELECT id,column_id FROM tasks WHERE id=${taskId} UNION ALL SELECT t.id,t.column_id FROM tasks t JOIN descendants d ON t.parent_id=d.id) SELECT DISTINCT column_id FROM descendants`;
     await tx`DELETE FROM tasks WHERE id=${taskId}`;
     for (const affectedColumn of affected)
       await normalizeTasks(tx, affectedColumn.columnId);
-    await recordActivity(tx, a, "task.deleted", { taskId }, row.boardId);
   });
   return c.json({ ok: true });
 });
@@ -943,30 +924,6 @@ domainRoutes.patch("/notifications", async (c) => {
     return c.json({ error: "Some notifications are outside your access" }, 403);
   return c.json({ ok: true, updated: rows.length });
 });
-domainRoutes.get("/audit", async (c) => {
-  administrative(c);
-  const limit = pagination(c);
-  const cursor = decodeCursor(c.req.query("cursor"), cursorSchema);
-  const filterKey = fingerprint({ collection: "audit" });
-  if (cursor && cursor.fingerprint !== filterKey)
-    badRequest("Invalid audit cursor");
-  const rows =
-    await sql`SELECT *,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US') AS cursor_key FROM (SELECT id,actor_id,actor_name,actor_kind,action,detail,board_id,task_id,created_at FROM activity UNION ALL SELECT id,user_id AS actor_id,actor_name,'human' AS actor_kind,action,detail,NULL::uuid AS board_id,NULL::uuid AS task_id,created_at FROM auth_audit) events ${cursor ? sql`WHERE (to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US'),id)<(${cursor.key},${cursor.id}::uuid)` : sql``} ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`;
-  const items = rows.slice(0, limit);
-  const last = items.at(-1);
-  return c.json({
-    items: items.map(({ cursorKey: _cursorKey, ...row }) => row),
-    hasMore: rows.length > limit,
-    nextCursor:
-      rows.length > limit && last
-        ? encodeCursor({
-            key: last.cursorKey,
-            id: last.id,
-            fingerprint: filterKey,
-          })
-        : null,
-  });
-});
 domainRoutes.get("/workspace", async (c) => {
   const a = requireRole(c);
   if (a.kind === "agent")
@@ -978,7 +935,7 @@ domainRoutes.get("/workspace", async (c) => {
   return c.json({ workspace });
 });
 domainRoutes.patch("/workspace", async (c) => {
-  const a = administrative(c, true);
+  administrative(c, true);
   const input = await body(
     c,
     z.object({ name: z.string().trim().min(1).max(100) }).strict(),
@@ -988,7 +945,7 @@ domainRoutes.patch("/workspace", async (c) => {
     await revalidateAuthority(c, tx, "admin");
     const [updated] =
       await tx`UPDATE workspace SET name=${input.name} RETURNING id,name,created_at`;
-    await recordActivity(tx, a, "workspace.updated", { name: input.name });
+
     return updated;
   });
   return c.json({ workspace });

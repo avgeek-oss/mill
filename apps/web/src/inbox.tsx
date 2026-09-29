@@ -7,13 +7,11 @@ import {
   Link,
   Popover,
   ScrollShadow,
-  Spinner,
-  Tabs,
   TypographyParagraph,
   Widget,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Notification01Icon } from "@hugeicons/core-free-icons";
+import { Notification02Icon } from "@hugeicons/core-free-icons";
 import { api, errorText, navigate } from "./api.js";
 
 type Notification = {
@@ -34,7 +32,6 @@ type NotificationPage = {
   nextCursor: string | null;
 };
 type ListState = NotificationPage & { loading: boolean; error: string };
-type Filter = "all" | "unread";
 type MarkTarget = "all" | string;
 const emptyList: ListState = {
   items: [],
@@ -60,7 +57,6 @@ export function NotificationsPopover({
   const dialog = useRef<HTMLDivElement>(null);
   const markFocus = useRef<HTMLElement | null>(null);
   const [isOpen, setIsOpen] = useState(false);
-  const [filter, setFilter] = useState<Filter>("all");
   const [state, setState] = useState<ListState>(emptyList);
   const [marking, setMarking] = useState<MarkTarget | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
@@ -75,10 +71,8 @@ export function NotificationsPopover({
   const openingSequence = useRef(0);
   const attemptedCursor = useRef<string | undefined>(undefined);
   const currentOpen = useRef(isOpen);
-  const currentFilter = useRef(filter);
   const currentState = useRef(state);
   currentOpen.current = isOpen;
-  currentFilter.current = filter;
   currentState.current = state;
 
   const load = useCallback(
@@ -89,7 +83,6 @@ export function NotificationsPopover({
         cursor ? { ...previous, loading: true, error: "" } : { ...emptyList },
       );
       const query = new URLSearchParams({ limit: "100" });
-      if (filter === "unread") query.set("unread", "true");
       if (cursor) query.set("cursor", cursor);
       try {
         const result = await api<NotificationPage>(`/notifications?${query}`);
@@ -118,7 +111,7 @@ export function NotificationsPopover({
         }));
       }
     },
-    [filter, userId],
+    [userId],
   );
   const currentLoad = useRef(load);
   currentLoad.current = load;
@@ -130,7 +123,6 @@ export function NotificationsPopover({
   }, [isOpen, load]);
   useEffect(() => {
     setIsOpen(false);
-    setFilter("all");
     setState({ ...emptyList });
     markPending.current = false;
     setMarking(null);
@@ -152,9 +144,7 @@ export function NotificationsPopover({
       (document.activeElement === previousFocus ||
         document.activeElement === document.body)
     )
-      dialog.current
-        ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
-        ?.focus();
+      dialog.current?.focus();
     if (!marking) markFocus.current = null;
   }, [isOpen, marking, state.items, state.unreadCount]);
 
@@ -163,15 +153,6 @@ export function NotificationsPopover({
     if (!open) openingSequence.current++;
     else setMarkError(null);
     setIsOpen(open);
-  }
-
-  function selectFilter(key: string | number) {
-    if ((key !== "all" && key !== "unread") || key === filter) return;
-    openingSequence.current++;
-    sequence.current++;
-    currentFilter.current = key;
-    setState({ ...emptyList });
-    setFilter(key);
   }
 
   async function mark(target: MarkTarget, href?: string) {
@@ -186,7 +167,6 @@ export function NotificationsPopover({
     markPending.current = true;
     const request = ++markSequence.current;
     const openingView = openingSequence.current;
-    const startingFilter = currentFilter.current;
     setMarking(target);
     setOpening(href ? target : null);
     setMarkError(null);
@@ -208,10 +188,7 @@ export function NotificationsPopover({
         );
       if (request !== markSequence.current) return;
       sequence.current++;
-      if (
-        currentState.current.loading ||
-        startingFilter !== currentFilter.current
-      ) {
+      if (currentState.current.loading) {
         if (currentOpen.current) void currentLoad.current();
       } else {
         setState((previous) => {
@@ -223,19 +200,13 @@ export function NotificationsPopover({
           ).length;
           return {
             ...previous,
-            items:
-              currentFilter.current === "unread"
-                ? previous.items.filter((item) => !marked(item))
-                : previous.items.map((item) =>
-                    marked(item) ? { ...item, readAt } : item,
-                  ),
+            items: previous.items.map((item) =>
+              marked(item) ? { ...item, readAt } : item,
+            ),
             unreadCount:
               target === "all"
                 ? 0
                 : Math.max(0, previous.unreadCount - newlyRead),
-            ...(target === "all" && currentFilter.current === "unread"
-              ? { hasMore: false, nextCursor: null }
-              : {}),
           };
         });
       }
@@ -277,7 +248,7 @@ export function NotificationsPopover({
     ) : null;
   const content = (
     <ScrollShadow
-      className="max-h-[min(30rem,calc(100dvh-14rem))] min-w-0 overflow-y-auto overscroll-contain"
+      className="max-h-[min(26rem,calc(100dvh-8rem))] min-w-0 overflow-y-auto overscroll-contain"
       size={16}
     >
       {markError &&
@@ -286,12 +257,9 @@ export function NotificationsPopover({
           <div className="p-4">{markFailure(markError.target)}</div>
         )}
       {state.loading && state.items.length === 0 ? (
-        <div
-          role="status"
-          className="flex min-h-40 items-center justify-center gap-2 text-sm text-muted"
-        >
-          <Spinner size="sm" /> Loading notifications…
-        </div>
+        <p role="status" className="px-4 py-6 text-center text-sm text-muted">
+          Loading notifications…
+        </p>
       ) : state.error && state.items.length === 0 ? (
         <EmptyState>
           <EmptyState.Header>
@@ -312,90 +280,72 @@ export function NotificationsPopover({
           </EmptyState.Content>
         </EmptyState>
       ) : state.items.length === 0 ? (
-        <EmptyState>
-          <EmptyState.Media>
-            <HugeiconsIcon icon={Notification01Icon} size={28} />
-          </EmptyState.Media>
-          <EmptyState.Header>
-            <EmptyState.Title>
-              {filter === "unread"
-                ? "You’re all caught up"
-                : "No notifications yet"}
-            </EmptyState.Title>
-            <EmptyState.Description>
-              New assignments and mentions will appear here.
-            </EmptyState.Description>
-          </EmptyState.Header>
-        </EmptyState>
+        <p className="px-4 py-6 text-center text-sm text-muted">
+          No notifications yet
+        </p>
       ) : (
         <ul
           aria-label="Notification list"
           className="divide-y divide-separator"
         >
           {state.items.map((item) => (
-            <li key={item.id} className="grid gap-3 px-4 py-3">
-              <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+            <li key={item.id}>
+              <Link
+                href={`/boards/${item.boardId}/tasks/${item.taskId}`}
+                onKeyDown={(event) => {
+                  if (
+                    !item.readAt &&
+                    event.key === "Enter" &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  )
+                    event.preventDefault();
+                  else event.continuePropagation();
+                }}
+                onClick={(event) => {
+                  if (
+                    event.button !== 0 ||
+                    event.metaKey ||
+                    event.ctrlKey ||
+                    event.shiftKey ||
+                    event.altKey
+                  )
+                    return;
+                  if (item.readAt) {
+                    changeOpen(false);
+                    return;
+                  }
+                  event.preventDefault();
+                  if (!state.loading)
+                    void mark(
+                      item.id,
+                      `/boards/${item.boardId}/tasks/${item.taskId}`,
+                    );
+                }}
+                className="flex min-h-11 items-start gap-3 rounded-xl px-4 py-3 text-foreground no-underline outline-none transition-colors hover:bg-default/60 focus-visible:bg-default/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+              >
                 <span
                   aria-hidden="true"
-                  className={`mt-2 size-2 shrink-0 rounded-full ${item.readAt ? "bg-muted/40" : "bg-accent"}`}
+                  className={`mt-1 size-2 shrink-0 rounded-full ${item.readAt ? "bg-muted/40" : "bg-accent"}`}
                 />
-                <Link
-                  href={`/boards/${item.boardId}/tasks/${item.taskId}`}
-                  onKeyDown={(event) => {
-                    if (
-                      !item.readAt &&
-                      event.key === "Enter" &&
-                      !event.metaKey &&
-                      !event.ctrlKey &&
-                      !event.shiftKey &&
-                      !event.altKey
-                    )
-                      event.preventDefault();
-                    else event.continuePropagation();
-                  }}
-                  onClick={(event) => {
-                    if (
-                      event.button !== 0 ||
-                      event.metaKey ||
-                      event.ctrlKey ||
-                      event.shiftKey ||
-                      event.altKey
-                    )
-                      return;
-                    if (item.readAt) {
-                      changeOpen(false);
-                      return;
-                    }
-                    event.preventDefault();
-                    if (!state.loading)
-                      void mark(
-                        item.id,
-                        `/boards/${item.boardId}/tasks/${item.taskId}`,
-                      );
-                  }}
-                  className="block min-w-0 flex-1 basis-40 rounded-sm text-foreground no-underline outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
-                >
-                  <TypographyParagraph
-                    size="sm"
-                    weight="medium"
-                    className="[overflow-wrap:anywhere]"
-                  >
-                    {item.actorName ?? "A teammate"}{" "}
-                    {item.kind === "assignment"
-                      ? "assigned you"
-                      : "mentioned you in"}{" "}
-                    {item.identifier}
-                  </TypographyParagraph>
-                  <TypographyParagraph
-                    size="sm"
-                    color="muted"
-                    className="mt-1 [overflow-wrap:anywhere]"
-                  >
-                    {item.title}
-                  </TypographyParagraph>
-                  <div className="mt-1 flex flex-wrap gap-x-2 gap-y-1 text-xs text-muted">
-                    <span>{item.readAt ? "Read" : "Unread"}</span>
-                    <time dateTime={item.createdAt}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+                    <TypographyParagraph
+                      size="sm"
+                      weight="medium"
+                      className="min-w-0 flex-1 basis-40 [overflow-wrap:anywhere]"
+                    >
+                      {item.actorName ?? "A teammate"}{" "}
+                      {item.kind === "assignment"
+                        ? "assigned you a task"
+                        : "mentioned you"}
+                    </TypographyParagraph>
+                    <time
+                      className="shrink-0 text-xs text-muted"
+                      dateTime={item.createdAt}
+                    >
                       {new Date(item.createdAt).toLocaleString(undefined, {
                         timeZone,
                         dateStyle: "medium",
@@ -403,28 +353,29 @@ export function NotificationsPopover({
                       })}
                     </time>
                   </div>
-                </Link>
-                {!item.readAt && (
-                  <Button
-                    variant="ghost"
-                    className="min-h-11 shrink-0"
-                    aria-label={`Mark notification from ${item.actorName ?? "a teammate"} read`}
-                    isPending={marking === item.id}
-                    isDisabled={
-                      (!!marking && marking !== item.id) || state.loading
-                    }
-                    onPress={() => void mark(item.id)}
+                  <TypographyParagraph
+                    size="sm"
+                    color="muted"
+                    className="mt-0.5 [overflow-wrap:anywhere]"
                   >
-                    {marking === item.id ? "Marking read…" : "Mark read"}
-                  </Button>
-                )}
-              </div>
-              {opening === item.id && (
-                <p role="status" className="text-sm text-muted">
-                  Opening task…
-                </p>
+                    {item.title}
+                  </TypographyParagraph>
+                  <p className="mt-1 text-xs text-muted">{item.identifier}</p>
+                  <span className="sr-only">
+                    {item.readAt ? "Read" : "Unread"}
+                  </span>
+                </div>
+              </Link>
+              {(opening === item.id || markError?.target === item.id) && (
+                <div className="grid gap-3 px-4 pb-3">
+                  {opening === item.id && (
+                    <p role="status" className="text-sm text-muted">
+                      Opening task…
+                    </p>
+                  )}
+                  {markFailure(item.id)}
+                </div>
               )}
-              {markFailure(item.id)}
             </li>
           ))}
         </ul>
@@ -465,21 +416,19 @@ export function NotificationsPopover({
   );
   return (
     <Popover isOpen={isOpen} onOpenChange={changeOpen}>
-      <Button
-        variant="ghost"
-        isIconOnly
+      <Popover.Trigger
         aria-label="Open notifications"
         aria-describedby={unreadCount > 0 ? unreadDescriptionId : undefined}
-        className="relative size-11 shrink-0 text-muted"
+        className="notification-center__trigger relative isolate grid size-8 shrink-0 cursor-pointer touch-manipulation place-items-center rounded-full bg-default text-muted outline-none transition-[color,background-color,transform] hover:bg-default/80 hover:text-foreground active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none pointer-coarse:size-11"
       >
-        <HugeiconsIcon aria-hidden="true" icon={Notification01Icon} size={20} />
+        <HugeiconsIcon aria-hidden="true" icon={Notification02Icon} size={18} />
         {unreadCount > 0 && (
           <span
             aria-hidden="true"
             aria-label={`${unreadCount} unread notifications`}
-            className="absolute top-0.5 right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] leading-none font-medium text-accent-foreground"
+            className="absolute end-0.5 top-0.5 grid min-h-4 min-w-4 place-items-center rounded-full bg-danger px-1 font-mono text-[0.625rem] leading-4 font-medium text-danger-foreground"
           >
-            {unreadCount > 99 ? "99+" : unreadCount}
+            {Math.min(unreadCount, 9)}
           </span>
         )}
         {unreadCount > 0 && (
@@ -487,25 +436,25 @@ export function NotificationsPopover({
             {unreadCount} unread notifications
           </span>
         )}
-      </Button>
+      </Popover.Trigger>
       <Popover.Content
         placement="bottom end"
         offset={8}
-        containerPadding={12}
-        className="w-[min(28rem,calc(100vw-1.5rem))] min-w-0 max-w-none overflow-hidden rounded-2xl bg-transparent p-0"
+        containerPadding={16}
+        className="w-[min(24rem,calc(100vw-2rem))] min-w-0 max-w-none overflow-hidden rounded-2xl bg-transparent p-0"
       >
         <Popover.Dialog
           ref={dialog}
           aria-label="Notifications"
-          className="min-w-0 p-0"
+          className="min-w-0 p-0 outline-none"
         >
           <Widget className="min-w-0">
             <Widget.Header
-              className="widget__header--touch-targets"
+              className="widget__header--notification"
               endContent={
                 <Button
                   variant="ghost"
-                  className="min-h-11 shrink-0"
+                  className="min-h-8 shrink-0 px-2 text-xs pointer-coarse:min-h-11"
                   isPending={marking === "all"}
                   isDisabled={
                     (!!marking && marking !== "all") ||
@@ -522,38 +471,13 @@ export function NotificationsPopover({
               <Popover.Heading className="flex min-w-0">
                 <Widget.Title
                   help={false}
-                  icon={<HugeiconsIcon icon={Notification01Icon} size={16} />}
+                  icon={<HugeiconsIcon icon={Notification02Icon} />}
                 >
                   Notifications
                 </Widget.Title>
               </Popover.Heading>
             </Widget.Header>
-            <Widget.Content className="min-w-0 p-0">
-              <Tabs
-                selectedKey={filter}
-                onSelectionChange={selectFilter}
-                className="min-w-0"
-              >
-                <Tabs.ListContainer className="border-b border-separator px-4">
-                  <Tabs.List aria-label="Notifications filter">
-                    <Tabs.Tab id="all" className="min-h-11">
-                      All
-                      <Tabs.Indicator />
-                    </Tabs.Tab>
-                    <Tabs.Tab id="unread" className="min-h-11">
-                      Unread
-                      <Tabs.Indicator />
-                    </Tabs.Tab>
-                  </Tabs.List>
-                </Tabs.ListContainer>
-                <Tabs.Panel id="all" className="p-0">
-                  {filter === "all" ? content : null}
-                </Tabs.Panel>
-                <Tabs.Panel id="unread" className="p-0">
-                  {filter === "unread" ? content : null}
-                </Tabs.Panel>
-              </Tabs>
-            </Widget.Content>
+            <Widget.Content className="min-w-0 p-0">{content}</Widget.Content>
           </Widget>
         </Popover.Dialog>
       </Popover.Content>

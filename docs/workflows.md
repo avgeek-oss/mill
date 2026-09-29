@@ -30,7 +30,7 @@ Assignments and mentions create in-app notifications for the affected teammate. 
 
 You can edit or delete your own comments. A human administrator can moderate another person's comment. An external agent can edit comments belonging to its credential owner, within its board and write permissions.
 
-Activity records show what changed and whether a person or an external agent made the change. Administrators can also read the workspace audit log, including identity and credential events.
+Activity records show what changed and whether a person or an external agent made the change. Workspace-wide audit history is not included in v1.
 
 ## Delete work permanently
 
@@ -38,29 +38,29 @@ Delete a task from its detail view when you no longer need it. The confirmation 
 
 A human administrator can delete a board from Board settings. Its confirmation covers all of the board’s statuses, tasks, subtasks, and comments. After deletion, Mill opens another board or the empty board view and removes the board from the sidebar.
 
-There is no archive, trash, or restore view. Deletion cannot be undone in Mill. Export or back up work before deleting anything you may need later. Deletion also removes the work’s notifications and activity; the administrator audit log retains only the deletion’s attribution and identifier.
+There is no archive, trash, or restore view. Deletion cannot be undone in Mill. Export or back up work before deleting anything you may need later. Deletion also removes the work’s notifications and activity.
 
 When deleting a status that contains tasks, choose another status on the same board. Mill moves every task before removing the status. A board always keeps at least one status.
 
 ## Permissions
 
-| Action                                                   | Viewer | Member | Administrator         |
-| -------------------------------------------------------- | ------ | ------ | --------------------- |
-| Read boards and tasks                                    | Yes    | Yes    | Yes                   |
-| Read task comments and activity                          | Yes    | Yes    | Yes                   |
-| Manage own notification read state and profile           | Yes    | Yes    | Yes                   |
-| Create and change boards, statuses, tasks, and comments  | No     | Yes    | Yes                   |
-| Permanently delete tasks and their subtasks              | No     | Yes    | Yes                   |
-| Edit or delete another person's comment                  | No     | No     | Yes, personal session |
-| Permanently delete a board                               | No     | No     | Yes, personal session |
-| Invite or manage members, change workspace settings      | No     | No     | Yes, personal session |
-| Export/import portable data and read the workspace audit | No     | No     | Yes, personal session |
+| Action                                                  | Viewer | Member | Administrator         |
+| ------------------------------------------------------- | ------ | ------ | --------------------- |
+| Read boards and tasks                                   | Yes    | Yes    | Yes                   |
+| Read task comments and activity                         | Yes    | Yes    | Yes                   |
+| Manage own notification read state and profile          | Yes    | Yes    | Yes                   |
+| Create and change boards, statuses, tasks, and comments | No     | Yes    | Yes                   |
+| Permanently delete tasks and their subtasks             | No     | Yes    | Yes                   |
+| Edit or delete another person's comment                 | No     | No     | Yes, personal session |
+| Permanently delete a board                              | No     | No     | Yes, personal session |
+| Invite or manage members, change workspace settings     | No     | No     | Yes, personal session |
+| Export/import portable data                             | No     | No     | Yes, personal session |
 
 Every active member can read the workspace's boards. A credential can narrow an external agent's access to selected boards and to read or write operations. The agent keeps its owner's current role. Changing that role, removing the owner, revoking a session, or revoking the credential also prevents a mutation already waiting for a board lock from committing.
 
 ## Export and import
 
-An administrator can download portable workspace data from Settings. The version 2 JSON file contains workspace name, member metadata, boards, statuses, tasks, and comments. Boards retain their next task number so deleted task identifiers are not reused. Permanently deleted work is excluded. Passwords, sessions, passkeys, authenticator secrets, recovery codes, API credentials, OAuth grants, notifications, and audit/activity records are excluded.
+An administrator can download portable workspace data from Settings. The version 2 JSON file contains workspace name, member metadata, boards, statuses, tasks, and comments. Boards retain their next task number so deleted task identifiers are not reused. Permanently deleted work is excluded. Passwords, sessions, passkeys, authenticator secrets, recovery codes, API credentials, OAuth grants, notifications, and task activity records are excluded.
 
 Import adds the exported boards to the current workspace. A legacy version 1 export can also be imported: archived work becomes ordinary work, while previously deleted boards, tasks, and their descendants are skipped. It does not replace current boards or change the signed-in administrator's account or role. Mill gives imported records new internal IDs. If a task prefix is already in use, Mill chooses an available prefix for the imported board. Links to internal IDs from the old instance need updating after an import.
 
@@ -97,7 +97,6 @@ See [API and MCP access](agents.md) for authentication, scopes, rate limits, and
 | `GET /tasks/:id/activity`  | `limit,cursor`                                           | `{items,hasMore,nextCursor}`, newest first                                        |
 | `GET /notifications`       | `unread=true,limit,cursor`                               | `{items,unreadCount,hasMore,nextCursor}` for the signed-in user                   |
 | `PATCH /notifications`     | `{ids:[UUID],read?}` or `{all:true,read?}`               | `{ok:true,updated}`; `read` defaults to true                                      |
-| `GET /audit`               | `limit,cursor`                                           | `{items,hasMore,nextCursor}` for personal administrators                          |
 | `GET /workspace`           |                                                          | `{workspace}` for personal sessions                                               |
 | `PATCH /workspace`         | `{name}`                                                 | `{workspace}` for personal administrators                                         |
 | `GET /export`              |                                                          | Portable JSON, downloaded as `mill-export-DATE.json`                              |

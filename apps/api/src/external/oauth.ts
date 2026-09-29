@@ -127,7 +127,7 @@ export async function decideConsent(
       );
     if (!allow) {
       await tx`UPDATE oauth_requests SET consumed_at=now() WHERE id=${id}`;
-      await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${a.name},'human','oauth.denied',${tx.json({ requestId: id, boardIds: boardIds ?? null })})`;
+
       return authorizationResponse(grant, { error: "access_denied" });
     }
     if (user.role === "viewer" && grant.scope.includes("write"))
@@ -138,7 +138,7 @@ export async function decideConsent(
       );
     const code = secret();
     await tx`UPDATE oauth_requests SET user_id=${a.userId},board_ids=${boardIds ?? null},code_hash=${digest(code)},expires_at=${new Date(Date.now() + 120000)} WHERE id=${id}`;
-    await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${a.userId},${a.name},'human','oauth.consented',${tx.json({ requestId: id, boardIds: boardIds ?? null })})`;
+
     return authorizationResponse(grant, { code });
   });
 }
@@ -169,8 +169,6 @@ export async function exchangeCode(
     if (grant.consumedAt) {
       if (grant.credentialId) {
         await tx`UPDATE credentials SET revoked_at=COALESCE(revoked_at,now()) WHERE id=${grant.credentialId}`;
-        if (grant.userId)
-          await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) SELECT id,name,'human','oauth.code-replay-revoked',${tx.json({ credentialId: grant.credentialId, clientId })} FROM users WHERE id=${grant.userId}`;
       }
       return null;
     }
@@ -184,7 +182,7 @@ export async function exchangeCode(
     const [credential] =
       await tx`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at) VALUES(${grant.userId},${grant.clientName},${digest(token)},${token.slice(0, 12)},${grant.scope.split(" ")},${grant.boardIds},'oauth',${clientId},${mcpResource()},${new Date(Date.now() + tokenLifetimeSeconds * 1000)}) RETURNING id`;
     await tx`UPDATE oauth_requests SET consumed_at=now(),credential_id=${credential!.id} WHERE id=${grant.id}`;
-    await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${grant.userId},${user.name},'human','oauth.token-issued',${tx.json({ credentialId: credential!.id, clientId, scope: grant.scope, boardIds: grant.boardIds })})`;
+
     return {
       access_token: token,
       token_type: "Bearer",
@@ -201,9 +199,6 @@ export async function exchangeCode(
 }
 export async function revokeOAuthToken(clientId: string, token: string) {
   await sql.begin(async (tx) => {
-    const [credential] =
-      await tx`UPDATE credentials SET revoked_at=now() WHERE token_hash=${digest(token)} AND oauth_client_id=${clientId} AND token_type='oauth' AND revoked_at IS NULL RETURNING id,user_id,name`;
-    if (credential)
-      await tx`INSERT INTO activity(actor_id,actor_name,actor_kind,action,detail) VALUES(${credential.userId},${credential.name},'agent','oauth.revoked',${tx.json({ credentialId: credential.id, clientId })})`;
+    await tx`UPDATE credentials SET revoked_at=now() WHERE token_hash=${digest(token)} AND oauth_client_id=${clientId} AND token_type='oauth' AND revoked_at IS NULL`;
   });
 }

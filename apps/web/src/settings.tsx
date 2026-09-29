@@ -17,7 +17,6 @@ import { AccountSettings } from "./account-settings.js";
 import { PeopleSettings } from "./people-settings.js";
 import { AgentSettings } from "./agent-settings.js";
 import { DataSettings } from "./data-settings.js";
-import { AuditSettings } from "./audit-settings.js";
 
 export function SettingsPage({
   section,
@@ -42,7 +41,6 @@ export function SettingsPage({
         members: "People",
         agents: "Agent access",
         workspace: "Workspace",
-        audit: "Audit history",
         data: "Export and import",
       } as Record<string, string>
     )[section] ?? "Settings";
@@ -72,7 +70,6 @@ export function SettingsPage({
         onRefresh={onRefresh}
       />
     );
-  if (section === "audit") return <AuditSettings session={session} />;
   if (
     ["members", "workspace", "data"].includes(section) &&
     session.user.role !== "admin"

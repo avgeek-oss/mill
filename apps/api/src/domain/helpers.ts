@@ -188,9 +188,9 @@ export async function recordActivity(
   tx: Tx,
   a: Actor,
   action: string,
-  detail: unknown = {},
-  boardId: string | null = null,
-  taskId: string | null = null,
+  detail: unknown,
+  boardId: string,
+  taskId: string,
 ) {
   await tx`INSERT INTO activity (actor_id,actor_name,actor_kind,action,detail,board_id,task_id) VALUES (${a.userId},${a.name},${a.kind},${action},${tx.json(detail as postgres.JSONValue)},${boardId},${taskId})`;
 }

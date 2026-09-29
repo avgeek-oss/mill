@@ -145,6 +145,14 @@ async function configuration(name, targetPort) {
 const state = join(evidence, "fixture-state.json");
 const backup = join(privateDirectory, "mill.dump");
 const staticManifest = join(evidence, "static-content-manifest.json");
+const legacyAuthAuditTable = `CREATE TABLE auth_audit (
+  id uuid PRIMARY KEY,
+  user_id uuid REFERENCES users(id),
+  actor_name text NOT NULL,
+  action text NOT NULL,
+  detail jsonb NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now()
+)`;
 let primary;
 let sourceRevision;
 let sourceDirty;
@@ -300,7 +308,7 @@ try {
   );
   await run("upgrade-stop", "docker", [...primary.compose, "stop", "mill"]);
   const previousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
-    FROM mill_migrations WHERE name<>'005_permanent_deletion.sql'`;
+    FROM mill_migrations WHERE name NOT IN ('005_permanent_deletion.sql','006_task_activity_only.sql')`;
   const previousMigrations = JSON.parse(
     await run(
       "upgrade-existing-migrations",
@@ -388,13 +396,16 @@ try {
         ADD FOREIGN KEY (parent_id,board_id) REFERENCES tasks(id,board_id);
       ALTER TABLE comments DROP CONSTRAINT comments_task_id_fkey,
         ADD FOREIGN KEY (task_id) REFERENCES tasks(id);
-      ALTER TABLE activity DROP CONSTRAINT activity_task_id_fkey,
+      ALTER TABLE activity DROP CONSTRAINT activity_task_board_fkey,
         DROP CONSTRAINT activity_board_id_fkey,
+        ALTER COLUMN task_id DROP NOT NULL,
+        ALTER COLUMN board_id DROP NOT NULL,
         ADD FOREIGN KEY (task_id) REFERENCES tasks(id),
         ADD FOREIGN KEY (board_id) REFERENCES boards(id);
+      ${legacyAuthAuditTable};
       ALTER TABLE notifications DROP CONSTRAINT notifications_task_id_fkey,
         ADD FOREIGN KEY (task_id) REFERENCES tasks(id);
-      DELETE FROM mill_migrations WHERE name='005_permanent_deletion.sql';
+      DELETE FROM mill_migrations WHERE name IN ('005_permanent_deletion.sql','006_task_activity_only.sql');
       INSERT INTO boards (id,workspace_id,name,prefix,position,next_number,archived,deleted_at)
         SELECT '${upgradeFixture.archivedBoardId}',id,'Legacy archived board','ARCHUP',2,4,true,NULL FROM workspace;
       INSERT INTO boards (id,workspace_id,name,prefix,position,next_number,archived,deleted_at)
@@ -568,6 +579,196 @@ try {
     ),
     expectedUpgradedFixture,
   );
+  await run("task-history-upgrade-stop", "docker", [
+    ...primary.compose,
+    "stop",
+    "mill",
+  ]);
+  const taskHistoryPreviousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
+    FROM mill_migrations WHERE name<>'006_task_activity_only.sql'`;
+  const taskHistoryPreviousMigrations = JSON.parse(
+    await run(
+      "task-history-existing-migrations",
+      "docker",
+      databaseArguments(primary, taskHistoryPreviousMigrationsQuery),
+    ),
+  );
+  assert.equal(taskHistoryPreviousMigrations.length, 5);
+  assert.deepEqual(
+    taskHistoryPreviousMigrations.slice(0, 4),
+    previousMigrations,
+  );
+  assert.equal(taskHistoryPreviousMigrations[4].checksum, upgradeChecksum);
+  const originalFixture = JSON.parse(await readFile(state, "utf8"));
+  const historyFixture = {
+    humanId: randomUUID(),
+    agentId: randomUUID(),
+    missingBoardId: randomUUID(),
+  };
+  // Reconstruct only pre-006 history storage; keep 001–005 untouched.
+  await run(
+    "earlier-task-history-schema",
+    "docker",
+    databaseArguments(
+      primary,
+      `BEGIN;
+      ALTER TABLE activity DROP CONSTRAINT activity_task_board_fkey,
+        ALTER COLUMN task_id DROP NOT NULL,
+        ALTER COLUMN board_id DROP NOT NULL,
+        ADD FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE;
+      ${legacyAuthAuditTable};
+      DELETE FROM mill_migrations WHERE name='006_task_activity_only.sql';
+      INSERT INTO auth_audit (id,user_id,actor_name,action,detail)
+        SELECT gen_random_uuid(),id,'Legacy administrator',event.action,'{"fixture":"legacy-global-auth"}'::jsonb
+        FROM users CROSS JOIN (VALUES ('login'),('profile.updated')) AS event(action)
+        WHERE email='install-verifier@example.invalid';
+      INSERT INTO activity (board_id,actor_id,actor_name,actor_kind,action,detail)
+        SELECT event.board_id,id,'Legacy workspace actor','human',event.action,'{"fixture":"legacy-global-activity"}'::jsonb
+        FROM users CROSS JOIN (VALUES ('${upgradeFixture.archivedBoardId}'::uuid,'board.created'),
+          (NULL::uuid,'workspace.updated')) AS event(board_id,action)
+        WHERE email='install-verifier@example.invalid';
+      INSERT INTO activity (id,task_id,board_id,actor_id,actor_name,actor_kind,action,detail,created_at)
+        SELECT event.id,'${upgradeFixture.archivedTaskId}',event.board_id,users.id,
+          event.actor_name,event.actor_kind,event.action,event.detail,event.created_at
+        FROM users CROSS JOIN (VALUES
+          ('${historyFixture.humanId}'::uuid,'${originalFixture.boardId}'::uuid,'Upgrade history person','human',
+            'task.updated','{"fields":["title"],"title":"Legacy archived task"}'::jsonb,'2001-01-01T00:00:00Z'::timestamptz),
+          ('${historyFixture.agentId}'::uuid,'${upgradeFixture.archivedBoardId}'::uuid,'Upgrade history agent','agent',
+            'comment.created','{"body":"Historical agent comment"}'::jsonb,'2001-01-02T00:00:00Z'::timestamptz),
+          ('${historyFixture.missingBoardId}'::uuid,NULL::uuid,'Upgrade history person','human',
+            'task.moved','{"column":"Backlog"}'::jsonb,'2001-01-03T00:00:00Z'::timestamptz)
+        ) AS event(id,board_id,actor_name,actor_kind,action,detail,created_at)
+        WHERE users.email='install-verifier@example.invalid';
+      COMMIT;`,
+    ),
+  );
+  const normalizedTaskHistoryQuery = `SELECT jsonb_agg(to_jsonb(activity)||jsonb_build_object('board_id',tasks.board_id) ORDER BY activity.id)::text
+    FROM activity JOIN tasks ON tasks.id=activity.task_id`;
+  const historyBefore = JSON.parse(
+    await run(
+      "task-history-legacy-fixture",
+      "docker",
+      databaseArguments(
+        primary,
+        `SELECT json_build_object(
+          'authAudit',(SELECT count(*) FROM auth_audit),
+          'globalActivity',(SELECT count(*) FROM activity WHERE task_id IS NULL),
+          'incorrectBoardReferences',(SELECT count(*) FROM activity JOIN tasks ON tasks.id=activity.task_id WHERE activity.board_id IS DISTINCT FROM tasks.board_id),
+          'taskHistory',(${normalizedTaskHistoryQuery})::json,
+          'previousMigrations',(${taskHistoryPreviousMigrationsQuery})::json
+        )::text`,
+      ),
+    ),
+  );
+  assert.equal(historyBefore.authAudit, 2);
+  assert.equal(historyBefore.globalActivity, 2);
+  assert.equal(historyBefore.incorrectBoardReferences, 2);
+  assert.deepEqual(
+    historyBefore.previousMigrations,
+    taskHistoryPreviousMigrations,
+  );
+  const expectedTaskHistory = historyBefore.taskHistory;
+  const historyIds = Object.values(historyFixture);
+  assert.equal(
+    expectedTaskHistory.filter((item) => historyIds.includes(item.id)).length,
+    3,
+  );
+  assert.ok(
+    expectedTaskHistory.some(
+      (item) =>
+        item.task_id === originalFixture.taskId &&
+        item.action === "task.created",
+    ),
+    "Fresh-install task creation history exists before upgrade",
+  );
+  await writeFile(
+    upgradeState,
+    JSON.stringify(
+      {
+        ...upgradeFixture,
+        legacyRetry,
+        taskHistory: expectedTaskHistory.filter((item) =>
+          historyIds.includes(item.id),
+        ),
+      },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
+  await run(
+    "automatic-task-history-upgrade",
+    "docker",
+    [
+      ...primary.compose,
+      "up",
+      "--no-build",
+      "--force-recreate",
+      "--detach",
+      "--wait",
+      "mill",
+    ],
+    {},
+    240_000,
+  );
+  const taskHistoryChecksum = createHash("sha256")
+    .update(
+      await readFile(
+        join(root, "packages/database/migrations/006_task_activity_only.sql"),
+      ),
+    )
+    .digest("hex");
+  const taskHistoryQuery = `SELECT json_build_object(
+    'authAuditRemoved',to_regclass('auth_audit') IS NULL,
+    'globalActivityRemaining',(SELECT count(*) FROM activity WHERE task_id IS NULL),
+    'incorrectBoardReferences',(SELECT count(*) FROM activity JOIN tasks ON tasks.id=activity.task_id WHERE activity.board_id IS DISTINCT FROM tasks.board_id),
+    'requiredTaskOwnership',(SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='activity' AND column_name IN ('task_id','board_id') AND is_nullable='NO'),
+    'taskBoardConstraint',(SELECT count(*) FROM pg_constraint WHERE conrelid='activity'::regclass AND conname='activity_task_board_fkey' AND contype='f' AND confrelid='tasks'::regclass AND confdeltype='c' AND convalidated
+      AND conkey=ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid='activity'::regclass AND attname='task_id'),(SELECT attnum FROM pg_attribute WHERE attrelid='activity'::regclass AND attname='board_id')]
+      AND confkey=ARRAY[(SELECT attnum FROM pg_attribute WHERE attrelid='tasks'::regclass AND attname='id'),(SELECT attnum FROM pg_attribute WHERE attrelid='tasks'::regclass AND attname='board_id')]),
+    'taskHistory',(${normalizedTaskHistoryQuery})::json,
+    'migration006Checksum',(SELECT checksum FROM mill_migrations WHERE name='006_task_activity_only.sql'),
+    'previousMigrations',(${taskHistoryPreviousMigrationsQuery})::json
+  )::text`;
+  const expectedTaskHistoryState = {
+    authAuditRemoved: true,
+    globalActivityRemaining: 0,
+    incorrectBoardReferences: 0,
+    requiredTaskOwnership: 2,
+    taskBoardConstraint: 1,
+    taskHistory: expectedTaskHistory,
+    migration006Checksum: taskHistoryChecksum,
+    previousMigrations: taskHistoryPreviousMigrations,
+  };
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "upgrade-task-history",
+        "docker",
+        databaseArguments(primary, taskHistoryQuery),
+      ),
+    ),
+    expectedTaskHistoryState,
+  );
+  await run(
+    "task-history-upgrade-persistence",
+    "node",
+    ["tools/install-smoke.mjs"],
+    {
+      ...verifyEnv,
+      MILL_VERIFY_UPGRADE_STATE: upgradeState,
+    },
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "task-history-upgrade-permanent-deletion",
+        "docker",
+        databaseArguments(primary, upgradedFixtureQuery),
+      ),
+    ),
+    expectedUpgradedFixture,
+  );
   await run("backup-full-database", "bash", [
     "tools/backup.sh",
     "--project",
@@ -616,6 +817,16 @@ try {
       ),
     ),
     expectedUpgradedFixture,
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "restored-task-history",
+        "docker",
+        databaseArguments(recovery, taskHistoryQuery),
+      ),
+    ),
+    expectedTaskHistoryState,
   );
   await run(
     "production-image-security",
@@ -672,7 +883,7 @@ try {
             "Container-built notices, all guides and their local CSS/font resource closure match anonymous HTTP bytes across installation, database outage/recovery, upgrade and restore",
         },
         schemaUpgrade:
-          "Reconstructed pre-005 local schema; automatic packaged migration 005 keeps archived board/task content active, purges deleted boards/tasks/descendants and owned content, removes legacy columns, retains content-free terminal retry tombstones with unchanged actor/key/request hash/creation time, and preserves exact earlier migration checksums",
+          "Reconstructed pre-005 local schema; packaged migrations keep archived work active, permanently purge deleted work and retain content-free terminal retry tombstones. A separate pre-006 reconstruction seeds auth/workspace events plus human/agent task history, verifies removal of global history, repair/enforcement of task board ownership, preservation of all task activity fields, exact source migration checksums and unchanged 001–005 records",
         upgradeFixture: {
           ...upgradeFixture,
           legacyRetry,
@@ -680,8 +891,14 @@ try {
           previousMigrations,
           verifiedDatabaseState: expectedUpgradedFixture,
         },
+        taskHistoryUpgrade: {
+          ...historyFixture,
+          migrationChecksum: taskHistoryChecksum,
+          previousMigrations: taskHistoryPreviousMigrations,
+          verifiedDatabaseState: expectedTaskHistoryState,
+        },
         restore:
-          "Post-upgrade custom-format pg_dump restored transactionally into a separate empty project; password login, original task/comment/member data, activated archived work, permanent legacy deletion and terminal stale-create retry verified",
+          "Post-upgrade custom-format pg_dump restored transactionally into a separate empty project; password login, original task/comment/member data, activated archived work, permanent legacy deletion, terminal stale-create retry, absent global audit storage/endpoint and unchanged human/agent task history verified",
         cookieLimit:
           "Explicitly forwarded disposable cookies on loopback HTTP; this does not prove browser Secure-cookie policy or physical passkeys",
         completedAt: new Date().toISOString(),

@@ -136,7 +136,7 @@ function rows(page: Page) {
 function row(page: Page, actor: string) {
   return rows(page).filter({
     has: page.getByRole("link", {
-      name: new RegExp(`${actor} mentioned you in`),
+      name: new RegExp(`${actor} mentioned you`),
     }),
   });
 }
@@ -186,7 +186,7 @@ test.afterAll(async () => {
   await database?.end();
 });
 
-test("server unread filtering reaches older notifications and marks refresh the count without affecting another person", async ({
+test("the single list reaches older notifications and marks refresh the durable count without affecting another person", async ({
   page,
 }, testInfo) => {
   const who = await account("Older Inbox");
@@ -199,19 +199,17 @@ test("server unread filtering reaches older notifications and marks refresh the 
   await expect(
     inbox(page).getByText("Private Inbox teammate 1", { exact: false }),
   ).toHaveCount(0);
-  const unreadRequest = page.waitForRequest(
-    (request) =>
-      new URL(request.url()).pathname === "/api/notifications" &&
-      new URL(request.url()).searchParams.get("unread") === "true",
-  );
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
-  await unreadRequest;
-  await expect(rows(page)).toHaveCount(100);
+  await expect(inbox(page).getByRole("tablist")).toHaveCount(0);
+  await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(100);
   await expect(row(page, "Older Inbox teammate 1")).toHaveCount(0);
   await inbox(page)
     .getByRole("button", { name: "Load older notifications", exact: true })
     .click();
-  await expect(rows(page)).toHaveCount(120);
+  await expect(rows(page)).toHaveCount(200);
+  await inbox(page)
+    .getByRole("button", { name: "Load older notifications", exact: true })
+    .click();
+  await expect(rows(page)).toHaveCount(240);
   const oldest = row(page, "Older Inbox teammate 1");
   await expect(oldest).toBeVisible();
   const link = oldest.getByRole("link");
@@ -303,13 +301,23 @@ test("server unread filtering reaches older notifications and marks refresh the 
   await expect(
     page.getByLabel("Open notifications", { exact: true }),
   ).toHaveAccessibleDescription("120 unread notifications");
-  await oldest
-    .getByRole("button", {
-      name: "Mark notification from Older Inbox teammate 1 read",
-      exact: true,
-    })
-    .click();
-  await expect(rows(page)).toHaveCount(119);
+  page.context().on("request", onRequest);
+  await link.click();
+  await expect(page).toHaveURL(expectedURL);
+  await expect(taskDialog(page)).toBeVisible();
+  expect(marks).toBe(1);
+  page.context().off("request", onRequest);
+  await page.goBack();
+  await openNotifications(page);
+  await expect(rows(page)).toHaveCount(100);
+  for (const count of [200, 240]) {
+    await inbox(page)
+      .getByRole("button", { name: "Load older notifications", exact: true })
+      .click();
+    await expect(rows(page)).toHaveCount(count);
+  }
+  await expect(rows(page)).toHaveCount(240);
+  await expect(oldest.getByText("Read", { exact: true })).toBeVisible();
   await expect(
     page.getByLabel("119 unread notifications", { exact: true }),
   ).toBeVisible();
@@ -322,9 +330,11 @@ test("server unread filtering reaches older notifications and marks refresh the 
   await page
     .getByRole("button", { name: "Mark all read", exact: true })
     .click();
+  await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(240);
   await expect(
-    inbox(page).getByText("You’re all caught up", { exact: true }),
-  ).toBeVisible();
+    inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeDisabled();
+  await expect(inbox(page)).toBeFocused();
   await expect(
     page.getByLabel("119 unread notifications", { exact: true }),
   ).toHaveCount(0);
@@ -334,6 +344,13 @@ test("server unread filtering reaches older notifications and marks refresh the 
   const [counts] =
     await database`SELECT count(*) FILTER (WHERE user_id=${who.id} AND read_at IS NULL)::int AS own,count(*) FILTER (WHERE user_id=${other.id} AND read_at IS NULL)::int AS other FROM notifications`;
   expect(counts).toMatchObject({ own: 0, other: 1 });
+  await page.reload();
+  await openNotifications(page);
+  await expect(rows(page)).toHaveCount(100);
+  await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(100);
+  await expect(
+    inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeDisabled();
 });
 
 test("Viewer members can read their own inbox and read-only agent credentials cannot mark it", async ({
@@ -356,11 +373,8 @@ test("Viewer members can read their own inbox and read-only agent credentials ca
   await login(page, who);
   await expect(rows(page)).toHaveCount(3);
   const latest = row(page, "Viewer Inbox teammate 3");
-  await latest
-    .getByRole("button", {
-      name: "Mark notification from Viewer Inbox teammate 3 read",
-      exact: true,
-    })
+  await inbox(page)
+    .getByRole("button", { name: "Mark all read", exact: true })
     .click();
   await expect(latest.getByText("Read", { exact: true })).toBeVisible();
   await latest.getByRole("link").click();
@@ -378,7 +392,6 @@ test("opening an unread task marks its notification read and read links do not m
   const who = await account("Opening Inbox");
   const fixture = await seed(who, 2);
   await login(page, who);
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
   await expect(rows(page)).toHaveCount(2);
   let marks = 0;
   page.on("request", (request) => {
@@ -418,7 +431,6 @@ test("opening an unread task marks its notification read and read links do not m
   await page.goBack();
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   await openNotifications(page);
-  await page.getByRole("tab", { name: "All", exact: true }).click();
   await expect(rows(page)).toHaveCount(2);
   const read = row(page, "Opening Inbox teammate 2");
   await expect(read.getByText("Read", { exact: true })).toBeVisible();
@@ -428,8 +440,7 @@ test("opening an unread task marks its notification read and read links do not m
   expect(marks).toBe(1);
   await page.goto(`/boards/${boardId}`);
   await openNotifications(page);
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
-  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page)).toHaveCount(2);
   await expect(row(page, "Opening Inbox teammate 1")).toBeVisible();
   expect((await json(who.api, "/notifications")).unreadCount).toBe(1);
   await row(page, "Opening Inbox teammate 1").getByRole("link").press("Enter");
@@ -465,8 +476,10 @@ test("failed task opening retains its row error and retries the original mark be
   const requested = new Promise<void>((resolve) => {
     started = resolve;
   });
+  let retries = 0;
   await page.route("**/api/notifications", async (route) => {
     if (route.request().method() !== "PATCH") return route.continue();
+    retries++;
     started();
     await pending;
     await route.continue();
@@ -479,12 +492,13 @@ test("failed task opening retains its row error and retries the original mark be
     await expect(latest.getByRole("status")).toHaveText("Opening task…");
     await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
     await expect(taskDialog(page)).toHaveCount(0);
+    await expect(latest.getByRole("button")).toHaveCount(0);
     await expect(
-      latest.getByRole("button", {
-        name: "Mark notification from Open retry Inbox teammate 2 read",
-        exact: true,
-      }),
+      inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
     ).toBeDisabled();
+    await latest.getByRole("link").click();
+    await settled(page);
+    expect(retries).toBe(1);
   } finally {
     release();
     await page.unrouteAll({ behavior: "wait" });
@@ -501,7 +515,7 @@ test("failed task opening retains its row error and retries the original mark be
   expect(marked.readAt).not.toBeNull();
 });
 
-test("pending task opening cannot navigate after an obsolete filter cycle or a change of person", async ({
+test("pending task opening cannot navigate after dismissing and reopening the list or a change of person", async ({
   page,
 }) => {
   const who = await account("Obsolete open Inbox");
@@ -528,14 +542,15 @@ test("pending task opening cannot navigate after an obsolete filter cycle or a c
   try {
     await row(page, "Obsolete open Inbox teammate 2").getByRole("link").click();
     await requested;
-    await page.getByRole("tab", { name: "Unread", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(inbox(page)).toHaveCount(0);
+    await openNotifications(page);
+    await expect(rows(page)).toHaveCount(2);
     await expect(
-      page.getByRole("tab", { name: "Unread", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
-    await page.getByRole("tab", { name: "All", exact: true }).click();
-    await expect(
-      page.getByRole("tab", { name: "All", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
+      row(page, "Obsolete open Inbox teammate 2").getByText("Read", {
+        exact: true,
+      }),
+    ).toBeVisible();
   } finally {
     release();
     await page.unrouteAll({ behavior: "wait" });
@@ -643,20 +658,18 @@ test("pending, pagination failure and mark failure retain their owning retry sta
     .getByRole("button", { name: "Retry older notifications", exact: true })
     .click();
   await expect(rows(page)).toHaveCount(120);
-  const oldest = row(page, "Recovery Inbox teammate 1");
   await page.route("**/api/notifications", (route) =>
     route.request().method() === "PATCH" ? route.abort() : route.continue(),
   );
-  await oldest
-    .getByRole("button", {
-      name: "Mark notification from Recovery Inbox teammate 1 read",
-      exact: true,
-    })
+  await inbox(page)
+    .getByRole("button", { name: "Mark all read", exact: true })
     .click();
-  await expect(oldest.getByRole("alert")).toContainText("could not be reached");
+  await expect(inbox(page).getByRole("alert")).toContainText(
+    "could not be reached",
+  );
   const [unchanged] =
-    await database`SELECT read_at FROM notifications WHERE user_id=${who.id} AND actor_name='Recovery Inbox teammate 1'`;
-  expect(unchanged.readAt).toBeNull();
+    await database`SELECT count(*)::int AS unread FROM notifications WHERE user_id=${who.id} AND read_at IS NULL`;
+  expect(unchanged.unread).toBe(120);
   await page.unroute("**/api/notifications");
   let releaseMark!: () => void;
   let markStarted!: () => void;
@@ -673,48 +686,50 @@ test("pending, pagination failure and mark failure retain their owning retry sta
     await route.continue();
   });
   try {
-    await oldest
+    await inbox(page)
       .getByRole("button", { name: "Retry marking read", exact: true })
       .click();
     await markRequested;
-    const marking = oldest.getByRole("button", {
-      name: "Mark notification from Recovery Inbox teammate 1 read",
+    const marking = inbox(page).getByRole("button", {
+      name: "Marking all read…",
       exact: true,
     });
     await expect(marking).toBeDisabled();
-    await expect(marking).toHaveText("Marking read…");
-    await expect(
-      page.getByRole("button", { name: "Mark all read", exact: true }),
-    ).toBeDisabled();
+    await expect(marking).toHaveText("Marking all read…");
+    await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   } finally {
     releaseMark();
     await page.unrouteAll({ behavior: "wait" });
   }
-  await expect(oldest.getByText("Read", { exact: true })).toBeVisible();
-  const unconfirmed = row(page, "Recovery Inbox teammate 2");
+  await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(120);
+  expect((await json(who.api, "/notifications")).unreadCount).toBe(0);
+  const unconfirmed = await seed(who, 1, 1, "Confirm the next notification");
+  await page.keyboard.press("Escape");
+  await openNotifications(page);
+  await expect(rows(page)).toHaveCount(100);
   await page.route("**/api/notifications", async (route) => {
     if (route.request().method() !== "PATCH") return route.continue();
     const response = await route.fetch();
     expect(response.status()).toBe(200);
     await route.fulfill({ response, body: "{}" });
   });
-  await unconfirmed
-    .getByRole("button", {
-      name: "Mark notification from Recovery Inbox teammate 2 read",
-      exact: true,
-    })
+  await inbox(page)
+    .getByRole("button", { name: "Mark all read", exact: true })
     .click();
-  await expect(unconfirmed.getByRole("alert")).toContainText(
+  await expect(inbox(page).getByRole("alert")).toContainText(
     "could not be confirmed",
   );
   const [committed] =
-    await database`SELECT read_at FROM notifications WHERE user_id=${who.id} AND actor_name='Recovery Inbox teammate 2'`;
+    await database`SELECT read_at FROM notifications WHERE user_id=${who.id} AND task_id=${unconfirmed.task.id}`;
   expect(committed.readAt).not.toBeNull();
   await page.unroute("**/api/notifications");
-  await unconfirmed
+  await inbox(page)
     .getByRole("button", { name: "Retry marking read", exact: true })
     .click();
-  await expect(unconfirmed.getByText("Read", { exact: true })).toBeVisible();
+  await expect(inbox(page).getByRole("alert")).toHaveCount(0);
+  await expect(
+    inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeDisabled();
   await page.route("**/api/notifications?**", (route) =>
     new URL(route.request().url()).searchParams.get("limit") === "100"
       ? route.abort()
@@ -735,13 +750,12 @@ test("pending, pagination failure and mark failure retain their owning retry sta
   await expect(rows(page)).toHaveCount(100);
 });
 
-test("a delayed real unread continuation cannot replace or append to the newer All view", async ({
+test("a delayed real continuation cannot replace or append to the reopened single list", async ({
   page,
 }) => {
   const who = await account("Stale Inbox");
   await seed(who, 130, 120);
   await login(page, who);
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
   await expect(rows(page)).toHaveCount(100);
   let release!: () => void;
   let started!: () => void;
@@ -753,11 +767,7 @@ test("a delayed real unread continuation cannot replace or append to the newer A
   });
   await page.route("**/api/notifications?**", async (route) => {
     const url = new URL(route.request().url());
-    if (
-      url.searchParams.get("unread") !== "true" ||
-      !url.searchParams.has("cursor")
-    )
-      return route.continue();
+    if (!url.searchParams.has("cursor")) return route.continue();
     const response = await route.fetch();
     started();
     await pending;
@@ -768,7 +778,9 @@ test("a delayed real unread continuation cannot replace or append to the newer A
       .getByRole("button", { name: "Load older notifications", exact: true })
       .click();
     await requested;
-    await page.getByRole("tab", { name: "All", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(inbox(page)).toHaveCount(0);
+    await openNotifications(page);
     await expect(rows(page)).toHaveCount(100);
     await expect(row(page, "Stale Inbox teammate 130")).toBeVisible();
     const oldResponse = page.waitForResponse((response) =>
@@ -803,6 +815,11 @@ test("notifications stay on the board with bounded wheel scrolling and keyboard 
   });
   for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 844 : 1000 });
+    await expect
+      .poll(async () => (await trigger.boundingBox())?.height ?? 0)
+      .toBe(32);
+    await expect(trigger.locator("svg")).toHaveAttribute("width", "18");
+    await expect(inbox(page).getByRole("tablist")).toHaveCount(0);
     const scroller = inbox(page).locator(
       '.scroll-shadow[data-orientation="vertical"]',
     );
@@ -811,11 +828,11 @@ test("notifications stay on the board with bounded wheel scrolling and keyboard 
         const bounds = await inbox(page).boundingBox();
         return bounds ? bounds.x + bounds.width : Infinity;
       })
-      .toBeLessThanOrEqual(width - 11);
+      .toBeLessThanOrEqual(width - 15);
     const bounds = await inbox(page).boundingBox();
     expect(bounds).not.toBeNull();
-    expect(bounds!.x).toBeGreaterThanOrEqual(11);
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 11);
+    expect(bounds!.x).toBeGreaterThanOrEqual(15);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 15);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(
       width === 375 ? 833 : 989,
     );
@@ -898,20 +915,24 @@ test("dismissing a pending task opening keeps the acknowledged read without dela
   expect(marks).toBe(1);
 });
 
-test("notification popover rows fit desktop and phone in both themes with native sibling actions", async ({
+test("notification popover full-row links fit desktop and phone in both themes", async ({
   page,
 }) => {
   const who = await account("Layout Inbox", "member", true);
-  await seed(
+  const fixture = await seed(
     who,
     2,
     2,
     "Review the complete notification and its next step ".repeat(5),
   );
   await login(page, who);
-  for (const width of [1440, 375])
+  const trigger = page.getByRole("button", {
+    name: "Open notifications",
+    exact: true,
+  });
+  for (const width of [1440, 375, 390])
     for (const theme of ["light", "dark"]) {
-      await page.setViewportSize({ width, height: width === 375 ? 844 : 1000 });
+      await page.setViewportSize({ width, height: width < 600 ? 844 : 1000 });
       await page.evaluate(
         (value) => localStorage.setItem("mill:theme", value),
         theme,
@@ -926,60 +947,101 @@ test("notification popover rows fit desktop and phone in both themes with native
       });
       await expect
         .poll(async () => (await headerAction.boundingBox())?.height ?? 0)
-        .toBeGreaterThanOrEqual(44);
+        .toBe(32);
+      await expect(inbox(page).getByRole("tablist")).toHaveCount(0);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
       ).toBeLessThanOrEqual(width + 1);
       const first = rows(page).first();
       const layout = await first.evaluate((element) => {
-        const style = getComputedStyle(element);
+        const link = element.querySelector("a")!;
+        const style = getComputedStyle(link);
         const title = element.querySelector("a p")!;
-        const button = element.querySelector("button")!;
+        const dot = link.firstElementChild!;
+        const time = element.querySelector("time")!;
+        const linkBounds = link.getBoundingClientRect();
+        const titleBounds = title.getBoundingClientRect();
+        const dotBounds = dot.getBoundingClientRect();
+        const firstLineHeight = Number.parseFloat(
+          getComputedStyle(title).lineHeight,
+        );
+        const timeBounds = time.getBoundingClientRect();
         return {
           top: style.paddingTop,
           bottom: style.paddingBottom,
           weight: getComputedStyle(title).fontWeight,
           titleSize: getComputedStyle(title).fontSize,
-          buttonHeight: button.getBoundingClientRect().height,
-          nested: !!button.closest("a"),
-          siblings:
-            button.parentElement === element.querySelector("a")!.parentElement,
+          dotFirstLineCenterOffset: Math.abs(
+            dotBounds.y +
+              dotBounds.height / 2 -
+              (titleBounds.y + firstLineHeight / 2),
+          ),
+          linkHeight: linkBounds.height,
+          linkCount: element.querySelectorAll("a").length,
+          buttonCount: element.querySelectorAll("button").length,
+          timeInside:
+            timeBounds.x >= linkBounds.x &&
+            timeBounds.x + timeBounds.width <= linkBounds.x + linkBounds.width,
+          titleTimeOverlap:
+            titleBounds.x < timeBounds.right &&
+            titleBounds.right > timeBounds.x &&
+            titleBounds.y < timeBounds.bottom &&
+            titleBounds.bottom > timeBounds.y,
+          contentFits: link.scrollWidth <= link.clientWidth,
+          stateHidden:
+            element.querySelector("a .sr-only")?.textContent?.trim() ===
+            "Unread",
         };
       });
       expect(layout.top).toBe(layout.bottom);
       expect(layout.weight).toBe("500");
       expect(layout.titleSize).toBe("14px");
-      expect(layout.buttonHeight).toBeGreaterThanOrEqual(44);
-      expect(layout.nested).toBe(false);
-      expect(layout.siblings).toBe(true);
+      expect(layout.dotFirstLineCenterOffset).toBeLessThanOrEqual(4);
+      expect(layout.linkHeight).toBeGreaterThanOrEqual(44);
+      expect(layout.linkCount).toBe(1);
+      expect(layout.buttonCount).toBe(0);
+      expect(layout.timeInside).toBe(true);
+      expect(layout.titleTimeOverlap).toBe(false);
+      expect(layout.contentFits).toBe(true);
+      expect(layout.stateHidden).toBe(true);
       await page.screenshot({
         path: `tmp/notifications-preview/notifications-${width}-${theme}.png`,
         fullPage: true,
         animations: "disabled",
       });
     }
+  await page.setViewportSize({ width: 375, height: 844 });
   await page.evaluate(() => localStorage.setItem("mill:theme", "light"));
-  await page.reload();
-  await openNotifications(page);
-  const unreadResponse = page.waitForResponse(
+  const listResponse = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === "/api/notifications" &&
-      new URL(response.url()).searchParams.get("unread") === "true" &&
       new URL(response.url()).searchParams.get("limit") === "100",
   );
-  await page.getByRole("tab", { name: "Unread", exact: true }).click();
-  expect((await unreadResponse).status()).toBe(200);
+  await page.reload();
+  await openNotifications(page);
+  expect((await listResponse).status()).toBe(200);
   await expect(rows(page)).toHaveCount(2);
   await inbox(page)
     .getByRole("button", { name: "Mark all read", exact: true })
     .click();
+  await expect(rows(page)).toHaveCount(2);
+  await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(2);
   await expect(
-    inbox(page).getByRole("heading", { name: "You’re all caught up" }),
-  ).toBeVisible();
+    inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeDisabled();
   await expect(inbox(page).locator('[data-slot="widget"]')).toHaveCount(1);
+  await expect(inbox(page)).toBeFocused();
+  await database`DELETE FROM notifications WHERE user_id=${who.id} AND task_id=${fixture.task.id}`;
+  await page.keyboard.press("Escape");
+  await expect(inbox(page)).toHaveCount(0);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toBeFocused();
+  await openNotifications(page);
   await expect(
-    inbox(page).getByRole("tab", { name: "Unread", exact: true }),
-  ).toBeFocused();
+    inbox(page).getByText("No notifications yet", { exact: true }),
+  ).toBeVisible();
+  await expect(rows(page)).toHaveCount(0);
+  await expect(inbox(page)).toBeFocused();
   await page.screenshot({
     path: "tmp/notifications-preview/notifications-empty-375-light.png",
     fullPage: true,
@@ -991,6 +1053,9 @@ test("notification popover rows fit desktop and phone in both themes with native
       : route.continue(),
   );
   await page.keyboard.press("Escape");
+  await expect(inbox(page)).toHaveCount(0);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toBeFocused();
   await openNotifications(page);
   await expect(
     inbox(page).getByRole("heading", {
@@ -1005,4 +1070,68 @@ test("notification popover rows fit desktop and phone in both themes with native
     animations: "disabled",
   });
   await page.unroute("**/api/notifications?**");
+});
+
+test.describe("touch notifications", () => {
+  test.use({ hasTouch: true, viewport: { width: 375, height: 844 } });
+
+  test("touch targets retain the compact bell and durable single list in both themes", async ({
+    page,
+  }) => {
+    const who = await account("Touch notifications", "member", true);
+    await seed(who, 2);
+    await authenticateBrowserFixture(page, who.fixture!);
+    await page.goto(`/boards/${boardId}`);
+    await expect(
+      page.getByRole("heading", { name: "Inbox verification", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Open navigation", exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+    ).toBe(true);
+    const trigger = page.getByRole("button", {
+      name: "Open notifications",
+      exact: true,
+    });
+    for (const theme of ["light", "dark"]) {
+      await page.evaluate(
+        (value) => localStorage.setItem("mill:theme", value),
+        theme,
+      );
+      await page.reload();
+      await trigger.tap();
+      await expect(rows(page)).toHaveCount(2);
+      await expect(inbox(page).getByRole("tablist")).toHaveCount(0);
+      await expect(rows(page).getByRole("button")).toHaveCount(0);
+      expect(
+        (await rows(page).first().getByRole("link").boundingBox())!.height,
+      ).toBeGreaterThanOrEqual(44);
+      await expect
+        .poll(async () => (await trigger.boundingBox())?.height ?? 0)
+        .toBe(44);
+      await expect(trigger.locator("svg")).toHaveAttribute("width", "18");
+      const markAll = inbox(page).getByRole("button", {
+        name: "Mark all read",
+        exact: true,
+      });
+      await expect
+        .poll(async () => (await markAll.boundingBox())?.height ?? 0)
+        .toBe(44);
+      await expect(trigger).toHaveAccessibleDescription(
+        "2 unread notifications",
+      );
+      await page.keyboard.press("Escape");
+      await expect(inbox(page)).toHaveCount(0);
+      await expect(trigger).toBeFocused();
+    }
+    await trigger.tap();
+    await inbox(page)
+      .getByRole("button", { name: "Mark all read", exact: true })
+      .tap();
+    await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(2);
+    expect((await json(who.api, "/notifications")).unreadCount).toBe(0);
+    await expect(trigger).toHaveAccessibleDescription("");
+  });
 });

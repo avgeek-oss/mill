@@ -52,8 +52,8 @@ export type Member = {
 };
 export type Activity = {
   id: string;
-  taskId: string | null;
-  boardId: string | null;
+  taskId: string;
+  boardId: string;
   actorId: string;
   actorName: string;
   actorKind: "human" | "agent";

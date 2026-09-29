@@ -162,7 +162,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
           `/api/tasks/${outside.task.id}/comments`,
           `/api/tasks/${outside.task.id}/activity`,
           "/api/export",
-          "/api/audit",
           "/api/workspace",
           "/api/auth/members",
         ])
@@ -701,14 +700,10 @@ test("External credentials and actual MCP task workflows enforce current permiss
           (await request("/api/boards", { token: write.token })).status,
           401,
         );
-        const audit = await ok<{ items: { action: string }[] }>(
-          await request("/api/audit", { cookie }),
-        );
-        assert(
-          audit.items.some((item) => item.action === "credential.created"),
-        );
-        assert(
-          audit.items.some((item) => item.action === "credential.revoked"),
+        assert.equal((await request("/api/audit", { cookie })).status, 404);
+        assert.equal(
+          (await sql`SELECT id FROM activity WHERE task_id IS NULL`).length,
+          0,
         );
       },
     );

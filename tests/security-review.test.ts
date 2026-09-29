@@ -64,7 +64,6 @@ test("a board-restricted agent cannot reorder other boards or gain administratio
     ],
     ["/api/workspace", "PATCH", { name: "Captured workspace" }],
     ["/api/export", "GET", undefined],
-    ["/api/audit", "GET", undefined],
   ] as const) {
     const response = await request(path, { token, method, body });
     assert.equal(response.status, 403, path);

@@ -16,7 +16,6 @@ import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest, clientAddress, conflict, type Env } from "../http.js";
 import {
   activeUser,
-  audit,
   body,
   createChallenge,
   currentSession,
@@ -108,7 +107,7 @@ async function completeChallenge(
     return { ok: true };
   }
   await newSession(c, user.id, db, user.securityEpoch);
-  await audit(user, "account.sign-in", { method: "second-factor" }, db);
+
   return identityResponse(user, db);
 }
 securityRoutes.post("/second-factor", async (c) => {
@@ -224,12 +223,7 @@ securityRoutes.post("/passkeys/register/verify", async (c) => {
     await tx`DELETE FROM auth_challenges WHERE token_hash=${hashToken(input.challengeId)}`;
     await currentSession(c, tx);
     await invalidateSecurity(challenge.userId, current.id, tx);
-    await audit(
-      await activeUser(challenge.userId, tx),
-      "account.passkey-added",
-      {},
-      tx,
-    );
+
     return c.json({ ok: true });
   });
 });
@@ -244,12 +238,6 @@ securityRoutes.delete("/passkeys/:id", async (c) => {
     if (!deleted)
       throw new HTTPException(404, { message: "Passkey not found" });
     await invalidateSecurity(who.userId, current.id, tx);
-    await audit(
-      { id: who.userId, name: who.name },
-      "account.passkey-removed",
-      {},
-      tx,
-    );
   });
   return c.json({ ok: true });
 });
@@ -376,7 +364,7 @@ securityRoutes.post("/totp/verify", async (c) => {
     const recoveryCodes = await issueRecoveryCodes(user.id, tx);
     const current = await currentSession(c, tx);
     await invalidateSecurity(user.id, current.id, tx);
-    await audit(user, "account.authenticator-enabled", {}, tx);
+
     return c.json({ recoveryCodes });
   });
 });
@@ -393,11 +381,11 @@ for (const action of ["disable", "recovery-codes"] as const)
         await tx`DELETE FROM authenticators WHERE user_id=${user.id}`;
         await tx`DELETE FROM recovery_codes WHERE user_id=${user.id}`;
         await invalidateSecurity(user.id, (await currentSession(c, tx)).id, tx);
-        await audit(user, "account.authenticator-disabled", {}, tx);
+
         return c.json({ ok: true });
       }
       const recoveryCodes = await issueRecoveryCodes(user.id, tx);
-      await audit(user, "account.recovery-codes-replaced", {}, tx);
+
       return c.json({ recoveryCodes });
     });
   });

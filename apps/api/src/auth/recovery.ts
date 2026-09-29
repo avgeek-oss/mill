@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest, clientAddress, type Env } from "../http.js";
-import { activeUser, audit, body, passwordSchema } from "./model.js";
+import { activeUser, body, passwordSchema } from "./model.js";
 import { hashPassword, hashToken, rateLimit, secretToken } from "./security.js";
 
 export const recoveryRoutes = new Hono<Env>();
@@ -14,12 +14,6 @@ export async function createOperatorRecovery(email: string, resetMfa = false) {
     if (!user) throw new Error("Active member not found");
     await tx`DELETE FROM account_recovery WHERE user_id=${user.id}`;
     await tx`INSERT INTO account_recovery(token_hash,user_id,reset_mfa,expires_at) VALUES(${hashToken(token)},${user.id},${resetMfa},now()+interval '30 minutes')`;
-    await audit(
-      null,
-      "account.operator-recovery-issued",
-      { userId: user.id, resetMfa },
-      tx,
-    );
   });
   return token;
 }
@@ -49,12 +43,6 @@ recoveryRoutes.post("/recovery/reset", async (c) => {
       await tx`DELETE FROM recovery_codes WHERE user_id=${user.id}`;
       await tx`DELETE FROM passkeys WHERE user_id=${user.id}`;
     }
-    await audit(
-      null,
-      "account.operator-recovered",
-      { userId: user.id, resetMfa: recovery.resetMfa },
-      tx,
-    );
   });
   return c.json({ ok: true });
 });

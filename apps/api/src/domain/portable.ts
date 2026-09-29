@@ -8,7 +8,6 @@ import {
   body,
   colors,
   newId,
-  recordActivity,
   revalidateAuthority,
   taskFields,
   uuid,
@@ -220,7 +219,7 @@ function validateReferences(data: z.infer<typeof portableImport>) {
 
 export function installPortableRoutes(routes: Hono<Env>) {
   routes.get("/export", async (c) => {
-    const a = requireRole(c, "admin");
+    requireRole(c, "admin");
     const data = await sql.begin(async (tx) => {
       await tx`SELECT id FROM workspace FOR UPDATE`;
       await tx`SELECT id FROM boards ORDER BY id FOR UPDATE`;
@@ -271,10 +270,7 @@ export function installPortableRoutes(routes: Hono<Env>) {
           message:
             "This workspace is larger than the 32 MiB portable export limit. Use a PostgreSQL backup to move the complete instance.",
         });
-      await recordActivity(tx, a, "workspace.exported", {
-        boards: boards.length,
-        tasks: tasks.length,
-      });
+
       return result;
     });
     c.header(
@@ -284,7 +280,7 @@ export function installPortableRoutes(routes: Hono<Env>) {
     return c.json(data);
   });
   routes.post("/import", async (c) => {
-    const a = requireRole(c, "admin");
+    requireRole(c, "admin");
     const source = await body(c, portableImport);
     validateReferences(source);
     const data = currentData(source);
@@ -364,12 +360,7 @@ export function installPortableRoutes(routes: Hono<Env>) {
         await tx`UPDATE boards SET next_number=${next} WHERE id=${mapped(boardMap, oldId, "board")}`;
       for (const comment of data.comments)
         await tx`INSERT INTO comments (task_id,author_id,body,created_at,updated_at) VALUES (${mapped(taskMap, comment.taskId, "task")},${mapped(memberMap, comment.authorId, "member")},${comment.body},${comment.createdAt},${comment.updatedAt})`;
-      await recordActivity(tx, a, "workspace.imported", {
-        boards: data.boards.length,
-        tasks: data.tasks.length,
-        comments: data.comments.length,
-        sourceWorkspace: data.workspace.name,
-      });
+
       return {
         boards: data.boards.length,
         tasks: data.tasks.length,

@@ -10,11 +10,11 @@ An administrator opens **People** in the sidebar, chooses **Invite a person**, e
 
 The person following the link chooses their name and password. Their account receives the role recorded on the invitation. A removed member loses browser and agent access immediately. Inviting that email again restores the same member identifier so earlier task and comment attribution stays intact, while replacing their password and removing old authentication factors.
 
-| Role   | Access                                                                                                              |
-| ------ | ------------------------------------------------------------------------------------------------------------------- |
-| Admin  | Everyday task work, boards and statuses, workspace settings, membership, audit history, and portable export/import. |
-| Member | Read boards, create and edit tasks and comments, assign work, and use credentials within their own permissions.     |
-| Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                          |
+| Role   | Access                                                                                                          |
+| ------ | --------------------------------------------------------------------------------------------------------------- |
+| Admin  | Everyday task work, boards and statuses, workspace settings, membership and portable export/import.             |
+| Member | Read boards, create and edit tasks and comments, assign work, and use credentials within their own permissions. |
+| Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                      |
 
 Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Agents inherit their owner's current role and credential scopes. Identity, membership, sessions and security settings require a signed-in human; an unscoped read credential may read the basic team directory for assignments and mentions.
 
@@ -54,7 +54,7 @@ When both the passkeys and authenticator app have been lost, the operator can ex
 pnpm recover-account --email person@example.com --reset-mfa
 ```
 
-The owner follows the link, chooses a new password and signs in again. Completing recovery ends all browser sessions, invalidates pending challenges and recovery links, and revokes the owner's agent credentials. `--reset-mfa` also removes passkeys, authenticator setup and recovery codes. Re-enroll factors and issue new credentials afterward. Issuing a link alone does not change the account. Recovery issuance and completion appear in the workspace audit history.
+The owner follows the link, chooses a new password and signs in again. Completing recovery ends all browser sessions, invalidates pending challenges and recovery links, and revokes the owner's agent credentials. `--reset-mfa` also removes passkeys, authenticator setup and recovery codes. Re-enroll factors and issue new credentials afterward. Issuing a link alone does not change the account.
 
 Database backups contain the complete identity state. Portable workspace export intentionally excludes passwords, sessions, passkeys, authenticator secrets, recovery codes and agent credentials. Keep `MILL_SECRET` with your installation backup; changing it makes encrypted authenticator secrets unreadable. See [backup and restore](backup.md) for the full recovery procedure.
 

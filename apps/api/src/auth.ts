@@ -6,7 +6,6 @@ import { sql } from "../../../packages/database/src/index.js";
 import { badRequest, clientAddress, conflict, type Env } from "./http.js";
 import {
   activeUser,
-  audit,
   body,
   clearSession,
   createChallenge,
@@ -62,7 +61,7 @@ authRoutes.post("/setup", async (c) => {
     >`INSERT INTO users(id,workspace_id,name,email,password_hash,role)
       VALUES(${randomUUID()},${workspaceId},${input.name},${input.email},${passwordHash},'admin') RETURNING *`;
     await newSession(c, user.id, tx);
-    await audit(user, "workspace.setup", {}, tx);
+
     return c.json(await identityResponse(user, tx), 201);
   });
 });
@@ -116,7 +115,7 @@ authRoutes.post("/login", async (c) => {
     const challenge = await secondFactorChallenge(current, "login", null, tx);
     if (challenge) return c.json(challenge);
     await newSession(c, current.id, tx, current.securityEpoch);
-    await audit(current, "account.sign-in", {}, tx);
+
     return c.json(await identityResponse(current, tx));
   });
 });
@@ -200,7 +199,7 @@ authRoutes.delete("/sessions/:id", async (c) => {
     await sql`DELETE FROM sessions WHERE id=${id.data} AND user_id=${who.userId} RETURNING id`;
   if (!deleted) throw new HTTPException(404, { message: "Session not found" });
   if (current.id === deleted.id) clearSession(c);
-  await audit(who && { id: who.userId, name: who.name }, "session.revoked");
+
   return c.json({ ok: true });
 });
 authRoutes.post("/password", async (c) => {
@@ -236,7 +235,6 @@ authRoutes.post("/password", async (c) => {
     await tx`DELETE FROM account_recovery WHERE user_id=${user.id}`;
     await tx`UPDATE credentials SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=${user.id}`;
     await tx`UPDATE oauth_requests SET consumed_at=COALESCE(consumed_at,now()),expires_at=now() WHERE user_id=${user.id}`;
-    await audit(user, "account.password-changed", {}, tx);
   });
   return c.json({ ok: true });
 });

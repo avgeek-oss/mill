@@ -25,6 +25,11 @@ let detailInvitationToken = "";
 let sidebarInvitationToken = "";
 let lifecycleInvitationUrl = "";
 let permissionsInvitationUrl = "";
+let sidebarSizingInvitationUrl = "";
+const sidebarSizingAccount = {
+  email: "browser-sidebar-sizing@example.test",
+  password: "Sidebar-sizing-only-password-42",
+};
 const permissionsAccount = {
   email: "browser-permissions@example.test",
   password: "Permissions-only-password-42",
@@ -256,6 +261,15 @@ test("first installation and complete board/task workflow", async ({
   } finally {
     page.off("response", recordPhantomRead);
   }
+  const sidebarSizingInvitation = await page.request.post(
+    "/api/auth/invitations",
+    {
+      headers: { Origin: baseOrigin },
+      data: { email: sidebarSizingAccount.email, role: "admin" },
+    },
+  );
+  expect(sidebarSizingInvitation.ok()).toBeTruthy();
+  sidebarSizingInvitationUrl = (await sidebarSizingInvitation.json()).inviteUrl;
   const permissionsInvitation = await page.request.post(
     "/api/auth/invitations",
     {
@@ -488,11 +502,114 @@ test("first installation and complete board/task workflow", async ({
   await expect(
     page.getByRole("checkbox", { name: "Verify installation", exact: true }),
   ).toBeChecked();
+  await page.getByRole("tab", { name: "Activity", exact: true }).click();
+  const activity = page.getByRole("tabpanel", {
+    name: "Activity",
+    exact: true,
+  });
+  await expect(activity).toContainText("Alex Morgan");
+  await expect(activity).toContainText("created this task");
+  await expect(activity).toContainText("updated this task");
+  await expect(activity).toContainText("added a comment");
+  await page.getByRole("tab", { name: /^Comments/ }).click();
   await page.screenshot({
     path: "docs/screenshots/task-detail-dark.png",
     fullPage: true,
     animations: "disabled",
   });
+});
+test("sidebar action sizing matches navigation and removed audit routes stay unavailable", async ({
+  page,
+  browser,
+}) => {
+  await page.goto(sidebarSizingInvitationUrl);
+  await page.getByLabel("Your name").fill("Sidebar Sizing Review");
+  await page
+    .getByLabel("Password", { exact: true })
+    .fill(sidebarSizingAccount.password);
+  await page
+    .getByLabel("Confirm password", { exact: true })
+    .fill(sidebarSizingAccount.password);
+  await page
+    .getByRole("button", { name: "Accept invitation", exact: true })
+    .click();
+  await expect(
+    page.getByRole("navigation", { name: "Workspace navigation" }),
+  ).toBeVisible();
+  const sizingSessionResponse = await page.request.get("/api/auth/me");
+  expect(sizingSessionResponse.ok()).toBeTruthy();
+  const sizingSession = await sizingSessionResponse.json();
+  expect(sizingSession.user.email).toBe(sidebarSizingAccount.email);
+  expect(sizingSession.user.role).toBe("admin");
+  expect(sizingSession.workspace.id).toBe(workspaceId);
+  const storageState = await page.context().storageState();
+  for (const width of [1280, 390])
+    for (const theme of ["light", "dark"]) {
+      const context = await browser.newContext({
+        baseURL: baseOrigin,
+        storageState,
+        viewport: { width, height: 844 },
+        isMobile: width === 390,
+        hasTouch: width === 390,
+      });
+      try {
+        await context.addInitScript(
+          (value) => localStorage.setItem("mill:theme", value),
+          theme,
+        );
+        const surface = await context.newPage();
+        await surface.goto(`/boards/${boardId}`);
+        if (width === 390)
+          await surface
+            .getByRole("button", { name: "Open navigation", exact: true })
+            .click();
+        const nav = surface.getByRole("navigation", {
+          name: "Workspace navigation",
+        });
+        const create = nav.getByRole("button", {
+          name: "Create Project",
+          exact: true,
+        });
+        const reference = nav.getByRole("link", {
+          name: "Agent access",
+          exact: true,
+        });
+        await expect(create).toBeVisible();
+        await expect(reference).toBeVisible();
+        const metrics = async (element: Locator) =>
+          element.evaluate((node) => {
+            const style = getComputedStyle(node);
+            const icon = node.querySelector("svg")!.getBoundingClientRect();
+            return {
+              height: node.getBoundingClientRect().height,
+              fontSize: style.fontSize,
+              fontWeight: style.fontWeight,
+              gap: style.gap,
+              padding: style.padding,
+              iconWidth: icon.width,
+              iconHeight: icon.height,
+            };
+          });
+        expect(await metrics(create)).toEqual(await metrics(reference));
+        expect((await create.boundingBox())!.height).toBe(
+          width === 390 ? 44 : 36,
+        );
+        await expect(
+          nav.getByRole("link", { name: "Audit history", exact: true }),
+        ).toHaveCount(0);
+        if (width === 390) await surface.keyboard.press("Escape");
+        await surface.goto("/settings/audit");
+        await expect(
+          surface.getByRole("heading", {
+            name: "This page could not be found",
+            exact: true,
+          }),
+        ).toBeVisible();
+        expect((await surface.request.get("/api/audit")).status()).toBe(404);
+      } finally {
+        await context.close();
+      }
+    }
 });
 test("keyboard task movement, filters, mobile columns, and overlay search scrolling", async ({
   page,

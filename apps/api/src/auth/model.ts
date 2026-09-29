@@ -151,14 +151,7 @@ export async function invalidateSecurity(
   await db`DELETE FROM sessions WHERE user_id=${userId} AND id<>${sessionId}`;
   await db`DELETE FROM auth_challenges WHERE user_id=${userId}`;
 }
-export async function audit(
-  user: Pick<UserRow, "id" | "name"> | null,
-  action: string,
-  detail: Record<string, postgres.JSONValue> = {},
-  db: Db = sql,
-) {
-  await db`INSERT INTO auth_audit(id,user_id,actor_name,action,detail) VALUES(${randomUUID()},${user?.id ?? null},${user?.name ?? "Operator"},${action},${db.json(detail)})`;
-}
+
 export async function createChallenge(
   userId: string | null,
   purpose: string,

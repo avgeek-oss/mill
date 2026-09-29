@@ -16,7 +16,7 @@ pnpm test
 
 The independent tests verify:
 
-- Board-restricted agents cannot reorder unrelated boards, create credentials, invite administrators, change workspace settings, read global audit/export, or resolve unrelated board IDs.
+- Board-restricted agents cannot reorder unrelated boards, create credentials, invite administrators, change workspace settings, read portable exports, or resolve unrelated board IDs.
 - Mixed accessible and inaccessible notification IDs fail atomically, and notification collections/unread counts remain scoped.
 - OAuth tokens match the canonical MCP resource and cannot call public REST endpoints directly.
 - Failed late responses roll back both the retry record and nested domain writes.

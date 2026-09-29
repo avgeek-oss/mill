@@ -336,7 +336,7 @@ test("limited roles see permission recovery without administrative data requests
               )
                 administrativeReads.push(request.url());
             });
-            for (const section of ["members", "workspace", "data", "audit"]) {
+            for (const section of ["members", "workspace", "data"]) {
               await page.goto(`/settings/${section}`);
               await expect(
                 page.getByRole("heading", {
@@ -364,7 +364,17 @@ test("limited roles see permission recovery without administrative data requests
             await action.focus();
             await page.keyboard.press("Enter");
             await expect(page).toHaveURL(/\/boards\/[^/]+$/);
-            expect((await page.request.get("/api/audit")).status()).toBe(403);
+            await page.goto("/settings/audit");
+            await expect(
+              page.getByRole("heading", {
+                name: "This page could not be found",
+                exact: true,
+              }),
+            ).toBeVisible();
+            await expect(
+              page.getByRole("link", { name: "Audit history", exact: true }),
+            ).toHaveCount(0);
+            expect((await page.request.get("/api/audit")).status()).toBe(404);
             expect((await page.request.get("/api/export")).status()).toBe(403);
           } finally {
             await context.close();

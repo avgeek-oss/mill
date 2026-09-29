@@ -12,7 +12,7 @@ Copy the token when Mill creates it. Mill shows the complete token once and stor
 
 The default expiry is 30 days. API-created credentials can expire in 1 to 365 days. Viewers can create read credentials; Members and Admins can create read/write credentials. Every request checks the owner's current role. A removed account or expired/revoked credential loses access immediately. Password changes and account recovery revoke existing credentials.
 
-Agent credentials cannot manage identities, sessions, passkeys, team invitations, workspace administration, audit export, or portable import/export. An unrestricted read credential can list member names and IDs for assignment. A board-restricted credential cannot read the workspace member directory.
+Agent credentials cannot manage identities, sessions, passkeys, team invitations, workspace administration or portable import/export. An unrestricted read credential can list member names and IDs for assignment. A board-restricted credential cannot read the workspace member directory.
 
 ## Use REST
 
@@ -70,7 +70,7 @@ Client metadata documents must be public HTTPS JSON, use their exact document UR
 
 ## Revoke or diagnose a connection
 
-Open Agent access and revoke the credential. Revocation takes effect on the next request. Activity records the owner and agent name, such as "Alex via Release assistant", and records credential/OAuth changes in the administrator's audit history.
+Open Agent access and revoke the credential. Revocation takes effect on the next request. Task activity records the owner and agent name, such as "Alex via Release assistant". Workspace-wide audit history is not included in v1.
 
 Deleting a board removes it from every credential's approved boards. A credential restricted to that board loses access; when no approved boards remain, Mill revokes the credential. It never becomes an all-boards credential. All-boards credentials continue to apply to the remaining boards and boards created later.
 

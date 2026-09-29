@@ -240,13 +240,18 @@ export type ShellLinkConfig = {
   trailing?: ReactNode;
   badge?: { value: number; label: string };
 };
+export type ShellActionConfig = Omit<ShellLinkConfig, "href" | "active"> & {
+  href?: never;
+  active?: never;
+  onPress: () => void;
+};
 export type SidebarGroupConfig = {
   id: string;
   label?: string;
   header?: ReactNode;
   content?: ReactNode;
   footerContent?: ReactNode;
-  items: ShellLinkConfig[];
+  items: (ShellLinkConfig | ShellActionConfig)[];
 };
 export type SidebarConfig = {
   accessibleLabel: string;
@@ -328,19 +333,17 @@ export function ApplicationSidebar({ config }: { config: SidebarConfig }) {
               {group.items.map((item) => {
                 const active =
                   item.active ??
-                  (path === item.href ||
-                    (item.href !== "/" && path.startsWith(`${item.href}/`)));
-                return (
-                  <RoutedLink
-                    className={cn(
-                      "flex min-h-9 min-w-0 items-center gap-3 rounded-2xl px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus",
-                      active
-                        ? "bg-default font-medium text-foreground"
-                        : "font-normal text-muted hover:bg-default/60 hover:text-foreground",
-                    )}
-                    item={{ ...item, active }}
-                    key={item.id}
-                  >
+                  (item.href !== undefined &&
+                    (path === item.href ||
+                      (item.href !== "/" && path.startsWith(`${item.href}/`))));
+                const className = cn(
+                  "flex min-h-9 min-w-0 items-center gap-3 rounded-2xl px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus pointer-coarse:min-h-11",
+                  active
+                    ? "bg-default font-medium text-foreground"
+                    : "font-normal text-muted hover:bg-default/60 hover:text-foreground",
+                );
+                const content = (
+                  <>
                     {item.icon}
                     <span className="min-w-0 flex-1 break-words">
                       {item.label}
@@ -355,6 +358,29 @@ export function ApplicationSidebar({ config }: { config: SidebarConfig }) {
                         {item.badge.value}
                       </span>
                     ) : null}
+                  </>
+                );
+                if (item.href === undefined)
+                  return (
+                    <Button
+                      key={item.id}
+                      variant="ghost"
+                      className={cn(
+                        className,
+                        "h-auto w-full justify-start text-start",
+                      )}
+                      onPress={item.onPress}
+                    >
+                      {content}
+                    </Button>
+                  );
+                return (
+                  <RoutedLink
+                    className={className}
+                    item={{ ...item, active }}
+                    key={item.id}
+                  >
+                    {content}
                   </RoutedLink>
                 );
               })}
