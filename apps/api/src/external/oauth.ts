@@ -112,7 +112,7 @@ export async function decideConsent(
   boardIds?: string[],
   agentId?: string,
 ) {
-  if (a.kind !== "human")
+  if (a.kind !== "human" || a.credentialId)
     throw new OAuthError(
       "access_denied",
       "Consent requires a personal account",

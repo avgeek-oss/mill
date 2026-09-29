@@ -6,6 +6,7 @@ export type Actor = {
   kind: "human" | "agent";
   scopes: string[];
   credentialId?: string;
+  credentialType?: "api-key" | "oauth";
   agentId?: string;
   boardIds?: string[];
 };
@@ -15,6 +16,7 @@ export type Agent = {
   scope: "personal" | "team";
   creatorId: string;
   memberIds: string[];
+  allMembers: boolean;
   version: number;
   createdAt: string;
   updatedAt: string;

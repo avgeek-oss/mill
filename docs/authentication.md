@@ -16,9 +16,27 @@ The person following the link chooses their name and password. Their account rec
 | Member | Read boards, create and edit tasks and comments, assign work, and use credentials within their own permissions. |
 | Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                      |
 
-Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Agents inherit their owner's current role and credential scopes. Identity, membership, sessions and security settings require a signed-in human; an unscoped read credential may read the basic team directory for assignments and mentions.
+Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Personal API keys inherit their human owner's current role and cannot access identity routes, including the team directory. MCP OAuth inherits the owner's role within its granted scopes and boards; unscoped OAuth may read basic member metadata through MCP for assignments and mentions. Membership, sessions, security settings, and other human administration require a browser session.
 
-People are human accounts. **Agents** are separate identities created through the human interface. A personal Agent is available only to its creator; a team Agent is available only to people explicitly assigned by an administrator. Admin status does not grant use of every team Agent. **API keys** belong to their creator and must select an Agent they can access. OAuth uses the same eligible selection and creates no Agent. See [the Agent guide](agents.md) for connection and task-assignment rules.
+People are human accounts. **Agents** are separate identities created through the human interface. A personal Agent is available only to its creator; an administrator grants team Agent access to selected active people or all current and future members. The active creator retains an individual grant. Admin status does not grant use of every team Agent. **API keys** belong to their human creator, use REST with current permissions, and have only Name and Expiry settings. MCP OAuth selects an eligible Agent and creates no Agent. See [the Agent guide](agents.md) for connection and task-assignment rules.
+
+## External credential boundaries
+
+A browser session, personal API key, and MCP OAuth connection have different authority. Hiding a UI action does not enforce permissions; the server checks current owner membership and role, and rechecks authority before a waiting mutation commits.
+
+| Authentication   | Domain access                                                                                                           | Human management                                                                                                      |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Browser session  | Current person's role across accessible boards                                                                          | Own account/security; Admin-only team/workspace actions; Agent and credential management within permissions           |
+| Personal API key | REST as the human owner, across all accessible boards, with current role                                                | Denied: all identity routes, team directory, workspace administration, credential/Agent management, and OAuth consent |
+| MCP OAuth        | Selected eligible Agent, within the human owner's current role, granted read/write scopes, and optional approved boards | Denied; an unscoped connection may resolve basic members through MCP for assignments and mentions                     |
+
+Personal keys accept only Name and Expiry of 30, 60, 90, or 365 days. They have no Agent, scope, or board selection and cannot use MCP. An API key is personal even when its owner is an administrator; another administrator does not gain ownership of it. Task activity identifies the human owner.
+
+OAuth requires an eligible existing human-created Agent at consent, rechecks it at token exchange and every authenticated request, and cannot use public REST. Team eligibility comes from an individual grant or the All team members policy for current and future active members. The active creator keeps a pinned individual grant. Turning off that policy preserves individual grants; people who lose access lose affected task Agent bindings and OAuth connections. Task activity identifies the Agent and human owner.
+
+Store one-time tokens in the external client's secret store. Mill stores hashes and returns later metadata without tokens or hashes. Expiry, explicit revocation, account disablement, password changes, and recovery end credential access. Restoring an Agent grant does not reactivate a revoked connection. Migration 009 revokes and unbinds old personal API keys while preserving eligible Agent-bound OAuth; follow [key replacement after upgrade](upgrades.md#personal-api-keys-and-team-access-migration).
+
+See [connection steps](agents.md), [the API reference](api.md), and [the private vulnerability reporting policy](../SECURITY.md). Configuration and database backups remain private. The repository and artifacts stay private during B1 review; merging, deployment, release publication, and visibility changes need the applicable owner authorization.
 
 ## Passkeys and authenticator apps
 
@@ -32,7 +50,7 @@ When password sign-in finds both a passkey and an authenticator app, it automati
 
 Authenticator setup shows an `otpauth` URI and a secret to add to your app. Confirm a generated code to enable it. Mill encrypts the stored secret using `MILL_SECRET`. After confirmation, save the ten recovery codes somewhere private. Each code can be used once after password verification. Replacing recovery codes invalidates the previous set. Removing the authenticator requires a fresh app code; use operator recovery if the app is lost.
 
-Adding or removing a factor ends other browser sessions and invalidates pending authentication challenges. The initiating session stays signed in. Password changes also revoke other browser sessions and all owned agent credentials. Review sessions under **Account security** to revoke a device individually, or use **Sign out** to end the current session.
+Adding or removing a factor ends other browser sessions and invalidates pending authentication challenges. The initiating session stays signed in. Password changes also revoke other browser sessions and all owned API keys and OAuth connections. Review sessions under **Account security** to revoke a device individually, or use **Sign out** to end the current session.
 
 ## Recover an account
 

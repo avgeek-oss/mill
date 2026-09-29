@@ -7,6 +7,8 @@ import {
   request,
   resetDatabase,
   setupAgent,
+  setupOAuthAgent,
+  callMcpTool,
   setupUser,
   sql,
 } from "./support.js";
@@ -203,35 +205,36 @@ test("board deletion requires a human Admin and current version, purges owned ro
       201,
     )
   ).comment;
-  const scoped = await json(
+  const agent = await setupAgent(cookie);
+  const scoped = await setupOAuthAgent(cookie, {
+    agentId: agent.id,
+    boardIds: [removed.id],
+  });
+  const mixed = await setupOAuthAgent(cookie, {
+    agentId: agent.id,
+    boardIds: [removed.id, kept.id],
+  });
+  const personal = await json(
     await request("/api/credentials", {
       cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Removed only",
-        scopes: ["read", "write"],
-        boardIds: [removed.id],
-      },
-      headers: { "Idempotency-Key": "removed-credential-cache" },
+      body: { name: "Persistent personal key", expiresInDays: 90 },
+      headers: { "Idempotency-Key": "personal-credential-cache" },
     }),
     201,
   );
-  const mixed = await json(
+  const memberKey = await json(
     await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Both boards",
-        scopes: ["read", "write"],
-        boardIds: [removed.id, kept.id],
-      },
+      cookie: colleague.cookie,
+      body: { name: "Member automation", expiresInDays: 30 },
     }),
     201,
   );
+  assert.equal(personal.credential.agentId, null);
+  assert.equal(personal.credential.boardIds, null);
   for (const auth of [
     { cookie: colleague.cookie },
     { cookie: viewer.cookie },
-    { token: mixed.token },
+    { token: memberKey.token },
   ])
     assert.equal(
       (
@@ -246,6 +249,16 @@ test("board deletion requires a human Admin and current version, purges owned ro
   assert.equal(
     (
       await request(`/api/boards/${removed.id}`, {
+        token: mixed.token,
+        method: "DELETE",
+        body: { version: removed.version },
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(`/api/boards/${removed.id}`, {
         cookie,
         method: "DELETE",
         body: { version: removed.version + 1 },
@@ -257,15 +270,15 @@ test("board deletion requires a human Admin and current version, purges owned ro
     (await sql`SELECT id FROM boards WHERE id=${removed.id}`).length,
     1,
   );
+  const scopedDelete = await callMcpTool(scoped.token, "delete_task", {
+    taskId: outside.id,
+    version: outside.version,
+  });
+  assert.equal(scopedDelete.response.status, 200);
+  assert.equal(scopedDelete.result?.isError, true);
   assert.equal(
-    (
-      await request(`/api/tasks/${outside.id}`, {
-        token: scoped.token,
-        method: "DELETE",
-        body: { version: outside.version },
-      })
-    ).status,
-    403,
+    (await sql`SELECT id FROM tasks WHERE id=${outside.id}`).length,
+    1,
   );
   assert.equal(
     (
@@ -288,7 +301,7 @@ test("board deletion requires a human Admin and current version, purges owned ro
     409,
   );
   const options = {
-    cookie,
+    token: personal.token,
     method: "DELETE",
     body: { version: removed.version },
     headers: { "Idempotency-Key": "permanent-board-delete" },
@@ -329,13 +342,41 @@ test("board deletion requires a human Admin and current version, purges owned ro
     await sql`SELECT * FROM credentials WHERE id=${mixed.credential.id}`;
   assert.deepEqual(both.boardIds, [kept.id]);
   assert.equal(both.revokedAt, null);
+  const keptRead = await callMcpTool(mixed.token, "get_task", {
+    taskId: outside.id,
+  });
+  assert.equal(keptRead.response.status, 200);
+  assert.equal(keptRead.result?.isError, false);
   assert.equal(
-    (await request(`/api/tasks/${outside.id}`, { token: mixed.token })).status,
-    200,
+    keptRead.result?.structuredContent?.task &&
+      (keptRead.result.structuredContent.task as { id: string }).id,
+    outside.id,
   );
   assert.equal(
-    (await request("/api/boards", { token: scoped.token })).status,
+    (await callMcpTool(scoped.token, "list_boards")).response.status,
     401,
+  );
+  const [personalRow] =
+    await sql`SELECT agent_id,board_ids,scopes,revoked_at FROM credentials WHERE id=${personal.credential.id}`;
+  assert.equal(personalRow.agentId, null);
+  assert.equal(personalRow.boardIds, null);
+  assert.deepEqual(personalRow.scopes, []);
+  assert.equal(personalRow.revokedAt, null);
+  assert.equal(
+    (
+      await sql`SELECT key FROM api_idempotency WHERE key='personal-credential-cache'`
+    ).length,
+    1,
+  );
+  const personalRead = await json(
+    await request(`/api/tasks/${outside.id}`, { token: personal.token }),
+  );
+  assert.equal(personalRead.task.id, outside.id);
+  assert.deepEqual(
+    (
+      await json(await request("/api/boards", { token: personal.token }))
+    ).items.map((item: { id: string }) => item.id),
+    [kept.id],
   );
   const replay = await request(`/api/boards/${removed.id}`, options);
   assert.equal(replay.headers.get("Idempotency-Replayed"), "true");

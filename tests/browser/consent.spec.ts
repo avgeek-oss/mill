@@ -71,9 +71,28 @@ async function account(
   ).toBeVisible();
   return { api, email, id: accepted.user.id, agent };
 }
-async function selectAgent(page: Page, name: string) {
-  await page.getByRole("button", { name: /Agent$/ }).click();
-  await page.getByRole("option", { name, exact: true }).click();
+async function selectAgent(
+  page: Page,
+  name: string,
+  activation: "pointer" | "touch" | "keyboard" = "pointer",
+) {
+  const trigger = page.getByRole("button", { name: /Agent$/ });
+  if (activation === "touch") await trigger.tap();
+  else if (activation === "keyboard") {
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+  } else await trigger.click();
+  const option = page.getByRole("option", { name, exact: true });
+  await expect(option).toHaveCount(1);
+  if (activation === "keyboard") {
+    await page.getByRole("searchbox", { name: "Search agent" }).fill(name);
+    await expect(page.getByRole("option")).toHaveCount(1);
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+  } else if (activation === "touch") await option.tap();
+  else await option.click();
+  await expect(trigger).toContainText(name);
+  await expect(page.getByRole("option")).toHaveCount(0);
 }
 async function grant(api: APIRequestContext, name: string, scope = "read") {
   const callback = `${origin}/consent-return?app=${encodeURIComponent(name)}`;
@@ -260,6 +279,77 @@ test("selection is required and an agent deleted after consent loads cannot be a
   }
 });
 
+test("all-members agents include a later joiner and withdrawing that access blocks an open consent", async ({
+  page,
+}) => {
+  const team = (
+    await json(admin, "/api/agents", {
+      name: "Future members consent agent",
+      scope: "team",
+      memberIds: [],
+      allMembers: true,
+    })
+  ).agent;
+  let version = team.version;
+  const operator = await account(page, "member", false);
+  try {
+    await clientCallback(page);
+    const eligible = await json(operator.api, "/api/agents");
+    expect(
+      eligible.items.some((item: { id: string }) => item.id === team.id),
+    ).toBe(true);
+    expect(team.memberIds).not.toContain(operator.id);
+    const connection = await grant(operator.api, "Dynamic team access");
+    await page.goto(connection.url);
+    await page.getByRole("button", { name: /Agent$/ }).click();
+    await expect(
+      page.getByRole("option", { name: team.name, exact: true }),
+    ).toContainText("Team · All team members");
+    await page.keyboard.press("Escape");
+    await selectAgent(page, team.name, "keyboard");
+    const allow = page.getByRole("button", {
+      name: "Allow access",
+      exact: true,
+    });
+    await expect(allow).toBeEnabled();
+    const updated = (
+      await json(
+        admin,
+        `/api/agents/${team.id}`,
+        { version, allMembers: false, memberIds: [] },
+        "PATCH",
+      )
+    ).agent;
+    version = updated.version;
+    expect(updated.allMembers).toBe(false);
+    expect(updated.memberIds).not.toContain(operator.id);
+    const decided = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/oauth/consent/${connection.id}`) &&
+        response.request().method() === "POST",
+    );
+    await allow.click();
+    const response = await decided;
+    expect(response.ok()).toBe(false);
+    expect(response.request().postDataJSON()).toEqual({
+      allow: true,
+      agentId: team.id,
+    });
+    await expect(page.getByRole("alert").first()).toBeVisible();
+    await expect(allow).toBeDisabled();
+    expect(new URL(page.url()).pathname).toBe("/oauth/consent");
+    await page.getByRole("button", { name: "Deny", exact: true }).click();
+    await page.waitForURL(/\/consent-return\?/);
+    expect(new URL(page.url()).searchParams.get("error")).toBe("access_denied");
+    expect((await json(operator.api, "/api/credentials")).items).toHaveLength(
+      0,
+    );
+  } finally {
+    await operator.api.dispose();
+    await json(admin, `/api/agents/${team.id}`, { version }, "DELETE");
+  }
+});
+
 test("delayed real details for request A cannot enable or replace request B and denial stays bound to B", async ({
   page,
 }) => {
@@ -432,10 +522,13 @@ test("a delayed old decision cannot redirect a new request and scoped consent gr
         arguments: { boardId: active.id },
       });
       expect(outside.isError).toBe(true);
-      expect((await agent.get(`/api/boards/${selected.id}`)).status()).toBe(
-        401,
-      );
-      expect((await agent.get("/api/auth/me")).status()).toBe(401);
+      for (const path of [`/api/boards/${selected.id}`, "/api/auth/me"]) {
+        const rest = await agent.get(path);
+        expect(rest.status()).toBe(403);
+        expect(await rest.json()).toEqual({
+          error: "Agent OAuth credentials use MCP",
+        });
+      }
     } finally {
       await sdk.close();
       await agent.dispose();
@@ -638,7 +731,7 @@ test("phone consent in both themes keeps long context readable and supports keyb
         const mobile = await context.newPage();
         await clientCallback(mobile);
         await mobile.goto(connection.url);
-        await selectAgent(mobile, operator.agent!.name);
+        await selectAgent(mobile, operator.agent!.name, "touch");
         await expect(
           mobile.getByRole("button", { name: "Allow access", exact: true }),
         ).toBeEnabled();

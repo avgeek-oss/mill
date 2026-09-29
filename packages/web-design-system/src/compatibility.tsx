@@ -73,7 +73,12 @@ export type ChoiceProps = Omit<
   label: string;
   value: string;
   onChange: (key: string) => void;
-  items: { id: string; name: string }[];
+  items: {
+    id: string;
+    name: string;
+    startContent?: ReactNode;
+    description?: string;
+  }[];
   disabled?: boolean;
   search?: boolean;
   hideLabel?: boolean;
@@ -89,11 +94,29 @@ export function Choice({
   hideLabel = false,
   ...props
 }: ChoiceProps) {
+  const selected = items.find((item) => item.id === value);
   const options = (
     <ListBox shouldSelectOnPressUp={false}>
       {items.map((item) => (
-        <ListBox.Item key={item.id} id={item.id} textValue={item.name}>
-          {item.name}
+        <ListBox.Item
+          key={item.id}
+          id={item.id}
+          aria-label={item.name}
+          textValue={[item.name, item.description].filter(Boolean).join(" ")}
+        >
+          {item.startContent ? (
+            <span aria-hidden="true" className="inline-flex shrink-0">
+              {item.startContent}
+            </span>
+          ) : null}
+          <span className="grid min-w-0 flex-1 gap-0.5 text-sm/5 font-normal">
+            <span className="truncate">{item.name}</span>
+            {item.description ? (
+              <span className="truncate text-xs/4 font-normal text-muted">
+                {item.description}
+              </span>
+            ) : null}
+          </span>
           <ListBox.ItemIndicator />
         </ListBox.Item>
       ))}
@@ -110,8 +133,13 @@ export function Choice({
     >
       <Label className={hideLabel ? "sr-only" : undefined}>{label}</Label>
       <Select.Trigger className="min-w-0">
-        <Select.Value className="min-w-0 flex-1 truncate">
-          {items.find((item) => item.id === value)?.name ?? "Choose…"}
+        <Select.Value className="flex min-w-0 flex-1 items-center gap-2 [&_[data-slot=avatar]]:size-5">
+          {selected?.startContent ? (
+            <span aria-hidden="true" className="inline-flex shrink-0">
+              {selected.startContent}
+            </span>
+          ) : null}
+          <span className="truncate">{selected?.name ?? "Choose…"}</span>
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>

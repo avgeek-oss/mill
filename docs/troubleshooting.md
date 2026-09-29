@@ -30,7 +30,9 @@ Another person or agent changed the task or its status after you opened it. Relo
 
 ## An agent gets permission denied
 
-Check the key owner's membership, access to its selected Agent, read/write scopes, allowed boards, and revocation/expiry state. A viewer-owned key cannot write. Agent credentials cannot perform human-only workspace administration, account settings, Agent/key management, or OAuth consent. If an OAuth Agent selector is empty, create a personal Agent in the human interface or ask an administrator for access to a team Agent before reconnecting. Migration 008 revokes earlier unbound keys; issue a new bound key rather than retrying the old token. Use [the agent guide](agents.md) for discovery and authentication requirements.
+For a personal REST key, check the human owner's current membership and role, then the key's expiry and revocation state. There is no Agent, scope, or board binding. A Viewer-owned key cannot write, and personal keys cannot use MCP or human-only management routes. Migration 009 revokes old API keys; create a replacement through **API keys** using Name and Expiry instead of retrying the old token.
+
+For MCP OAuth, also check access to the selected Agent, approved scopes, and approved boards. If the selector is empty, create a personal Agent in the human interface or ask an administrator for individual or all-members team access. Disabling All team members leaves the active creator and individual grants; a person who loses access must obtain a new connection after access is restored. Existing eligible OAuth connections are preserved by migration 009. See [the connection guide](agents.md) and [access security](authentication.md#external-credential-boundaries).
 
 When assigning an Agent to a task, choose an active human assignee first. Both the acting person and assignee need access to that Agent when changing the binding. Setting the Agent does not start an external job.
 

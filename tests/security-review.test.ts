@@ -2,8 +2,16 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-const { cleanupDatabase, request, resetDatabase, setupAgent, setupUser, sql } =
-  await import("./support.js");
+const {
+  cleanupDatabase,
+  request,
+  resetDatabase,
+  setupAgent,
+  setupOAuthAgent,
+  callMcpTool,
+  setupUser,
+  sql,
+} = await import("./support.js");
 const { digest, secret } = await import("../apps/api/src/external/protocol.js");
 beforeEach(resetDatabase);
 after(cleanupDatabase);
@@ -22,50 +30,55 @@ async function fixture(scopes: string[] = ["read", "write"]) {
       body: { name: "Allowed board", prefix: "ALLOW" },
     })
   ).json();
-  const created = await (
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Scoped reviewer",
-        scopes,
-        boardIds: [second.board.id],
-      },
-    })
-  ).json();
-  assert.ok(created.token);
+  const agent = await setupAgent(cookie);
+  const oauth = await setupOAuthAgent(cookie, {
+    agentId: agent.id,
+    scopes: scopes as ("read" | "write")[],
+    boardIds: [second.board.id],
+  });
+  const created = await request("/api/credentials", {
+    cookie,
+    body: { name: "Personal automation", expiresInDays: 30 },
+  });
+  assert.equal(created.status, 201);
+  const personal = await created.json();
   return {
     cookie,
     user,
     privateBoard: first.board,
     allowedBoard: second.board,
-    token: created.token,
+    token: oauth.token,
+    restToken: personal.token,
+    agent,
   };
 }
 
-test("a board-restricted agent cannot change other boards or gain administration", async () => {
-  const { cookie, token, allowedBoard, privateBoard } = await fixture();
+test("an OAuth board-restricted Agent cannot gain administration while personal keys use current human permissions", async () => {
+  const { cookie, token, restToken, allowedBoard, privateBoard, user, agent } =
+    await fixture();
   const before = await sql`SELECT id,name,version FROM boards ORDER BY id`;
-  const update = await request(`/api/boards/${privateBoard.id}`, {
-    token,
-    method: "PATCH",
-    body: { version: privateBoard.version, name: "Captured board" },
+  const update = await callMcpTool(token, "update_board", {
+    boardId: privateBoard.id,
+    version: privateBoard.version,
+    name: "Captured board",
   });
-  assert.equal(update.status, 403);
+  assert.equal(update.response.status, 200);
+  assert.equal(update.result?.isError, true);
   assert.deepEqual(
     await sql`SELECT id,name,version FROM boards ORDER BY id`,
     before,
   );
+  const unscopedCreate = await callMcpTool(token, "create_board", {
+    name: "Scope escape",
+  });
+  assert.equal(unscopedCreate.response.status, 403);
+  assert.equal(unscopedCreate.error, "insufficient_scope");
+  assert.equal(
+    (await sql`SELECT id FROM boards WHERE name='Scope escape'`).length,
+    0,
+  );
   for (const [path, method, body] of [
-    [
-      "/api/credentials",
-      "POST",
-      {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Escalation",
-        scopes: ["read", "write"],
-      },
-    ],
+    ["/api/credentials", "POST", { name: "Escalation", expiresInDays: 30 }],
     [
       "/api/auth/invitations",
       "POST",
@@ -73,22 +86,68 @@ test("a board-restricted agent cannot change other boards or gain administration
     ],
     ["/api/workspace", "PATCH", { name: "Captured workspace" }],
   ] as const) {
-    const response = await request(path, { token, method, body });
-    assert.equal(response.status, 403, path);
+    assert.equal(
+      (await request(path, { token, method, body })).status,
+      403,
+      path,
+    );
+    assert.equal(
+      (await request(path, { token: restToken, method, body })).status,
+      403,
+      path,
+    );
   }
-  const list = await (await request("/api/boards", { token })).json();
+  const list = await callMcpTool(token, "list_boards");
+  assert.equal(list.result?.isError, false);
   assert.deepEqual(
-    list.items.map((board: { id: string }) => board.id),
+    (list.result?.structuredContent?.items as { id: string }[]).map(
+      (board) => board.id,
+    ),
     [allowedBoard.id],
   );
   assert.equal(
-    (await request(`/api/boards/${privateBoard.id}`, { token })).status,
-    403,
+    (await callMcpTool(token, "get_board", { boardId: privateBoard.id })).result
+      ?.isError,
+    true,
   );
+  const future = await request("/api/boards", {
+    cookie,
+    body: { name: "Future board" },
+  });
+  assert.equal(future.status, 201);
+  const futureBoard = (await future.json()).board;
+  const personalList = await (
+    await request("/api/boards", { token: restToken })
+  ).json();
+  assert.deepEqual(
+    new Set(personalList.items.map((board: { id: string }) => board.id)),
+    new Set([privateBoard.id, allowedBoard.id, futureBoard.id]),
+  );
+  const humanTask = await request(`/api/boards/${futureBoard.id}/tasks`, {
+    token: restToken,
+    body: { title: "Human API key work" },
+  });
+  assert.equal(humanTask.status, 201);
+  const human = (await humanTask.json()).task;
+  const [humanEvent] =
+    await sql`SELECT actor_id,actor_name,actor_kind FROM activity WHERE task_id=${human.id} AND action='task.created'`;
+  assert.equal(humanEvent.actorId, user.id);
+  assert.equal(humanEvent.actorName, user.name);
+  assert.equal(humanEvent.actorKind, "human");
+  const agentTask = await callMcpTool(token, "create_task", {
+    boardId: allowedBoard.id,
+    title: "OAuth Agent work",
+  });
+  assert.equal(agentTask.result?.isError, false);
+  const [agentEvent] =
+    await sql`SELECT actor_id,actor_name,actor_kind FROM activity WHERE task_id=${(agentTask.result?.structuredContent?.task as { id: string }).id} AND action='task.created'`;
+  assert.equal(agentEvent.actorId, user.id);
+  assert.equal(agentEvent.actorName, `${agent.name} via ${user.name}`);
+  assert.equal(agentEvent.actorKind, "agent");
 });
 
 test("removed status, subtask, move and portable routes cannot mutate the workspace", async () => {
-  const { cookie, token, allowedBoard } = await fixture();
+  const { cookie, restToken, allowedBoard } = await fixture();
   const response = await request(`/api/boards/${allowedBoard.id}/tasks`, {
     cookie,
     body: { title: "Keep task" },
@@ -100,7 +159,7 @@ test("removed status, subtask, move and portable routes cannot mutate the worksp
     tasks: await sql`SELECT * FROM tasks ORDER BY id`,
     history: await sql`SELECT * FROM activity ORDER BY id`,
   };
-  for (const access of [{ cookie }, { token }])
+  for (const access of [{ cookie }, { token: restToken }])
     for (const [path, method, body] of [
       ["/api/export", "GET", undefined],
       ["/api/import", "POST", {}],
@@ -147,23 +206,26 @@ test("mixed accessible and inaccessible notification IDs fail without any update
   };
   const accessible = await makeTask(allowedBoard.id);
   const inaccessible = await makeTask(privateBoard.id);
-  const result = await request("/api/notifications", {
-    token,
-    method: "PATCH",
-    body: { ids: [accessible, inaccessible] },
+  const result = await callMcpTool(token, "mark_notifications", {
+    ids: [accessible, inaccessible],
+    read: true,
   });
-  assert.equal(result.status, 403);
+  assert.equal(result.response.status, 200);
+  assert.equal(result.result?.isError, true);
   const rows = await sql`SELECT id,read_at FROM notifications ORDER BY id`;
   assert.equal(
     rows.every((row) => row.readAt === null),
     true,
   );
-  const listing = await (await request("/api/notifications", { token })).json();
+  const listing = await callMcpTool(token, "list_notifications");
+  assert.equal(listing.result?.isError, false);
   assert.deepEqual(
-    listing.items.map((item: { id: string }) => item.id),
+    (listing.result?.structuredContent?.items as { id: string }[]).map(
+      (item) => item.id,
+    ),
     [accessible],
   );
-  assert.equal(listing.unreadCount, 1);
+  assert.equal(listing.result?.structuredContent?.unreadCount, 1);
 });
 
 test("OAuth tokens must match the canonical MCP resource and cannot call REST directly", async () => {
@@ -184,7 +246,14 @@ test("OAuth tokens must match the canonical MCP resource and cannot call REST di
     (await credentialActor(new Request(resource, { headers })))?.kind,
     "agent",
   );
-  assert.equal(await credentialActor(new Request(restUrl, { headers })), null);
+  await assert.rejects(
+    credentialActor(new Request(restUrl, { headers })),
+    (error: unknown) =>
+      error instanceof Error &&
+      "status" in error &&
+      error.status === 403 &&
+      error.message === "Agent OAuth credentials use MCP",
+  );
 });
 
 test("idempotency remains atomic when a late response failure follows a domain mutation", async () => {
@@ -234,7 +303,8 @@ test("idempotency remains atomic when a late response failure follows a domain m
 });
 
 test("REST and MCP resolve task, comment, and activity IDs through board scope", async () => {
-  const { cookie, token, privateBoard, allowedBoard, user } = await fixture();
+  const { cookie, token, restToken, privateBoard, allowedBoard, user } =
+    await fixture();
   const privateTaskResponse = await request(
     `/api/boards/${privateBoard.id}/tasks`,
     { cookie, body: { title: "Hidden task" } },
@@ -258,6 +328,7 @@ test("REST and MCP resolve task, comment, and activity IDs through board scope",
     `/api/tasks/${privateTask.id}/activity`,
   ]) {
     assert.equal((await request(path, { token })).status, 403, path);
+    assert.equal((await request(path, { token: restToken })).status, 200, path);
   }
   assert.equal(
     (
@@ -269,21 +340,21 @@ test("REST and MCP resolve task, comment, and activity IDs through board scope",
     ).status,
     403,
   );
-  const call = async (name: string, arguments_: Record<string, unknown>) => {
-    const response = await request("/mcp", {
-      token,
-      body: {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name, arguments: arguments_ },
-      },
-      headers: { Accept: "application/json, text/event-stream" },
-    });
-    assert.equal(response.status, 200);
-    const body = await response.json();
-    assert.ok(body.result, JSON.stringify(body));
-    return body.result;
+  const commentBypass = await callMcpTool(token, "update_comment", {
+    commentId: comment.id,
+    version: comment.version,
+    body: "Scope bypass",
+  });
+  assert.equal(commentBypass.result?.isError, true);
+  assert.equal(
+    (await sql`SELECT body FROM comments WHERE id=${comment.id}`)[0].body,
+    "Hidden comment",
+  );
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const result = await callMcpTool(token, name, args);
+    assert.equal(result.response.status, 200);
+    assert.ok(result.result, JSON.stringify(result));
+    return result.result;
   };
   for (const name of ["get_task", "list_comments", "get_activity"]) {
     assert.equal(
@@ -300,12 +371,12 @@ test("REST and MCP resolve task, comment, and activity IDs through board scope",
   await sql`INSERT INTO users(id,workspace_id,name,email,password_hash,role) SELECT ${otherId},workspace_id,'Other author','other-author@example.test',password_hash,'member' FROM users WHERE id=${user.id}`;
   const [otherComment] =
     await sql`INSERT INTO comments(task_id,author_id,body) VALUES(${allowedTask.id},${otherId},'Another person comment') RETURNING id,version`;
-  const moderation = await request(`/api/comments/${otherComment.id}`, {
-    token,
-    method: "PATCH",
-    body: { version: otherComment.version, body: "Admin-parent bypass" },
+  const moderation = await call("update_comment", {
+    commentId: otherComment.id,
+    version: otherComment.version,
+    body: "Admin-parent bypass",
   });
-  assert.equal(moderation.status, 403);
+  assert.equal(moderation.isError, true);
   assert.equal(
     (await sql`SELECT body FROM comments WHERE id=${otherComment.id}`)[0].body,
     "Another person comment",
@@ -314,6 +385,7 @@ test("REST and MCP resolve task, comment, and activity IDs through board scope",
 
 async function changeAccessWhileWriteWaits(
   action: "remove" | "downgrade" | "revoke",
+  access: "session" | "personal-key" = "session",
 ) {
   const { cookie, user: admin } = await setupUser();
   const { board } = await (
@@ -329,15 +401,10 @@ async function changeAccessWhileWriteWaits(
   await sql`INSERT INTO sessions(id,user_id,token_hash,user_agent,expires_at,security_epoch) VALUES(${randomUUID()},${memberId},${hashToken(sessionToken)},'Security race test',now()+interval '1 day',0)`;
   const memberCookie = `mill_session=${sessionToken}`;
   const credentialResponse =
-    action === "revoke"
+    action === "revoke" || access === "personal-key"
       ? await request("/api/credentials", {
           cookie: memberCookie,
-          body: {
-            agentId: (await setupAgent(memberCookie)).id,
-            name: "Pending agent",
-            scopes: ["read", "write"],
-            boardIds: [board.id],
-          },
+          body: { name: "Pending personal key", expiresInDays: 30 },
         })
       : null;
   const credential = credentialResponse
@@ -426,6 +493,11 @@ for (const action of ["remove", "downgrade", "revoke"] as const) {
     changeAccessWhileWriteWaits(action));
 }
 
+for (const action of ["remove", "downgrade"] as const) {
+  test(`personal key ${action} queued first prevents a write under stale human-owner permissions`, async () =>
+    changeAccessWhileWriteWaits(action, "personal-key"));
+}
+
 test("anonymous rate limits isolate actual peers and ignore untrusted forwarded headers", async () => {
   const { app } = await import("../apps/api/src/app.js");
   const { IncomingMessage } = await import("node:http");
@@ -466,10 +538,9 @@ test("anonymous rate limits isolate actual peers and ignore untrusted forwarded 
 
 test("retrying credential creation returns the same secret while encrypting stored retry responses", async () => {
   const { cookie } = await setupUser();
-  const agent = await setupAgent(cookie);
   const options = {
     cookie,
-    body: { agentId: agent.id, name: "Retried credential", scopes: ["read"] },
+    body: { name: "Retried credential", expiresInDays: 30 },
     headers: { "Idempotency-Key": "security-credential-retry" },
   };
   const firstResponse = await request("/api/credentials", options);
@@ -506,30 +577,23 @@ test("MCP can read a task with a valid long description and a long discussion", 
   assert.equal(createdResponse.status, 201);
   const { task } = await createdResponse.json();
   await sql`INSERT INTO comments(task_id,author_id,body,created_at) SELECT ${task.id},${user.id},${"Discussion ".repeat(900)},now()+sequence*interval '1 millisecond' FROM generate_series(1,100) sequence`;
-  const response = await request("/mcp", {
-    token,
-    body: {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "get_task",
-        arguments: { taskId: task.id, commentLimit: 10 },
-      },
-    },
-    headers: { Accept: "application/json, text/event-stream" },
+  const response = await callMcpTool(token, "get_task", {
+    taskId: task.id,
+    commentLimit: 10,
   });
-  assert.equal(response.status, 200);
-  const result = (await response.json()).result;
+  assert.equal(response.response.status, 200);
+  const result = response.result!;
   assert.equal(result.isError, false, JSON.stringify(result));
-  assert.equal(result.structuredContent.task.id, task.id);
-  assert.equal(result.structuredContent.task.description, task.description);
-  assert.equal(result.structuredContent.comments.length, 10);
-  assert.equal(
-    result.structuredContent.comments[0].body,
-    "Discussion ".repeat(900),
-  );
-  assert.equal(result.structuredContent.commentsPage.hasMore, true);
-  assert.equal("subtasks" in result.structuredContent, false);
-  assert.equal("parent" in result.structuredContent, false);
+  const content = result.structuredContent as {
+    task: { id: string; description: string };
+    comments: { body: string }[];
+    commentsPage: { hasMore: boolean };
+  };
+  assert.equal(content.task.id, task.id);
+  assert.equal(content.task.description, task.description);
+  assert.equal(content.comments.length, 10);
+  assert.equal(content.comments[0]!.body, "Discussion ".repeat(900));
+  assert.equal(content.commentsPage.hasMore, true);
+  assert.equal("subtasks" in content, false);
+  assert.equal("parent" in content, false);
 });

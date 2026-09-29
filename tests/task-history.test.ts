@@ -2,11 +2,14 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { randomUUID, createHash } from "node:crypto";
+import type { Task } from "../packages/contracts/src/index.js";
 import {
+  callMcpTool,
   cleanupDatabase,
   request,
   resetDatabase,
   setupAgent,
+  setupOAuthAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -16,6 +19,12 @@ after(cleanupDatabase);
 async function json(response: Response, status = 200) {
   assert.equal(response.status, status, await response.clone().text());
   return response.json();
+}
+async function agentTask(token: string, args: Record<string, unknown>) {
+  const called = await callMcpTool(token, "update_task", args);
+  assert.equal(called.response.status, 200);
+  assert.equal(called.result?.isError, false, JSON.stringify(called.result));
+  return called.result!.structuredContent as { task: Task };
 }
 async function member(cookie: string, role: "member" | "viewer") {
   const invitation = await json(
@@ -50,24 +59,23 @@ test("workspace audit is absent for every role while task history retains human,
     }),
     201,
   );
-  const credential = await json(
+  const personalKey = await json(
     await request("/api/credentials", {
       cookie,
-      body: {
-        agentId: (await setupAgent(cookie, { name: "Task helper" })).id,
-        name: "Task helper",
-        scopes: ["read", "write"],
-        boardIds: [board.id],
-      },
+      body: { name: "Human task client", expiresInDays: 30 },
     }),
     201,
   );
+  const credential = await setupOAuthAgent(cookie, {
+    agentId: (await setupAgent(cookie, { name: "Task helper" })).id,
+    boardIds: [board.id],
+  });
   for (const access of [
     {},
     { cookie },
     { cookie: writer.cookie },
     { cookie: viewer.cookie },
-    { token: credential.token },
+    { token: personalKey.token },
   ])
     assert.equal((await request("/api/audit", access)).status, 404);
   let task = (
@@ -80,6 +88,16 @@ test("workspace audit is absent for every role while task history retains human,
     )
   ).task;
   assert.equal(task.status, "todo");
+  assert.equal(
+    (await request(`/api/tasks/${task.id}`, { token: credential.token }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await callMcpTool(personalKey.token, "get_task", { taskId: task.id }))
+      .response.status,
+    403,
+  );
   const comment = (
     await json(
       await request(`/api/tasks/${task.id}/comments`, {
@@ -108,7 +126,7 @@ test("workspace audit is absent for every role while task history retains human,
   task = (
     await json(
       await request(`/api/tasks/${task.id}`, {
-        cookie,
+        token: personalKey.token,
         method: "PATCH",
         body: {
           version: task.version,
@@ -119,29 +137,28 @@ test("workspace audit is absent for every role while task history retains human,
     )
   ).task;
   task = (
-    await json(
-      await request(`/api/tasks/${task.id}`, {
-        token: credential.token,
-        method: "PATCH",
-        body: { version: task.version, description: "Agent edit" },
-      }),
-    )
+    await agentTask(credential.token, {
+      taskId: task.id,
+      version: task.version,
+      description: "Agent edit",
+    })
   ).task;
   task = (
-    await json(
-      await request(`/api/tasks/${task.id}`, {
-        token: credential.token,
-        method: "PATCH",
-        body: { version: task.version, status: "in_progress" },
-      }),
-    )
+    await agentTask(credential.token, {
+      taskId: task.id,
+      version: task.version,
+      status: "in_progress",
+    })
   ).task;
-  await json(
-    await request(`/api/tasks/${task.id}/comments`, {
-      token: credential.token,
-      body: { body: "Agent comment" },
-    }),
-    201,
+  const agentComment = await callMcpTool(credential.token, "add_comment", {
+    taskId: task.id,
+    body: "Agent comment",
+  });
+  assert.equal(agentComment.response.status, 200);
+  assert.equal(
+    agentComment.result?.isError,
+    false,
+    JSON.stringify(agentComment.result),
   );
   const history = await json(
     await request(`/api/tasks/${task.id}/activity`, { cookie: viewer.cookie }),
@@ -171,6 +188,15 @@ test("workspace audit is absent for every role while task history retains human,
         event.actorName === "Task helper via Admin",
     ),
   );
+  const personalKeyEvent = history.items.find(
+    (event: { action: string; actorKind: string }) =>
+      event.action === "task.updated" && event.actorKind === "human",
+  );
+  assert.equal(personalKeyEvent.actorId, user.id);
+  assert.equal(personalKeyEvent.actorName, "Admin");
+  assert.deepEqual(personalKeyEvent.detail, {
+    fields: ["assigneeId", "priority"],
+  });
   assert.ok(
     history.items.every(
       (event: { taskId: string; boardId: string }) =>
@@ -187,6 +213,12 @@ test("workspace audit is absent for every role while task history retains human,
   );
   await json(
     await request(`/api/credentials/${credential.credential.id}`, {
+      cookie,
+      method: "DELETE",
+    }),
+  );
+  await json(
+    await request(`/api/credentials/${personalKey.credential.id}`, {
       cookie,
       method: "DELETE",
     }),
@@ -241,28 +273,20 @@ test("status changes retain attributed history, reject stale versions and dedupl
     await sql`SELECT * FROM tasks WHERE id=${unrelated.id}`;
   const unrelatedHistory =
     await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY id`;
-  const credential = await json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie, { name: "Status helper" })).id,
-        name: "Status helper",
-        scopes: ["read", "write"],
-        boardIds: [board.id],
-      },
-    }),
-    201,
-  );
-  assert.equal(
-    (
-      await request(`/api/tasks/${task.id}`, {
-        token: credential.token,
-        method: "PATCH",
-        body: { version: task.version + 1, status: "in_progress" },
-      })
-    ).status,
-    409,
-  );
+  const credential = await setupOAuthAgent(cookie, {
+    agentId: (await setupAgent(cookie, { name: "Status helper" })).id,
+    boardIds: [board.id],
+  });
+  const stale = await callMcpTool(credential.token, "update_task", {
+    taskId: task.id,
+    version: task.version + 1,
+    status: "in_progress",
+  });
+  assert.equal(stale.response.status, 200);
+  assert.equal(stale.result?.isError, true);
+  assert.deepEqual(stale.result?.structuredContent, {
+    error: "This item changed. Reload it before saving.",
+  });
   assert.deepEqual(
     await sql`SELECT * FROM tasks WHERE id=${task.id}`,
     taskBefore,
@@ -271,18 +295,15 @@ test("status changes retain attributed history, reject stale versions and dedupl
     await sql`SELECT * FROM activity ORDER BY id`,
     historyBefore,
   );
-  const patchOptions = {
-    token: credential.token,
-    method: "PATCH",
-    headers: { "Idempotency-Key": "status-change-history" },
-    body: { version: task.version, status: "in_progress" },
+  const patchArgs = {
+    taskId: task.id,
+    version: task.version,
+    status: "in_progress",
+    idempotencyKey: "status-change-history",
   };
-  const changed = await json(
-    await request(`/api/tasks/${task.id}`, patchOptions),
-  );
-  const replayResponse = await request(`/api/tasks/${task.id}`, patchOptions);
-  assert.equal(replayResponse.headers.get("Idempotency-Replayed"), "true");
-  assert.deepEqual(await json(replayResponse), changed);
+  const changed = await agentTask(credential.token, patchArgs);
+  const replayed = await agentTask(credential.token, patchArgs);
+  assert.deepEqual(replayed, changed);
   assert.equal(changed.task.status, "in_progress");
   assert.equal(changed.task.version, task.version + 1);
   const history = await json(
@@ -312,6 +333,99 @@ test("status changes retain attributed history, reject stale versions and dedupl
   assert.deepEqual(
     await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY id`,
     unrelatedHistory,
+  );
+});
+
+test("personal keys retain human task history across boards and follow current membership", async () => {
+  const { cookie } = await setupUser();
+  const writer = await member(cookie, "member");
+  const personalKey = await json(
+    await request("/api/credentials", {
+      cookie: writer.cookie,
+      body: { name: "Personal history client", expiresInDays: 60 },
+    }),
+    201,
+  );
+  assert.equal(personalKey.credential.agentId, null);
+  assert.equal(personalKey.credential.agentName, null);
+  assert.deepEqual(personalKey.credential.scopes, []);
+  assert.equal(personalKey.credential.boardIds, null);
+  const tasks: Task[] = [];
+  for (const [name, prefix] of [
+    ["First history board", "FIRST"],
+    ["Second history board", "SECOND"],
+  ]) {
+    const { board } = await json(
+      await request("/api/boards", { cookie, body: { name, prefix } }),
+      201,
+    );
+    const { task } = await json(
+      await request(`/api/boards/${board.id}/tasks`, {
+        token: personalKey.token,
+        body: { title: `Work on ${name}`, status: "backlog" },
+      }),
+      201,
+    );
+    tasks.push(task);
+  }
+  const task = tasks[0]!;
+  const patchOptions = {
+    token: personalKey.token,
+    method: "PATCH",
+    headers: { "Idempotency-Key": "personal-status-history" },
+    body: { version: task.version, status: "in_progress" },
+  };
+  const changed = await json(
+    await request(`/api/tasks/${task.id}`, patchOptions),
+  );
+  const replayResponse = await request(`/api/tasks/${task.id}`, patchOptions);
+  assert.equal(replayResponse.headers.get("Idempotency-Replayed"), "true");
+  assert.deepEqual(await json(replayResponse), changed);
+  const history = await json(
+    await request(`/api/tasks/${task.id}/activity`, {
+      token: personalKey.token,
+    }),
+  );
+  assert.deepEqual(
+    history.items.map((event: { action: string }) => event.action).sort(),
+    ["task.created", "task.moved"],
+  );
+  assert.ok(
+    history.items.every(
+      (event: { actorKind: string; actorId: string; actorName: string }) =>
+        event.actorKind === "human" &&
+        event.actorId === writer.user.id &&
+        event.actorName === writer.user.name,
+    ),
+  );
+  const taskBefore = await sql`SELECT * FROM tasks ORDER BY id`;
+  const historyBefore = await sql`SELECT * FROM activity ORDER BY id`;
+  await json(
+    await request(`/api/auth/members/${writer.user.id}`, {
+      cookie,
+      method: "PATCH",
+      body: { role: "viewer" },
+    }),
+  );
+  assert.equal(
+    (
+      await request(`/api/tasks/${task.id}`, {
+        token: personalKey.token,
+        method: "PATCH",
+        body: { version: changed.task.version, status: "done" },
+      })
+    ).status,
+    403,
+  );
+  const { task: other } = await json(
+    await request(`/api/tasks/${tasks[1]!.id}`, { token: personalKey.token }),
+  );
+  assert.equal(other.id, tasks[1]!.id);
+  assert.equal(other.status, "backlog");
+  assert.deepEqual(await sql`SELECT * FROM tasks ORDER BY id`, taskBefore);
+  assert.deepEqual(
+    await sql`SELECT * FROM activity ORDER BY id`,
+    historyBefore,
   );
 });
 

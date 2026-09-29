@@ -25,7 +25,10 @@ for (const viewport of [
       "script-src 'self'",
     );
     await expect(
-      page.getByRole("heading", { name: "Connect an agent", exact: true }),
+      page.getByRole("heading", {
+        name: "REST clients and MCP Agents",
+        exact: true,
+      }),
     ).toBeVisible();
     await expect(page.getByRole("main")).toContainText("Agents");
     await expect(page.getByRole("main")).toContainText("API keys");

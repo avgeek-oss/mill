@@ -3,6 +3,7 @@ import {
   request,
   resetDatabase,
   setupAgent,
+  setupOAuthAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -44,10 +45,10 @@ async function invite(
 }
 type Key = {
   token: string;
-  credential: { id: string; agentId: string; agentName: string };
+  credential: { id: string; agentId: string | null; agentName: string | null };
 };
 
-test("explicit Agents bind personal keys, task assignment and OAuth to current human access", async (t) => {
+test("personal keys and Agent OAuth retain separate current human access boundaries", async (t) => {
   await resetDatabase();
   try {
     const { cookie, user } = await setupUser();
@@ -61,36 +62,42 @@ test("explicit Agents bind personal keys, task assignment and OAuth to current h
       scope: "team",
       memberIds: [user.id, member.id, viewer.id],
     });
-    const key = (ownerCookie: string, agentId: string, scopes = ["read"]) =>
+    const key = (ownerCookie: string) =>
       request("/api/credentials", {
         cookie: ownerCookie,
-        body: { name: "Selected Agent key", agentId, scopes },
+        body: { name: "Personal REST key", expiresInDays: 90 },
       });
-    const personalKey = await body<Key>(
-      await key(cookie, personal.id, ["read", "write"]),
-      201,
-    );
+    const personalKey = await body<Key>(await key(cookie), 201);
 
     await t.test(
-      "keys require a selected accessible Agent and remain personally owned",
+      "personal keys inherit current human roles and cannot manage Agents or connect MCP",
       async () => {
+        for (const extra of [
+          { agentId: personal.id },
+          { scopes: ["read"] },
+          { boardIds: [] },
+        ])
+          assert.equal(
+            (
+              await request("/api/credentials", {
+                cookie,
+                body: { name: "No Agent or scope selector", ...extra },
+              })
+            ).status,
+            400,
+          );
+        const read = await body<Key>(await key(viewer.cookie), 201);
+        assert.equal(read.credential.agentId, null);
+        assert.equal(read.credential.agentName, null);
         assert.equal(
           (
-            await request("/api/credentials", {
-              cookie,
-              body: { name: "Unbound", scopes: ["read"] },
+            await request("/api/boards", {
+              token: read.token,
+              body: { name: "Viewer cannot create" },
             })
           ).status,
-          400,
-        );
-        assert.equal((await key(member.cookie, personal.id)).status, 403);
-        assert.equal(
-          (await key(viewer.cookie, team.id, ["read", "write"])).status,
           403,
         );
-        const read = await body<Key>(await key(viewer.cookie, team.id), 201);
-        assert.equal(read.credential.agentId, team.id);
-        assert.equal(read.credential.agentName, team.name);
         assert.equal(
           (
             await request(`/api/credentials/${personalKey.credential.id}`, {
@@ -109,7 +116,7 @@ test("explicit Agents bind personal keys, task assignment and OAuth to current h
                 token: personalKey.token,
                 method,
                 body: {
-                  name: "Implicit Agent",
+                  name: "No implicit Agent",
                   scope: "personal",
                   version: personal.version,
                 },
@@ -119,13 +126,20 @@ test("explicit Agents bind personal keys, task assignment and OAuth to current h
           );
         }
         const actor = await credentialActor(
-          new Request(`${process.env.MILL_BASE_URL}/mcp`, {
+          new Request(`${process.env.MILL_BASE_URL}/api/boards`, {
             headers: { Authorization: `Bearer ${personalKey.token}` },
           }),
         );
-        assert.equal(actor?.agentId, personal.id);
+        assert.equal(actor?.agentId, undefined);
+        assert.equal(actor?.kind, "human");
+        assert.equal(actor?.credentialType, "api-key");
         assert.equal(actor?.userId, user.id);
-        assert.equal(actor?.name, `${personal.name} via ${user.name}`);
+        assert.equal(actor?.name, user.name);
+        assert.equal(
+          (await request("/mcp", { token: personalKey.token, body: {} }))
+            .status,
+          403,
+        );
       },
     );
 
@@ -332,10 +346,10 @@ test("explicit Agents bind personal keys, task assignment and OAuth to current h
         const active = await body<{ access_token: string }>(
           await exchange(await approve(member.cookie, team.id)),
         );
-        const memberKey = await body<Key>(
-          await key(member.cookie, team.id),
-          201,
-        );
+        const memberKey = await setupOAuthAgent(member.cookie, {
+          agentId: team.id,
+        });
+        const independent = await body<Key>(await key(member.cookie), 201);
         await members([user.id, viewer.id]);
         assert.equal(
           (
@@ -361,6 +375,10 @@ test("explicit Agents bind personal keys, task assignment and OAuth to current h
         );
         const [stored] =
           await sql`SELECT agent_id,revoked_at FROM credentials WHERE id=${memberKey.credential.id}`;
+        assert.equal(
+          (await request("/api/boards", { token: independent.token })).status,
+          200,
+        );
         assert.equal(stored.agentId, team.id);
         assert(stored.revokedAt);
         await members([user.id, member.id, viewer.id]);
@@ -380,9 +398,10 @@ test("explicit Agents bind personal keys, task assignment and OAuth to current h
       },
     );
     await t.test(
-      "queued key issuance and OAuth exchange cannot cross an Agent grant revocation",
+      "queued Agent consent and OAuth exchange cannot cross a grant revocation",
       async () => {
         const pending = await approve(member.cookie, team.id);
+        const approval = await start();
         const [before] =
           await sql`SELECT count(*)::int AS count FROM credentials WHERE user_id=${member.id}`;
         let release!: () => void;
@@ -402,7 +421,10 @@ test("explicit Agents bind personal keys, task assignment and OAuth to current h
         await held;
         let creationFinished = false;
         let exchangeFinished = false;
-        const creation = key(member.cookie, team.id).then((response) => {
+        const creation = request(`/api/oauth/consent/${approval.id}`, {
+          cookie: member.cookie,
+          body: { allow: true, agentId: team.id },
+        }).then((response) => {
           creationFinished = true;
           return response;
         });

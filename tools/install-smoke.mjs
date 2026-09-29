@@ -294,7 +294,7 @@ if (legacyAgentState) {
   if (process.env.MILL_VERIFY_AGENT_UPGRADE_STATE)
     assert.equal(
       (await request("/api/agents")).items.length,
-      0,
+      legacy.policyAgentIds?.length ?? 0,
       "The upgrade does not invent Agents",
     );
   for (const token of [
@@ -395,10 +395,87 @@ if (legacyAgentState) {
     before,
     "The invalidated retry creates no board",
   );
+  if (legacy.policyAgentIds) {
+    const agents = (await request("/api/agents")).items;
+    assert.equal(legacy.policyAgentIds.length, 2);
+    for (const id of legacy.policyAgentIds) {
+      const agent = agents.find((item) => item.id === id);
+      assert.ok(agent, "An existing Agent survives the policy migration");
+      assert.equal(agent.allMembers, false);
+      if (agent.scope === "team")
+        assert.ok(
+          agent.memberIds.includes(agent.creatorId),
+          "The team creator retains a pinned grant",
+        );
+    }
+    const apiToken = process.env.MILL_VERIFY_POLICY_API_TOKEN;
+    const oauthToken = process.env.MILL_VERIFY_POLICY_OAUTH_TOKEN;
+    for (const token of [apiToken, oauthToken])
+      assert.ok(
+        typeof token === "string" && /^mill_[A-Za-z0-9_-]{43}$/.test(token),
+        "Supply policy checkpoint tokens through private environment variables",
+      );
+    await request("/api/boards", "GET", undefined, 401, new Map(), {
+      Authorization: `Bearer ${apiToken}`,
+    });
+    await request("/mcp", "POST", {}, 401, new Map(), {
+      Authorization: `Bearer ${apiToken}`,
+    });
+    await request("/api/boards", "GET", undefined, 403, new Map(), {
+      Authorization: `Bearer ${oauthToken}`,
+    });
+    const policyCredentials = (await request("/api/credentials")).items;
+    const oldApi = policyCredentials.find(
+      (item) => item.id === legacy.policyApiCredentialId,
+    );
+    assert.ok(oldApi?.revokedAt, "The existing bound personal key is revoked");
+    assert.equal(oldApi.agentId, null);
+    assert.equal(oldApi.boardIds, null);
+    assert.deepEqual(oldApi.scopes, []);
+    const oldOAuth = policyCredentials.find(
+      (item) => item.id === legacy.policyOAuthCredentialId,
+    );
+    assert.equal(oldOAuth?.tokenType, "oauth");
+    assert.equal(oldOAuth?.agentId, legacy.policyAgentId);
+    assert.equal(oldOAuth?.revokedAt, null);
+    const policyTransport = { id: 0, protocolVersion: undefined };
+    const initialization = await mcpRequest(
+      oauthToken,
+      policyTransport,
+      "initialize",
+      {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "policy-checkpoint", version: "1" },
+      },
+    );
+    policyTransport.protocolVersion = initialization.protocolVersion;
+    await mcpRequest(
+      oauthToken,
+      policyTransport,
+      "notifications/initialized",
+      undefined,
+      true,
+    );
+    const taskId = legacy.policyTaskId ?? state.taskId;
+    const read = await mcpRequest(oauthToken, policyTransport, "tools/call", {
+      name: "get_task",
+      arguments: { taskId },
+    });
+    assert.equal(
+      read.isError,
+      false,
+      "An existing selected-Agent OAuth connection remains usable through MCP",
+    );
+    assert.equal(read.structuredContent.task.id, taskId);
+    pass(
+      "Existing Agents and selected OAuth remain usable; legacy bound personal keys stay revoked and unbound",
+    );
+  }
   if (process.env.MILL_VERIFY_AGENT_UPGRADE_STATE)
     assert.equal(
       (await request("/api/agents")).items.length,
-      0,
+      legacy.policyAgentIds?.length ?? 0,
       "Rejected legacy credentials and consent cannot create Agents",
     );
   pass("Legacy Agent credentials, consent and cached retries remain terminal");
@@ -431,6 +508,72 @@ if (!state.agentId) {
   state.ownerId = owner.id;
   await writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
 }
+if (!state.allMembersAgentId) {
+  const { agent } = await request(
+    "/api/agents",
+    "POST",
+    {
+      name: "Installation all-members Agent",
+      scope: "team",
+      allMembers: true,
+      memberIds: [owner.id],
+    },
+    201,
+  );
+  const invitation = await request(
+    "/api/auth/invitations",
+    "POST",
+    {
+      email: "install-future-member@example.invalid",
+      role: "member",
+    },
+    201,
+  );
+  const futureCookies = new Map();
+  const accepted = await request(
+    "/api/auth/accept-invitation",
+    "POST",
+    {
+      token: invitation.token,
+      name: "Install future member",
+      password,
+    },
+    201,
+    futureCookies,
+  );
+  const directory = await request(
+    "/api/agents",
+    "GET",
+    undefined,
+    200,
+    futureCookies,
+  );
+  const accessible = directory.items.find((item) => item.id === agent.id);
+  assert.equal(accessible?.allMembers, true);
+  assert.ok(
+    !accessible.memberIds.includes(accepted.user.id),
+    "Future team access does not require an individual grant",
+  );
+  const { task } = await request(
+    `/api/boards/${state.boardId}/tasks`,
+    "POST",
+    {
+      title: "Persist future member all-members assignment",
+      assigneeId: accepted.user.id,
+      agentId: agent.id,
+    },
+    201,
+    futureCookies,
+  );
+  assert.equal(task.agentId, agent.id);
+  state.allMembersAgentId = agent.id;
+  state.futureMemberId = accepted.user.id;
+  state.futureAgentTaskId = task.id;
+  await writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
+  pass(
+    "An all-members team Agent gives a future accepted human member current access without an individual grant",
+  );
+}
 const availableAgents = await request("/api/agents");
 const personalAgent = availableAgents.items.find(
   (item) => item.id === state.agentId,
@@ -444,6 +587,19 @@ assert.equal(teamAgent?.scope, "team");
 assert.deepEqual(
   new Set(teamAgent.memberIds),
   new Set([state.ownerId, state.memberId]),
+);
+const allMembersAgent = availableAgents.items.find(
+  (item) => item.id === state.allMembersAgentId,
+);
+assert.equal(allMembersAgent?.allMembers, true);
+assert.ok(!allMembersAgent.memberIds.includes(state.futureMemberId));
+const futureTask = await request(`/api/tasks/${state.futureAgentTaskId}`);
+assert.equal(futureTask.task.agentId, state.allMembersAgentId);
+assert.equal(futureTask.task.assigneeId, state.futureMemberId);
+assert.ok(
+  (await request("/api/auth/members")).items.some(
+    (member) => member.id === state.futureMemberId && member.role === "member",
+  ),
 );
 pass("Explicit personal and team Agents with current human grants persist");
 const { task, comments } = await request(`/api/tasks/${state.taskId}`);
@@ -465,6 +621,16 @@ if (state.agentTaskId) {
   const persistedAgentTask = await request(`/api/tasks/${state.agentTaskId}`);
   assert.equal(persistedAgentTask.task.agentId, state.agentId);
   assert.equal(persistedAgentTask.task.assigneeId, state.ownerId);
+}
+if (state.restKeyTaskId) {
+  const persistedRestTask = await request(`/api/tasks/${state.restKeyTaskId}`);
+  assert.equal(persistedRestTask.task.agentId, null);
+  const events = await request(`/api/tasks/${state.restKeyTaskId}/activity`);
+  assert.ok(
+    events.items.some(
+      (event) => event.actorKind === "human" && event.actorName === owner.name,
+    ),
+  );
 }
 const history = await request(`/api/tasks/${state.taskId}/activity`);
 assert.ok(
@@ -621,16 +787,55 @@ if (
     "POST",
     {
       name: "Disposable production capability check",
-      agentId: state.agentId,
-      scopes: ["read", "write"],
-      boardIds: [state.boardId],
-      expiresInDays: 1,
+      expiresInDays: 30,
     },
     201,
   );
+  assert.equal(external.credential.agentId, null);
+  assert.equal(external.credential.boardIds, null);
+  assert.deepEqual(external.credential.scopes, []);
+  await request("/mcp", "POST", {}, 403, new Map(), {
+    Authorization: `Bearer ${external.token}`,
+  });
+  await request(
+    `/api/tasks/${state.taskId}`,
+    "GET",
+    undefined,
+    200,
+    new Map(),
+    { Authorization: `Bearer ${external.token}` },
+  );
+  if (!state.restKeyTaskId) {
+    const created = await request(
+      `/api/boards/${state.boardId}/tasks`,
+      "POST",
+      { title: "Persist personal REST key task" },
+      201,
+      new Map(),
+      { Authorization: `Bearer ${external.token}` },
+    );
+    const events = await request(
+      `/api/tasks/${created.task.id}/activity`,
+      "GET",
+      undefined,
+      200,
+      new Map(),
+      { Authorization: `Bearer ${external.token}` },
+    );
+    assert.ok(
+      events.items.some(
+        (event) =>
+          event.actorKind === "human" && event.actorName === owner.name,
+      ),
+    );
+    state.restKeyTaskId = created.task.id;
+    await writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
+  }
+  let mcpToken;
+  let oauthCredentialId;
   const transport = { id: 0, protocolVersion: undefined };
   try {
-    if (!state.oauthCredentialId) {
+    {
       const agentsBefore = (await request("/api/agents")).items.map(
         (item) => item.id,
       );
@@ -649,7 +854,7 @@ if (
         201,
       );
       const authorization = await fetch(
-        `${origin}/oauth/authorize?${new URLSearchParams({ client_id: client.client_id, redirect_uri: redirect, resource, response_type: "code", scope: "read", state: oauthState, code_challenge_method: "S256", code_challenge: createHash("sha256").update(verifier).digest("base64url") })}`,
+        `${origin}/oauth/authorize?${new URLSearchParams({ client_id: client.client_id, redirect_uri: redirect, resource, response_type: "code", scope: "read write", state: oauthState, code_challenge_method: "S256", code_challenge: createHash("sha256").update(verifier).digest("base64url") })}`,
         { redirect: "manual", signal: AbortSignal.timeout(15000) },
       );
       assert.equal(authorization.status, 302);
@@ -739,8 +944,12 @@ if (
         agentsBefore,
         "OAuth never creates an Agent",
       );
-      state.oauthCredentialId = metadata.id;
-      state.oauthClientId = client.client_id;
+      mcpToken = issued.access_token;
+      oauthCredentialId = metadata.id;
+      if (!state.oauthCredentialId) {
+        state.oauthCredentialId = metadata.id;
+        state.oauthClientId = client.client_id;
+      }
       await writeFile(stateFile, JSON.stringify(state, null, 2), {
         mode: 0o600,
       });
@@ -748,16 +957,11 @@ if (
         "Actual selected-Agent OAuth consent, PKCE exchange and MCP retain bound metadata for backup",
       );
     }
-    const initialized = await mcpRequest(
-      external.token,
-      transport,
-      "initialize",
-      {
-        protocolVersion: "2025-11-25",
-        capabilities: {},
-        clientInfo: { name: "mill-production-verification", version: "1.0.0" },
-      },
-    );
+    const initialized = await mcpRequest(mcpToken, transport, "initialize", {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "mill-production-verification", version: "1.0.0" },
+    });
     assert.ok(
       ["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"].includes(
         initialized.protocolVersion,
@@ -767,18 +971,13 @@ if (
     assert.ok(initialized.capabilities.tools);
     transport.protocolVersion = initialized.protocolVersion;
     await mcpRequest(
-      external.token,
+      mcpToken,
       transport,
       "notifications/initialized",
       undefined,
       true,
     );
-    const { tools } = await mcpRequest(
-      external.token,
-      transport,
-      "tools/list",
-      {},
-    );
+    const { tools } = await mcpRequest(mcpToken, transport, "tools/list", {});
     assert.ok(tools.some((item) => item.name === "update_task"));
     assert.ok(tools.some((item) => item.name === "list_agents"));
     assert.ok(
@@ -823,7 +1022,7 @@ if (
       ])
         assert.equal(field in tool.inputSchema.properties, false);
     }
-    const read = await mcpRequest(external.token, transport, "tools/call", {
+    const read = await mcpRequest(mcpToken, transport, "tools/call", {
       name: "get_task",
       arguments: { taskId: state.taskId },
     });
@@ -832,7 +1031,7 @@ if (
     assert.equal(read.structuredContent.task.agentId, state.agentId);
     if (!state.agentTaskId) {
       const createdAgentTask = await mcpRequest(
-        external.token,
+        mcpToken,
         transport,
         "tools/call",
         {
@@ -860,7 +1059,7 @@ if (
         mode: 0o600,
       });
     }
-    const rejected = await mcpRequest(external.token, transport, "tools/call", {
+    const rejected = await mcpRequest(mcpToken, transport, "tools/call", {
       name: "create_task",
       arguments: {
         boardId: state.boardId,
@@ -871,7 +1070,7 @@ if (
     assert.equal(rejected.isError, true);
     assert.equal(
       (
-        await mcpRequest(external.token, transport, "tools/call", {
+        await mcpRequest(mcpToken, transport, "tools/call", {
           name: "create_column",
           arguments: { boardId: state.boardId, name: "Removed" },
         })
@@ -882,10 +1081,19 @@ if (
       const upgrade = JSON.parse(
         await readFile(process.env.MILL_VERIFY_UPGRADE_STATE, "utf8"),
       );
+      const outsideMcp = await mcpRequest(mcpToken, transport, "tools/call", {
+        name: "get_board",
+        arguments: { boardId: upgrade.archivedBoardId },
+      });
+      assert.equal(
+        outsideMcp.isError,
+        true,
+        "Scoped Agent MCP cannot read another board",
+      );
       const outside = await fetch(
         `${origin}/api/boards/${upgrade.archivedBoardId}`,
         {
-          headers: { Authorization: `Bearer ${external.token}` },
+          headers: { Authorization: `Bearer ${mcpToken}` },
           signal: AbortSignal.timeout(15_000),
           redirect: "error",
         },
@@ -893,11 +1101,13 @@ if (
       assert.equal(
         outside.status,
         403,
-        "Scoped production credential cannot read another migrated board",
+        "Agent OAuth credentials cannot use public REST",
       );
     }
   } finally {
     await request(`/api/credentials/${external.credential.id}`, "DELETE");
+    if (oauthCredentialId && oauthCredentialId !== state.oauthCredentialId)
+      await request(`/api/credentials/${oauthCredentialId}`, "DELETE");
   }
   pass(
     "Removed structure, ranking, import/export and email preferences are rejected; real scoped MCP advertises fixed statuses and rejects obsolete capabilities",

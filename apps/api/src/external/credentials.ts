@@ -4,11 +4,7 @@ import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest } from "../http.js";
 import { HTTPException } from "hono/http-exception";
 import type { Tx } from "../domain/helpers.js";
-import {
-  findAccessibleAgent,
-  lockAgentAuthority,
-  requireAgentAccess,
-} from "../agents.js";
+import { findAccessibleAgent, lockAgentAuthority } from "../agents.js";
 import { digest, mcpResource, secret } from "./protocol.js";
 
 export type Credential = {
@@ -29,10 +25,7 @@ export type Credential = {
 };
 export type CredentialInput = {
   name: string;
-  agentId: string;
-  scopes: string[];
-  boardIds?: string[];
-  expiresInDays: number;
+  expiresInDays: 30 | 60 | 90 | 365;
 };
 // Only in-process MCP dispatch can use a resource-bound OAuth token on REST handlers.
 export const mcpDispatchRequests = new WeakSet<Request>();
@@ -65,25 +58,19 @@ export async function validateBoards(boardIds: string[] | undefined, tx: Tx) {
 export async function createCredential(a: Actor, input: CredentialInput) {
   return sql.begin(async (tx) => {
     await lockAgentAuthority(tx);
-    await validateBoards(input.boardIds, tx);
     const [owner] = await tx<
       { role: Role }[]
     >`SELECT role FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
-    if (!owner || a.kind !== "human")
+    if (!owner || a.kind !== "human" || a.credentialId)
       throw new HTTPException(403, {
         message: "Your membership no longer permits this action",
       });
-    if (owner.role === "viewer" && input.scopes.includes("write"))
-      throw new HTTPException(403, {
-        message: "Viewer accounts can only grant read access",
-      });
-    const agent = await requireAgentAccess(tx, a.userId, input.agentId);
     const token = `mill_${secret()}`;
     const [credential] = await tx<
       Credential[]
-    >`INSERT INTO credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,board_ids,expires_at) VALUES(${a.userId},${agent.id},${input.name},${digest(token)},${token.slice(0, 12)},${input.scopes},${input.boardIds ?? null},${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,agent_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
+    >`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,expires_at) VALUES(${a.userId},${input.name},${digest(token)},${token.slice(0, 12)},'{}'::text[],${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,agent_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
 
-    return { credential: { ...credential!, agentName: agent.name }, token };
+    return { credential: { ...credential!, agentName: null }, token };
   });
 }
 export async function revokeCredential(a: Actor, id: string) {
@@ -113,31 +100,77 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
       lastUsedAt: Date | null;
     }[]
   >`SELECT c.id,c.name,c.user_id,c.agent_id,u.name AS user_name,u.role,c.scopes,c.board_ids,c.token_type,c.resource,c.last_used_at FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.token_hash=${digest(token)} AND c.revoked_at IS NULL AND c.expires_at>now() AND u.disabled_at IS NULL`;
-  if (
-    !principal?.agentId ||
-    (principal.tokenType === "oauth" &&
-      (principal.resource !== mcpResource() ||
-        (new URL(request.url).pathname !== "/mcp" &&
-          !mcpDispatchRequests.has(request) &&
-          mcpDispatchTokens.getStore() !== digest(token))))
-  )
-    return null;
-  const agent = await findAccessibleAgent(principal.userId, principal.agentId);
-  if (!agent) return null;
+  if (!principal) return null;
+  const url = new URL(request.url);
+  let result: Actor;
+  if (principal.tokenType === "api-key") {
+    if (
+      principal.agentId ||
+      principal.boardIds !== null ||
+      principal.scopes.length
+    )
+      return null;
+    if (url.pathname === "/mcp")
+      throw new HTTPException(403, {
+        message:
+          "Personal API keys use REST. Connect an Agent with OAuth for MCP.",
+      });
+    const agentDirectory =
+      url.pathname === "/api/agents" &&
+      request.method === "GET" &&
+      (!url.searchParams.has("manage") ||
+        url.searchParams.get("manage") === "false");
+    if (
+      /^\/api\/(?:auth|oauth|credentials|workspace)(?:\/|$)/.test(
+        url.pathname,
+      ) ||
+      url.pathname.startsWith("/oauth/") ||
+      (/^\/api\/agents(?:\/|$)/.test(url.pathname) && !agentDirectory)
+    )
+      throw new HTTPException(403, {
+        message: "Use a signed-in account for this action",
+      });
+    result = {
+      userId: principal.userId,
+      name: principal.userName,
+      role: principal.role,
+      kind: "human",
+      scopes: principal.role === "viewer" ? ["read"] : ["read", "write"],
+      credentialId: principal.id,
+      credentialType: "api-key",
+    };
+  } else if (principal.tokenType === "oauth") {
+    if (!principal.agentId || principal.resource !== mcpResource()) return null;
+    const agent = await findAccessibleAgent(
+      principal.userId,
+      principal.agentId,
+    );
+    if (!agent) return null;
+    if (
+      url.pathname !== "/mcp" &&
+      !mcpDispatchRequests.has(request) &&
+      mcpDispatchTokens.getStore() !== digest(token)
+    )
+      throw new HTTPException(403, {
+        message: "Agent OAuth credentials use MCP",
+      });
+    result = {
+      userId: principal.userId,
+      agentId: agent.id,
+      name: `${agent.name} via ${principal.userName}`,
+      role: principal.role,
+      kind: "agent",
+      scopes: principal.scopes,
+      credentialId: principal.id,
+      credentialType: "oauth",
+      ...(principal.boardIds ? { boardIds: principal.boardIds } : {}),
+    };
+  } else return null;
   // A token never holds permissions beyond its owner's current membership.
   if (
     !principal.lastUsedAt ||
     principal.lastUsedAt.getTime() < Date.now() - 300000
   )
     await sql`UPDATE credentials SET last_used_at=now() WHERE id=${principal.id} AND (last_used_at IS NULL OR last_used_at<now()-interval '5 minutes')`;
-  return {
-    userId: principal.userId,
-    agentId: agent.id,
-    name: `${agent.name} via ${principal.userName}`,
-    role: principal.role,
-    kind: "agent",
-    scopes: principal.scopes,
-    credentialId: principal.id,
-    ...(principal.boardIds ? { boardIds: principal.boardIds } : {}),
-  };
+  return result;
 }

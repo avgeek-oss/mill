@@ -76,6 +76,7 @@ export async function setupAgent(
     name?: string;
     scope?: "personal" | "team";
     memberIds?: string[];
+    allMembers?: boolean;
   } = {},
 ): Promise<Agent> {
   const response = await request("/api/agents", {
@@ -86,4 +87,131 @@ export async function setupAgent(
   if (response.status !== 201 || !body.agent?.id)
     throw new Error(`Agent setup failed: ${response.status}`);
   return body.agent;
+}
+
+export async function setupOAuthAgent(
+  cookie: string,
+  input: {
+    agentId: string;
+    scopes?: ("read" | "write")[];
+    boardIds?: string[];
+    idempotencyKey?: string;
+  },
+) {
+  const { digest, secret } =
+    await import("../apps/api/src/external/protocol.js");
+  const { app } = await import("../apps/api/src/app.js");
+  const redirectUri = "http://127.0.0.1:4182/callback";
+  const resource = `${process.env.MILL_BASE_URL}/mcp`;
+  const registered = await request("/oauth/register", {
+    body: {
+      client_name: "Integration MCP client",
+      redirect_uris: [redirectUri],
+      token_endpoint_auth_method: "none",
+    },
+  });
+  if (registered.status !== 201)
+    throw new Error(`OAuth registration failed: ${registered.status}`);
+  const client = (await registered.json()) as { client_id: string };
+  const verifier = secret();
+  const state = secret();
+  const authorization = await request(
+    `/oauth/authorize?${new URLSearchParams({
+      response_type: "code",
+      client_id: client.client_id,
+      redirect_uri: redirectUri,
+      resource,
+      scope: (input.scopes ?? ["read", "write"]).join(" "),
+      state,
+      code_challenge: digest(verifier),
+      code_challenge_method: "S256",
+    })}`,
+  );
+  if (authorization.status !== 302)
+    throw new Error(`OAuth authorization failed: ${authorization.status}`);
+  const requestId = new URL(
+    authorization.headers.get("location")!,
+  ).searchParams.get("request");
+  if (!requestId)
+    throw new Error("OAuth authorization did not create a consent request");
+  const approval = await request(`/api/oauth/consent/${requestId}`, {
+    cookie,
+    ...(input.idempotencyKey
+      ? { headers: { "Idempotency-Key": input.idempotencyKey } }
+      : {}),
+    body: {
+      allow: true,
+      agentId: input.agentId,
+      ...(input.boardIds ? { boardIds: input.boardIds } : {}),
+    },
+  });
+  if (!approval.ok)
+    throw new Error(`OAuth approval failed: ${approval.status}`);
+  const callback = new URL(
+    ((await approval.json()) as { redirectTo: string }).redirectTo,
+  );
+  if (callback.searchParams.get("state") !== state)
+    throw new Error("OAuth state did not match");
+  const code = callback.searchParams.get("code");
+  if (!code) throw new Error("OAuth approval did not return a code");
+  const exchange = await app.request("/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: client.client_id,
+      redirect_uri: redirectUri,
+      resource,
+      code,
+      code_verifier: verifier,
+    }),
+  });
+  if (!exchange.ok)
+    throw new Error(`OAuth exchange failed: ${exchange.status}`);
+  const issued = (await exchange.json()) as { access_token: string };
+  const [credential] = await sql<
+    {
+      id: string;
+      userId: string;
+      agentId: string;
+      agentName: string;
+      scopes: string[];
+      tokenType: string;
+    }[]
+  >`
+    SELECT c.id,c.user_id,c.agent_id,a.name AS agent_name,c.scopes,c.token_type
+    FROM credentials c JOIN agents a ON a.id=c.agent_id WHERE c.token_hash=${digest(issued.access_token)}`;
+  if (!credential) throw new Error("OAuth credential was not persisted");
+  return { token: issued.access_token, credential };
+}
+
+export async function callMcpTool(
+  token: string,
+  name: string,
+  args: Record<string, unknown> = {},
+) {
+  const { app } = await import("../apps/api/src/app.js");
+  const response = await app.request("/mcp", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: args },
+    }),
+  });
+  const payload = (await response.json()) as {
+    result?: {
+      isError?: boolean;
+      structuredContent?: Record<string, unknown>;
+      content: { type: string; text?: string }[];
+    };
+    error?: unknown;
+  };
+  return { response, result: payload.result, error: payload.error };
 }

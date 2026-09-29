@@ -365,7 +365,7 @@ export function App() {
                 {session.user.role !== "viewer" && (
                   <Button
                     aria-label="Create board"
-                    variant="ghost"
+                    variant="secondary"
                     isIconOnly
                     className="board-create-button size-8 text-muted"
                     onPress={() => {

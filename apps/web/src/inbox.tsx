@@ -453,7 +453,7 @@ export function NotificationsPopover({
               className="widget__header--notification"
               endContent={
                 <Button
-                  variant="ghost"
+                  variant="secondary"
                   className="min-h-8 shrink-0 px-2 text-xs pointer-coarse:min-h-11"
                   isPending={marking === "all"}
                   isDisabled={

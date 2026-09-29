@@ -5,6 +5,7 @@ import {
   test,
   type APIRequestContext,
   type Page,
+  type Locator,
 } from "@playwright/test";
 import {
   authenticateBrowserFixture,
@@ -19,8 +20,6 @@ test.describe.configure({ mode: "serial" });
 let origin: string;
 let admin: APIRequestContext;
 let board: { id: string; name: string };
-let selectedAgent: { id: string; name: string };
-let planning: { id: string; name: string };
 let scenarioOwner: { id: string; baseline: string[] } | null = null;
 async function json(
   api: APIRequestContext,
@@ -31,10 +30,7 @@ async function json(
   const response = await api.fetch(`/api${path}`, {
     method: data === undefined ? "GET" : method,
     headers: { Origin: origin },
-    data:
-      path === "/credentials" && data && method === "POST"
-        ? { agentId: selectedAgent.id, ...(data as Record<string, unknown>) }
-        : data,
+    data,
   });
   expect(response.ok(), `${method} ${path}: ${response.status()}`).toBe(true);
   return response.json();
@@ -56,20 +52,6 @@ async function account(page: Page, role: "member" | "viewer" = "member") {
     } finally {
       await state.sql.end();
     }
-    const directory = await json(page.request, "/agents?limit=100");
-    selectedAgent = directory.items.find(
-      (item: { name: string }) => item.name === `Browser ${role} agent`,
-    );
-    if (!selectedAgent)
-      selectedAgent = (
-        await json(role === "viewer" ? admin : page.request, "/agents", {
-          name: `Browser ${role} agent`,
-          scope: role === "viewer" ? "team" : "personal",
-          ...(role === "viewer"
-            ? { memberIds: [fixture.identity.user.id] }
-            : {}),
-        })
-      ).agent;
     await page.goto("/");
     await expect(
       page.getByRole("navigation", { name: "Workspace navigation" }),
@@ -94,12 +76,6 @@ async function directoryAccount(page: Page) {
   expect(identity.workspace.id).toBe(
     (await json(admin, "/auth/me")).workspace.id,
   );
-  selectedAgent = (
-    await json(page.request, "/agents", {
-      name: "Directory fixture agent",
-      scope: "personal",
-    })
-  ).agent;
   scenarioOwner = { id: identity.user.id, baseline: [] };
   await page.goto("/");
   await expect(
@@ -117,15 +93,17 @@ async function createDialog(
   name: string,
   activation: "pointer" | "touch" | "keyboard" = "pointer",
 ) {
-  await page
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
+  const action = page.getByRole("button", {
+    name: "Create API key",
+    exact: true,
+  });
+  if (activation === "touch") await action.tap();
+  else await action.click();
   const dialog = page.getByRole("dialog", {
     name: "Create API key",
     exact: true,
   });
   await dialog.getByLabel("Name", { exact: true }).fill(name);
-  await choose(page, "Agent", selectedAgent.name, activation);
   await expect(
     dialog.getByRole("button", { name: "Create API key", exact: true }),
   ).toBeEnabled();
@@ -140,14 +118,18 @@ async function choose(
   const trigger = page.getByRole("button", { name: new RegExp(`${label}$`) });
   await expect(trigger).toBeEnabled();
   if (activation === "touch") await trigger.tap();
-  else await trigger.click();
+  else if (activation === "keyboard") {
+    await trigger.focus();
+    await trigger.press("Enter");
+  } else await trigger.click();
   if (activation === "keyboard") {
-    const search = page.getByLabel(`Search ${label.toLowerCase()}`, {
-      exact: true,
-    });
-    await search.fill(name);
-    await search.press("ArrowDown");
-    await search.press("Enter");
+    const names = await page.getByRole("option").allTextContents();
+    const index = names.findIndex((text) => text.trim() === name);
+    expect(index).toBeGreaterThanOrEqual(0);
+    await page.keyboard.press("Home");
+    for (let option = 0; option < index; option++)
+      await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
   } else {
     const option = page.getByRole("option", { name, exact: true });
     if (activation === "touch") await option.tap();
@@ -177,12 +159,6 @@ test.beforeAll(async ({ baseURL }) => {
       prefix: "ARP",
     })
   ).board;
-  planning = (
-    await json(admin, "/boards", {
-      name: "Agent project plans",
-      prefix: "AAP",
-    })
-  ).board;
 });
 test.afterAll(async () => {
   await admin?.dispose();
@@ -208,7 +184,7 @@ test.afterEach(async () => {
 test("personal agents are created, edited with conflict recovery, and deleted without removing task history", async ({
   page,
 }) => {
-  await account(page);
+  const owner = await account(page);
   await page.goto("/settings/agents");
   await expect(
     page.getByRole("heading", { name: "Agents", exact: true }),
@@ -231,14 +207,15 @@ test("personal agents are created, edited with conflict recovery, and deleted wi
   ).toHaveCount(0);
   await page.keyboard.press("Escape");
   await dialog.getByLabel("Name", { exact: true }).press("Enter");
-  await expect(dialog.getByRole("status")).toHaveText("Agent created.");
-  await dialog.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByText("Agent created.", { exact: true })).toBeVisible();
   await expect(create).toBeFocused();
   const created = (await json(page.request, "/agents?limit=100")).items.find(
     (item: { name: string }) => item.name === "Browser personal assistant",
   );
   expect(created.scope).toBe("personal");
   expect(created.memberIds).toEqual([]);
+  expect(created.allMembers).toBe(false);
   await page
     .getByRole("button", {
       name: "Edit Browser personal assistant",
@@ -277,16 +254,18 @@ test("personal agents are created, edited with conflict recovery, and deleted wi
     page.getByRole("row", { name: /Browser personal assistant edited/ }),
   ).toBeVisible();
   const key = await json(page.request, "/credentials", {
-    name: "Deleted-agent bound key",
-    agentId: created.id,
-    scopes: ["read", "write"],
+    name: "Independent personal key",
     expiresInDays: 30,
   });
   const taskResponse = await page.request.post(
     `/api/boards/${board.id}/tasks`,
     {
       headers: { Authorization: `Bearer ${key.token}`, Origin: origin },
-      data: { title: "History survives agent deletion" },
+      data: {
+        title: "History survives agent deletion",
+        assigneeId: owner.id,
+        agentId: created.id,
+      },
     },
   );
   expect(taskResponse.ok()).toBe(true);
@@ -299,7 +278,7 @@ test("personal agents are created, edited with conflict recovery, and deleted wi
   const history = await json(page.request, `/tasks/${task.id}/activity`);
   expect(
     history.items.some(
-      (item: { actorKind: string }) => item.actorKind === "agent",
+      (item: { actorKind: string }) => item.actorKind === "human",
     ),
   ).toBe(true);
   const before = await page.request.get(`/api/boards/${board.id}`);
@@ -344,22 +323,26 @@ test("personal agents are created, edited with conflict recovery, and deleted wi
   expect(
     (await json(page.request, `/tasks/${task.id}/comments`)).items,
   ).toHaveLength(1);
+  const retained = await json(page.request, `/tasks/${task.id}/activity`);
+  expect(retained.items).toEqual(expect.arrayContaining(history.items));
+  expect(retained.items.length).toBe(history.items.length + 1);
   expect(
-    (await json(page.request, `/tasks/${task.id}/activity`)).items,
-  ).toEqual(history.items);
+    (await json(page.request, `/tasks/${task.id}`)).task.agentId,
+  ).toBeNull();
   expect(
     (
       await page.request.get("/api/boards", {
         headers: { Authorization: `Bearer ${key.token}` },
       })
     ).status(),
-  ).toBe(401);
+  ).toBe(200);
 });
 
-test("team agents use explicit named people and viewers cannot manage them", async ({
+test("team agents retain the creator grant and explicit named people while viewers cannot manage them", async ({
   page,
 }) => {
   const fixture = await getBrowserBootstrap(origin);
+  const creator = fixture.identity.user;
   try {
     await authenticateBrowserFixture(page, fixture);
   } finally {
@@ -384,14 +367,19 @@ test("team agents use explicit named people and viewers cannot manage them", asy
       name: "Assigned people",
       exact: true,
     });
+    const owner = assigned.getByRole("checkbox", {
+      name: `${creator.name} (${creator.email})`,
+      exact: true,
+    });
+    await expect(owner).toBeChecked();
+    await expect(owner).toBeDisabled();
+    await expect(assigned.getByRole("checkbox", { checked: true })).toHaveCount(
+      1,
+    );
     const person = assigned.getByRole("checkbox", {
       name: `${viewer.identity.user.name} (${viewer.identity.user.email})`,
       exact: true,
     });
-    await expect(person).toBeVisible();
-    await expect(assigned.getByRole("checkbox", { checked: true })).toHaveCount(
-      0,
-    );
     await assigned
       .getByText(viewer.identity.user.email, { exact: true })
       .click();
@@ -405,19 +393,35 @@ test("team agents use explicit named people and viewers cannot manage them", asy
     await dialog
       .getByRole("button", { name: "Create agent", exact: true })
       .click();
-    await expect(dialog.getByRole("status")).toHaveText("Agent created.");
-    await dialog.getByRole("button", { name: "Done", exact: true }).click();
-    const created = (
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByText("Agent created.", { exact: true }),
+    ).toBeVisible();
+    let created = (
       await json(admin, "/agents?manage=true&limit=100")
     ).items.find(
       (item: { name: string }) => item.name === "Explicit team assistant",
     );
-    expect(created.memberIds).toEqual([viewer.identity.user.id]);
+    expect(created.memberIds.toSorted()).toEqual(
+      [creator.id, viewer.identity.user.id].toSorted(),
+    );
+    expect(created.allMembers).toBe(false);
     expect(
       (await json(admin, "/agents?limit=100")).items.some(
         (item: { id: string }) => item.id === created.id,
       ),
-    ).toBe(false);
+    ).toBe(true);
+    created = (
+      await json(
+        admin,
+        `/agents/${created.id}`,
+        { version: created.version, memberIds: [viewer.identity.user.id] },
+        "PATCH",
+      )
+    ).agent;
+    expect(created.memberIds.toSorted()).toEqual(
+      [creator.id, viewer.identity.user.id].toSorted(),
+    );
     await authenticateBrowserFixture(page, viewer);
     await page.goto("/settings/agents");
     await expect(
@@ -449,15 +453,25 @@ test("team agents use explicit named people and viewers cannot manage them", asy
   }
 });
 
-test("initial loading, failed loading, empty list and board lookup retry remain distinct", async ({
+test("initial loading, failed loading, empty list and the personal key form remain distinct", async ({
   page,
 }) => {
-  await account(page);
+  await directoryAccount(page);
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
   let initial = true;
+  let boardLookups = 0;
+  let agentLookups = 0;
+  await page.route("**/api/boards?directory=true*", async (route) => {
+    boardLookups++;
+    await route.continue();
+  });
+  await page.route("**/api/agents?*", async (route) => {
+    agentLookups++;
+    await route.continue();
+  });
   await page.route("**/api/credentials", async (route) => {
     if (route.request().method() !== "GET" || !initial) return route.continue();
     initial = false;
@@ -482,36 +496,53 @@ test("initial loading, failed loading, empty list and board lookup retry remain 
   await expect(
     region.getByText("No API keys yet", { exact: true }),
   ).toBeVisible();
-  let boardFailure = true;
-  await page.route("**/api/boards?directory=true", async (route) => {
-    if (boardFailure) {
-      boardFailure = false;
-      await route.fetch();
-      await route.abort("failed");
-    } else await route.continue();
-  });
-  await openAgents(page);
-  await page
+  await expect(
+    page
+      .getByRole("navigation", { name: "Workspace navigation" })
+      .getByRole("link", { name: board.name, exact: true }),
+  ).toBeVisible();
+  const directoryBaseline = { boards: boardLookups, agents: agentLookups };
+  const dialog = await createDialog(page, "A personal key without an Agent");
+  await expect(dialog.getByRole("textbox")).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: /Agent$/ })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /Access$/ })).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: /Board access$/ }),
+  ).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: /Expiry$/ })).toContainText(
+    "30 days",
+  );
+  await dialog.getByRole("button", { name: /Expiry$/ }).click();
+  await expect(page.getByRole("option")).toHaveText([
+    "30 days",
+    "60 days",
+    "90 days",
+    "365 days",
+  ]);
+  await page.getByRole("option", { name: "365 days", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: /Expiry$/ })).toContainText(
+    "365 days",
+  );
+  expect(boardLookups).toBe(directoryBaseline.boards);
+  expect(agentLookups).toBe(directoryBaseline.agents);
+  await dialog
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
-  const dialog = page.getByRole("dialog", {
-    name: "Create API key",
+  const reveal = page.getByRole("dialog", {
+    name: "Copy your API key",
     exact: true,
   });
-  await expect(dialog.getByRole("alert")).toContainText(
-    "Mill could not be reached",
-  );
-  await expect(
-    dialog.getByRole("button", { name: "Create API key", exact: true }),
-  ).toBeDisabled();
-  await dialog.getByRole("button", { name: "Retry loading boards" }).click();
-  await choose(page, "Agent", selectedAgent.name);
-  await expect(
-    dialog.getByRole("button", { name: "Create API key", exact: true }),
-  ).toBeEnabled();
-  await choose(page, "Board access", planning.name);
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
+  await expect(reveal).toBeVisible();
+  await reveal.getByRole("button", { name: "Done", exact: true }).click();
+  const key = (await json(page.request, "/credentials")).items[0];
+  expect(
+    Math.round(
+      (Date.parse(key.expiresAt) - Date.parse(key.createdAt)) / 86400000,
+    ),
+  ).toBe(365);
+  expect(key.agentId).toBeNull();
+  expect(agentLookups).toBe(directoryBaseline.agents);
+  expect((await json(page.request, "/agents?limit=100")).items).toHaveLength(0);
 });
 
 test("response loss retries the same creation, reveals the original token locally and rotates the next operation", async ({
@@ -530,6 +561,9 @@ test("response loss retries the same creation, reveals the original token locall
   await page.route("**/api/credentials", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     keys.push(route.request().headers()["idempotency-key"]);
+    const payload = route.request().postDataJSON();
+    expect(Object.keys(payload).toSorted()).toEqual(["expiresInDays", "name"]);
+    expect(payload.name).toBe("Response recovery assistant");
     if (loseResponse) {
       loseResponse = false;
       const response = await route.fetch();
@@ -540,11 +574,9 @@ test("response loss retries the same creation, reveals the original token locall
     } else await route.continue();
   });
   const dialog = await createDialog(page, "Response recovery assistant");
-  await expect(dialog.getByRole("button", { name: /Access$/ })).toContainText(
-    "Read only",
+  await expect(dialog.getByRole("button", { name: /Expiry$/ })).toContainText(
+    "30 days",
   );
-  await expect(dialog.getByLabel("Expires in days")).toHaveValue("30");
-  await choose(page, "Board access", board.name);
   await dialog
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
@@ -601,13 +633,18 @@ test("response loss retries the same creation, reveals the original token locall
     (item: { name: string }) => item.name === "Response recovery assistant",
   );
   expect(created).toHaveLength(1);
-  expect(created[0].scopes).toEqual(["read"]);
-  expect(created[0].boardIds).toEqual([board.id]);
-  await expect(
-    page.getByRole("row", { name: /Response recovery assistant/ }),
-  ).toContainText(board.name);
+  expect(created[0].scopes).toEqual([]);
+  expect(created[0].boardIds).toBeNull();
+  expect(created[0].agentId).toBeNull();
+  expect(created[0].agentName).toBeNull();
+  expect(
+    Math.round(
+      (Date.parse(created[0].expiresAt) - Date.parse(created[0].createdAt)) /
+        86400000,
+    ),
+  ).toBe(30);
   const next = await createDialog(page, "Response recovery assistant");
-  await choose(page, "Board access", board.name);
+  await choose(page, "Expiry", "60 days");
   await next
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
@@ -633,7 +670,6 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
   const credential = (
     await json(page.request, "/credentials", {
       name: "Revocation retry agent",
-      scopes: ["read"],
       expiresInDays: 30,
     })
   ).credential;
@@ -720,15 +756,14 @@ test("older active credentials remain reachable and revocable after the default 
   const older = (
     await json(page.request, "/credentials", {
       name: "Older active agent",
-      scopes: ["read"],
       expiresInDays: 30,
     })
   ).credential;
   const { sql, schema } = await database();
   try {
     await sql.unsafe(
-      `INSERT INTO "${schema}".credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT $1::uuid,$2::uuid,'Recent revoked agent '||n,md5($1||n::text),'redacted',ARRAY['read'],now()+n*interval '1 second',now()+interval '30 days',now() FROM generate_series(1,205)n`,
-      [owner.id, selectedAgent.id],
+      `INSERT INTO "${schema}".credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT $1::uuid,'Recent revoked agent '||n,md5($1||n::text),'redacted',ARRAY[]::text[],now()+n*interval '1 second',now()+interval '30 days',now() FROM generate_series(1,205)n`,
+      [owner.id],
     );
   } finally {
     await sql.end();
@@ -814,54 +849,74 @@ test("older active credentials remain reachable and revocable after the default 
   }
 });
 
-test("viewer access and metadata fit desktop and phone in both themes", async ({
+test("personal keys follow the viewer's current role and metadata fit desktop and phone in both themes", async ({
   page,
   browser,
 }, testInfo) => {
-  await account(page, "viewer");
-  const forbidden = await page.request.post("/api/credentials", {
-    headers: { Origin: origin },
-    data: {
-      name: "Forbidden writer",
-      agentId: selectedAgent.id,
-      scopes: ["read", "write"],
-      expiresInDays: 30,
-    },
-  });
-  expect(forbidden.status()).toBe(403);
-  await json(page.request, "/credentials", {
+  const viewer = await account(page, "viewer");
+  const visibleAgent = (
+    await json(admin, "/agents", {
+      name: "Viewer visible team assistant",
+      scope: "team",
+      memberIds: [viewer.id],
+    })
+  ).agent;
+  const credential = await json(page.request, "/credentials", {
     name: "Release planning reader",
-    scopes: ["read"],
-    boardIds: [board.id],
     expiresInDays: 30,
   });
-  const longBoardName =
-    "Release planning for international operations and the next generation of workspace integrations";
-  const longBoard = (
-    await json(admin, "/boards", { name: longBoardName, prefix: "ALC" })
-  ).board;
   const longCredentialName =
-    "Automation reader for release coordination, international operations, and workspace integration verification";
+    "Personal key for release coordination, international operations, and workspace integration verification";
   const longCredential = await json(page.request, "/credentials", {
     name: longCredentialName,
-    scopes: ["read"],
-    boardIds: [longBoard.id],
-    expiresInDays: 30,
+    expiresInDays: 365,
   });
-  const read = await page.request.get("/api/boards", {
-    headers: { Authorization: `Bearer ${longCredential.token}` },
-  });
-  expect(read.ok()).toBe(true);
+  const keyHeaders = {
+    Authorization: `Bearer ${credential.token}`,
+    Origin: origin,
+  };
+  expect(
+    (await page.request.get("/api/boards", { headers: keyHeaders })).ok(),
+  ).toBe(true);
+  const mutation = () =>
+    page.request.post(`/api/boards/${board.id}/tasks`, {
+      headers: keyHeaders,
+      data: { title: "Current role authority" },
+    });
+  expect((await mutation()).status()).toBe(403);
+  await json(admin, `/auth/members/${viewer.id}`, { role: "member" }, "PATCH");
+  try {
+    const promoted = await mutation();
+    expect(promoted.ok()).toBe(true);
+    const task = (await promoted.json()).task;
+    const activity = await json(admin, `/tasks/${task.id}/activity`);
+    expect(
+      activity.items.some(
+        (item: { actorId: string; actorKind: string }) =>
+          item.actorId === viewer.id && item.actorKind === "human",
+      ),
+    ).toBe(true);
+  } finally {
+    await json(
+      admin,
+      `/auth/members/${viewer.id}`,
+      { role: "viewer" },
+      "PATCH",
+    );
+  }
+  expect((await mutation()).status()).toBe(403);
+  expect(
+    (
+      await page.request.post("/api/agents", {
+        headers: keyHeaders,
+        data: { name: "Forbidden bearer Agent", scope: "personal" },
+      })
+    ).status(),
+  ).toBe(403);
   await openAgents(page);
-  await expect(
-    page.getByRole("row", { name: /Release planning reader/ }),
-  ).toContainText(board.name);
-  const dialog = await createDialog(page, "Viewer assistant", "keyboard");
-  await page.getByRole("button", { name: /Access$/ }).click();
-  await expect(
-    page.getByRole("option", { name: "Read and write", exact: true }),
-  ).toHaveCount(0);
-  await page.keyboard.press("Escape");
+  const dialog = await createDialog(page, "Viewer personal key", "keyboard");
+  await choose(page, "Expiry", "60 days", "keyboard");
+  await expect(dialog.getByRole("button", { name: /Access$/ })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "Remote MCP", exact: true }),
@@ -892,10 +947,16 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
           })
           .filter((column) => column.width > 0),
       );
-    expect(columns).toHaveLength(5);
+    expect(columns.map((column) => column.name)).toEqual([
+      "API key",
+      "Status",
+      "Expires",
+      "Last used",
+      "Action",
+    ]);
     expect(columns.every((column) => column.right <= 1280)).toBe(true);
     await writeFile(
-      testInfo.outputPath(`agents-desktop-${theme}-columns.json`),
+      testInfo.outputPath(`api-keys-desktop-${theme}-columns.json`),
       JSON.stringify(columns, null, 2),
     );
     await page.screenshot({
@@ -905,13 +966,8 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
     });
     await page.goto("/settings/agents");
     await expect(
-      page.getByRole("row", { name: new RegExp(selectedAgent.name) }),
+      page.getByRole("row", { name: new RegExp(visibleAgent.name) }),
     ).toBeVisible();
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= window.innerWidth,
-      ),
-    ).toBe(true);
     await page.screenshot({
       path: testInfo.outputPath(`agent-directory-desktop-${theme}.png`),
       fullPage: true,
@@ -932,50 +988,34 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
   try {
     const mobile = await phone.newPage();
     await mobile.goto("/settings/api-keys");
-    await expect(
-      mobile.getByRole("row", { name: /Release planning reader/ }),
-    ).toBeVisible();
     const action = mobile.getByRole("button", {
       name: "Revoke Release planning reader",
       exact: true,
     });
-    const bounds = await action.boundingBox();
-    expect(
-      Boolean(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390),
-    ).toBe(true);
-    await action.click();
-    await expect(
-      mobile.getByRole("dialog", { name: "Revoke API key?" }),
-    ).toBeVisible();
-    await mobile
-      .getByRole("dialog")
-      .getByRole("button", { name: "Cancel", exact: true })
-      .click();
     const longAction = mobile.getByRole("button", {
       name: `Revoke ${longCredentialName}`,
       exact: true,
     });
-    const longBounds = await longAction.boundingBox();
-    expect(
-      Boolean(
-        longBounds &&
-        longBounds.x >= 0 &&
-        longBounds.x + longBounds.width <= 390,
-      ),
-    ).toBe(true);
-    await expect(
-      mobile.getByRole("row", { name: new RegExp(longCredentialName) }),
-    ).toContainText(longBoardName);
-    await longAction.click();
-    await mobile
-      .getByRole("dialog")
-      .getByRole("button", { name: "Cancel", exact: true })
-      .click();
+    for (const target of [action, longAction]) {
+      const bounds = await target.boundingBox();
+      expect(
+        Boolean(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390),
+      ).toBe(true);
+      await target.tap();
+      await expect(
+        mobile.getByRole("dialog", { name: "Revoke API key?" }),
+      ).toBeVisible();
+      await mobile
+        .getByRole("dialog")
+        .getByRole("button", { name: "Cancel", exact: true })
+        .tap();
+    }
+    expect(longCredential.credential.agentId).toBeNull();
     for (const theme of ["dark", "light"]) {
       if (theme === "light")
         await mobile
           .getByRole("button", { name: /Appearance: switch to light/ })
-          .click();
+          .tap();
       await mobile.evaluate(() => window.scrollTo(0, 0));
       const cells = await mobile
         .getByRole("region", { name: "API keys", exact: true })
@@ -993,7 +1033,7 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
       expect(cells).toHaveLength(1);
       expect(cells.every((cell) => cell.right <= 390)).toBe(true);
       await writeFile(
-        testInfo.outputPath(`agents-phone-${theme}-cells.json`),
+        testInfo.outputPath(`api-keys-phone-${theme}-cells.json`),
         JSON.stringify(cells, null, 2),
       );
       expect(
@@ -1008,27 +1048,20 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
       });
       await mobile.goto("/settings/agents");
       await expect(
-        mobile.getByRole("row", { name: new RegExp(selectedAgent.name) }),
+        mobile.getByRole("row", { name: new RegExp(visibleAgent.name) }),
       ).toBeVisible();
-      expect(
-        await mobile.evaluate(
-          () => document.documentElement.scrollWidth <= window.innerWidth,
-        ),
-      ).toBe(true);
       await mobile.screenshot({
         path: testInfo.outputPath(`agent-directory-phone-${theme}.png`),
         fullPage: true,
         animations: "disabled",
       });
       await openAgents(mobile);
-      await expect(
-        mobile.getByRole("row", { name: /Release planning reader/ }),
-      ).toBeVisible();
       const form = await createDialog(
         mobile,
-        "Phone viewer assistant",
+        "Phone viewer personal key",
         "touch",
       );
+      await choose(mobile, "Expiry", "90 days", "touch");
       expect(
         await form
           .getByLabel("Name", { exact: true })
@@ -1036,70 +1069,342 @@ test("viewer access and metadata fit desktop and phone in both themes", async ({
             (element) => parseFloat(getComputedStyle(element).fontSize) >= 16,
           ),
       ).toBe(true);
-      await form.getByRole("button", { name: "Cancel", exact: true }).click();
+      await form.getByRole("button", { name: "Cancel", exact: true }).tap();
     }
   } finally {
     await phone.close();
   }
 });
 
-test("board choices and scope names include later pages independently of the sidebar", async ({
+test("125 active people keep selections across pages and search with bounded wheel, keyboard and touch controls", async ({
   page,
-}) => {
-  await account(page);
-  const fixture = await database();
-  let laterId = "";
+  browser,
+}, testInfo) => {
+  const fixture = await getBrowserBootstrap(origin);
+  const creator = fixture.identity.user;
   try {
-    const rows = await fixture.sql.unsafe(
-      `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Continued agent board '||lpad(n::text,3,'0'),'CAB'||n FROM generate_series(1,105)n RETURNING id,name`,
-    );
-    laterId = rows.find((row) => row.name === "Continued agent board 105")!.id;
+    await authenticateBrowserFixture(page, fixture);
   } finally {
-    await fixture.sql.end();
+    await fixture.api.dispose();
   }
-  let changed = false;
-  await page.route("**/api/boards?directory=true&cursor=*", async (route) => {
-    if (changed) return route.continue();
-    changed = true;
-    await json(
-      admin,
-      `/boards/${laterId}`,
-      { version: 1, description: "Refreshed during directory pagination" },
-      "PATCH",
+  const state = await database();
+  type Person = { id: string; name: string; email: string };
+  let people: Person[];
+  try {
+    people = await state.sql.unsafe<Person[]>(
+      `INSERT INTO "${state.schema}".users(id,workspace_id,name,email,password_hash,role) SELECT gen_random_uuid(),(SELECT id FROM "${state.schema}".workspace),'Stress person '||lpad(n::text,3,'0')||' for international planning, accessibility and long member directory verification','stress-members-'||lpad(n::text,3,'0')||'@example.test','picker-fixture-has-no-login','member' FROM generate_series(1,125)n RETURNING id,name,email`,
     );
-    const response = await route.fetch();
-    expect(response.status()).toBe(409);
-    await route.fulfill({ response });
+  } finally {
+    await state.sql.end();
+  }
+  const first = people.find(
+    (person) => person.email === "stress-members-002@example.test",
+  )!;
+  const late = people.find(
+    (person) => person.email === "stress-members-125@example.test",
+  )!;
+  let created: { id: string; version: number } | null = null;
+  const phone = await browser.newContext({
+    baseURL: origin,
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+    storageState: await page.context().storageState(),
   });
-  await openAgents(page);
-  const dialog = await createDialog(page, "Later board assistant");
-  await page.getByRole("button", { name: /Board access$/ }).click();
-  await page
-    .getByRole("searchbox", { name: "Search board access" })
-    .fill("Continued agent board 105");
-  await page
-    .getByRole("option", { name: "Continued agent board 105", exact: true })
-    .click();
-  expect(changed).toBe(true);
-  await dialog
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
-  await expect(
-    page.getByRole("dialog", { name: "Copy your API key" }),
-  ).toBeVisible();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Done", exact: true })
-    .click();
-  await expect(
-    page.getByRole("row", { name: /Later board assistant/ }),
-  ).toContainText("Continued agent board 105");
-  const list = await json(page.request, "/credentials");
-  expect(
-    list.items.find(
-      (item: { name: string }) => item.name === "Later board assistant",
-    ).boardIds,
-  ).toEqual([laterId]);
+  async function selection(
+    target: Page,
+    dialog: Locator,
+    person: Person,
+    touch = false,
+  ) {
+    const search = dialog.getByRole("searchbox", {
+      name: "Search people",
+      exact: true,
+    });
+    const group = dialog.getByRole("group", {
+      name: "Assigned people",
+      exact: true,
+    });
+    await search.fill(person.email);
+    const checkbox = group.getByRole("checkbox", {
+      name: `${person.name} (${person.email})`,
+      exact: true,
+    });
+    if (touch) await group.getByText(person.email, { exact: true }).tap();
+    else await group.getByText(person.email, { exact: true }).click();
+    await expect(checkbox).toBeChecked();
+    await checkbox.focus();
+    await target.keyboard.press("Space");
+    await expect(checkbox).not.toBeChecked();
+    await target.keyboard.press("Space");
+    await expect(checkbox).toBeChecked();
+    await search.fill("a search with no matching people");
+    await expect(
+      group.getByRole("checkbox", {
+        name: `${creator.name} (${creator.email})`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    await search.fill(person.email);
+    await expect(checkbox).toBeChecked();
+    await search.clear();
+  }
+  async function bounded(target: Page, dialog: Locator, touch: boolean) {
+    const group = dialog.getByRole("group", {
+      name: "Assigned people",
+      exact: true,
+    });
+    const list = group.getByRole("region", {
+      name: "People choices",
+      exact: true,
+    });
+    const more = dialog.getByRole("button", {
+      name: "Load more people",
+      exact: true,
+    });
+    await expect(list.getByRole("checkbox")).toHaveCount(25);
+    let pages = 0;
+    while (await more.count()) {
+      const before = await list.getByRole("checkbox").count();
+      if (touch) await more.tap();
+      else await more.click();
+      await expect
+        .poll(() => list.getByRole("checkbox").count())
+        .toBeGreaterThan(before);
+      pages++;
+      expect(pages).toBeLessThan(8);
+    }
+    expect(pages).toBeGreaterThanOrEqual(4);
+    await expect(
+      group.getByRole("checkbox", {
+        name: `${late.name} (${late.email})`,
+        exact: true,
+      }),
+    ).toHaveCount(1);
+    const owner = group.getByRole("checkbox", {
+      name: `${creator.name} (${creator.email})`,
+      exact: true,
+    });
+    await expect(owner).toBeChecked();
+    await expect(owner).toBeDisabled();
+    await list.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await expect
+      .poll(() => list.evaluate((element) => element.scrollTop))
+      .toBe(0);
+    const ownerBefore = await owner.boundingBox();
+    const submit = dialog.getByRole("button", {
+      name: /^(Create agent|Save changes)$/,
+    });
+    const footerBefore = await submit.boundingBox();
+    const bounds = await list.boundingBox();
+    const viewport = target.viewportSize()!;
+    expect(
+      Boolean(
+        bounds &&
+        bounds.x >= 0 &&
+        bounds.y >= 0 &&
+        bounds.x + bounds.width <= viewport.width &&
+        bounds.height <= viewport.height * 0.45,
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        footerBefore && footerBefore.y + footerBefore.height <= viewport.height,
+      ),
+    ).toBe(true);
+    expect(
+      await list.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    ).toBe(true);
+    if (!bounds) throw new Error("People choices must be visible");
+    if (touch) {
+      const session = await target.context().newCDPSession(target);
+      try {
+        const x = bounds.x + bounds.width / 2;
+        const y = bounds.y + bounds.height * 0.8;
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchStart",
+          touchPoints: [{ x, y }],
+        });
+        for (const distance of [40, 80, 120])
+          await session.send("Input.dispatchTouchEvent", {
+            type: "touchMove",
+            touchPoints: [{ x, y: y - distance }],
+          });
+        await session.send("Input.dispatchTouchEvent", {
+          type: "touchEnd",
+          touchPoints: [],
+        });
+      } finally {
+        await session.detach();
+      }
+    } else {
+      await target.mouse.move(
+        bounds.x + bounds.width / 2,
+        bounds.y + bounds.height / 2,
+      );
+      await target.mouse.wheel(0, 350);
+    }
+    await expect
+      .poll(() => list.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    if (!touch) {
+      const beforeKeyboard = await list.evaluate(
+        (element) => element.scrollTop,
+      );
+      await list.focus();
+      await target.keyboard.press("End");
+      await expect
+        .poll(() => list.evaluate((element) => element.scrollTop))
+        .toBeGreaterThan(beforeKeyboard);
+      await target.keyboard.press("Home");
+      await expect
+        .poll(() => list.evaluate((element) => element.scrollTop))
+        .toBe(0);
+    }
+    expect((await owner.boundingBox())?.y).toBe(ownerBefore?.y);
+    expect((await submit.boundingBox())?.y).toBe(footerBefore?.y);
+    expect(
+      await dialog.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
+    expect(
+      await target.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }
+  try {
+    const directory = await json(admin, "/auth/members");
+    expect(
+      directory.items.filter((person: Person) =>
+        person.email.startsWith("stress-members-"),
+      ).length,
+    ).toBe(125);
+    await page.goto("/settings/agents");
+    await page
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Create agent",
+      exact: true,
+    });
+    await dialog
+      .getByLabel("Name", { exact: true })
+      .fill("Many people team assistant");
+    await choose(page, "Access", "Team");
+    for (const theme of ["light", "dark"]) {
+      if (theme === "dark") {
+        await dialog
+          .getByRole("button", { name: "Cancel", exact: true })
+          .click();
+        await page
+          .getByRole("button", { name: /Appearance: switch to dark/ })
+          .click();
+        await page
+          .getByRole("button", { name: "Create agent", exact: true })
+          .click();
+        await dialog
+          .getByLabel("Name", { exact: true })
+          .fill("Many people team assistant");
+        await choose(page, "Access", "Team");
+      }
+      await selection(page, dialog, first);
+      await bounded(page, dialog, false);
+      await expect(
+        dialog.getByRole("checkbox", {
+          name: `${first.name} (${first.email})`,
+          exact: true,
+        }),
+      ).toBeChecked();
+      await selection(page, dialog, late);
+      await dialog
+        .getByRole("searchbox", { name: "Search people", exact: true })
+        .fill(late.email);
+      await expect(
+        dialog.getByRole("checkbox", {
+          name: `${late.name} (${late.email})`,
+          exact: true,
+        }),
+      ).toBeChecked();
+      await page.screenshot({
+        path: testInfo.outputPath(`agent-people-desktop-${theme}.png`),
+        animations: "disabled",
+      });
+    }
+    await dialog
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    await expect(dialog).toHaveCount(0);
+    const saved = (
+      await json(admin, "/agents?manage=true&limit=100")
+    ).items.find(
+      (item: { name: string }) => item.name === "Many people team assistant",
+    );
+    created = saved;
+    expect(saved.memberIds.toSorted()).toEqual(
+      [creator.id, first.id, late.id].toSorted(),
+    );
+    const mobile = await phone.newPage();
+    await mobile.goto("/settings/agents");
+    for (const theme of ["dark", "light"]) {
+      const switcher = mobile.getByRole("button", {
+        name: new RegExp(`Appearance: switch to ${theme}`),
+      });
+      if (await switcher.count()) await switcher.tap();
+      await mobile
+        .getByRole("button", {
+          name: "Edit Many people team assistant",
+          exact: true,
+        })
+        .tap();
+      const edit = mobile.getByRole("dialog", {
+        name: "Edit agent",
+        exact: true,
+      });
+      await bounded(mobile, edit, true);
+      for (const person of [first, late]) {
+        await edit
+          .getByRole("searchbox", { name: "Search people", exact: true })
+          .fill(person.email);
+        const checkbox = edit.getByRole("checkbox", {
+          name: `${person.name} (${person.email})`,
+          exact: true,
+        });
+        await expect(checkbox).toBeChecked();
+        await edit.getByText(person.email, { exact: true }).tap();
+        await expect(checkbox).not.toBeChecked();
+        await edit.getByText(person.email, { exact: true }).tap();
+        await expect(checkbox).toBeChecked();
+      }
+      await mobile.screenshot({
+        path: testInfo.outputPath(`agent-people-phone-${theme}.png`),
+        animations: "disabled",
+      });
+      await edit.getByRole("button", { name: "Cancel", exact: true }).tap();
+    }
+  } finally {
+    await phone.close();
+    if (created)
+      await json(
+        admin,
+        `/agents/${created.id}`,
+        { version: created.version },
+        "DELETE",
+      );
+    const cleanup = await database();
+    try {
+      await cleanup.sql.unsafe(
+        `DELETE FROM "${cleanup.schema}".users WHERE email LIKE 'stress-members-%@example.test'`,
+      );
+    } finally {
+      await cleanup.sql.end();
+    }
+  }
 });
 
 test("incomplete creation responses preserve unresolved keys when a draft is changed and reverted", async ({
@@ -1123,6 +1428,7 @@ test("incomplete creation responses preserve unresolved keys when a draft is cha
   const dialog = await createDialog(page, names[0]);
   for (const name of names) {
     await dialog.getByLabel("Name", { exact: true }).fill(name);
+    await choose(page, "Expiry", name === names[0] ? "30 days" : "90 days");
     await dialog
       .getByRole("button", { name: "Create API key", exact: true })
       .click();
@@ -1132,6 +1438,7 @@ test("incomplete creation responses preserve unresolved keys when a draft is cha
     await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
   }
   await dialog.getByLabel("Name", { exact: true }).fill(names[0]);
+  await choose(page, "Expiry", "30 days");
   await dialog
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
@@ -1156,142 +1463,187 @@ test("incomplete creation responses preserve unresolved keys when a draft is cha
   }
 });
 
-test("one complete directory refreshes after rename, deletion and creation while empty scopes stay revoked", async ({
+test("all team members includes future people and switching back preserves named grants through conflict recovery", async ({
   page,
+  browser,
 }) => {
-  await directoryAccount(page);
-  const fixture = await database();
+  const fixture = await getBrowserBootstrap(origin);
+  const creator = fixture.identity.user;
   try {
-    await fixture.sql.unsafe(
-      `INSERT INTO "${fixture.schema}".boards(workspace_id,name,prefix) SELECT (SELECT id FROM "${fixture.schema}".workspace),'Transition directory fixture '||lpad(n::text,3,'0'),'TDF'||n FROM generate_series(1,105)n`,
-    );
+    await authenticateBrowserFixture(page, fixture);
   } finally {
-    await fixture.sql.end();
+    await fixture.api.dispose();
   }
-  const renamed = (
-    await json(admin, "/boards", {
-      name: "Original grant board name",
-      prefix: "RAG",
-    })
-  ).board;
-  const removed = (
-    await json(admin, "/boards", {
-      name: "Removed during directory lookup",
-      prefix: "RDG",
-    })
-  ).board;
-  const historical = (
-    await json(admin, "/boards", {
-      name: "Historical deleted scope",
-      prefix: "HDS",
-    })
-  ).board;
-  const restricted = await json(page.request, "/credentials", {
-    name: "Historical scope reader",
-    scopes: ["read"],
-    boardIds: [historical.id],
-    expiresInDays: 30,
-  });
-  expect(
-    await json(admin, `/boards/${historical.id}`, { version: 1 }, "DELETE"),
-  ).toEqual({ ok: true });
-  expect(
-    (
-      await page.request.get("/api/boards", {
-        headers: { Authorization: `Bearer ${restricted.token}` },
-      })
-    ).status(),
-  ).toBe(401);
-  const renamedName = "Current grant board name";
-  let created: { id: string; name: string } | null = null;
-  let transitioned = false;
-  await page.route("**/api/boards?directory=true&cursor=*", async (route) => {
-    if (transitioned) return route.continue();
-    transitioned = true;
-    const currentRenamed = (await json(admin, `/boards/${renamed.id}`)).board;
-    const currentRemoved = (await json(admin, `/boards/${removed.id}`)).board;
-    await json(
-      admin,
-      `/boards/${renamed.id}`,
-      { version: currentRenamed.version, name: renamedName },
-      "PATCH",
+  const member = await getBrowserRoleFixture(origin, "member");
+  const viewer = await getBrowserRoleFixture(origin, "viewer");
+  const future = await browser.newContext({ baseURL: origin });
+  let created: { id: string; version: number } | null = null;
+  try {
+    await page.goto("/settings/agents");
+    await page
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "Create agent",
+      exact: true,
+    });
+    await dialog
+      .getByLabel("Name", { exact: true })
+      .fill("Whole team assistant");
+    await expect(
+      dialog.getByRole("checkbox", { name: "All team members", exact: true }),
+    ).toHaveCount(0);
+    await choose(page, "Access", "Team");
+    const group = dialog.getByRole("group", {
+      name: "Assigned people",
+      exact: true,
+    });
+    await group.getByText(viewer.identity.user.email, { exact: true }).click();
+    await expect(
+      group.getByRole("checkbox", {
+        name: `${viewer.identity.user.name} (${viewer.identity.user.email})`,
+        exact: true,
+      }),
+    ).toBeChecked();
+    await dialog.getByText("All team members", { exact: true }).click();
+    await expect(
+      dialog.getByRole("checkbox", { name: "All team members", exact: true }),
+    ).toBeChecked();
+    await expect(
+      dialog.getByRole("searchbox", { name: "Search people", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      group.getByRole("checkbox", {
+        name: `${creator.name} (${creator.email})`,
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await expect(
+      group.getByRole("checkbox", {
+        name: `${member.identity.user.name} (${member.identity.user.email})`,
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await dialog
+      .getByRole("button", { name: "Create agent", exact: true })
+      .click();
+    await expect(dialog).toHaveCount(0);
+    created = (await json(admin, "/agents?manage=true&limit=100")).items.find(
+      (item: { name: string }) => item.name === "Whole team assistant",
+    );
+    if (!created) throw new Error("Whole team Agent must be persisted");
+    const id = created.id;
+    const current = (await json(admin, `/agents/${id}?manage=true`)).agent;
+    expect(current.allMembers).toBe(true);
+    expect(current.memberIds.toSorted()).toEqual(
+      [creator.id, viewer.identity.user.id].toSorted(),
     );
     expect(
+      (await json(member.api, "/agents?limit=100")).items.some(
+        (item: { id: string }) => item.id === id,
+      ),
+    ).toBe(true);
+    const invitation = await json(admin, "/auth/invitations", {
+      email: "browser-agent-future-member@example.test",
+      role: "member",
+    });
+    await json(future.request, "/auth/accept-invitation", {
+      token: invitation.token,
+      name: "Future team member",
+      password: "Browser-future-member-password-42",
+    });
+    expect(
+      (await json(future.request, "/agents?limit=100")).items.some(
+        (item: { id: string }) => item.id === id,
+      ),
+    ).toBe(true);
+    await page
+      .getByRole("button", { name: "Edit Whole team assistant", exact: true })
+      .click();
+    const edit = page.getByRole("dialog", { name: "Edit agent", exact: true });
+    await edit.getByText("All team members", { exact: true }).click();
+    await expect(
+      edit.getByRole("searchbox", { name: "Search people", exact: true }),
+    ).toBeEnabled();
+    await expect(
+      edit.getByRole("checkbox", {
+        name: `${creator.name} (${creator.email})`,
+        exact: true,
+      }),
+    ).toBeChecked();
+    await expect(
+      edit.getByRole("checkbox", {
+        name: `${viewer.identity.user.name} (${viewer.identity.user.email})`,
+        exact: true,
+      }),
+    ).toBeChecked();
+    const changed = (
       await json(
         admin,
-        `/boards/${removed.id}`,
-        { version: currentRemoved.version },
-        "DELETE",
+        `/agents/${id}`,
+        { version: current.version, name: "Whole team changed elsewhere" },
+        "PATCH",
+      )
+    ).agent;
+    created = changed;
+    await edit
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(edit.getByRole("alert")).toBeVisible();
+    await expect(
+      edit.getByRole("checkbox", { name: "All team members", exact: true }),
+    ).not.toBeChecked();
+    await expect(
+      edit.getByRole("button", { name: "Save changes", exact: true }),
+    ).toBeDisabled();
+    await edit
+      .getByRole("button", { name: "Reload agent", exact: true })
+      .click();
+    await expect(
+      edit.getByRole("checkbox", { name: "All team members", exact: true }),
+    ).toBeChecked();
+    await edit.getByText("All team members", { exact: true }).click();
+    await edit
+      .getByRole("button", { name: "Save changes", exact: true })
+      .click();
+    await expect(edit.getByRole("status")).toHaveText("Agent updated.");
+    await edit.getByRole("button", { name: "Done", exact: true }).click();
+    const saved = (await json(admin, `/agents/${id}?manage=true`)).agent;
+    created = saved;
+    expect(saved.allMembers).toBe(false);
+    expect(saved.memberIds.toSorted()).toEqual(
+      [creator.id, viewer.identity.user.id].toSorted(),
+    );
+    expect(
+      (await json(future.request, "/agents?limit=100")).items.some(
+        (item: { id: string }) => item.id === id,
       ),
-    ).toEqual({ ok: true });
-    created = (
-      await json(admin, "/boards", {
-        name: "Created during directory lookup",
-        prefix: "CDL",
-      })
-    ).board;
-    const response = await route.fetch();
-    expect(response.status()).toBe(409);
-    expect((await response.json()).code).toBe("board_list_changed");
-    await route.fulfill({ response });
-  });
-  await openAgents(page);
-  const dialog = await createDialog(page, "Current board assistant");
-  expect(transitioned).toBe(true);
-  const revoked = page.getByRole("row", { name: /Historical scope reader/ });
-  await expect(revoked).toContainText("No boards");
-  await expect(revoked).toContainText("Revoked");
-  await expect(revoked).not.toContainText("All boards");
-  await expect(revoked).not.toContainText(historical.name);
-  await expect(revoked.getByRole("button", { name: /Revoke/ })).toHaveCount(0);
-  await page.getByRole("button", { name: /Board access$/ }).click();
-  await expect(
-    page.getByRole("option", { name: renamedName, exact: true }),
-  ).toHaveCount(1);
-  await expect(
-    page.getByRole("option", { name: created!.name, exact: true }),
-  ).toHaveCount(1);
-  await expect(
-    page.getByRole("option", { name: renamed.name, exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("option", { name: removed.name, exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    page.getByRole("option", { name: historical.name, exact: true }),
-  ).toHaveCount(0);
-  await page
-    .getByRole("searchbox", { name: "Search board access" })
-    .fill("Transition directory fixture 105");
-  await expect(
-    page.getByRole("option", {
-      name: "Transition directory fixture 105",
-      exact: true,
-    }),
-  ).toHaveCount(1);
-  await page
-    .getByRole("searchbox", { name: "Search board access" })
-    .fill(renamedName);
-  await page.getByRole("option", { name: renamedName, exact: true }).click();
-  await dialog
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
-  await expect(
-    page.getByRole("dialog", { name: "Copy your API key" }),
-  ).toBeVisible();
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Done", exact: true })
-    .click();
-  const records = (await json(page.request, "/credentials")).items;
-  expect(
-    records.find(
-      (item: { name: string }) => item.name === "Current board assistant",
-    ).boardIds,
-  ).toEqual([renamed.id]);
-  const emptyScope = records.find(
-    (item: { name: string }) => item.name === "Historical scope reader",
-  );
-  expect(emptyScope.boardIds).toEqual([]);
-  expect(emptyScope.revokedAt).not.toBeNull();
+    ).toBe(false);
+    expect(
+      (await json(member.api, "/agents?limit=100")).items.some(
+        (item: { id: string }) => item.id === id,
+      ),
+    ).toBe(false);
+    expect(
+      (await json(viewer.api, "/agents?limit=100")).items.some(
+        (item: { id: string }) => item.id === id,
+      ),
+    ).toBe(true);
+    expect(
+      (await json(admin, "/agents?limit=100")).items.some(
+        (item: { id: string }) => item.id === id,
+      ),
+    ).toBe(true);
+  } finally {
+    if (created)
+      await json(
+        admin,
+        `/agents/${created.id}`,
+        { version: created.version },
+        "DELETE",
+      );
+    await future.close();
+    await member.api.dispose();
+    await viewer.api.dispose();
+  }
 });

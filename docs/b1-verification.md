@@ -1,6 +1,30 @@
 # B1 verification
 
-## Current explicit-Agent and interface revision
+## September 29 People, Agent access and personal key revision
+
+This is the current revision. It hides board descriptions from the displayed board while retaining them in edit settings and REST/MCP, follows Towbar's People and Avatar presentation, uses compact form help and table descriptions, removes all ghost buttons, and adds durable all-members Agent access. Personal API keys use the active owner's current human permissions on REST; Agents connect only through OAuth MCP. Keys accept only a name and one of 30, 60, 90 or 365 days. Migration 009 revokes and unbinds earlier Agent-bound API keys while preserving OAuth, work and history. Applied migrations 001–008 are unchanged.
+
+Complete source verification passed 162 real PostgreSQL API/security tests, 14 tooling tests and 28 documentation checks, plus formatting, lint, types, dependency audit and production build (`tmp/ui-keys/source-verify-r1.log`). Independent backend review found and verified a fix for returning team creators: removal and re-invitation restore the pinned grant while revoked OAuth and cleared task bindings remain unchanged. The controlled preview upgrade preserved all three boards, 15 tasks, 22 task events and 18 sessions, plus exact earlier migration records (`tmp/ui-keys/preview-upgrade-receipt.json`). Read-only actual desktop/phone People and invitation review passed in both themes. Complete browser, exact-commit container/restore and hosted CI gates remain pending. Earlier sections and receipts below describe preceding revisions; they do not establish acceptance of this revision.
+
+| Current requirement                   | Implementation and acceptance target                                                                                            | Current status                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Board description display             | Hidden from board heading; retained edit modal, REST and MCP                                                                    | Implemented; complete browser pending                                     |
+| Gravatar and fallback                 | Towbar SHA-256 Avatar for profile, Assignee options and People; CSP permits exact host, failed images retain initials           | Implemented; rendered checks pending                                      |
+| People layout                         | One heading/actions followed by plain members/invitations regions; no separate pending heading; enum chips                      | Implemented; rendered checks pending                                      |
+| Form explanations and table hierarchy | xs form help; sm normal primary text, xs normal muted descriptions; soft success/danger foreground tokens                       | Implemented; rendered checks pending                                      |
+| Buttons                               | Shared type excludes ghost; secondary actions and danger-soft deletion                                                          | Implemented; complete browser pending                                     |
+| Agent creation feedback               | Close editor with toast; no created-result modal                                                                                | Implemented; complete browser pending                                     |
+| Individual team access                | Creator checked, disabled and pinned; secondary checkboxes; search and 25-row display pages preserve choices                    | Implemented; 125-person desktop/phone stress pending                      |
+| All team members                      | Persisted team-only allMembers policy dynamically includes future active users                                                  | Complete source checks passed; browser/container/CI pending               |
+| Permission changes                    | Actual losers lose Agent binding and OAuth access, human assignee/work/history remain; access retries become content-free 410   | Complete source/concurrency checks passed; browser/container/CI pending   |
+| Personal REST keys                    | Name/expiry only; current human role and attribution; all current/future accessible boards; Viewer owns notification read state | Complete source checks passed; browser/container/CI pending               |
+| OAuth MCP                             | Selected eligible Agent, existing scopes and board restrictions; API-key MCP and OAuth public REST rejected                     | Complete source and SDK/OAuth checks passed; browser/container/CI pending |
+| Forward migration 009                 | Actual pre009 fixture, key revocation, OAuth/work/history preservation, creator grant and exact prior checksums                 | Narrow migration checks passed; packaged forward proof pending            |
+| Full restore and installation         | Preserve existing OAuth resource origin and prove real MCP after recovery; personal REST and future-member team access          | Packaged gate pending                                                     |
+| Prior v1 scope                        | Six statuses, alphabetical fixed Boards category, checklist only, permanent deletion, task history, header notification list    | Retained; full source/browser/container gates pending                     |
+| Private review and CI                 | Reviewable commit, both hosted workflows, no merge/publication/deployment                                                       | Pending exact reviewed commit                                             |
+
+## Historical explicit-Agent and interface revision
 
 The current user-authorized revision adds human-created Agents separate from People, personal API keys and OAuth bound to eligible existing Agents, and optional task Agent attribution alongside a required human assignee. It retains the reduced fixed-status task list and all earlier v1 exclusions. Implementation reports and prior candidate receipts are not current acceptance evidence.
 

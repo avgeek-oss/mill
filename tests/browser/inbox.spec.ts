@@ -355,31 +355,42 @@ test("the single list reaches older notifications and marks refresh the durable 
   ).toBeDisabled();
 });
 
-test("Viewer members can read their own inbox and read-only agent credentials cannot mark it", async ({
+test("Viewer members and their personal API key preserve notification ownership", async ({
   page,
 }) => {
   const who = await account("Viewer Inbox", "viewer");
   const fixture = await seed(who, 3);
-  const { agent } = await json(admin, "/agents", {
-    name: "Read-only Inbox agent",
-    scope: "team",
-    memberIds: [who.id],
-  });
+  const other = await account("Other personal key notifications");
+  const outside = await seed(other, 1);
   const credential = await json(who.api, "/credentials", {
-    name: "Read-only Inbox",
-    agentId: agent.id,
-    scopes: ["read"],
+    name: "Viewer Inbox personal key",
   });
   expect(credential.credential.userId).toBe(who.id);
-  expect(credential.credential.agentId).toBe(agent.id);
-  expect(credential.credential.scopes).toEqual(["read"]);
-  const denied = await admin.patch("/api/notifications", {
+  const read = await admin.get("/api/notifications?limit=100", {
+    headers: { Authorization: `Bearer ${credential.token}` },
+  });
+  expect(read.status()).toBe(200);
+  const notifications = await read.json();
+  expect(notifications.unreadCount).toBe(3);
+  expect(notifications.items.map((item: { id: string }) => item.id)).toEqual(
+    fixture.items.map((item) => item.id),
+  );
+  const marked = await admin.patch("/api/notifications", {
     headers: { Origin: origin, Authorization: `Bearer ${credential.token}` },
     data: { ids: [fixture.items[0]!.id], read: true },
   });
+  expect(marked.status()).toBe(200);
+  expect(await marked.json()).toEqual({ ok: true, updated: 1 });
+  const [ownRead] =
+    await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
+  expect(ownRead.readAt).not.toBeNull();
+  const denied = await admin.patch("/api/notifications", {
+    headers: { Origin: origin, Authorization: `Bearer ${credential.token}` },
+    data: { ids: [outside.items[0]!.id], read: true },
+  });
   expect(denied.status()).toBe(403);
   const [unchanged] =
-    await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
+    await database`SELECT read_at FROM notifications WHERE id=${outside.items[0]!.id}`;
   expect(unchanged.readAt).toBeNull();
   await login(page, who);
   await expect(rows(page)).toHaveCount(3);
@@ -387,7 +398,9 @@ test("Viewer members can read their own inbox and read-only agent credentials ca
   await inbox(page)
     .getByRole("button", { name: "Mark all read", exact: true })
     .click();
-  await expect(latest.getByText("Read", { exact: true })).toBeVisible();
+  await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(3);
+  expect((await json(who.api, "/notifications")).unreadCount).toBe(0);
+  expect((await json(other.api, "/notifications")).unreadCount).toBe(1);
   await latest.getByRole("link").click();
   await expect(page).toHaveURL(
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),

@@ -5,6 +5,8 @@ import {
   request,
   resetDatabase,
   setupAgent,
+  setupOAuthAgent,
+  callMcpTool,
   setupUser,
   sql,
 } from "./support.js";
@@ -61,32 +63,18 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
       );
       await sql`INSERT INTO notifications(user_id,task_id,kind,actor_name) VALUES (${user.id},${item.id},'mention','Admin')`;
     }
-    const sole = await json(
-      await request("/api/credentials", {
-        cookie,
-        body: {
-          agentId: (await setupAgent(cookie)).id,
-          name: "Removed scope",
-          scopes: ["read"],
-          boardIds: [removed.id],
-        },
-        headers: { "Idempotency-Key": "schema-sole-credential-cache" },
-      }),
-      201,
-    );
-    const mixed = await json(
-      await request("/api/credentials", {
-        cookie,
-        body: {
-          agentId: (await setupAgent(cookie)).id,
-          name: "Mixed scope",
-          scopes: ["read"],
-          boardIds: [removed.id, kept.id],
-        },
-        headers: { "Idempotency-Key": "schema-mixed-credential-cache" },
-      }),
-      201,
-    );
+    const sole = await setupOAuthAgent(cookie, {
+      agentId: (await setupAgent(cookie)).id,
+      scopes: ["read"],
+      boardIds: [removed.id],
+      idempotencyKey: "schema-sole-credential-cache",
+    });
+    const mixed = await setupOAuthAgent(cookie, {
+      agentId: (await setupAgent(cookie)).id,
+      scopes: ["read"],
+      boardIds: [removed.id, kept.id],
+      idempotencyKey: "schema-mixed-credential-cache",
+    });
     const [soleGrant] =
       await sql`INSERT INTO oauth_requests(client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,agent_id,board_ids,expires_at) VALUES ('schema-agent','Agent','registered','https://example.test/callback','https://example.test/mcp','read','challenge',${user.id},${sole.credential.agentId},ARRAY[${removed.id}::uuid],now()+interval '1 day') RETURNING id`;
     const [mixedGrant] =
@@ -221,13 +209,22 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
       );
     });
     assert.equal(
-      (await request("/api/boards", { token: sole.token })).status,
+      (await callMcpTool(sole.token, "list_boards")).response.status,
       401,
+    );
+    const keptRead = await callMcpTool(mixed.token, "get_task", {
+      taskId: outside.id,
+    });
+    assert.equal(keptRead.response.status, 200);
+    assert.equal(keptRead.result?.isError, false);
+    assert.equal(
+      (keptRead.result?.structuredContent?.task as { id: string }).id,
+      outside.id,
     );
     assert.equal(
       (await request(`/api/tasks/${outside.id}`, { token: mixed.token }))
         .status,
-      200,
+      403,
     );
   });
 }

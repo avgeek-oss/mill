@@ -344,7 +344,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         assert(await credentialActor(req()));
         assert.equal(
           (await request("/api/boards", { token: issued.access_token })).status,
-          401,
+          403,
           "OAuth token is MCP resource-bound",
         );
         const canonical = process.env.MILL_BASE_URL;
@@ -517,7 +517,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
               body: { allow: true, agentId: agent.id },
             })
           ).status,
-          401,
+          403,
           "An OAuth token cannot consent for another client",
         );
       },
@@ -709,7 +709,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
                 headers: { Authorization: `Bearer ${tokens.access_token}` },
               })
             ).status,
-            401,
+            403,
           );
         } finally {
           await sdk.close();

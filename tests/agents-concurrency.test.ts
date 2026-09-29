@@ -6,6 +6,8 @@ import {
   resetDatabase,
   setupAgent,
   setupUser,
+  setupOAuthAgent,
+  callMcpTool,
   sql,
 } from "./support.js";
 import type { Tx } from "../apps/api/src/domain/helpers.js";
@@ -187,26 +189,18 @@ test("a warmed bound credential mutation queued after grant revocation cannot ed
     }),
     201,
   );
-  const credential = await json(
-    await request("/api/credentials", {
-      cookie: memberCookie,
-      body: {
-        agentId: agent.id,
-        name: "Bound key",
-        scopes: ["read", "write"],
-        boardIds: [board.id],
-        expiresInDays: 1,
-      },
-    }),
-    201,
-  );
-  await json(
-    await request(`/api/tasks/${task.id}`, { token: credential.token }),
-  );
+  const credential = await setupOAuthAgent(memberCookie, {
+    agentId: agent.id,
+    boardIds: [board.id],
+  });
+  const warmed = await callMcpTool(credential.token, "get_task", {
+    taskId: task.id,
+  });
+  assert.equal(warmed.result?.isError, false);
   const before = await sql`SELECT * FROM tasks ORDER BY id`,
     history = await sql`SELECT * FROM activity ORDER BY id`;
   const gate = await barrier();
-  let changed!: Promise<Response>, pending!: Promise<Response>;
+  let changed!: Promise<Response>, pending!: ReturnType<typeof callMcpTool>;
   try {
     changed = request(`/api/agents/${agent.id}`, {
       cookie,
@@ -214,17 +208,22 @@ test("a warmed bound credential mutation queued after grant revocation cannot ed
       body: { version: agent.version, memberIds: [user.id] },
     });
     await waitForBlocked(gate.pid, 1);
-    pending = request(`/api/tasks/${task.id}`, {
-      token: credential.token,
-      method: "PATCH",
-      body: { version: task.version, title: "Must be denied" },
+    pending = callMcpTool(credential.token, "update_task", {
+      taskId: task.id,
+      version: task.version,
+      title: "Must be denied",
+      idempotencyKey: "revoked-agent-edit",
     });
     await waitForBlocked(gate.pid, 2);
   } finally {
     await gate.release();
   }
   await json(await changed);
-  assert.ok([401, 403].includes((await pending).status));
+  const denied = await pending;
+  assert.ok(
+    [401, 403].includes(denied.response.status) ||
+      denied.result?.isError === true,
+  );
   assert.deepEqual(await sql`SELECT * FROM tasks ORDER BY id`, before);
   assert.deepEqual(await sql`SELECT * FROM activity ORDER BY id`, history);
   assert.ok(
@@ -293,12 +292,7 @@ test("member removal rolls back all Agent cleanup when attributed task history f
   await json(
     await request("/api/credentials", {
       cookie: memberCookie,
-      body: {
-        agentId: agent.id,
-        name: "Member key",
-        scopes: ["read"],
-        expiresInDays: 1,
-      },
+      body: { name: "Member key" },
     }),
     201,
   );
@@ -341,3 +335,91 @@ test("member removal rolls back all Agent cleanup when attributed task history f
     await sql.unsafe("DROP FUNCTION reject_agent_clear_history()");
   }
 });
+
+for (const transition of ["narrow", "remove-grant-with-all-members"] as const) {
+  for (const first of ["policy", "binding"] as const) {
+    test(`Agent ${transition} and task binding serialize with ${first} first without revoking retained access`, async () => {
+      const { cookie, user, member, memberCookie, agent, board } =
+        await fixture();
+      const current = (
+        await json(
+          await request(`/api/agents/${agent.id}`, {
+            cookie,
+            method: "PATCH",
+            body: { version: agent.version, allMembers: true },
+          }),
+        )
+      ).agent;
+      const credential = await setupOAuthAgent(memberCookie, {
+        agentId: agent.id,
+      });
+      const gate = await barrier();
+      const policy = () =>
+        request(`/api/agents/${agent.id}`, {
+          cookie,
+          method: "PATCH",
+          body: {
+            version: current.version,
+            allMembers: transition !== "narrow",
+            memberIds: [user.id],
+          },
+        });
+      const binding = () =>
+        request(`/api/boards/${board.id}/tasks`, {
+          cookie,
+          body: {
+            title: "Serialized dynamic access",
+            agentId: agent.id,
+            assigneeId: member.id,
+          },
+        });
+      let early!: Promise<Response>, late!: Promise<Response>;
+      try {
+        early = first === "policy" ? policy() : binding();
+        await waitForBlocked(gate.pid, 1);
+        late = first === "policy" ? binding() : policy();
+        await waitForBlocked(gate.pid, 2);
+      } finally {
+        await gate.release();
+      }
+      const policyResponse = first === "policy" ? await early : await late;
+      const bindingResponse = first === "binding" ? await early : await late;
+      await json(policyResponse);
+      const tasks = await sql`SELECT * FROM tasks WHERE board_id=${board.id}`;
+      const retained = transition === "remove-grant-with-all-members";
+      if (!retained && first === "policy") {
+        await json(bindingResponse, 403);
+        assert.equal(tasks.length, 0);
+      } else {
+        const { task } = await json(bindingResponse, 201);
+        assert.equal(tasks.length, 1);
+        assert.equal(tasks[0].assigneeId, member.id);
+        assert.equal(tasks[0].agentId, retained ? agent.id : null);
+        assert.equal(tasks[0].version, task.version + (retained ? 0 : 1));
+        const history =
+          await sql`SELECT action,detail,actor_kind FROM activity WHERE task_id=${task.id} ORDER BY created_at,id`;
+        assert.equal(history.length, retained ? 1 : 2);
+        if (!retained) {
+          assert.equal(history[1].action, "task.updated");
+          assert.deepEqual(history[1].detail, { fields: ["agentId"] });
+          assert.equal(history[1].actorKind, "human");
+        }
+      }
+      const [stored] =
+        await sql`SELECT revoked_at FROM credentials WHERE id=${credential.credential.id}`;
+      assert.equal(Boolean(stored.revokedAt), !retained);
+      assert.equal(
+        (
+          await sql`SELECT * FROM agent_members WHERE agent_id=${agent.id} AND user_id=${member.id}`
+        ).length,
+        0,
+      );
+      assert.equal(
+        (
+          await sql`SELECT * FROM agent_members WHERE agent_id=${agent.id} AND user_id=${user.id}`
+        ).length,
+        1,
+      );
+    });
+  }
+}

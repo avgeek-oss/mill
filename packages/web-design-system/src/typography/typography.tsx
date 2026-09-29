@@ -63,7 +63,7 @@ export function TypographyHeading({
 export type TypographyParagraphProps = ComponentProps<"p"> & {
   align?: Align;
   color?: Color;
-  size?: "sm" | "md" | "lg";
+  size?: "xs" | "sm" | "md" | "lg";
   weight?: "normal" | "medium" | "semibold";
 };
 export function TypographyParagraph({
@@ -77,7 +77,7 @@ export function TypographyParagraph({
   return (
     <p
       className={cn(
-        { sm: "text-sm", md: "text-base", lg: "text-lg" }[size],
+        { xs: "text-xs", sm: "text-sm", md: "text-base", lg: "text-lg" }[size],
         {
           normal: "font-normal",
           medium: "font-medium",

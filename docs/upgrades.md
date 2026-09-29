@@ -22,9 +22,21 @@ Save and test a full database backup before starting this version against an exi
 
 Migration `008_agents.sql` adds Agents separate from People, explicit team access grants, and task Agent bindings. It revokes preexisting credentials that lack an Agent binding, including earlier OAuth connections. It creates no Agents automatically and preserves existing tasks, task history, and human sessions. Earlier applied migrations remain unchanged.
 
-After upgrade, open Agents in the human interface. Create a personal Agent or have an administrator create a team Agent and assign eligible people. Open API keys to issue a new personal key bound to an Agent you can access, or reconnect OAuth and select that Agent at consent. A person without an eligible Agent cannot approve a connection. Revoked old keys do not become usable again by creating an Agent.
+For MCP OAuth after migration 008, create a personal Agent in the human interface or ask an administrator for access to a team Agent, then reconnect and select it at consent. A person without an eligible Agent cannot approve a connection. Creating an Agent never reactivates a revoked token. Personal REST keys follow migration 009 below.
 
 An Agent on a task is optional, separate from the human assignee, and never executes work automatically. Selecting one requires an active human assignee and access for both actor and assignee. Test that binding and your external connection after upgrade. Keep the pre-upgrade backup and compatible old application if you need to recover the earlier credential model in a separate project.
+
+## Personal API keys and team access migration
+
+Migration `009_agents_access.sql` separates personal REST API keys from Agent OAuth. It revokes all preexisting API keys and removes their Agent, board, scope, OAuth-client, and resource bindings. Existing Agent-bound OAuth connections remain intact. Tasks, task history, and human sessions remain. Completed retry response content becomes terminal `410`; its identity remains so an old mutation cannot run again.
+
+After readiness succeeds, sign in and open **API keys**. Choose **Create API key**, enter a **Name**, and choose **Expiry**: 30, 60, 90, or 365 days. Copy the one-time token into the REST client's secret store and choose **Done**. There is no Agent, scope, or board selector. Replace the old client token and check a permitted REST request. Revoked old keys stay revoked; they cannot be recovered from the metadata list or re-enabled.
+
+A new personal key uses its human owner's current role across all accessible boards, including boards created later. It cannot use MCP or human-only management routes. Keep OAuth for MCP: approval still requires an eligible existing human-created Agent and retains granted scopes and optional approved boards.
+
+Team Agents gain the **All team members** policy, which covers current and future active members. Individual grants remain separate; the active creator receives a pinned grant and cannot be removed from it. Disabling All team members keeps the creator and selected individual grants. People who lose access have affected task Agent bindings cleared and OAuth connections revoked. A preserved OAuth connection still needs current owner membership and Agent access on every request.
+
+Before upgrading an existing installation, test a full backup. Review team access, personal-key replacement, and OAuth access after startup. Migration 009 does not reactivate credentials previously revoked by migration 008. Keep the old application and pre-upgrade backup for recovery in a separate installation.
 
 ## Upgrade a source installation
 
@@ -62,4 +74,4 @@ An older application image may not support an upgraded schema. Do not point it a
 
 Database major-version upgrades need a tested PostgreSQL upgrade plan. Changing the container tag across majors while reusing a volume is not a supported shortcut.
 
-The release gate must verify startup from the prior schema, preserved task/comment/member/history/session data, fixed-status conversion, migration 008's unbound-credential revocation without automatic Agent creation, and restoration of a generated full backup including Agents/access grants. Record the reviewed revision and observed results before using the new application version.
+The release gate must verify startup from the prior schema, preserved task/comment/member/history/session data, fixed-status conversion, migration 008's unbound-credential revocation without automatic Agent creation, migration 009's API-key revocation/unbinding with OAuth preservation and dynamic team access, and restoration of a generated full backup including Agents/access grants. Record the reviewed revision and observed results before using the new application version.

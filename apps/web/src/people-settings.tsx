@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Avatar,
   Button,
   Chip,
   Choice,
@@ -16,20 +17,27 @@ import {
   ErrorMessage,
   Spinner,
   Table,
+  TableCellStack,
+  TableCellDescription,
   Tooltip,
   TextField,
-  Widget,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Copy01Icon,
+  CrownIcon,
+  EyeIcon,
+  UserShield01Icon,
+  Clock01Icon,
+  CheckmarkCircle01Icon,
+  InformationCircleIcon,
   Mail01Icon,
   PencilEdit02Icon,
   UserMultipleIcon,
 } from "@hugeicons/core-free-icons";
 import type { Member, Role } from "../../../packages/contracts/src/index.js";
 import { api, errorText, type Session } from "./api.js";
-import { Check, Plus, Trash2 } from "./icons.js";
+import { Check, Trash2 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 
 type Invitation = {
@@ -107,42 +115,37 @@ function usePeopleList<T>(path: string) {
   return { ...state, load, retry: () => load(attemptedCursor.current) };
 }
 
-function PeopleWidget({
-  title,
-  icon,
+function PeopleSection({
+  label,
   children,
-  populated,
 }: {
-  title: string;
-  icon: ReactNode;
+  label: string;
   children: ReactNode;
-  populated: boolean;
 }) {
-  if (populated)
-    return (
-      <section
-        role="region"
-        aria-label={title}
-        className="content-grid min-w-0"
-      >
-        <div className="flex items-center gap-2 text-muted">
-          {icon}
-          <h2 className="text-xs font-medium">{title}</h2>
-        </div>
-        {children}
-      </section>
-    );
   return (
-    <Widget role="region" aria-label={title} className="min-w-0">
-      <Widget.Header>
-        <Widget.Title icon={icon} help={false}>
-          <h2 className="text-xs font-medium">{title}</h2>
-        </Widget.Title>
-      </Widget.Header>
-      <Widget.Content className="min-w-0">
-        <div className="content-grid min-w-0">{children}</div>
-      </Widget.Content>
-    </Widget>
+    <section role="region" aria-label={label} className="content-grid min-w-0">
+      {children}
+    </section>
+  );
+}
+function RoleChip({ role }: { role: Role }) {
+  return (
+    <Chip
+      variant="secondary"
+      icon={
+        <HugeiconsIcon
+          icon={
+            role === "admin"
+              ? CrownIcon
+              : role === "member"
+                ? UserShield01Icon
+                : EyeIcon
+          }
+        />
+      }
+    >
+      {roleNames[role]}
+    </Chip>
   );
 }
 function RemovalHint({
@@ -190,7 +193,7 @@ function RemovalHint({
 
 function LoadingPeople({ children }: { children: ReactNode }) {
   return (
-    <div role="status" className="flex items-center gap-2 text-sm text-muted">
+    <div role="status" className="flex items-center gap-2 text-xs text-muted">
       <Spinner size="sm" />
       <span>{children}</span>
     </div>
@@ -198,12 +201,24 @@ function LoadingPeople({ children }: { children: ReactNode }) {
 }
 function invitationStatus(invitation: Invitation) {
   if (invitation.acceptedAt)
-    return { label: "Accepted", color: "success" as const };
+    return {
+      label: "Accepted",
+      variant: "success" as const,
+      icon: CheckmarkCircle01Icon,
+    };
   if (invitation.revokedAt)
-    return { label: "Revoked", color: "danger" as const };
+    return {
+      label: "Revoked",
+      variant: "secondary" as const,
+      icon: InformationCircleIcon,
+    };
   if (Date.parse(invitation.expiresAt) <= Date.now())
-    return { label: "Expired", color: "warning" as const };
-  return { label: "Pending", color: "accent" as const };
+    return {
+      label: "Expired",
+      variant: "secondary" as const,
+      icon: InformationCircleIcon,
+    };
+  return { label: "Pending", variant: "warning" as const, icon: Clock01Icon };
 }
 
 export function PeopleSettings({
@@ -279,21 +294,13 @@ export function PeopleSettings({
               setInviteOpen(true);
             }}
           >
-            <Plus />
+            <HugeiconsIcon icon={Mail01Icon} size={16} />
             Invite a person
           </Button>
         }
       />
       <div className="content-grid min-w-0">
-        <PeopleWidget
-          populated={!!members.items.length}
-          title="Workspace members"
-          icon={<HugeiconsIcon icon={UserMultipleIcon} size={16} />}
-        >
-          <p className="text-sm text-muted">
-            Administrators manage access. Members change tasks. Viewers read
-            boards.
-          </p>
+        <PeopleSection label="Workspace members">
           <ErrorMessage>{members.error}</ErrorMessage>
           {members.error && (
             <div>
@@ -342,26 +349,37 @@ export function PeopleSettings({
                       return (
                         <Table.Row key={member.id} id={member.id}>
                           <Table.Cell className="whitespace-normal!">
-                            <div className="grid min-w-0 gap-0.5 whitespace-normal text-sm/5 font-normal">
-                              <span className="break-words">
-                                {member.name}
-                                {member.id === session.user.id && (
-                                  <span className="font-normal text-muted">
-                                    {" "}
-                                    (you)
-                                  </span>
-                                )}
-                              </span>
-                              <span className="break-all text-xs/4 font-normal text-muted">
-                                {member.email}
-                              </span>
-                              <div className="pt-1 md:hidden">
-                                <Chip>{roleNames[member.role]}</Chip>
-                              </div>
+                            <div className="flex min-w-0 items-start gap-3">
+                              <Avatar
+                                email={member.email}
+                                name={member.name}
+                                size="sm"
+                                className="shrink-0"
+                              />
+                              <TableCellStack
+                                as="div"
+                                className="whitespace-normal"
+                              >
+                                <span className="break-words">
+                                  {member.name}
+                                  {member.id === session.user.id && (
+                                    <span className="font-normal text-muted">
+                                      {" "}
+                                      (you)
+                                    </span>
+                                  )}
+                                </span>
+                                <TableCellDescription className="break-all">
+                                  {member.email}
+                                </TableCellDescription>
+                                <div className="pt-1 md:hidden">
+                                  <RoleChip role={member.role} />
+                                </div>
+                              </TableCellStack>
                             </div>
                           </Table.Cell>
                           <Table.Cell className="hidden align-middle md:table-cell">
-                            <Chip>{roleNames[member.role]}</Chip>
+                            <RoleChip role={member.role} />
                           </Table.Cell>
                           <Table.Cell className="align-top max-md:w-20! md:align-middle">
                             <div className="flex flex-col items-end gap-1 md:flex-row md:justify-end">
@@ -393,7 +411,7 @@ export function PeopleSettings({
                                   onFocus={(event) => {
                                     event.stopPropagation();
                                   }}
-                                  variant="danger-ghost"
+                                  variant="danger"
                                   isIconOnly
                                   aria-label={`Remove ${member.name}`}
                                   isDisabled={members.loading || lastAdmin}
@@ -416,20 +434,12 @@ export function PeopleSettings({
             </Table>
           )}
           {!completeDirectory && (
-            <p className="text-sm text-muted">
+            <p className="text-xs text-muted">
               This directory shows the first 1,000 people.
             </p>
           )}
-        </PeopleWidget>
-        <PeopleWidget
-          populated={!!invitations.items.length}
-          title="Invitations"
-          icon={<HugeiconsIcon icon={Mail01Icon} size={16} />}
-        >
-          <p className="text-sm text-muted">
-            Private invitations expire after seven days. Revoke a pending
-            invitation to cancel access.
-          </p>
+        </PeopleSection>
+        <PeopleSection label="Invitations">
           <ErrorMessage>{invitations.error}</ErrorMessage>
           {invitations.error && (
             <div>
@@ -470,6 +480,9 @@ export function PeopleSettings({
                 >
                   <Table.Header>
                     <Table.Column isRowHeader>Invitation</Table.Column>
+                    <Table.Column className="hidden w-28 md:table-cell">
+                      Role
+                    </Table.Column>
                     <Table.Column className="hidden w-24 md:table-cell">
                       Status
                     </Table.Column>
@@ -483,25 +496,42 @@ export function PeopleSettings({
                       return (
                         <Table.Row key={invitation.id} id={invitation.id}>
                           <Table.Cell className="whitespace-normal!">
-                            <div className="grid min-w-0 gap-0.5 whitespace-normal text-sm/5 font-normal">
+                            <TableCellStack
+                              as="div"
+                              className="whitespace-normal"
+                            >
                               <span className="break-all">
                                 {invitation.email}
                               </span>
-                              <span className="text-xs/4 font-normal text-muted">
-                                {roleNames[invitation.role]} · Expires{" "}
+                              <TableCellDescription>
+                                Expires{" "}
                                 {new Date(
                                   invitation.expiresAt,
                                 ).toLocaleDateString(undefined, {
                                   timeZone: session.user.timeZone,
                                 })}
-                              </span>
-                              <div className="pt-1 md:hidden">
-                                <Chip color={status.color}>{status.label}</Chip>
+                              </TableCellDescription>
+                              <div className="flex flex-wrap gap-1 pt-1 md:hidden">
+                                <RoleChip role={invitation.role} />
+                                <Chip
+                                  variant={status.variant}
+                                  icon={<HugeiconsIcon icon={status.icon} />}
+                                >
+                                  {status.label}
+                                </Chip>
                               </div>
-                            </div>
+                            </TableCellStack>
                           </Table.Cell>
                           <Table.Cell className="hidden align-middle md:table-cell">
-                            <Chip color={status.color}>{status.label}</Chip>
+                            <RoleChip role={invitation.role} />
+                          </Table.Cell>
+                          <Table.Cell className="hidden align-middle md:table-cell">
+                            <Chip
+                              variant={status.variant}
+                              icon={<HugeiconsIcon icon={status.icon} />}
+                            >
+                              {status.label}
+                            </Chip>
                           </Table.Cell>
                           <Table.Cell className="align-top max-md:w-20! md:align-middle">
                             <div className="flex justify-end">
@@ -513,7 +543,7 @@ export function PeopleSettings({
                                   onFocus={(event) => {
                                     event.stopPropagation();
                                   }}
-                                  variant="danger-ghost"
+                                  variant="danger"
                                   isIconOnly
                                   aria-label={`Revoke invitation for ${invitation.email}`}
                                   onPress={() => {
@@ -547,7 +577,7 @@ export function PeopleSettings({
               </Button>
             </div>
           )}
-        </PeopleWidget>
+        </PeopleSection>
       </div>
       {inviteOpen && (
         <InvitePersonDialog
@@ -648,7 +678,7 @@ function InvitePersonDialog({
         <ErrorMessage>{error}</ErrorMessage>
         {result ? (
           <>
-            <p className="text-sm">
+            <p className="text-xs">
               Share this private link with {email}. It expires after seven days.
             </p>
             <TextField
@@ -657,7 +687,7 @@ function InvitePersonDialog({
               readOnly
               onFocus={(event) => event.currentTarget.select()}
             />
-            <p className="text-sm text-muted">
+            <p className="text-xs text-muted">
               {result.emailDelivery === "sent"
                 ? "Invitation email sent."
                 : result.emailDelivery === "failed"
@@ -665,7 +695,7 @@ function InvitePersonDialog({
                   : "Email delivery is not configured. Copy the link to share it directly."}
             </p>
             {copied && (
-              <p role="status" className="text-sm text-success">
+              <p role="status" className="text-xs text-success-soft-foreground">
                 Invitation link copied.
               </p>
             )}
@@ -697,12 +727,12 @@ function InvitePersonDialog({
               items={roleOptions}
               disabled={busy}
             />
-            <p className="text-sm text-muted">
+            <p className="text-xs text-muted">
               Members can change tasks. Viewers can read boards. Administrators
               can manage access.
             </p>
             {busy && (
-              <p role="status" className="text-sm text-muted">
+              <p role="status" className="text-xs text-muted">
                 Creating the invitation…
               </p>
             )}
@@ -798,7 +828,7 @@ function PeopleActionDialog({
       <div className="content-grid">
         <ErrorMessage>{error}</ErrorMessage>
         {saved ? (
-          <p role="status" className="text-sm text-success">
+          <p role="status" className="text-xs text-success-soft-foreground">
             {action.kind === "role"
               ? "Role updated."
               : action.kind === "remove"
@@ -807,7 +837,7 @@ function PeopleActionDialog({
           </p>
         ) : action.kind === "role" ? (
           <>
-            <p className="break-all text-sm text-muted">
+            <p className="break-all text-xs text-muted">
               {action.member.email}
             </p>
             <Choice
@@ -819,14 +849,14 @@ function PeopleActionDialog({
             />
           </>
         ) : (
-          <p className="text-sm">
+          <p className="text-xs">
             {action.kind === "remove"
               ? `${action.member.name} will lose workspace access. Their comments and activity stay in the history.`
               : "This invitation will no longer grant workspace access."}
           </p>
         )}
         {busy && (
-          <p role="status" className="text-sm text-muted">
+          <p role="status" className="text-xs text-muted">
             {action.kind === "role"
               ? "Updating the role…"
               : action.kind === "remove"

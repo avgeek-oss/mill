@@ -1,34 +1,32 @@
-# Connect an agent
+# REST clients and MCP Agents
 
-Mill lets an external agent read and update the same boards you use in the browser. Connect it through the REST API or the remote MCP endpoint. You do not need an LLM key in Mill.
+Mill lets external clients read and update work through REST or remote MCP. REST uses a personal API key with your current permissions. MCP uses OAuth and an eligible human-created Agent. You do not need an LLM key in Mill.
 
-Install Mill and complete [workspace setup](getting-started.md) before adding an agent. Use your final HTTPS URL for a remote connection. Loopback HTTP works for local development when `ALLOW_INSECURE_LOCALHOST=true`; this exception does not permit HTTP on a remote server.
+Install Mill and complete [workspace setup](getting-started.md) before connecting a client. Use your final HTTPS URL for a remote connection. Loopback HTTP works for local development when `ALLOW_INSECURE_LOCALHOST=true`; this exception does not permit HTTP on a remote server.
 
 ## Create an Agent
 
-Open **Agents** at `/settings/agents` and choose **Create agent**. Give it a recognizable name, such as Release assistant, and choose **Access**. Members and administrators can create a **Personal** Agent, available only to its creator. Administrators can choose **Team** and select specific active people from **Assigned people**. Team access has no implicit administrator or creator grant; select yourself if you also need to use that Agent. A team Agent can exist with no people assigned, but nobody can use it until access is granted.
+Open **Agents** at `/settings/agents` and choose **Create agent**. Give it a recognizable name, such as Release assistant, and choose **Access**. Members and administrators can create a **Personal** Agent, available only to its creator. Administrators can choose **Team** and select active people from **Assigned people**, or enable **All team members**. All team members includes current and future active members; it is a policy, not a copied list of today's people. The active creator keeps an individual grant and cannot be deselected. Other administrators have no implicit use grant. When All team members is disabled, the creator and selected individual grants retain access.
 
-Agents are separate from the accounts invited through People. Personal creators manage their own Agents; administrators manage team Agents. Use **Edit agent** to change its name or assigned people. Scope is fixed after creation. Removing a person's team access revokes their bound keys/connections and clears their affected task Agent bindings. **Delete agent** clears its task bindings and revokes its connections while retaining tasks, human assignees and historical activity. Neither action executes external work.
+Agents are separate from the accounts invited through People. Personal creators manage their own Agents; administrators manage team Agents. Use **Edit agent** to change its name or assigned people. Scope is fixed after creation. Changing the team policy or individual grants revokes OAuth connections and clears task Agent bindings only for people who lose access. Personal API keys are independent of Agent access. **Delete agent** clears its task bindings and revokes its OAuth connections while retaining tasks, human assignees and historical activity. Neither action executes external work.
 
-External credentials and MCP cannot create or manage Agents. Create the identity in the human interface before connecting a client.
+External credentials and MCP cannot create or manage Agents. Create the identity in the human interface before connecting MCP OAuth. REST personal keys do not require an Agent.
 
 ## Create a personal API key
 
-Open **API keys** at `/settings/api-keys` and choose **Create API key**. Name this particular key, select an existing **Agent** you can access, then choose **Access**, **Board access**, and **Expires in days**. A key belongs to the person creating it; another administrator does not own it. Grant Read only for inspection or Read and write when the client needs to change tasks. Restrict it to the boards it needs.
+Open **API keys** at `/settings/api-keys` and choose **Create API key**. Enter a **Name** and choose **Expiry**: 30, 60, 90, or 365 days. The default is 30 days. There is no Agent, access-scope, or board selector. A key belongs to the person creating it; another administrator does not own it.
 
-If no Agent is eligible, use **Go to Agents** to create a personal Agent or ask an administrator for team access. Key creation cannot invent an Agent. The key name labels the connection; the selected Agent supplies its identity in task activity.
+The **Copy your API key** dialog reveals the complete token once. Choose **Copy API key**, save it in the external client's secret store, and choose **Done**. Mill stores a hash. Keep the token out of prompts, repositories, browser screenshots, and task comments. Later metadata shows the name, expiry, last use, and revocation state without revealing the token.
 
-The **Copy your API key** dialog reveals the complete token once. Choose **Copy API key**, save it in the external client's secret store, and choose **Done**. Mill stores a hash. Keep the token out of prompts, repositories, browser screenshots, and task comments. Later metadata shows the key's name, bound Agent, scope, expiry, last use and revocation state without revealing its token.
+A personal API key uses its human owner's current role across all accessible boards, including boards created later. A Viewer can read; Members and Admins can change work within their role. Disabling the account, expiring the key, or revoking it ends access. Password changes and account recovery also revoke existing keys.
 
-The default expiry is 30 days; API creation accepts 1–365 days. Viewers with access to a team Agent can create read keys; Members and Admins can create read/write keys within their role. Every request checks current owner membership and selected-Agent access. A removed account, removed Agent grant, deleted Agent, or expired/revoked key loses access. Password changes and account recovery revoke existing keys.
-
-Keys cannot manage identities, Agents, sessions, passkeys, invitations, workspace administration, other keys or OAuth consent. An unrestricted read key can list member names and IDs for assignment. A board-restricted key cannot read the workspace member directory.
+Personal API keys use REST only. They cannot use `/mcp`, account/security routes, the team directory, invitations, workspace administration, credential management, OAuth consent, or Agent management. Use a browser session for those human actions. See [access security](authentication.md#external-credential-boundaries) for the distinction from OAuth.
 
 ## Attribute a task to an Agent
 
 A task has a human **Assignee** and a separate optional **Agent**. Choose an active human first. When creating or changing the binding, both you and that assignee must have access to the selected Agent. Use `assigneeId` and `agentId` in REST/MCP; responses include derived `agentName`, which clients cannot set. To remove a human assignment from an Agent-bound task, clear the Agent too.
 
-Unrelated changes preserve a valid existing binding even if you do not have access to that Agent. Selecting an Agent never starts an external client, job, or task execution. The Agent bound to a key identifies the caller; the Agent assigned to a task records that task's responsibility and is set separately.
+Unrelated changes preserve a valid existing binding even if you do not have access to that Agent. Selecting an Agent never starts an external client, job, or task execution. An OAuth-bound Agent identifies the MCP caller. A personal API key acts as its human owner. The Agent assigned to a task records responsibility and is set separately.
 
 ## Use REST
 
@@ -56,11 +54,11 @@ Mill returns the task ID, stable identifier, and current `version`. Include that
 
 ## Use remote MCP
 
-Set the MCP server URL to `https://tasks.example.com/mcp` in a client that supports Streamable HTTP. For a client with custom authentication headers, add:
+Set the MCP server URL to `https://tasks.example.com/mcp` in a client that supports Streamable HTTP. Connect using [MCP OAuth](#connect-with-oauth). Personal API keys do not authenticate MCP. An already authorized client sends its OAuth access token as a bearer header:
 
 ```json
 {
-  "Authorization": "Bearer your-one-time-credential-token"
+  "Authorization": "Bearer your-oauth-access-token"
 }
 ```
 
@@ -89,7 +87,7 @@ Tool availability depends on the current role/scope. Board deletion is a human-A
 
 ## Connect with OAuth
 
-For a client that supports MCP OAuth, enter the same `/mcp` URL. The client discovers Mill's authorization server, registers itself or supplies a public HTTPS client metadata document, and opens the consent page. Sign in to Mill, check the requesting client's name and callback, and choose whether to connect it. Select an eligible existing **Agent** and, if needed, narrow **Approved boards**. The Agent selector contains personal Agents you created and team Agents explicitly granted to you. If none is available, **Allow access** is disabled; open Agents to create one or request team access, then **Refresh agents**. **Deny** remains available. OAuth never creates an Agent automatically.
+For a client that supports MCP OAuth, enter the same `/mcp` URL. The client discovers Mill's authorization server, registers itself or supplies a public HTTPS client metadata document, and opens the consent page. Sign in to Mill, check the requesting client's name and callback, and choose whether to connect it. Select an eligible existing **Agent** and, if needed, narrow **Approved boards**. The Agent selector contains personal Agents you created and team Agents available through an individual grant or All team members. If none is available, **Allow access** is disabled; open Agents to create one or request team access, then **Refresh agents**. **Deny** remains available. OAuth never creates an Agent automatically.
 
 Mill does not verify the brand or ownership of a dynamically registered client name. The consent page identifies it as unverified. Check that the connection came from the client you intended to use before allowing access.
 
@@ -101,10 +99,10 @@ Client metadata documents must be public HTTPS JSON, use their exact document UR
 
 ## Revoke or diagnose a connection
 
-Open **API keys**, choose the owning key's revoke action, and confirm **Revoke API key**. Revocation takes effect on the next request. Task activity records the selected Agent and human owner, such as "Release assistant via Alex"; earlier history keeps its recorded names. Workspace-wide audit history is not included in v1.
+Open **API keys**, choose the owning key's revoke action, and confirm **Revoke API key**. Revocation takes effect on the next request. Personal API-key activity identifies the human owner. OAuth activity records the selected Agent and human owner, such as "Release assistant via Alex"; earlier history keeps its recorded names. Workspace-wide audit history is not included in v1.
 
-Migration `008_agents.sql` revokes preexisting unbound credentials and earlier pending OAuth grants without creating Agents. Human sessions, tasks and history remain. After upgrade, create an Agent through the UI and issue a new personal key or reconnect OAuth. An old revoked token stays revoked.
+Migration `008_agents.sql` revoked earlier unbound credentials without creating Agents. Migration `009_agents_access.sql` revokes and removes Agent/scope/board bindings from previous API keys. Create a replacement through **API keys** using only Name and Expiry, then update the REST client's secret store. Old tokens stay revoked. Migration 009 preserves existing Agent-bound OAuth connections, tasks, history, and human sessions. See [upgrades](upgrades.md) before changing an installation.
 
-Deleting a board removes it from every credential's approved boards. A credential restricted to that board loses access; when no approved boards remain, Mill revokes the credential. It never becomes an all-boards credential. All-boards credentials continue to apply to the remaining boards and boards created later.
+Deleting a board removes it from OAuth approved-board grants. A restricted OAuth connection loses that board; when no approved boards remain, Mill revokes it rather than broadening access. Unrestricted OAuth connections and personal API keys continue to apply to remaining and future accessible boards.
 
-A `401` means the key is missing, expired, revoked, lacks current selected-Agent access, or no longer has an active owner. A `403` means its scopes, allowed boards, or the owner's current role do not permit the action. A `409` usually needs a fresh task version or a restarted board cursor sequence. On `429`, wait for the `Retry-After` interval before retrying. Repeated failures should be checked against [troubleshooting](troubleshooting.md) and [the API reference](api.md).
+A `401` means authentication is missing, expired, revoked, or no longer has an active owner; OAuth also requires current selected-Agent access. A `403` means the owner's role or a human-only boundary denies the action, or an OAuth scope/approved board denies it. A `409` usually needs a fresh task version or a restarted board cursor sequence. On `429`, wait for the `Retry-After` interval before retrying. Repeated failures should be checked against [troubleshooting](troubleshooting.md) and [the API reference](api.md).

@@ -46,7 +46,7 @@ export function conflict(
 
 export function requireHuman(c: Context<Env>): Actor {
   const a = actor(c);
-  if (a.kind !== "human")
+  if (a.kind !== "human" || a.credentialId)
     throw new HTTPException(403, {
       message: "Sign in with a personal account for this action",
     });

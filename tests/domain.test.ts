@@ -2,9 +2,11 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   cleanupDatabase,
+  callMcpTool,
   request,
   resetDatabase,
   setupAgent,
+  setupOAuthAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -14,6 +16,36 @@ after(cleanupDatabase);
 async function json(response: Response, status = 200) {
   assert.equal(response.status, status, await response.clone().text());
   return response.json();
+}
+async function mcpResult(
+  token: string,
+  name: string,
+  args: Record<string, unknown> = {},
+) {
+  const called = await callMcpTool(token, name, args);
+  assert.equal(called.response.status, 200);
+  assert.equal(called.error, undefined);
+  assert.ok(called.result);
+  return called.result;
+}
+async function mcpJson<
+  T extends Record<string, unknown> = Record<string, unknown>,
+>(token: string, name: string, args: Record<string, unknown> = {}) {
+  const result = await mcpResult(token, name, args);
+  assert.equal(result.isError, false, JSON.stringify(result));
+  assert.ok(result.structuredContent);
+  return result.structuredContent as T;
+}
+async function mcpDenied(
+  token: string,
+  name: string,
+  args: Record<string, unknown>,
+  error: string,
+) {
+  const result = await mcpResult(token, name, args);
+  assert.equal(result.isError, true, name);
+  const body = result.structuredContent ?? JSON.parse(result.content[0]!.text!);
+  assert.equal(body.error, error, name);
 }
 async function member(cookie: string, email: string, role = "member") {
   const invitation = await json(
@@ -123,8 +155,8 @@ test("task lifecycle persists identifiers, edits, checklist, status and permanen
   assert.equal(next.identifier, "ENG-3");
 });
 
-test("all board/task/comment/admin endpoints enforce roles and board credential restrictions", async () => {
-  const { cookie, board } = await fixture();
+test("personal REST keys inherit human roles while OAuth MCP enforces board restrictions", async () => {
+  const { cookie, board, user } = await fixture();
   const viewer = await member(cookie, "viewer@example.test", "viewer");
   const writer = await member(cookie, "writer@example.test");
   const item = await createTask(cookie, board.id);
@@ -186,19 +218,81 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
       201,
     )
   ).comment;
-  const credential = await json(
+  const personal = await json(
     await request("/api/credentials", {
       cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Board agent",
-        scopes: ["read", "write"],
-        boardIds: [board.id],
-        expiresInDays: 1,
-      },
+      body: { name: "Personal work key", expiresInDays: 30 },
     }),
     201,
   );
+  assert.equal(personal.credential.userId, user.id);
+  assert.equal(personal.credential.agentId, null);
+  assert.equal(personal.credential.boardIds, null);
+  assert.deepEqual(personal.credential.scopes, []);
+  assert.deepEqual(
+    (await json(await request("/api/boards", { token: personal.token }))).items
+      .map((row: { id: string }) => row.id)
+      .sort(),
+    [board.id, privateBoard.id].sort(),
+  );
+  for (const id of [item.id, privateTask.id])
+    assert.equal(
+      (await request(`/api/tasks/${id}`, { token: personal.token })).status,
+      200,
+    );
+  for (const [path, method, body] of [
+    ["/api/auth/me", "GET", undefined],
+    ["/api/auth/members", "GET", undefined],
+    ["/api/credentials", "GET", undefined],
+    ["/api/credentials", "POST", { name: "Nested key" }],
+    ["/api/workspace", "GET", undefined],
+    ["/api/workspace", "PATCH", { name: "Denied" }],
+    ["/api/agents", "POST", { name: "Denied Agent", scope: "personal" }],
+  ] as const)
+    assert.equal(
+      (await request(path, { token: personal.token, method, body })).status,
+      403,
+      path,
+    );
+  assert.equal(
+    (await callMcpTool(personal.token, "list_boards")).response.status,
+    403,
+  );
+  const viewerKey = await json(
+    await request("/api/credentials", {
+      cookie: viewer.cookie,
+      body: { name: "Viewer personal key" },
+    }),
+    201,
+  );
+  assert.equal(viewerKey.credential.userId, viewer.user.id);
+  assert.equal(
+    (await request(`/api/tasks/${privateTask.id}`, { token: viewerKey.token }))
+      .status,
+    200,
+  );
+  for (const [path, method, body] of [
+    ["/api/boards", "POST", { name: "Denied" }],
+    [
+      `/api/tasks/${item.id}`,
+      "PATCH",
+      { version: item.version, title: "Denied" },
+    ],
+    [`/api/tasks/${item.id}/comments`, "POST", { body: "Denied" }],
+    [`/api/tasks/${item.id}`, "DELETE", { version: item.version }],
+    ["/api/workspace", "PATCH", { name: "Denied" }],
+  ] as const)
+    assert.equal(
+      (await request(path, { token: viewerKey.token, method, body })).status,
+      403,
+      path,
+    );
+  const agent = await setupAgent(cookie, { name: "Board agent" });
+  const credential = await setupOAuthAgent(cookie, {
+    agentId: agent.id,
+    scopes: ["read", "write"],
+    boardIds: [board.id],
+  });
   const token = credential.token;
   const otherAuthorComment = (
     await json(
@@ -209,86 +303,106 @@ test("all board/task/comment/admin endpoints enforce roles and board credential 
       201,
     )
   ).comment;
-  assert.equal(
-    (
-      await request(`/api/comments/${otherAuthorComment.id}`, {
-        token,
-        method: "PATCH",
-        body: {
-          version: otherAuthorComment.version,
-          body: "Agent moderation denied",
-        },
-      })
-    ).status,
-    403,
+  await mcpDenied(
+    token,
+    "update_comment",
+    {
+      commentId: otherAuthorComment.id,
+      version: otherAuthorComment.version,
+      body: "Agent moderation denied",
+    },
+    "Only the author or an administrator can edit this comment",
   );
   assert.deepEqual(
-    (await json(await request("/api/boards", { token }))).items.map(
-      (b: { id: string }) => b.id,
-    ),
+    (
+      await mcpJson<{ items: { id: string }[] }>(token, "list_boards")
+    ).items.map((b: { id: string }) => b.id),
     [board.id],
   );
-  for (const path of [
-    `/api/boards/${privateBoard.id}`,
-    `/api/boards/${privateBoard.id}/tasks`,
-    `/api/tasks/${privateTask.id}`,
-    `/api/tasks/${privateTask.id}/comments`,
-    `/api/tasks/${privateTask.id}/activity`,
-    "/api/workspace",
-  ])
-    assert.equal((await request(path, { token })).status, 403, path);
-  assert.equal(
-    (
-      await request(`/api/comments/${privateComment.id}`, {
-        method: "DELETE",
-        token,
-        body: { version: privateComment.version },
-      })
-    ).status,
-    403,
-  );
-  assert.equal(
-    (
-      await request(`/api/boards/${privateBoard.id}`, {
-        method: "PATCH",
-        token,
-        body: { version: privateBoard.version, name: "Denied" },
-      })
-    ).status,
-    403,
-  );
-  const readCredential = await json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Reader",
-        scopes: ["read"],
-        boardIds: [board.id],
-        expiresInDays: 1,
+  for (const [name, args] of [
+    ["get_board", { boardId: privateBoard.id }],
+    ["list_tasks", { boardId: privateBoard.id }],
+    ["get_task", { taskId: privateTask.id }],
+    ["list_comments", { taskId: privateTask.id }],
+    ["get_activity", { taskId: privateTask.id }],
+    [
+      "delete_comment",
+      { commentId: privateComment.id, version: privateComment.version },
+    ],
+    [
+      "update_board",
+      {
+        boardId: privateBoard.id,
+        version: privateBoard.version,
+        name: "Denied",
       },
+    ],
+  ] as const)
+    await mcpDenied(
+      token,
+      name,
+      args,
+      "This credential does not permit this action",
+    );
+  await mcpDenied(
+    token,
+    "get_workspace",
+    {},
+    "This tool is unavailable with your credential and current role",
+  );
+  assert.equal((await request(`/api/tasks/${item.id}`, { token })).status, 403);
+  const readCredential = await setupOAuthAgent(cookie, {
+    agentId: agent.id,
+    scopes: ["read"],
+    boardIds: [board.id],
+  });
+  const before = await sql`SELECT * FROM tasks WHERE id=${item.id}`;
+  const readDenied = await callMcpTool(readCredential.token, "update_task", {
+    taskId: item.id,
+    version: item.version,
+    title: "Denied",
+  });
+  assert.equal(readDenied.response.status, 403);
+  assert.equal(readDenied.error, "insufficient_scope");
+  assert.equal(readDenied.result, undefined);
+  assert.match(
+    readDenied.response.headers.get("WWW-Authenticate") ?? "",
+    /Bearer error="insufficient_scope".*scope="read write"/,
+  );
+  assert.deepEqual(await sql`SELECT * FROM tasks WHERE id=${item.id}`, before);
+  assert.deepEqual(
+    await mcpJson(token, "delete_comment", {
+      commentId: comment.id,
+      version: comment.version,
     }),
-    201,
+    { ok: true },
   );
   assert.equal(
-    (
-      await request(`/api/tasks/${item.id}`, {
-        method: "PATCH",
-        token: readCredential.token,
-        body: { version: item.version, title: "Denied" },
-      })
-    ).status,
-    403,
+    (await sql`SELECT * FROM comments WHERE id=${comment.id}`).length,
+    0,
   );
   assert.equal(
-    (
-      await request(`/api/comments/${comment.id}`, {
-        method: "DELETE",
-        token,
-        body: { version: comment.version },
-      })
-    ).status,
+    (await sql`SELECT * FROM comments WHERE id=${privateComment.id}`).length,
+    1,
+  );
+  await json(
+    await request(`/api/agents/${agent.id}`, {
+      cookie,
+      method: "DELETE",
+      body: { version: agent.version },
+    }),
+  );
+  assert.equal(
+    (await request(`/api/tasks/${privateTask.id}`, { token: personal.token }))
+      .status,
     200,
+  );
+  const [retained] =
+    await sql`SELECT revoked_at FROM credentials WHERE id=${personal.credential.id}`;
+  assert.equal(retained.revokedAt, null);
+  assert.equal(
+    (await callMcpTool(token, "get_task", { taskId: item.id })).response.status,
+    401,
   );
 });
 
@@ -501,34 +615,38 @@ test("assignments and mentions respect preferences and notifications remain priv
   await createTask(teammate.cookie, other.id, "Admin private assignment", {
     assigneeId: user.id,
   });
-  const credential = await json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Limited notifications",
-        scopes: ["read", "write"],
-        boardIds: [board.id],
-        expiresInDays: 1,
-      },
-    }),
-    201,
-  );
-  const limited = await json(
-    await request("/api/notifications", { token: credential.token }),
-  );
+  const credential = await setupOAuthAgent(cookie, {
+    agentId: (await setupAgent(cookie)).id,
+    scopes: ["read", "write"],
+    boardIds: [board.id],
+  });
+  const limited = await mcpJson<{
+    items: { id: string; boardId: string }[];
+    unreadCount: number;
+  }>(credential.token, "list_notifications");
   assert.equal(limited.items.length, 1);
   assert.equal(limited.items[0].boardId, board.id);
   const all = await json(await request("/api/notifications", { cookie }));
-  assert.equal(
-    (
-      await request("/api/notifications", {
-        method: "PATCH",
-        token: credential.token,
-        body: { ids: all.items.map((n: { id: string }) => n.id) },
-      })
-    ).status,
-    403,
+  const personal = await json(
+    await request("/api/credentials", {
+      cookie,
+      body: { name: "Personal notification key" },
+    }),
+    201,
+  );
+  const personalNotices = await json(
+    await request("/api/notifications", { token: personal.token }),
+  );
+  assert.equal(personalNotices.items.length, 2);
+  assert.deepEqual(
+    personalNotices.items.map((notice: { id: string }) => notice.id),
+    all.items.map((notice: { id: string }) => notice.id),
+  );
+  await mcpDenied(
+    credential.token,
+    "mark_notifications",
+    { ids: all.items.map((n: { id: string }) => n.id) },
+    "Some notifications are outside your access",
   );
   assert.equal(
     (await json(await request("/api/notifications", { cookie }))).unreadCount,

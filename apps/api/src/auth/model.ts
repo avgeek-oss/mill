@@ -46,7 +46,7 @@ export async function body<T extends z.ZodType>(
 }
 export function human(c: Context<Env>) {
   const value = actor(c);
-  if (value.kind !== "human")
+  if (value.kind !== "human" || value.credentialId)
     throw new HTTPException(403, {
       message: "Use a signed-in account for this action",
     });

@@ -10,7 +10,6 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -282,7 +281,7 @@ test("password login is persistently rate limited across attempts", async () => 
     429,
   );
 });
-test("profiles validate time zones, preserve omitted preferences and reject agent account access", async () => {
+test("profiles validate time zones, preserve omitted preferences and reject API-key account access", async () => {
   const admin = await setupUser();
   const changed = await request("/api/auth/profile", {
     method: "PATCH",
@@ -324,9 +323,7 @@ test("profiles validate time zones, preserve omitted preferences and reject agen
     await request("/api/credentials", {
       cookie: admin.cookie,
       body: {
-        agentId: (await setupAgent(admin.cookie)).id,
-        name: "Agent",
-        scopes: ["read", "write"],
+        name: "Personal API key",
       },
     })
   ).json();
@@ -336,11 +333,11 @@ test("profiles validate time zones, preserve omitted preferences and reject agen
   );
   assert.equal(
     (await request("/api/auth/sessions", { token: credential.token })).status,
-    401,
+    403,
   );
   assert.equal(
     (await request("/api/auth/members", { token: credential.token })).status,
-    200,
+    403,
   );
   assert.equal(
     (
@@ -478,9 +475,7 @@ test("last administrator protection survives concurrent demotion and member remo
     await request("/api/credentials", {
       cookie: member.cookie,
       body: {
-        agentId: (await setupAgent(member.cookie)).id,
-        name: "Member agent",
-        scopes: ["read"],
+        name: "Member API key",
       },
     })
   ).json();
@@ -764,7 +759,7 @@ test("security settings require recent identity verification and reauthenticatio
     200,
   );
 });
-test("password changes revoke other sessions and agent credentials, preserving the current session", async () => {
+test("password changes revoke other sessions and API keys, preserving the current session", async () => {
   const admin = await setupUser();
   const secondCookie = cookie(
     await request("/api/auth/login", {
@@ -775,9 +770,7 @@ test("password changes revoke other sessions and agent credentials, preserving t
     await request("/api/credentials", {
       cookie: admin.cookie,
       body: {
-        agentId: (await setupAgent(admin.cookie)).id,
-        name: "Agent",
-        scopes: ["read"],
+        name: "Personal API key",
       },
     })
   ).json();
@@ -829,9 +822,7 @@ test("operator recovery links expire, are single-use, revoke credentials and can
     await request("/api/credentials", {
       cookie: admin.cookie,
       body: {
-        agentId: (await setupAgent(admin.cookie)).id,
-        name: "Agent",
-        scopes: ["read"],
+        name: "Personal API key",
       },
     })
   ).json();

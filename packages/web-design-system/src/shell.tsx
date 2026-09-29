@@ -10,7 +10,8 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { Avatar, Drawer, Dropdown } from "@heroui/react";
+import { Drawer, Dropdown } from "@heroui/react";
+import { Avatar } from "./data-display/avatar.js";
 import {
   Logout03Icon,
   Menu01Icon,
@@ -364,7 +365,7 @@ export function ApplicationSidebar({ config }: { config: SidebarConfig }) {
                   return (
                     <Button
                       key={item.id}
-                      variant="ghost"
+                      variant="secondary"
                       className={cn(
                         className,
                         "h-auto w-full justify-start text-start",
@@ -421,7 +422,7 @@ export function Navbar({
           className="navigation-toggle relative size-8 shrink-0 before:absolute before:-inset-1.5 before:content-['']"
           isIconOnly
           onPress={onSidebarToggle}
-          variant="ghost"
+          variant="secondary"
         >
           <HugeiconsIcon
             aria-hidden="true"
@@ -502,9 +503,13 @@ export function FooterIdentity({
         aria-label={`Account menu for ${name}`}
         className="sidebar-identity flex min-h-16 w-full min-w-0 items-center gap-2.5 px-4 py-3 text-start text-sm"
       >
-        <Avatar aria-hidden="true" className="size-9 shrink-0" size="md">
-          <Avatar.Fallback>{name.slice(0, 1).toUpperCase()}</Avatar.Fallback>
-        </Avatar>
+        <Avatar
+          aria-hidden="true"
+          className="size-9"
+          size="md"
+          email={email}
+          name={name}
+        />
         <span className="grid min-w-0 flex-1 gap-0.25">
           <span className="truncate font-medium">{name}</span>
           <span className="truncate text-xs text-foreground/70">
@@ -554,10 +559,10 @@ export function FooterIdentity({
             <Dropdown.Item id="logout" textValue="Sign out" variant="danger">
               <HugeiconsIcon
                 aria-hidden="true"
-                className="size-4 text-danger"
+                className="size-4 text-danger-soft-foreground"
                 icon={Logout03Icon}
               />
-              <span className="text-danger">Sign out</span>
+              <span className="text-danger-soft-foreground">Sign out</span>
             </Dropdown.Item>
           </Dropdown.Section>
         </Dropdown.Menu>

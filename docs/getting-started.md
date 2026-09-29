@@ -16,7 +16,7 @@ Use the task list's search, status/assignee/priority filters, and sort controls 
 
 An administrator opens **People** in the sidebar, chooses **Invite a person**, and selects their role. Share the invitation link privately with the intended recipient; B1 does not deliver email. Invitations expire and create an account for the invited email address. Each person should use their own account.
 
-Admins manage the team through **People** and **Team settings**. Members create and edit work. Viewers can read boards and tasks but cannot change them. API keys are personal and inherit their owner's current membership; approved boards and read/write scopes narrow their access. A key cannot administer the workspace.
+Admins manage the team through **People** and **Team settings**. Members create and edit work. Viewers can read boards and tasks but cannot change them. Personal API keys inherit their owner's current role across all accessible boards. Only MCP OAuth has approved-board and read/write scope restrictions. A key cannot administer the workspace.
 
 ## Secure your account
 
@@ -26,7 +26,9 @@ Review active sessions and revoke a device you no longer use. Select your name a
 
 ## Add an external agent
 
-Open **Agents** and create a personal Agent, or ask an administrator to create a team Agent and grant you access. Agents are separate from the people invited to Mill. Then open **API keys**, select that existing Agent, choose the narrowest needed access, and copy the one-time token to the external client's secret store. Connect using [REST or MCP](agents.md). OAuth also requires selection of an eligible existing Agent; it cannot create one for you.
+For REST, open **API keys**, choose **Create API key**, and enter a Name and Expiry: 30, 60, 90, or 365 days. Save the one-time token in the client's secret store. It uses your current permissions and needs no Agent.
+
+For MCP OAuth, first open **Agents** and create a personal Agent, or ask an administrator for access to a team Agent. Team access can cover selected people or all current and future members. Agents are separate from the people invited to Mill. OAuth requires selection of an eligible existing Agent and cannot create one for you. Follow [the REST/MCP connection guide](agents.md).
 
 Setting an Agent on a task records responsibility alongside the human assignee. It does not launch the external client, run a job, or change the task by itself. Revoke an API key when the client no longer needs access.
 

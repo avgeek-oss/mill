@@ -1,5 +1,7 @@
 // Adapted from Towbar's Apache-2.0 mcp-oauth-consent and public AuthFrame composition.
 import { useEffect, useRef, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { BotIcon } from "@hugeicons/core-free-icons";
 import {
   Alert,
   Button,
@@ -321,7 +323,10 @@ function ConsentRequest({
           This connection link is incomplete. Start again from your app.
         </ErrorMessage>
       ) : connection.phase === "pending" ? (
-        <p role="status" className="flex items-center gap-2 text-sm text-muted">
+        <p
+          role="status"
+          className="flex items-center gap-2 text-xs font-normal text-muted"
+        >
           <Spinner size="sm" /> Loading connection…
         </p>
       ) : connection.phase === "failed" ? (
@@ -347,7 +352,7 @@ function ConsentRequest({
             <p className="break-words text-base font-medium">
               {details.clientName}
             </p>
-            <p className="text-sm text-muted">
+            <p className="text-xs font-normal text-muted">
               {validScope
                 ? `Wants to ${write ? "read and edit" : "read"} your Mill boards, tasks, and comments.`
                 : "The requested permissions are unavailable."}
@@ -357,18 +362,24 @@ function ConsentRequest({
             <Alert status="warning">
               <Alert.Indicator />
               <Alert.Content>
-                <Alert.Description>
+                <Alert.Description className="text-xs font-normal">
                   Unverified app. Only continue if you recognize this app and
                   started this connection yourself.
                 </Alert.Description>
               </Alert.Content>
             </Alert>
           )}
-          <div className="grid min-w-0 gap-3 text-sm">
+          <div className="grid min-w-0 gap-3 text-xs font-normal text-muted">
             <p>
               Signed in as{" "}
-              <strong className="break-all">{session.user.email}</strong> in{" "}
-              <strong className="break-words">{session.workspace.name}</strong>.
+              <strong className="break-all font-normal text-foreground">
+                {session.user.email}
+              </strong>{" "}
+              in{" "}
+              <strong className="break-words font-normal text-foreground">
+                {session.workspace.name}
+              </strong>
+              .
             </p>
             <p>
               {write
@@ -401,12 +412,19 @@ function ConsentRequest({
               items={agents.items.map((agent) => ({
                 id: agent.id,
                 name: agent.name,
+                startContent: <HugeiconsIcon icon={BotIcon} size={16} />,
+                description:
+                  agent.scope === "personal"
+                    ? "Personal"
+                    : agent.allMembers
+                      ? "Team · All team members"
+                      : "Team",
               }))}
               search
               disabled={!!decision || agents.pending || !!agents.error}
             />
             {agents.pending && (
-              <p role="status" className="text-sm text-muted">
+              <p role="status" className="text-xs font-normal text-muted">
                 Loading agents…
               </p>
             )}
@@ -422,7 +440,7 @@ function ConsentRequest({
             )}
             {!agents.pending && !agents.error && !agents.items.length && (
               <>
-                <p className="text-sm text-muted">
+                <p className="text-xs font-normal text-muted">
                   Create a personal agent in{" "}
                   <Link
                     href="/settings/agents"
@@ -466,7 +484,7 @@ function ConsentRequest({
               disabled={!!decision || directory.pending || !!directory.error}
             />
             {directory.pending && (
-              <p role="status" className="text-sm text-muted">
+              <p role="status" className="text-xs font-normal text-muted">
                 Loading available boards…
               </p>
             )}
@@ -488,7 +506,7 @@ function ConsentRequest({
               </ErrorMessage>
             )}
           </div>
-          <details className="min-w-0 text-sm">
+          <details className="min-w-0 text-xs font-normal text-muted">
             <summary className="flex min-h-11 cursor-pointer items-center text-muted underline underline-offset-4">
               Connection details
             </summary>
@@ -499,12 +517,16 @@ function ConsentRequest({
                   : "The app supplied its own name. Mill has not verified its identity."}
               </p>
               <p>
-                <span className="font-medium">Client ID</span>
-                <span className="block break-all">{details.clientId}</span>
+                <span>Client ID</span>
+                <span className="block break-all text-sm font-normal text-foreground">
+                  {details.clientId}
+                </span>
               </p>
               <p>
-                <span className="font-medium">Return URL</span>
-                <span className="block break-all">{details.redirectUri}</span>
+                <span>Return URL</span>
+                <span className="block break-all text-sm font-normal text-foreground">
+                  {details.redirectUri}
+                </span>
               </p>
               <p>Administrative access is excluded.</p>
             </div>
@@ -523,7 +545,7 @@ function ConsentRequest({
           )}
           <ErrorMessage>{decisionError}</ErrorMessage>
           {decision && (
-            <p role="status" className="text-sm text-muted">
+            <p role="status" className="text-xs font-normal text-muted">
               {complete
                 ? decision === "allow"
                   ? "Access allowed. Returning to your app…"

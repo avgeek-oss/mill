@@ -10,7 +10,7 @@ import {
   sql,
   withDatabaseTransaction,
 } from "../../../packages/database/src/index.js";
-import { clientAddress, type Env } from "./http.js";
+import { clientAddress, requireRole, type Env } from "./http.js";
 import { config } from "./config.js";
 import { lockAgentAuthority, requireAgentAccess } from "./agents.js";
 class RetryTransactionRollback extends Error {}
@@ -163,7 +163,9 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
             error:
               existing.invalidationReason === "deleted"
                 ? "This work was permanently deleted. Its changes cannot be retried."
-                : "This retry was invalidated by an upgrade. Reload Mill before making a new change.",
+                : existing.invalidationReason === "access"
+                  ? "Agent access changed. Reload Mill before making a new change."
+                  : "This retry was invalidated by an upgrade. Reload Mill before making a new change.",
             code: "retry_invalidated",
           },
           410,
@@ -211,12 +213,11 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
 
 async function currentAuthority(c: Context<Env>) {
   const a = c.get("actor");
-  if (a.kind === "agent") {
+  if (a.credentialId) {
     const [row] =
-      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at,c.agent_id FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId!} AND u.id=${a.userId} FOR SHARE OF u,c`;
+      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at,c.agent_id,c.token_type,c.scopes,c.board_ids FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId} AND u.id=${a.userId} FOR SHARE OF u,c`;
     if (
       !row ||
-      !row.agentId ||
       row.disabledAt ||
       row.revokedAt ||
       new Date(row.expiresAt).getTime() <= Date.now()
@@ -224,7 +225,34 @@ async function currentAuthority(c: Context<Env>) {
       throw new HTTPException(401, {
         message: "This credential is no longer valid",
       });
-    await sql.begin((tx) => requireAgentAccess(tx, a.userId, row.agentId));
+    if (row.tokenType === "oauth" && a.kind === "agent" && row.agentId)
+      await sql.begin((tx) => requireAgentAccess(tx, a.userId, row.agentId));
+    else if (
+      row.tokenType !== "api-key" ||
+      a.kind !== "human" ||
+      row.agentId ||
+      row.boardIds !== null ||
+      row.scopes.length
+    )
+      throw new HTTPException(401, {
+        message: "This credential is no longer valid",
+      });
+    if (row.tokenType === "api-key") {
+      const domainMutation =
+        (c.req.method === "POST" &&
+          /^\/api\/boards(?:\/[^/]+\/tasks)?$/.test(c.req.path)) ||
+        (["PATCH", "DELETE"].includes(c.req.method) &&
+          /^\/api\/(?:boards|tasks|comments)\/[^/]+$/.test(c.req.path)) ||
+        (c.req.method === "POST" &&
+          /^\/api\/tasks\/[^/]+\/comments$/.test(c.req.path));
+      if (domainMutation)
+        requireRole(
+          c,
+          c.req.method === "DELETE" && /^\/api\/boards\/[^/]+$/.test(c.req.path)
+            ? "admin"
+            : "member",
+        );
+    }
     if (row.role !== a.role)
       throw new HTTPException(403, {
         message: "Your permissions changed. Reload Mill before trying again.",

@@ -65,7 +65,7 @@ export function AuthFrame({
                 <TypographyHeading elementType="h1" level={2}>
                   {title}
                 </TypographyHeading>
-                <TypographyParagraph color="muted">
+                <TypographyParagraph color="muted" size="xs">
                   {description}
                 </TypographyParagraph>
               </div>
@@ -189,7 +189,7 @@ export function ChallengeFields({
           </Button>
           {passkeyBusy && (
             <Button
-              variant="ghost"
+              variant="secondary"
               onPress={() => WebAuthnAbortService.cancelCeremony()}
             >
               Cancel passkey request

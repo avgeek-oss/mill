@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -41,15 +42,6 @@ async function json(
     `${method} ${path}: status ${result.status()}`,
   ).toBeTruthy();
   return result.json();
-}
-async function setupAgent(api: APIRequestContext, name: string) {
-  const result = await json(api, "/agents", { name, scope: "personal" });
-  expect(typeof result.agent?.id, "Created Agent has a persisted ID").toBe(
-    "string",
-  );
-  expect(result.agent.name).toBe(name);
-  expect(result.agent.scope).toBe("personal");
-  return result.agent as { id: string; name: string; scope: "personal" };
 }
 async function createAccount(
   email: string,
@@ -152,8 +144,20 @@ test.afterAll(async () => {
 test("profile preferences persist, UTC remains selectable, and a wrong current password leaves the session intact", async ({
   page,
 }) => {
+  const avatarRequests = new Set<string>();
+  await page.route("https://www.gravatar.com/avatar/**", async (route) => {
+    avatarRequests.add(route.request().url());
+    await route.fulfill({ status: 404, body: "" });
+  });
   await login(page, admin);
   await accountAction(page, "Profile");
+  const avatar = page
+    .getByRole("region", { name: "Profile details", exact: true })
+    .getByRole("img", { name: admin.name, exact: true });
+  await expect(avatar).toBeVisible();
+  await expect(avatar.getByText("CS", { exact: true })).toBeVisible();
+  const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(admin.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
+  await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
   await page.getByLabel("Name", { exact: true }).click();
   await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
   await choose(page, "Time zone", "UTC");
@@ -605,14 +609,10 @@ test("assignment and mention notifications open the correct task and preferences
   await expect(unreadItems).toHaveCount(0);
 });
 
-test("a scoped API key created through the interface works on its board and loses access when revoked", async ({
+test("a personal API key uses current human permissions and loses access when revoked", async ({
   page,
   playwright,
 }) => {
-  const selectedAgent = await setupAgent(
-    adminApi,
-    "Settings board agent identity",
-  );
   await login(page, admin);
   await page.getByRole("link", { name: "API keys", exact: true }).click();
   await page
@@ -622,11 +622,21 @@ test("a scoped API key created through the interface works on its board and lose
     name: "Create API key",
     exact: true,
   });
-  await create.getByLabel("Name", { exact: true }).fill("Settings board agent");
-  await choose(page, "Agent", selectedAgent.name, create);
-  await choose(page, "Access", "Read and write", create);
-  await choose(page, "Board access", board.name, create);
-  await create.getByLabel("Expires in days", { exact: true }).fill("7");
+  await create
+    .getByLabel("Name", { exact: true })
+    .fill("Settings personal API key");
+  await expect(create.getByRole("textbox")).toHaveCount(1);
+  await expect(
+    create.getByRole("button", { name: /(?:Agent|Access|Board access)$/ }),
+  ).toHaveCount(0);
+  await create.getByRole("button", { name: /Expiry$/ }).click();
+  await expect(page.getByRole("option")).toHaveText([
+    "30 days",
+    "60 days",
+    "90 days",
+    "365 days",
+  ]);
+  await page.getByRole("option", { name: "90 days", exact: true }).click();
   await create
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
@@ -639,35 +649,40 @@ test("a scoped API key created through the interface works on its board and lose
     .getByLabel("API key", { exact: true })
     .inputValue();
   await success.getByRole("button", { name: "Done", exact: true }).click();
-  const agent = await playwright.request.newContext({
+  const key = await playwright.request.newContext({
     baseURL: origin,
     extraHTTPHeaders: { Authorization: `Bearer ${token}`, Origin: origin },
   });
   try {
-    const tasks = await agent.get(`/api/boards/${board.id}/tasks`);
+    const tasks = await key.get(`/api/boards/${board.id}/tasks`);
     expect(tasks.status()).toBe(200);
-    const created = await agent.post(`/api/boards/${board.id}/tasks`, {
+    const created = await key.post(`/api/boards/${board.id}/tasks`, {
       data: {
         status: "todo",
-        title: "A scoped external agent created this task",
+        title: "A personal API key created this task",
       },
     });
     expect(created.status()).toBe(201);
     const other = await json(adminApi, "/boards", {
-      name: "Agent denied board",
-      prefix: "DEN",
+      name: "Another permitted board",
+      prefix: "KEY",
     });
     expect(
-      (await agent.get(`/api/boards/${other.board.id}/tasks`)).status(),
-    ).toBe(403);
+      (await key.get(`/api/boards/${other.board.id}/tasks`)).status(),
+    ).toBe(200);
+    expect((await key.get("/api/auth/me")).status()).toBe(403);
+    expect((await key.get("/api/credentials")).status()).toBe(403);
     await page.reload();
     await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
     const row = page
       .getByRole("region", { name: "API keys", exact: true })
       .getByRole("row")
-      .filter({ hasText: "Settings board agent" });
+      .filter({ hasText: "Settings personal API key" });
     await row
-      .getByRole("button", { name: "Revoke Settings board agent", exact: true })
+      .getByRole("button", {
+        name: "Revoke Settings personal API key",
+        exact: true,
+      })
       .click();
     const revoke = page.getByRole("dialog", { name: "Revoke API key?" });
     await revoke
@@ -676,11 +691,9 @@ test("a scoped API key created through the interface works on its board and lose
     await expect(revoke.getByRole("status")).toContainText("API key revoked");
     await revoke.getByRole("button", { name: "Done", exact: true }).click();
     await expect(row).toContainText("Revoked");
-    expect((await agent.get(`/api/boards/${board.id}/tasks`)).status()).toBe(
-      401,
-    );
+    expect((await key.get(`/api/boards/${board.id}/tasks`)).status()).toBe(401);
   } finally {
-    await agent.dispose();
+    await key.dispose();
   }
 });
 

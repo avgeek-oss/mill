@@ -9,7 +9,9 @@ import {
 import { flushSync } from "react-dom";
 import {
   Button,
+  Avatar,
   Choice,
+  Chip,
   Dialog,
   ErrorMessage,
   TextField,
@@ -18,6 +20,8 @@ import {
   EmptyState,
   TypographyText,
   Table,
+  TableCellStack,
+  TableCellDescription,
   Link,
   TooltipText,
   TypographyParagraph,
@@ -474,7 +478,6 @@ export function BoardPage({
           "Board"
         }
         icon={<List />}
-        description={board?.description ?? undefined}
         actions={
           <div className="flex flex-wrap items-center gap-3">
             {writable && (
@@ -563,7 +566,14 @@ export function BoardPage({
             items={[
               { id: "", name: "All assignees" },
               { id: "unassigned", name: "Unassigned" },
-              ...members,
+              ...members.map((member) => ({
+                id: member.id,
+                name: member.name,
+                description: member.email,
+                startContent: (
+                  <Avatar email={member.email} name={member.name} size="sm" />
+                ),
+              })),
             ]}
             search
           />
@@ -615,7 +625,7 @@ export function BoardPage({
         </div>
         <div className="board-clear-slot">
           {hasFilters && (
-            <Button variant="ghost" onPress={clearFilters}>
+            <Button variant="secondary" onPress={clearFilters}>
               Clear filters
             </Button>
           )}
@@ -675,31 +685,47 @@ export function BoardPage({
                       <Table.Cell>
                         <Link
                           href={`/boards/${boardId}/tasks/${task.id}`}
-                          className="grid min-w-0 gap-0.5 rounded-lg text-sm/5 font-normal outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                          className="inline-block min-w-0 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
                         >
-                          <span className="min-w-0 text-sm/5 font-normal">
+                          <TableCellStack>
                             <TooltipText
                               className="inline-block max-w-xs truncate align-middle"
                               tooltip={task.title}
                             >
                               {task.title}
                             </TooltipText>
-                          </span>
-                          <span className="font-mono text-xs/4 font-normal text-muted">
-                            {task.identifier}
-                          </span>
+                            <TableCellDescription className="font-mono">
+                              {task.identifier}
+                            </TableCellDescription>
+                          </TableCellStack>
                         </Link>
                       </Table.Cell>
-                      <Table.Cell>{taskStatusLabel(task.status)}</Table.Cell>
+                      <Table.Cell>
+                        <Chip variant="secondary" size="small">
+                          {taskStatusLabel(task.status)}
+                        </Chip>
+                      </Table.Cell>
                       <Table.Cell>
                         {members.find((m) => m.id === task.assigneeId)?.name ??
                           "Unassigned"}
                       </Table.Cell>
                       <Table.Cell>{task.agentName}</Table.Cell>
                       <Table.Cell>
-                        <span className={`priority priority-${task.priority}`}>
-                          {task.priority}
-                        </span>
+                        <Chip
+                          variant={
+                            task.priority === "urgent" ||
+                            task.priority === "high"
+                              ? "destructive"
+                              : task.priority === "medium"
+                                ? "warning"
+                                : "secondary"
+                          }
+                          size="small"
+                        >
+                          {task.priority === "none"
+                            ? "No priority"
+                            : task.priority}
+                        </Chip>
                       </Table.Cell>
                     </Table.Row>
                   ))}
@@ -825,7 +851,7 @@ export function BoardPage({
             </>
           }
         >
-          <TypographyParagraph size="sm">
+          <TypographyParagraph className="text-xs">
             Permanently delete “{board.name}” and all of its tasks and comments?
             This cannot be undone. There is no restore.
           </TypographyParagraph>

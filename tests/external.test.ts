@@ -4,6 +4,7 @@ import {
   resetDatabase,
   setupUser,
   setupAgent,
+  setupOAuthAgent,
   sql,
 } from "./support.js";
 import assert from "node:assert/strict";
@@ -87,9 +88,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
       cookie,
       body: {
         name: "Integration worker",
-        agentId: agent.id,
-        scopes: ["read", "write"],
-        boardIds: [first.board.id],
       },
     }),
   );
@@ -98,12 +96,10 @@ test("External credentials and actual MCP task workflows enforce current permiss
       cookie,
       body: {
         name: "Read worker",
-        agentId: agent.id,
-        scopes: ["read"],
-        boardIds: [first.board.id],
       },
     }),
   );
+  const personalRest = write;
   try {
     await t.test(
       "one-time hashed expiring credentials and human-only ownership management",
@@ -112,16 +108,18 @@ test("External credentials and actual MCP task workflows enforce current permiss
           /^mill_[A-Za-z0-9_-]{43}$/.test(write.token),
           "Credential token has the expected format",
         );
-        assert.equal(write.credential.agentId, agent.id);
-        assert.equal(write.credential.agentName, agent.name);
+        assert.equal(write.credential.agentId, null);
+        assert.equal(write.credential.agentName, null);
         const principal = await credentialActor(
-          new Request(`${process.env.MILL_BASE_URL}/mcp`, {
+          new Request(`${process.env.MILL_BASE_URL}/api/boards`, {
             headers: { Authorization: `Bearer ${write.token}` },
           }),
         );
-        assert.equal(principal?.agentId, agent.id);
+        assert.equal(principal?.agentId, undefined);
         assert.equal(principal?.userId, user.id);
-        assert.equal(principal?.name, `${agent.name} via ${user.name}`);
+        assert.equal(principal?.name, user.name);
+        assert.equal(principal?.kind, "human");
+        assert.equal(principal?.credentialType, "api-key");
         const [stored] =
           await sql`SELECT * FROM credentials WHERE id=${write.credential.id}`;
         assert(
@@ -151,7 +149,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
               cookie,
               body: {
                 name: "Invalid boards",
-                agentId: agent.id,
                 scopes: ["read"],
                 boardIds: [randomUUID()],
               },
@@ -176,23 +173,46 @@ test("External credentials and actual MCP task workflows enforce current permiss
       },
     );
     await t.test(
-      "REST scopes cover board collections, ID lookups, comments, activity and administrative surfaces",
+      "personal REST keys inherit the owner's role and do not expose session settings or MCP",
       async () => {
         const list = await ok<{ items: { id: string }[] }>(
-          await request("/api/boards", { token: read.token }),
+          await request("/api/boards", { token: write.token }),
         );
         assert.deepEqual(
-          list.items.map((board) => board.id),
-          [first.board.id],
+          new Set(list.items.map((item) => item.id)),
+          new Set([first.board.id, second.board.id]),
+        );
+        await ok(
+          await request(`/api/tasks/${outside.task.id}`, {
+            token: write.token,
+          }),
+        );
+        const created = await ok<TaskResult>(
+          await request(`/api/boards/${second.board.id}/tasks`, {
+            token: write.token,
+            body: { title: "Personal REST task" },
+          }),
+        );
+        const events = await ok<{
+          items: { actorKind: string; actorName: string }[];
+        }>(
+          await request(`/api/tasks/${created.task.id}/activity`, {
+            token: write.token,
+          }),
+        );
+        assert(
+          events.items.some(
+            (event) =>
+              event.actorKind === "human" && event.actorName === user.name,
+          ),
         );
         for (const path of [
-          `/api/boards/${second.board.id}`,
-          `/api/boards/${second.board.id}/tasks`,
-          `/api/tasks/${outside.task.id}`,
-          `/api/tasks/${outside.task.id}/comments`,
-          `/api/tasks/${outside.task.id}/activity`,
           "/api/workspace",
+          "/api/auth/me",
+          "/api/auth/sessions",
           "/api/auth/members",
+          "/api/credentials",
+          "/api/agents?manage=true",
         ])
           assert.equal(
             (await request(path, { token: write.token })).status,
@@ -200,19 +220,14 @@ test("External credentials and actual MCP task workflows enforce current permiss
             path,
           );
         assert.equal(
-          (
-            await request(`/api/boards/${first.board.id}/tasks`, {
-              token: read.token,
-              body: { title: "Read cannot write" },
-            })
-          ).status,
+          (await request("/mcp", { token: write.token, body: {} })).status,
           403,
         );
         assert.equal(
           (
-            await request(`/api/tasks/${outside.task.id}/comments`, {
+            await request("/api/agents", {
               token: write.token,
-              body: { body: "Cannot comment outside scope" },
+              body: { name: "No implicit Agent", scope: "personal" },
             })
           ).status,
           403,
@@ -224,153 +239,12 @@ test("External credentials and actual MCP task workflows enforce current permiss
             404,
           );
         }
-        const invitation = await ok<{ token: string }>(
-          await request("/api/auth/invitations", {
-            cookie,
-            body: { email: "member@example.test", role: "member" },
-          }),
-        );
-        const accepted = await request("/api/auth/accept-invitation", {
-          body: {
-            token: invitation.token,
-            name: "Member",
-            password: "Secure member passphrase 42!",
-          },
-        });
-        assert.equal(accepted.status, 201);
-        const memberCookie = accepted.headers.get("set-cookie")!.split(";")[0]!;
-        const insideAssigned = await ok<TaskResult>(
-          await request(`/api/boards/${first.board.id}/tasks`, {
-            cookie: memberCookie,
-            body: { title: "In-scope assignment", assigneeId: user.id },
-          }),
-        );
-        const outsideAssigned = await ok<TaskResult>(
-          await request(`/api/boards/${second.board.id}/tasks`, {
-            cookie: memberCookie,
-            body: { title: "Out-of-scope assignment", assigneeId: user.id },
-          }),
-        );
-        const memberComment = await ok<{
-          comment: { id: string; version: number };
-        }>(
-          await request(`/api/tasks/${insideAssigned.task.id}/comments`, {
-            cookie: memberCookie,
-            body: {
-              body: "Only the author or a human administrator can moderate this",
-            },
-          }),
-        );
-        assert.equal(
-          (
-            await request(`/api/comments/${memberComment.comment.id}`, {
-              token: write.token,
-              method: "PATCH",
-              body: {
-                version: memberComment.comment.version,
-                body: "Agent moderation is not permitted",
-              },
-            })
-          ).status,
-          403,
-        );
-        assert.equal(
-          (
-            await request(`/api/comments/${memberComment.comment.id}`, {
-              token: write.token,
-              method: "DELETE",
-              body: { version: memberComment.comment.version },
-            })
-          ).status,
-          403,
-        );
-        const otherComment = await ok<{
-          comment: { id: string; version: number };
-        }>(
-          await request(`/api/tasks/${outsideAssigned.task.id}/comments`, {
-            cookie: memberCookie,
-            body: { body: "A protected outside comment" },
-          }),
-        );
-        assert.equal(
-          (
-            await request(`/api/comments/${otherComment.comment.id}`, {
-              token: write.token,
-              method: "PATCH",
-              body: {
-                version: otherComment.comment.version,
-                body: "Unauthorized edit",
-              },
-            })
-          ).status,
-          403,
-        );
-        assert.equal(
-          (
-            await request(`/api/comments/${otherComment.comment.id}`, {
-              token: write.token,
-              method: "DELETE",
-              body: { version: otherComment.comment.version },
-            })
-          ).status,
-          403,
-        );
-        const notifications = await ok<{
-          items: { id: string; taskId: string }[];
-          unreadCount: number;
-        }>(
-          await request("/api/notifications?unread=true", {
-            token: read.token,
-          }),
-        );
-        assert.equal(notifications.unreadCount, 1);
-        assert.deepEqual(
-          notifications.items.map((item) => item.taskId),
-          [insideAssigned.task.id],
-        );
-        const [privateNotification] =
-          await sql`SELECT id FROM notifications WHERE task_id=${outsideAssigned.task.id}`;
-        assert.equal(
-          (
-            await request("/api/notifications", {
-              token: write.token,
-              method: "PATCH",
-              body: { ids: [privateNotification.id] },
-            })
-          ).status,
-          403,
-        );
-        assert.equal(
-          (
-            await request("/api/notifications", {
-              token: read.token,
-              method: "PATCH",
-              body: { all: true },
-            })
-          ).status,
-          403,
-        );
-        await ok(
-          await request("/api/notifications", {
-            token: write.token,
-            method: "PATCH",
-            body: { all: true },
-          }),
-        );
-        const remaining = await ok<{
-          items: { taskId: string }[];
-          unreadCount: number;
-        }>(await request("/api/notifications?unread=true", { cookie }));
-        assert.equal(remaining.unreadCount, 1);
-        assert.deepEqual(
-          remaining.items.map((item) => item.taskId),
-          [outsideAssigned.task.id],
-        );
       },
     );
     await t.test(
       "installed MCP SDK creates, changes fixed statuses, comments, permanently deletes and retries against a live HTTP server",
       async () => {
+        const personal = personalRest;
         const server = serve({
           fetch: app.fetch,
           hostname: "127.0.0.1",
@@ -381,6 +255,16 @@ test("External credentials and actual MCP task workflows enforce current permiss
         assert(address && typeof address !== "string");
         const previous = process.env.MILL_BASE_URL;
         process.env.MILL_BASE_URL = `http://127.0.0.1:${address.port}`;
+        const write = await setupOAuthAgent(cookie, {
+          agentId: agent.id,
+          scopes: ["read", "write"],
+          boardIds: [first.board.id],
+        });
+        const read = await setupOAuthAgent(cookie, {
+          agentId: agent.id,
+          scopes: ["read"],
+          boardIds: [first.board.id],
+        });
         const client = new Client({
           name: "mill-external-integration",
           version: "1.0.0",
@@ -457,7 +341,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           assert.deepEqual(Object.keys(boardState), ["board"]);
           assert(!("position" in boardState.board));
           const removedId = randomUUID();
-          for (const options of [{ cookie }, { token: write.token }]) {
+          for (const options of [{ cookie }, { token: personal.token }]) {
             for (const [path, method, body] of [
               [`/api/boards/${first.board.id}/columns`, "GET", undefined],
               [
@@ -742,6 +626,115 @@ test("External credentials and actual MCP task workflows enforce current permiss
             arguments: { taskId: outside.task.id },
           });
           assert.equal(forbidden.isError, true);
+          for (const [name, arguments_] of [
+            ["get_board", { boardId: second.board.id }],
+            ["list_tasks", { boardId: second.board.id }],
+            ["list_comments", { taskId: outside.task.id }],
+            ["get_activity", { taskId: outside.task.id }],
+          ] as const)
+            assert.equal(
+              (await client.callTool({ name, arguments: arguments_ })).isError,
+              true,
+              name,
+            );
+          assert.equal(
+            (await request("/api/boards", { token: write.token })).status,
+            403,
+          );
+          const invitation = await ok<{ token: string }>(
+            await request("/api/auth/invitations", {
+              cookie,
+              body: { email: "mcp-member@example.test", role: "member" },
+            }),
+          );
+          const accepted = await request("/api/auth/accept-invitation", {
+            body: {
+              token: invitation.token,
+              name: "MCP member",
+              password: "A private member passphrase 42!",
+            },
+          });
+          assert.equal(accepted.status, 201);
+          const memberCookie = accepted.headers
+            .get("set-cookie")!
+            .split(";")[0]!;
+          const insideAssignment = await ok<TaskResult>(
+            await request(`/api/boards/${first.board.id}/tasks`, {
+              cookie: memberCookie,
+              body: { title: "Scoped notification", assigneeId: user.id },
+            }),
+          );
+          const outsideAssignment = await ok<TaskResult>(
+            await request(`/api/boards/${second.board.id}/tasks`, {
+              cookie: memberCookie,
+              body: { title: "Outside notification", assigneeId: user.id },
+            }),
+          );
+          const memberComment = await ok<{
+            comment: { id: string; version: number };
+          }>(
+            await request(`/api/tasks/${insideAssignment.task.id}/comments`, {
+              cookie: memberCookie,
+              body: { body: "Another person's comment" },
+            }),
+          );
+          for (const name of ["update_comment", "delete_comment"])
+            assert.equal(
+              (
+                await client.callTool({
+                  name,
+                  arguments: {
+                    commentId: memberComment.comment.id,
+                    version: memberComment.comment.version,
+                    ...(name === "update_comment"
+                      ? { body: "Agent cannot moderate" }
+                      : {}),
+                  },
+                })
+              ).isError,
+              true,
+            );
+          const notifications = await result<{
+            items: { taskId: string }[];
+            unreadCount: number;
+          }>(client, "list_notifications", { unread: true });
+          assert(
+            notifications.items.some(
+              (item) => item.taskId === insideAssignment.task.id,
+            ),
+          );
+          assert(
+            !notifications.items.some(
+              (item) => item.taskId === outsideAssignment.task.id,
+            ),
+          );
+          const [privateNotification] =
+            await sql`SELECT id FROM notifications WHERE task_id=${outsideAssignment.task.id}`;
+          assert.equal(
+            (
+              await client.callTool({
+                name: "mark_notifications",
+                arguments: { ids: [privateNotification.id] },
+              })
+            ).isError,
+            true,
+          );
+          await result(client, "mark_notifications", { all: true });
+          const remaining = await ok<{ items: { taskId: string }[] }>(
+            await request("/api/notifications?unread=true", {
+              token: personal.token,
+            }),
+          );
+          assert(
+            remaining.items.some(
+              (item) => item.taskId === outsideAssignment.task.id,
+            ),
+          );
+          assert(
+            !remaining.items.some(
+              (item) => item.taskId === insideAssignment.task.id,
+            ),
+          );
           const boundedIds: string[] = [];
           for (let index = 0; index < 4; index++) {
             const created = await result<TaskResult>(client, "create_task", {
@@ -885,13 +878,12 @@ test("External credentials and actual MCP task workflows enforce current permiss
             await request("/api/credentials", {
               cookie,
               body: {
-                name: "Cannot grant write",
-                agentId: agent.id,
+                name: "Cannot choose scopes",
                 scopes: ["read", "write"],
               },
             })
           ).status,
-          403,
+          400,
         );
         await sql`UPDATE credentials SET expires_at=now()-interval '1 second' WHERE id=${read.credential.id}`;
         assert.equal(
@@ -901,7 +893,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
         await sql`UPDATE users SET role='admin',disabled_at=now() WHERE id=${user.id}`;
         assert.equal(
           await credentialActor(
-            new Request(`${process.env.MILL_BASE_URL}/mcp`, {
+            new Request(`${process.env.MILL_BASE_URL}/api/boards`, {
               headers: { Authorization: `Bearer ${write.token}` },
             }),
           ),
@@ -913,8 +905,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
             cookie,
             body: {
               name: "Fresh revocation",
-              agentId: agent.id,
-              scopes: ["read", "write"],
             },
           }),
         );

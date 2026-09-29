@@ -102,40 +102,15 @@ externalRoutes.post("/api/credentials", async (c) => {
   const parsed = z
     .object({
       name: z.string().trim().min(1).max(120),
-      agentId: z.uuid(),
-      scopes: z
-        .array(z.enum(["read", "write"]))
-        .min(1)
-        .max(2)
-        .refine(
-          (values) =>
-            values.includes("read") && new Set(values).size === values.length,
-        ),
-      boardIds: z
-        .array(z.uuid())
-        .min(1)
-        .max(100)
-        .refine((ids) => new Set(ids).size === ids.length)
-        .optional(),
-      expiresInDays: z.number().int().min(1).max(365).default(30),
+      expiresInDays: z
+        .union([z.literal(30), z.literal(60), z.literal(90), z.literal(365)])
+        .default(30),
     })
     .strict()
     .safeParse(await c.req.json());
   if (!parsed.success)
-    badRequest(
-      "Choose an Agent, a name, read/write access, existing boards, and an expiry between 1 and 365 days",
-    );
-  if (a.role === "viewer" && parsed.data.scopes.includes("write"))
-    throw new HTTPException(403, {
-      message: "Viewer accounts can only grant read access",
-    });
-  try {
-    return c.json(await createCredential(a, parsed.data), 201);
-  } catch (error) {
-    if (error instanceof Error && error.message === "Choose existing boards")
-      badRequest(error.message);
-    throw error;
-  }
+    badRequest("Choose a name and an expiry of 30, 60, 90, or 365 days");
+  return c.json(await createCredential(a, parsed.data), 201);
 });
 externalRoutes.delete("/api/credentials/:id", async (c) => {
   const a = requireHuman(c),
@@ -304,10 +279,7 @@ externalRoutes.all("/mcp", async (c) => {
       "WWW-Authenticate",
       `Bearer resource_metadata="${resourceMetadataUrl()}"`,
     );
-    return c.json(
-      { error: "A valid API credential or OAuth token is required" },
-      401,
-    );
+    return c.json({ error: "A valid Agent OAuth credential is required" }, 401);
   }
   return serveMcp(c);
 });

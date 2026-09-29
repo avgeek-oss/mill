@@ -7,7 +7,6 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -385,18 +384,13 @@ test("removed fields fail validation without changing tasks or boards", async ()
     );
 });
 
-test("removed workflow and portable routes return 404 for human and agent clients", async () => {
+test("removed workflow and portable routes return 404 for sessions and personal REST keys", async () => {
   const { cookie, board } = await fixture();
   const item = await createTask(cookie, board.id, "Current task");
   const { token } = await json(
     await request("/api/credentials", {
       cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Writer",
-        scopes: ["read", "write"],
-        boardIds: [board.id],
-      },
+      body: { name: "Personal writer" },
     }),
     201,
   );

@@ -4,7 +4,6 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -123,14 +122,11 @@ test("successful empty DELETE responses replay as 204 with an empty body", async
 });
 test("retry records encrypt credential issuance secrets", async () => {
   const { cookie } = await setupUser();
-  const agent = await setupAgent(cookie);
   const options = {
     cookie,
     body: {
-      agentId: agent.id,
       name: "Retry credential",
-      scopes: ["read"],
-      expiresInDays: 1,
+      expiresInDays: 30,
     },
     headers: { "Idempotency-Key": "integration-secret-001" },
   };

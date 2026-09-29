@@ -1,12 +1,12 @@
 # REST API
 
-Mill serves JSON under `/api`, remote MCP at `/mcp`, and OAuth endpoints on the same origin configured by `MILL_BASE_URL`. REST and MCP share roles, scopes, board restrictions, validation, transactions, versions, and retry behavior.
+Mill serves JSON under `/api`, remote MCP at `/mcp`, and OAuth endpoints on the same origin configured by `MILL_BASE_URL`. REST and MCP share domain validation, transactions, versions, retry behavior, and current-role checks. Personal REST keys use the human owner's accessible boards; MCP OAuth additionally enforces selected-Agent access, scopes, and optional approved boards.
 
-Start with [Connect an agent](agents.md) for agent authentication, or [accounts and security](authentication.md) for human routes.
+Start with [REST clients and MCP Agents](agents.md) for connections, [accounts and team access](authentication.md) for human routes, or [access security](authentication.md#external-credential-boundaries) for authorization boundaries.
 
 ## Authentication and limits
 
-Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST clients use `Authorization: Bearer mill_…` from a personal API key bound to an eligible existing Agent. OAuth tokens also bind a selected Agent and authorize `/mcp` only, not public REST.
+Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST clients use `Authorization: Bearer mill_…` from a personal API key belonging to a human account. Keys use that account's current permissions without an Agent, scope, or board binding. OAuth tokens bind a selected eligible Agent and authorize `/mcp` only, not public REST.
 
 Authenticated requests are limited to 240 per minute per person or credential; anonymous requests to 120 per minute per client address. MCP dispatch also uses the REST limit. `429` includes `Retry-After: 60`. Ordinary request bodies are bounded to 2 MiB, credential/OAuth bodies to 16 KiB, and MCP requests/tool responses to 1 MiB.
 
@@ -38,28 +38,28 @@ Failures return `{error:"Description"}` and may include a stable `code`.
 
 ## Permissions
 
-Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Human Admins additionally manage membership/workspace settings and permanently delete boards. Every active member can access workspace boards; credentials can restrict this to approved boards and read or read/write scope.
+Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Human Admins additionally manage membership/workspace settings and permanently delete boards. Every active member can access workspace boards. Personal API keys inherit that current access. OAuth connections can narrow it to approved boards and read or read/write scope.
 
-External credentials inherit their owner's current role and active membership and require current access to their selected Agent. Administration, Agent management, credentials, identity settings, and consent require a human session. Board-restricted credentials cannot create boards, read the team directory, or read workspace settings. Notifications stay within the owner's account and approved boards. Authorization is rechecked before a mutation commits.
+Every credential inherits its owner's current role and active membership. OAuth additionally requires current selected-Agent access. Administration, Agent management, credentials, identity settings, and consent require a human session. Personal API keys cannot call any `/api/auth` route, including the team directory. Board-restricted OAuth connections cannot create boards or list members; unscoped OAuth can resolve basic member metadata through MCP. Notifications stay within the owner's account and, for scoped OAuth, approved boards. Authorization is rechecked before a mutation commits.
 
 ## Agents
 
-Agents are separate from human People/accounts. Human management endpoints support the Agents UI; external credentials cannot create or manage Agent identities, and MCP exposes no Agent creation tool. A personal Agent is usable/manageable only by its creator. A team Agent is usable only by explicitly assigned active people and managed by a human Admin. Admin status alone does not grant use of a team Agent.
+Agents are separate from human People/accounts. Human management endpoints support the Agents UI; external credentials cannot create or manage Agent identities, and MCP exposes no Agent creation tool. A personal Agent is usable/manageable only by its creator. A team Agent is managed by a human Admin and usable by active people with individual grants or through `allMembers:true`. The all-members policy includes future active members. The active creator retains a pinned individual grant. Admin status alone does not grant use of a team Agent.
 
-| Method and path               | Request                                                              | Response                     |
-| ----------------------------- | -------------------------------------------------------------------- | ---------------------------- |
-| `GET /api/agents`             | Eligible Agents; optional `limit`, `cursor`                          | `{items,hasMore,nextCursor}` |
-| `GET /api/agents?manage=true` | Human Member/Admin management view; optional `limit`, `cursor`       | `{items,hasMore,nextCursor}` |
-| `POST /api/agents`            | Human Member for personal, Admin for team; `{name,scope,memberIds?}` | `201 {agent}`                |
-| `GET /api/agents/:id`         | Eligible Agent; optional human `manage=true`                         | `{agent}`                    |
-| `PATCH /api/agents/:id`       | Personal creator or human team Admin; `{version,name?,memberIds?}`   | `{agent}`                    |
-| `DELETE /api/agents/:id`      | Personal creator or human team Admin; `{version}`                    | `{ok:true}`                  |
+| Method and path               | Request                                                                          | Response                     |
+| ----------------------------- | -------------------------------------------------------------------------------- | ---------------------------- |
+| `GET /api/agents`             | Eligible Agents; optional `limit`, `cursor`                                      | `{items,hasMore,nextCursor}` |
+| `GET /api/agents?manage=true` | Human Member/Admin management view; optional `limit`, `cursor`                   | `{items,hasMore,nextCursor}` |
+| `POST /api/agents`            | Human Member for personal, Admin for team; `{name,scope,memberIds?,allMembers?}` | `201 {agent}`                |
+| `GET /api/agents/:id`         | Eligible Agent; optional human `manage=true`                                     | `{agent}`                    |
+| `PATCH /api/agents/:id`       | Personal creator or human team Admin; `{version,name?,memberIds?,allMembers?}`   | `{agent}`                    |
+| `DELETE /api/agents/:id`      | Personal creator or human team Admin; `{version}`                                | `{ok:true}`                  |
 
-`agent` contains `id`, `name`, `scope` (`personal` or `team`), `creatorId`, active `memberIds`, `version`, `createdAt`, and `updatedAt`. Names are trimmed, nonempty and at most 100 characters. Team grants accept at most 1,000 unique active member UUIDs. Personal Agents do not accept access grants; scope and creator cannot be changed by PATCH. Creating a team Agent does not automatically grant its creator access.
+`agent` contains `id`, `name`, `scope` (`personal` or `team`), `creatorId`, active individual `memberIds`, `allMembers`, `version`, `createdAt`, and `updatedAt`. Names are trimmed, nonempty and at most 100 characters. Team grants accept at most 1,000 unique active member UUIDs. Personal Agents reject `memberIds` and `allMembers`; scope and creator cannot be changed by PATCH. `allMembers` defaults to false and applies only to team Agents. Team creation pins the active creator's individual grant. Updating `memberIds` cannot remove that grant. Individual grants remain distinct from the dynamic all-members policy and apply when it is disabled.
 
-Eligible reads return personal Agents owned by the person plus team Agents explicitly granted to them. The human Admin management view additionally returns every team Agent; other human Members see their eligible list. Agents sort by `lower(name),name,id`, using filter/actor-bound revision cursors. Invalid/foreign cursors return `400`; a changed list returns `409` with `code:"agent_list_changed"`, requiring a restart without a cursor.
+Eligible reads return personal Agents owned by the person plus team Agents granted individually or through all-members access. The human Admin management view additionally returns every team Agent; other human Members see their eligible list. Agents sort by `lower(name),name,id`, using filter/actor-bound revision cursors. Invalid/foreign cursors return `400`; a changed list returns `409` with `code:"agent_list_changed"`, requiring a restart without a cursor.
 
-Removing a team grant clears that person's task Agent bindings and revokes their keys/connections bound to the Agent. Deleting an Agent clears its task bindings and revokes its keys/connections; tasks and human assignees remain. Cleared task bindings increment the task version and retain attributed activity. Restoring access permits a fresh connection but does not reactivate a revoked token.
+Removing an individual grant or narrowing the all-members policy clears task Agent bindings and revokes OAuth connections for people who lose access. A removed individual grant does not end access while all-members access still applies. Deleting an Agent clears its task bindings and revokes its OAuth connections; tasks and human assignees remain. Personal API keys do not depend on Agents. Cleared task bindings increment the task version and retain attributed activity. Restoring access permits a fresh connection but does not reactivate a revoked token.
 
 ## Boards
 
@@ -73,7 +73,7 @@ Removing a team grant clears that person's task Agent bindings and revokes their
 
 Names are 1–100 characters and descriptions at most 10,000. Custom prefixes match `^[A-Z][A-Z0-9]{1,9}$` and stay fixed after creation. There is no manual board order.
 
-Board deletion permanently removes its tasks, comments, notifications, and task activity. Explicit credential/OAuth board scopes lose that board and are revoked when no approved boards remain. There is no archive, trash, or restore API.
+Board deletion permanently removes its tasks, comments, notifications, and task activity. Explicit OAuth board scopes lose that board and are revoked when no approved boards remain. There is no archive, trash, or restore API.
 
 ## Fixed task statuses
 
@@ -171,15 +171,17 @@ A retained completed retry key from before migration returns terminal `410`, inc
 
 ## Credentials
 
-| Method and path               | Request                                                         | Response                                                    |
-| ----------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------- |
-| `GET /api/credentials`        | Human session; optional `limit`, `cursor`                       | `{items,hasMore,nextCursor}` with metadata, no token hashes |
-| `POST /api/credentials`       | Human session; `{name,agentId,scopes,boardIds?,expiresInDays?}` | `{credential,token}` once                                   |
-| `DELETE /api/credentials/:id` | Owner's human session                                           | `{revoked:true}`                                            |
+| Method and path               | Request                                   | Response                                                    |
+| ----------------------------- | ----------------------------------------- | ----------------------------------------------------------- |
+| `GET /api/credentials`        | Human session; optional `limit`, `cursor` | `{items,hasMore,nextCursor}` with metadata, no token hashes |
+| `POST /api/credentials`       | Human session; `{name,expiresInDays?}`    | `{credential,token}` once                                   |
+| `DELETE /api/credentials/:id` | Owner's human session                     | `{revoked:true}`                                            |
 
-API keys belong to the person who creates them; an Admin does not gain another person's key ownership. `agentId` must select an existing Agent that the owner can access. The key's own name labels the connection and does not create an Agent. Credential metadata includes `agentId` and derived `agentName`; legacy revoked records may have null values. The token is revealed once.
+API keys belong to the person who creates them; an Admin does not gain another person's key ownership. A name is trimmed, nonempty, and at most 120 characters. Expiry defaults to 30 days and accepts only 30, 60, 90, or 365. `agentId`, `scopes`, and `boardIds` are rejected. The token is revealed once; later responses contain metadata without tokens or hashes.
 
-Scopes are `["read"]` or `["read","write"]`. Omit `boardIds` for workspace board access, or supply 1 to 100 existing board UUIDs. Expiry defaults to 30 days and accepts 1 to 365. A credential remains tied to its owner's current role, active membership and selected-Agent access. It cannot create other credentials or Agent identities. Migration 008 revokes earlier unbound credentials; issue a new bound key after upgrade.
+Personal API-key metadata has `tokenType:"api-key"`, null `agentId`/`agentName`/`boardIds`, and an empty stored `scopes` list. Runtime access comes from the human owner's current role and active membership across all accessible boards, including future boards. Viewer keys read; Member/Admin keys can change work within current role and human-session boundaries. Keys cannot use MCP, human-only management routes, or other owners' credentials. The same credential listing also includes the owner's OAuth connections, which retain their Agent, scopes, and optional board metadata.
+
+Migration 009 revokes and unbinds previous API keys; create replacements through API keys using Name and Expiry. Existing Agent-bound OAuth connections are preserved. See [upgrades](upgrades.md).
 
 ## Health and backups
 
@@ -201,7 +203,7 @@ Scopes are `["read"]` or `["read","write"]`. Omit `boardIds` for workspace board
 
 The base protected-resource discovery path is also supported. Registration accepts `client_name`, `redirect_uris`, `token_endpoint_auth_method` (`none`, `client_secret_basic`, `client_secret_post`), `grant_types:["authorization_code"]`, and `response_types:["code"]`. Confidential clients receive a one-time secret; public clients use PKCE without a secret.
 
-Consent details include eligible `agents`, `requiresAgent:true`, and `canApprove` alongside client, scope and signed-in user details. Approval requires a selected existing Agent the person can currently access; denial does not. No eligible Agent means approval cannot proceed. Missing, foreign, or inaccessible approval selections are rejected. Consent and token exchange recheck Agent access and never create an Agent automatically. A credential's bound Agent identifies its actions; setting a task Agent remains a separate explicit mutation.
+Consent details include eligible `agents`, `requiresAgent:true`, and `canApprove` alongside client, scope and signed-in user details. Approval requires a selected existing Agent the person can currently access; denial does not. No eligible Agent means approval cannot proceed. Missing, foreign, or inaccessible approval selections are rejected. Consent and token exchange recheck Agent access and never create an Agent automatically. An OAuth credential's bound Agent identifies its actions; setting a task Agent remains a separate explicit mutation.
 
 Authorization needs `response_type=code`, `client_id`, exact `redirect_uri`, `resource`, `scope=read` or `scope=read write`, `code_challenge`, and `code_challenge_method=S256`. `state` is returned unchanged, and `iss` identifies Mill. Token exchange needs `grant_type=authorization_code`, `code`, `code_verifier`, the same `redirect_uri` and `resource`, and the client's declared authentication method. Consent codes expire after two minutes and can be consumed once. Tokens expire after 30 days; refresh-token grants are not supported.
 

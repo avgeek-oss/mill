@@ -2,8 +2,16 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-const { cleanupDatabase, request, resetDatabase, setupAgent, setupUser, sql } =
-  await import("./support.js");
+const {
+  cleanupDatabase,
+  request,
+  resetDatabase,
+  setupAgent,
+  setupOAuthAgent,
+  callMcpTool,
+  setupUser,
+  sql,
+} = await import("./support.js");
 
 beforeEach(resetDatabase);
 after(cleanupDatabase);
@@ -34,6 +42,28 @@ async function traversal(
     page = await json(
       await request(`${path}&cursor=${page.nextCursor}`, options),
     );
+    ids.push(...page.items.map((item) => item.id));
+  }
+  assert.equal(page.nextCursor, null);
+  assert.equal(new Set(ids).size, ids.length);
+  return ids;
+}
+
+async function mcpPage(
+  token: string,
+  args: Record<string, unknown>,
+): Promise<Page> {
+  const call = await callMcpTool(token, "list_boards", args);
+  assert.equal(call.response.status, 200);
+  assert.equal(call.result?.isError, false, JSON.stringify(call.result));
+  return call.result!.structuredContent as Page;
+}
+async function mcpTraversal(token: string, first: Page, limit = 1) {
+  const ids = first.items.map((item) => item.id);
+  let page = first;
+  while (page.hasMore) {
+    assert.ok(page.nextCursor);
+    page = await mcpPage(token, { limit, cursor: page.nextCursor });
     ids.push(...page.items.map((item) => item.id));
   }
   assert.equal(page.nextCursor, null);
@@ -114,7 +144,7 @@ test("board cursors preserve alphabetical case and identifier ties and reject in
   assert.deepEqual(ids, [before.id, ...expected, after.id]);
 });
 
-test("board pagination keeps credential board restrictions on every page", async () => {
+test("OAuth Agent board pagination keeps restrictions on every page", async () => {
   const { cookie, user } = await setupUser();
   await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Filtered '||sequence,'F'||sequence FROM users CROSS JOIN generate_series(1,9) sequence WHERE users.id=${user.id}`;
   const boards =
@@ -125,51 +155,40 @@ test("board pagination keeps credential board restrictions on every page", async
     boards[4]!.id,
     boards[6]!.id,
   ];
-  const credential = await json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Filtered reader",
-        scopes: ["read"],
-        boardIds: allowedIds,
-      },
-    }),
-    201,
-  );
+  const credential = await setupOAuthAgent(cookie, {
+    agentId: (await setupAgent(cookie)).id,
+    scopes: ["read"],
+    boardIds: allowedIds,
+  });
   const first = await json(await request("/api/boards?limit=1", { cookie }));
-  const scoped = await json(
-    await request("/api/boards?limit=1", { token: credential.token }),
-  );
+  const scoped = await mcpPage(credential.token, { limit: 1 });
   assert.deepEqual(
     await traversal("/api/boards?limit=1", { cookie }, first),
     boards.map((board) => board.id),
   );
-  assert.deepEqual(
-    await traversal("/api/boards?limit=1", { token: credential.token }, scoped),
-    allowedIds,
-  );
+  assert.deepEqual(await mcpTraversal(credential.token, scoped), allowedIds);
+  const foreign = await callMcpTool(credential.token, "list_boards", {
+    cursor: first.nextCursor,
+  });
+  assert.equal(foreign.response.status, 200);
+  assert.equal(foreign.result?.isError, true);
+  assert.match(JSON.stringify(foreign.result), /accessible board list/);
   assert.equal(
-    (
-      await request(`/api/boards?cursor=${first.nextCursor}`, {
-        token: credential.token,
-      })
-    ).status,
-    400,
+    (await request("/api/boards", { token: credential.token })).status,
+    403,
   );
   await sql`UPDATE credentials SET board_ids=ARRAY[]::uuid[] WHERE id=${credential.credential.id}`;
-  assert.deepEqual(
-    await json(await request("/api/boards", { token: credential.token })),
-    { items: [], hasMore: false, nextCursor: null },
-  );
-  assert.equal(
-    (
-      await request(`/api/boards?cursor=${scoped.nextCursor}`, {
-        token: credential.token,
-      })
-    ).status,
-    400,
-  );
+  assert.deepEqual(await mcpPage(credential.token, {}), {
+    items: [],
+    hasMore: false,
+    nextCursor: null,
+  });
+  const narrowed = await callMcpTool(credential.token, "list_boards", {
+    cursor: scoped.nextCursor,
+  });
+  assert.equal(narrowed.response.status, 200);
+  assert.equal(narrowed.result?.isError, true);
+  assert.match(JSON.stringify(narrowed.result), /accessible board list/);
 });
 
 test("board page validation rejects malformed, missing and wrong-collection anchors", async () => {
@@ -177,11 +196,7 @@ test("board page validation rejects malformed, missing and wrong-collection anch
   const credential = await json(
     await request("/api/credentials", {
       cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Cursor boundary",
-        scopes: ["read"],
-      },
+      body: { name: "Cursor boundary", expiresInDays: 30 },
     }),
     201,
   );
@@ -333,46 +348,42 @@ test("directory continuation reaches every board and rejects metadata or deletio
   );
 });
 
-test("directory pages preserve actor restrictions and reject cross-mode or ambiguous cursors", async () => {
+test("personal API key directory pages cover current and future boards and reject cross-mode cursors", async () => {
   const { cookie, user } = await setupUser();
-  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Scoped directory '||sequence,'SCOPE'||sequence FROM users CROSS JOIN generate_series(1,8) sequence WHERE users.id=${user.id}`;
+  await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Directory '||sequence,'SCOPE'||sequence FROM users CROSS JOIN generate_series(1,8) sequence WHERE users.id=${user.id}`;
   const boards = await sql`SELECT id FROM boards ORDER BY lower(name),name,id`;
-  const allowedIds = [
-    boards[0]!.id,
-    boards[1]!.id,
-    boards[4]!.id,
-    boards[7]!.id,
-  ];
-  const credential = await json(
+  const personal = await json(
     await request("/api/credentials", {
       cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Directory reader",
-        scopes: ["read"],
-        boardIds: allowedIds,
-      },
+      body: { name: "Directory automation", expiresInDays: 60 },
     }),
     201,
   );
+  assert.equal(personal.credential.agentId, null);
+  assert.equal(personal.credential.boardIds, null);
+  assert.deepEqual(personal.credential.scopes, []);
   const path = "/api/boards?directory=true&limit=1";
   const full = await json(await request(path, { cookie }));
-  const scoped = await json(await request(path, { token: credential.token }));
+  const keyed = await json(await request(path, { token: personal.token }));
   assert.deepEqual(
-    await traversal(path, { token: credential.token }, scoped),
-    allowedIds,
+    await traversal(path, { token: personal.token }, keyed),
+    boards.map((board) => board.id),
   );
-  assert.equal(
-    (
+  assert.deepEqual(
+    await json(
       await request(`${path}&cursor=${full.nextCursor}`, {
-        token: credential.token,
-      })
-    ).status,
-    400,
+        token: personal.token,
+      }),
+    ),
+    await json(await request(`${path}&cursor=${full.nextCursor}`, { cookie })),
   );
-  assert.equal(
-    (await request(`${path}&cursor=${scoped.nextCursor}`, { cookie })).status,
-    400,
+  assert.deepEqual(
+    await json(await request(`${path}&cursor=${keyed.nextCursor}`, { cookie })),
+    await json(
+      await request(`${path}&cursor=${keyed.nextCursor}`, {
+        token: personal.token,
+      }),
+    ),
   );
   const normal = await json(await request("/api/boards?limit=1", { cookie }));
   for (const query of [
@@ -386,21 +397,33 @@ test("directory pages preserve actor restrictions and reject cross-mode or ambig
     "directory=true&deleted=true",
   ])
     assert.equal(
-      (await request(`/api/boards?${query}`, { cookie })).status,
+      (await request(`/api/boards?${query}`, { token: personal.token })).status,
       400,
     );
   assert.equal((await request("/api/boards?directory=true")).status, 401);
-  await sql`UPDATE credentials SET board_ids=ARRAY[]::uuid[] WHERE id=${credential.credential.id}`;
-  const empty = await json(await request(path, { token: credential.token }));
-  assert.deepEqual(empty, { items: [], hasMore: false, nextCursor: null });
-  assert.equal(
-    (
-      await request(`${path}&cursor=${scoped.nextCursor}`, {
-        token: credential.token,
-      })
-    ).status,
-    400,
+  const future = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "Future directory board" },
+    }),
+    201,
   );
+  const stale = await json(
+    await request(`${path}&cursor=${keyed.nextCursor}`, {
+      token: personal.token,
+    }),
+    409,
+  );
+  assert.equal(stale.code, "board_list_changed");
+  const restarted = await json(await request(path, { token: personal.token }));
+  const expected = (
+    await sql`SELECT id FROM boards ORDER BY lower(name),name,id`
+  ).map((board) => board.id);
+  assert.deepEqual(
+    await traversal(path, { token: personal.token }, restarted),
+    expected,
+  );
+  assert.ok(expected.includes(future.board.id));
 });
 
 test("initialized MCP clients traverse more than 100 boards and preserve board restrictions across cursors", async () => {
@@ -412,29 +435,6 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
   const restrictedIds = expected
     .filter((_id, index) => index % 2 === 0)
     .slice(0, 100);
-  const read = await json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "MCP read access",
-        scopes: ["read"],
-      },
-    }),
-    201,
-  );
-  const restricted = await json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "MCP selected boards",
-        scopes: ["read"],
-        boardIds: restrictedIds,
-      },
-    }),
-    201,
-  );
   const { serve } = await import("@hono/node-server");
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { StreamableHTTPClientTransport } =
@@ -451,6 +451,16 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
     new Client({ name: "mill-scoped-board-pagination", version: "1.0.0" }),
   ];
   try {
+    const agent = await setupAgent(cookie);
+    const read = await setupOAuthAgent(cookie, {
+      agentId: agent.id,
+      scopes: ["read"],
+    });
+    const restricted = await setupOAuthAgent(cookie, {
+      agentId: agent.id,
+      scopes: ["read"],
+      boardIds: restrictedIds,
+    });
     for (const [index, credential] of [read, restricted].entries()) {
       const client = clients[index]!;
       await client.connect(

@@ -241,12 +241,6 @@ a {
     }
   }
 
-  .button--danger-ghost {
-    --button-fg: var(--danger-soft-foreground);
-    --button-bg-hover: var(--danger-soft);
-    --button-bg-pressed: var(--danger-soft-hover);
-  }
-
   .button--warning-soft {
     --button-bg: var(--warning-soft);
     --button-bg-hover: var(--warning-soft-hover);

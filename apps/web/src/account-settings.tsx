@@ -14,6 +14,7 @@ import {
   type PublicKeyCredentialCreationOptionsJSON,
 } from "@simplewebauthn/browser";
 import {
+  Avatar,
   Button,
   Checkbox,
   Chip,
@@ -81,7 +82,7 @@ function Feedback({ error, notice }: { error: string; notice: string }) {
     <>
       <ErrorMessage>{error}</ErrorMessage>
       {notice && (
-        <p role="status" className="text-sm text-success">
+        <p role="status" className="text-xs text-success-soft-foreground">
           {notice}
         </p>
       )}
@@ -134,7 +135,7 @@ function ListState({
 }) {
   if (pending)
     return (
-      <p role="status" className="text-sm text-muted">
+      <p role="status" className="text-xs text-muted">
         Loading {noun}…
       </p>
     );
@@ -236,6 +237,11 @@ function ProfileSettings({
               void save("profile");
             }}
           >
+            <Avatar
+              email={session.user.email}
+              name={session.user.name}
+              size="md"
+            />
             <FieldGroup>
               <TextField
                 label="Name"
@@ -286,7 +292,7 @@ function ProfileSettings({
               void save("notifications");
             }}
           >
-            <p className="text-sm text-muted">
+            <p className="text-xs text-muted">
               Choose which in-app notifications you receive.
             </p>
             <div className="grid gap-3">
@@ -428,7 +434,7 @@ function SecuritySettings({
             ) : undefined
           }
         >
-          <p className="text-sm text-muted">
+          <p className="text-xs text-muted">
             Sign in with your device or password manager. Mill prefers a passkey
             when second verification is needed.
           </p>
@@ -458,7 +464,7 @@ function SecuritySettings({
                       </time>
                     </div>
                     <Button
-                      variant="danger-ghost"
+                      variant="danger"
                       isDisabled={busy || !!pending}
                       onPress={() =>
                         secure(async () => {
@@ -473,7 +479,7 @@ function SecuritySettings({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted">No passkeys added.</p>
+              <p className="text-xs text-muted">No passkeys added.</p>
             )}
           </ListState>
           <div>
@@ -514,7 +520,7 @@ function SecuritySettings({
           }
         >
           <Feedback error="" notice={totpNotice} />
-          <p className="text-sm text-muted">
+          <p className="text-xs text-muted">
             An authenticator app adds a one-time code to your password. Keep
             recovery codes in a safe place.
           </p>
@@ -538,7 +544,7 @@ function SecuritySettings({
                   </code>
                   <a
                     href={totp.uri}
-                    className="w-fit text-sm text-muted underline underline-offset-4"
+                    className="w-fit text-xs text-muted underline underline-offset-4"
                   >
                     Open authenticator app
                   </a>
@@ -610,7 +616,7 @@ function SecuritySettings({
                     New recovery codes
                   </Button>
                   <Button
-                    variant="danger-ghost"
+                    variant="danger"
                     isDisabled={busy || !!pending}
                     onPress={() =>
                       secure(async () => {
@@ -642,7 +648,7 @@ function SecuritySettings({
           )}
         </AccountWidget>
         <AccountWidget title="Password" icon={<LockKeyhole />}>
-          <p className="text-sm text-muted">
+          <p className="text-xs text-muted">
             Use a unique password with at least 15 characters.
           </p>
           <PasswordChange onChanged={refresh} />
@@ -656,7 +662,7 @@ function SecuritySettings({
             ) : undefined
           }
         >
-          <p className="text-sm text-muted">
+          <p className="text-xs text-muted">
             Review devices signed in to your account. Signing out a device
             revokes its session.
           </p>
@@ -680,7 +686,7 @@ function SecuritySettings({
                           ? "This device"
                           : sessionDevice(item.userAgent)}
                       </p>
-                      <p className="text-sm text-muted">
+                      <p className="text-xs text-muted">
                         Last active{" "}
                         <time dateTime={item.lastSeenAt}>
                           {new Intl.DateTimeFormat(undefined, {
@@ -695,7 +701,7 @@ function SecuritySettings({
                       <Chip>Current</Chip>
                     ) : (
                       <Button
-                        variant="danger-ghost"
+                        variant="danger"
                         isDisabled={busy}
                         onPress={() =>
                           void runSession(async () => {
@@ -715,7 +721,7 @@ function SecuritySettings({
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted">No active sessions.</p>
+              <p className="text-xs text-muted">No active sessions.</p>
             )}
           </ListState>
         </AccountWidget>
@@ -966,7 +972,7 @@ function ReauthenticationDialog({
           ))}
         <ErrorMessage>{error}</ErrorMessage>
         {busy && (
-          <p role="status" className="text-sm text-muted">
+          <p role="status" className="text-xs text-muted">
             {passkeyBusy
               ? "Waiting for your passkey…"
               : verified
@@ -1025,7 +1031,7 @@ function RecoveryCodesDialog({
       footer={<Button onPress={onClose}>I saved these codes</Button>}
     >
       <div className="content-grid">
-        <p className="text-sm text-muted">
+        <p className="text-xs text-muted">
           Each code can be used once when your authenticator is unavailable.
           These codes are only shown now.
         </p>

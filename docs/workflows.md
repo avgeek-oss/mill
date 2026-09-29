@@ -56,11 +56,13 @@ There is no archive, trash, or restore view. Save a [full database backup](backu
 
 ## People, Agents, and API keys
 
-People are accounts that sign in to Mill. Manage invitations and roles in People, and the workspace name in Team settings. Agents are separate identities created in the human Agents interface. Members and administrators can create personal Agents; only their creator can use and manage them. An administrator creates and manages team Agents, granting access to specific active people. Administrator status alone does not grant use of a team Agent.
+People are accounts that sign in to Mill. Manage invitations and roles in People, and the workspace name in Team settings. Agents are separate identities created in the human Agents interface. Members and administrators can create personal Agents; only their creator can use and manage them. An administrator creates and manages team Agents, granting access to selected active people or all current and future members. The active creator retains a pinned individual grant. Administrator status alone does not grant use of a team Agent.
 
-API keys belong to the person who creates them. Open API keys and select an existing Agent you can access, then choose its scopes, boards, and expiry. Another administrator does not own your keys. OAuth consent uses the same eligible Agent selection. If none is available, create a personal Agent or ask an administrator for team access before connecting. Neither REST/MCP clients nor OAuth create Agent identities.
+Personal API keys belong to the person who creates them. Open API keys and choose Name and Expiry: 30, 60, 90, or 365 days. They use the owner's current permissions across all accessible boards and have no Agent, scope, or board selector. Another administrator does not own your keys.
 
-Every active member can read workspace boards. Credentials can narrow an agent to selected boards and read or read/write scope, within its owner's current role. Role changes, removal, or revocation also prevent a waiting mutation from committing without current authority.
+MCP OAuth requires an eligible existing Agent and can narrow access with scopes and approved boards. If none is available, create a personal Agent or ask an administrator for team access before connecting. Neither REST/MCP clients nor OAuth create Agent identities.
+
+Every active member can read workspace boards. OAuth connections can narrow an Agent to selected boards and read or read/write scope, within the human owner's current role. Personal API keys use that owner's role without those restrictions. Role changes, removal, or revocation also prevent a waiting mutation from committing without current authority.
 
 ## Work through the API
 

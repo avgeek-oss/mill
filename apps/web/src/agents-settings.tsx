@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Agent, Member } from "../../../packages/contracts/src/index.js";
 import {
+  Avatar,
   Button,
   Checkbox,
   Chip,
@@ -9,6 +10,9 @@ import {
   EmptyState,
   ErrorMessage,
   Table,
+  TableCellStack,
+  TableCellDescription,
+  toast,
   TextField,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -34,6 +38,8 @@ export function validAgent(value: unknown): value is Agent {
     !!value.name.trim() &&
     (value.scope === "personal" || value.scope === "team") &&
     typeof value.creatorId === "string" &&
+    typeof value.allMembers === "boolean" &&
+    (value.scope === "team" || value.allMembers === false) &&
     Array.isArray(value.memberIds) &&
     value.memberIds.every((id) => typeof id === "string") &&
     typeof value.version === "number" &&
@@ -151,7 +157,10 @@ function AgentEditor({
   const [current, setCurrent] = useState(agent);
   const [name, setName] = useState(agent?.name ?? "");
   const [scope, setScope] = useState(agent?.scope ?? "personal");
-  const [memberIds, setMemberIds] = useState(agent?.memberIds ?? []);
+  const creatorId = agent?.creatorId ?? session.user.id;
+  const [memberIds, setMemberIds] = useState(agent?.memberIds ?? [creatorId]);
+  const [allMembers, setAllMembers] = useState(agent?.allMembers ?? false);
+  const [memberLimit, setMemberLimit] = useState(25);
   const [members, setMembers] = useState<Member[]>([]);
   const [memberQuery, setMemberQuery] = useState("");
   const [membersPending, setMembersPending] = useState(false);
@@ -200,6 +209,46 @@ function AgentEditor({
       memberGeneration.current++;
     };
   }, [scope, loadMembers]);
+  const creator = members.find((member) => member.id === creatorId);
+  const matchingPeople = members.filter(
+    (member) =>
+      member.id !== creatorId &&
+      `${member.name} ${member.email}`
+        .toLowerCase()
+        .includes(memberQuery.toLowerCase()),
+  );
+  function personChoice(member: Member, locked = false) {
+    return (
+      <Checkbox
+        key={member.id}
+        variant="secondary"
+        className="min-h-11 w-full"
+        isSelected={locked || allMembers || memberIds.includes(member.id)}
+        isDisabled={pending || locked || allMembers}
+        onChange={(selected) =>
+          setMemberIds((previous) =>
+            selected
+              ? [...new Set([...previous, member.id])]
+              : previous.filter((id) => id !== member.id),
+          )
+        }
+        aria-label={`${member.name} (${member.email})`}
+      >
+        <Checkbox.Content className="min-h-11 min-w-0 w-full gap-3">
+          <Checkbox.Control>
+            <Checkbox.Indicator />
+          </Checkbox.Control>
+          <Avatar email={member.email} name={member.name} size="sm" />
+          <TableCellStack className="min-w-0 flex-1">
+            <span className="break-words">{member.name}</span>
+            <TableCellDescription className="break-all">
+              {member.email}
+            </TableCellDescription>
+          </TableCellStack>
+        </Checkbox.Content>
+      </Checkbox>
+    );
+  }
   async function save() {
     if (pending || (scope === "team" && (membersPending || membersError)))
       return;
@@ -210,7 +259,7 @@ function AgentEditor({
     const payload = {
       name: name.trim(),
       ...(current ? { version: current.version } : { scope }),
-      ...(scope === "team" ? { memberIds } : {}),
+      ...(scope === "team" ? { memberIds, allMembers } : {}),
     };
     const method = current ? "PATCH" : "POST";
     try {
@@ -221,8 +270,12 @@ function AgentEditor({
         },
       });
       retryKey.reset();
-      setComplete(true);
       onSaved();
+      if (agent) setComplete(true);
+      else {
+        toast.success("Agent created.");
+        onClose();
+      }
     } catch (cause) {
       setError(errorText(cause));
       setConflict(cause instanceof ApiError && cause.status === 409);
@@ -243,6 +296,7 @@ function AgentEditor({
       setCurrent(result.agent);
       setName(result.agent.name);
       setMemberIds(result.agent.memberIds);
+      setAllMembers(result.agent.allMembers);
       setConflict(false);
       setError("");
       retryKey.reset();
@@ -284,8 +338,11 @@ function AgentEditor({
       }
     >
       {complete ? (
-        <p role="status" className="text-sm text-success">
-          Agent {agent ? "updated" : "created"}.
+        <p
+          role="status"
+          className="text-xs font-normal text-success-soft-foreground"
+        >
+          Agent updated.
         </p>
       ) : (
         <form
@@ -301,7 +358,7 @@ function AgentEditor({
             value={name}
             onChange={(event) => setName(event.target.value)}
             required
-            maxLength={120}
+            maxLength={100}
             disabled={pending}
             className="max-md:text-base!"
           />
@@ -317,7 +374,7 @@ function AgentEditor({
                 : []),
             ]}
           />
-          <p className="text-sm text-muted">
+          <p className="text-xs font-normal text-muted">
             {scope === "personal"
               ? "Only you can use this agent."
               : "Choose the people who can use this agent. Administrators manage its access."}
@@ -325,7 +382,7 @@ function AgentEditor({
           {scope === "team" && (
             <div className="content-grid">
               {membersPending && (
-                <p role="status" className="text-sm text-muted">
+                <p role="status" className="text-xs font-normal text-muted">
                   Loading people…
                 </p>
               )}
@@ -337,57 +394,82 @@ function AgentEditor({
               )}
               {!membersPending && !membersError && (
                 <>
+                  <Checkbox
+                    variant="secondary"
+                    className="min-h-11"
+                    isSelected={allMembers}
+                    isDisabled={pending}
+                    onChange={setAllMembers}
+                    aria-label="All team members"
+                  >
+                    <Checkbox.Content className="min-h-11 gap-3">
+                      <Checkbox.Control>
+                        <Checkbox.Indicator />
+                      </Checkbox.Control>
+                      <span className="text-sm font-normal">
+                        All team members
+                      </span>
+                    </Checkbox.Content>
+                  </Checkbox>
+                  <p className="text-xs font-normal text-muted">
+                    {allMembers
+                      ? "Current and future team members can use this agent."
+                      : "Choose the people who can use this agent. The creator keeps access."}
+                  </p>
                   <TextField
                     label="Search people"
                     type="search"
                     value={memberQuery}
-                    onChange={(event) => setMemberQuery(event.target.value)}
+                    onChange={(event) => {
+                      setMemberQuery(event.target.value);
+                      setMemberLimit(25);
+                    }}
+                    disabled={pending || allMembers}
                     className="max-md:text-base!"
                   />
                   <div
                     role="group"
                     aria-label="Assigned people"
-                    className="grid max-h-64 gap-2 overflow-y-auto"
+                    className="min-w-0 space-y-2"
                   >
-                    {members
-                      .filter((member) =>
-                        `${member.name} ${member.email}`
-                          .toLowerCase()
-                          .includes(memberQuery.toLowerCase()),
-                      )
-                      .map((member) => (
-                        <Checkbox
-                          key={member.id}
-                          className="min-h-11"
-                          isSelected={memberIds.includes(member.id)}
-                          isDisabled={pending}
-                          onChange={(selected) =>
-                            setMemberIds((previous) =>
-                              selected
-                                ? [...new Set([...previous, member.id])]
-                                : previous.filter((id) => id !== member.id),
-                            )
-                          }
-                          aria-label={`${member.name} (${member.email})`}
-                        >
-                          <Checkbox.Content className="min-w-0">
-                            <Checkbox.Control>
-                              <Checkbox.Indicator />
-                            </Checkbox.Control>
-                            <span className="min-w-0 text-sm break-words">
-                              {member.name}
-                              <span className="block text-muted break-all">
-                                {member.email}
-                              </span>
-                            </span>
-                          </Checkbox.Content>
-                        </Checkbox>
-                      ))}
+                    {creator && (
+                      <div className="border-b border-separator pb-2">
+                        {personChoice(creator, true)}
+                      </div>
+                    )}
+                    <div
+                      role="region"
+                      aria-label="People choices"
+                      tabIndex={0}
+                      className="min-w-0 max-h-44 overflow-y-auto overscroll-contain rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus md:max-h-56"
+                    >
+                      <div className="grid gap-2 py-1 pr-2">
+                        {matchingPeople
+                          .slice(0, memberLimit)
+                          .map((member) => personChoice(member))}
+                        {!matchingPeople.length && (
+                          <p className="text-xs font-normal text-muted">
+                            No people match your search.
+                          </p>
+                        )}
+                        {matchingPeople.length > memberLimit && (
+                          <Button
+                            variant="secondary"
+                            isDisabled={pending || allMembers}
+                            onPress={() =>
+                              setMemberLimit((limit) => limit + 25)
+                            }
+                          >
+                            Load more people
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-sm text-muted">
-                    {memberIds.length
-                      ? `${memberIds.length} ${memberIds.length === 1 ? "person" : "people"} assigned.`
-                      : "No people assigned. This agent cannot be used until someone is assigned."}
+                  <p className="text-xs font-normal text-muted">
+                    {allMembers
+                      ? "All team members selected."
+                      : `${memberIds.length} ${memberIds.length === 1 ? "person" : "people"} selected.`}
                   </p>
                 </>
               )}
@@ -497,15 +579,22 @@ function DeleteAgent({
       }
     >
       <div className="content-grid">
-        <p className="text-sm">
+        <p className="text-xs font-normal text-muted">
           {complete ? (
             <>
-              <strong>{current.name}</strong> has been deleted.
+              <strong className="font-normal text-foreground">
+                {current.name}
+              </strong>{" "}
+              has been deleted.
             </>
           ) : (
             <>
-              Delete <strong>{current.name}</strong>? Its keys and connections
-              will lose access. Task history stays available.
+              Delete{" "}
+              <strong className="font-normal text-foreground">
+                {current.name}
+              </strong>
+              ? Its OAuth connections will lose access. Task history stays
+              available.
             </>
           )}
         </p>
@@ -520,7 +609,10 @@ function DeleteAgent({
           </Button>
         )}
         {complete && (
-          <p role="status" className="text-sm text-success">
+          <p
+            role="status"
+            className="text-xs font-normal text-success-soft-foreground"
+          >
             Agent deleted.
           </p>
         )}
@@ -575,7 +667,7 @@ export function AgentsSettings({ session }: { session: Session }) {
       />
       <div className="content-grid min-w-0">
         {directory.pending && (
-          <p role="status" className="text-sm text-muted">
+          <p role="status" className="text-xs font-normal text-muted">
             Loading agents…
           </p>
         )}
@@ -609,7 +701,7 @@ export function AgentsSettings({ session }: { session: Session }) {
                   <Table.Column className="hidden md:table-cell">
                     Access
                   </Table.Column>
-                  <Table.Column className="w-40 text-right max-md:w-24!">
+                  <Table.Column className="w-40 text-right max-md:w-28!">
                     Actions
                   </Table.Column>
                 </Table.Header>
@@ -617,14 +709,16 @@ export function AgentsSettings({ session }: { session: Session }) {
                   {directory.items.map((agent) => (
                     <Table.Row key={agent.id} id={agent.id}>
                       <Table.Cell className="whitespace-normal!">
-                        <p className="text-sm font-medium break-words">
-                          {agent.name}
-                        </p>
-                        <p className="text-sm text-muted">
-                          {agent.scope === "personal"
-                            ? "Only you"
-                            : `${agent.memberIds.length} ${agent.memberIds.length === 1 ? "person" : "people"} assigned`}
-                        </p>
+                        <TableCellStack>
+                          <span className="break-words">{agent.name}</span>
+                          <TableCellDescription>
+                            {agent.scope === "personal"
+                              ? "Only you"
+                              : agent.allMembers
+                                ? "All team members"
+                                : `${agent.memberIds.length} ${agent.memberIds.length === 1 ? "person" : "people"} assigned`}
+                          </TableCellDescription>
+                        </TableCellStack>
                         <span className="md:hidden">
                           <Chip size="small" variant="secondary">
                             {agent.scope === "personal" ? "Personal" : "Team"}
@@ -640,7 +734,7 @@ export function AgentsSettings({ session }: { session: Session }) {
                         {canManage(agent) && (
                           <div className="flex justify-end gap-1">
                             <Button
-                              variant="ghost"
+                              variant="secondary"
                               aria-label={`Edit ${agent.name}`}
                               ref={(element) => {
                                 if (element)
@@ -662,7 +756,7 @@ export function AgentsSettings({ session }: { session: Session }) {
                               <span className="hidden md:inline">Edit</span>
                             </Button>
                             <Button
-                              variant="ghost"
+                              variant="danger-soft"
                               aria-label={`Delete ${agent.name}`}
                               ref={(element) => {
                                 if (element)

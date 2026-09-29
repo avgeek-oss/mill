@@ -378,6 +378,19 @@ test("first installation and complete board/task workflow", async ({
     fullPage: true,
     animations: "disabled",
   });
+  const avatarRequests: string[] = [];
+  const failedAvatarRequests: string[] = [];
+  const gravatarPattern = /https:\/\/(?:www\.)?gravatar\.com\/avatar\//;
+  const unavailableAvatar = async (route: Route) => {
+    avatarRequests.push(route.request().url());
+    await route.abort("failed");
+  };
+  const recordFailedAvatar = (request: import("@playwright/test").Request) => {
+    if (gravatarPattern.test(request.url()))
+      failedAvatarRequests.push(request.url());
+  };
+  page.on("requestfailed", recordFailedAvatar);
+  await page.route(gravatarPattern, unavailableAvatar);
   await page.getByRole("button", { name: "New task", exact: true }).click();
   await expect(page.getByRole("button", { name: /Status$/ })).toContainText(
     "Todo",
@@ -404,6 +417,9 @@ test("first installation and complete board/task workflow", async ({
   await page.getByLabel("New checklist item").fill("Verify installation");
   await page.getByRole("button", { name: "Add checklist item" }).click();
   const draftTask = page.getByRole("dialog", { name: "New task", exact: true });
+  await expect(
+    draftTask.locator(".button--ghost, .button--danger-ghost"),
+  ).toHaveCount(0);
   const taskWrites: string[] = [];
   const recordTaskWrites = (request: import("@playwright/test").Request) => {
     if (
@@ -431,7 +447,43 @@ test("first installation and complete board/task workflow", async ({
       draftTask.getByRole("button", { name: /Agent$/ }),
     ).toContainText("Release helper");
     expect(taskWrites).toHaveLength(0);
-    await choose(page, "Assignee", account.name);
+    try {
+      await draftTask.getByRole("button", { name: /Assignee$/ }).click();
+      const assigneeOption = page.getByRole("option", {
+        name: account.name,
+        exact: true,
+      });
+      await expect(
+        assigneeOption.locator('[data-slot="avatar"]'),
+      ).toBeVisible();
+      await expect.poll(() => failedAvatarRequests.length).toBeGreaterThan(0);
+      expect(avatarRequests.length).toBeGreaterThan(0);
+      expect(
+        avatarRequests.every((url) =>
+          /\/avatar\/[a-f0-9]{32,64}(?:\?|$)/.test(url),
+        ),
+      ).toBe(true);
+      await expect(
+        assigneeOption.locator('[data-slot="avatar-fallback"]'),
+      ).toBeVisible();
+      await assigneeOption.click();
+      await expect(page.getByRole("listbox")).toBeHidden();
+      const selectedHuman = draftTask.getByRole("button", {
+        name: /Assignee$/,
+      });
+      await expect(selectedHuman).toContainText(account.name);
+      await expect(
+        selectedHuman.locator('[data-slot="avatar-fallback"]'),
+      ).toBeVisible();
+      await expect(
+        draftTask
+          .getByRole("button", { name: /Agent$/ })
+          .locator('[data-slot="avatar"]'),
+      ).toHaveCount(0);
+    } finally {
+      await page.unroute(gravatarPattern, unavailableAvatar);
+      page.off("requestfailed", recordFailedAvatar);
+    }
     expect(taskWrites).toHaveLength(0);
   } finally {
     page.off("request", recordTaskWrites);
@@ -651,12 +703,62 @@ test("first installation and complete board/task workflow", async ({
   await expect(
     page.getByRole("button", { name: "Board actions", exact: true }),
   ).toBeFocused();
+  await expect(
+    page.getByText("Release and recovery work", { exact: true }),
+  ).toHaveCount(0);
+  const descriptionRead = await page.request.get(`/api/boards/${boardId}`);
+  expect(descriptionRead.ok()).toBeTruthy();
+  expect((await descriptionRead.json()).board.description).toBe(
+    "Release and recovery work",
+  );
+  await openBoardAction(page, "Board settings");
+  await expect(
+    boardSettings.getByLabel("Description", { exact: true }),
+  ).toHaveValue("Release and recovery work");
+  await expect(
+    boardSettings.locator(".button--ghost, .button--danger-ghost"),
+  ).toHaveCount(0);
+  await boardSettings
+    .getByRole("button", { name: "Close dialog", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Board actions", exact: true }),
+  ).toBeFocused();
+  await expect(
+    page.locator(
+      ".board-toolbar .button--ghost, .board-toolbar .button--danger-ghost",
+    ),
+  ).toHaveCount(0);
   const tasks = page.getByRole("grid", { name: "Task list" });
   const releaseRow = tasks
     .getByRole("row")
     .filter({ hasText: "Prepare the release and recovery checklist" });
   await expect(releaseRow).toContainText(account.name);
   await expect(releaseRow).toContainText("Release helper");
+  const taskIdentity = releaseRow.getByRole("link");
+  const identifierStyle = await taskIdentity
+    .locator('[data-slot="table-cell-description"]')
+    .evaluate((element) => {
+      const root = getComputedStyle(document.documentElement);
+      const style = getComputedStyle(element);
+      return {
+        fontSize: Number.parseFloat(style.fontSize),
+        xsToken: root.getPropertyValue("--text-xs").trim(),
+        rootFontSize: Number.parseFloat(root.fontSize),
+        fontWeight: style.fontWeight,
+      };
+    });
+  expect(identifierStyle.xsToken).toMatch(/^\d+(?:\.\d+)?rem$/);
+  expect(identifierStyle.fontSize).toBe(
+    Number.parseFloat(identifierStyle.xsToken) * identifierStyle.rootFontSize,
+  );
+  expect(identifierStyle.fontWeight).toBe("400");
+  await expect(
+    releaseRow.locator(".chip").filter({ hasText: "In Progress" }),
+  ).toBeVisible();
+  await expect(
+    releaseRow.locator(".chip").filter({ hasText: "No priority" }),
+  ).toBeVisible();
   await expect(
     tasks.getByRole("columnheader", { name: "Agent", exact: true }),
   ).toBeVisible();
@@ -665,6 +767,14 @@ test("first installation and complete board/task workflow", async ({
       .getByRole("row")
       .filter({ hasText: "Prepare the release and recovery checklist" }),
   ).toContainText("In Progress");
+  await page.getByRole("button", { name: /Assignee filter$/ }).click();
+  await expect(
+    page
+      .getByRole("option", { name: account.name, exact: true })
+      .locator('[data-slot="avatar"]'),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("listbox")).toBeHidden();
   await expect(
     page.getByRole("button", { name: "Kanban view", exact: true }),
   ).toHaveCount(0);
@@ -1716,6 +1826,9 @@ test("board settings keep detail failures recoverable and delete boards permanen
   await expect(page.getByRole("grid", { name: "Task list" })).toContainText(
     "Test database restore",
   );
+  await expect(
+    page.getByText("A recoverable board settings draft", { exact: true }),
+  ).toHaveCount(0);
   const created = await page.request.post("/api/boards", {
     headers: { Origin: baseOrigin },
     data: { name: "Board to delete permanently", prefix: "DELBOARD" },

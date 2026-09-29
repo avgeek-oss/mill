@@ -19,10 +19,10 @@ export async function lockAgentAuthority(tx: Tx): Promise<void> {
   await tx`SELECT id FROM workspace FOR UPDATE`;
 }
 const renderedMemberIds = sql`ARRAY(SELECT m.user_id FROM agent_members m JOIN users u ON u.id=m.user_id WHERE m.agent_id=a.id AND u.disabled_at IS NULL ORDER BY m.user_id)`;
-const agentFields = sql`a.id,a.name,a.scope,a.creator_id,a.version,a.created_at,a.updated_at,
+const agentFields = sql`a.id,a.name,a.scope,a.creator_id,a.all_members,a.version,a.created_at,a.updated_at,
   ${renderedMemberIds} AS member_ids`;
 function accessible(userId: string) {
-  return sql`((a.scope='personal' AND a.creator_id=${userId}) OR (a.scope='team' AND EXISTS(SELECT 1 FROM agent_members m WHERE m.agent_id=a.id AND m.user_id=${userId})))`;
+  return sql`((a.scope='personal' AND a.creator_id=${userId}) OR (a.scope='team' AND (a.all_members OR EXISTS(SELECT 1 FROM agent_members m WHERE m.agent_id=a.id AND m.user_id=${userId}))))`;
 }
 export async function findAccessibleAgent(
   userId: string,
@@ -58,7 +58,7 @@ export async function requireAgentAccess(
       throw new HTTPException(403, {
         message: "This agent is not available to your account",
       });
-  } else {
+  } else if (!agent.allMembers) {
     const [grant] =
       await tx`SELECT user_id FROM agent_members WHERE agent_id=${agentId} AND user_id=${userId} FOR SHARE`;
     if (!grant)
@@ -101,10 +101,16 @@ const create = z
     name,
     scope: z.enum(["personal", "team"]),
     memberIds: memberIds.optional(),
+    allMembers: z.boolean().optional(),
   })
   .strict();
 const patch = z
-  .object({ version, name: name.optional(), memberIds: memberIds.optional() })
+  .object({
+    version,
+    name: name.optional(),
+    memberIds: memberIds.optional(),
+    allMembers: z.boolean().optional(),
+  })
   .strict();
 const cursorShape = z
   .object({
@@ -188,7 +194,7 @@ agentRoutes.get("/agents", async (c) => {
         });
       const [collection] = await tx<
         { revision: string }[]
-      >`SELECT md5(COALESCE(string_agg(a.id::text||':'||a.version::text||':'||${renderedMemberIds}::text,',' ORDER BY a.id),'')) AS revision FROM agents a WHERE ${scope}`;
+      >`SELECT md5(COALESCE(string_agg(a.id::text||':'||a.version::text||':'||a.all_members::text||':'||${renderedMemberIds}::text,',' ORDER BY a.id),'')) AS revision FROM agents a WHERE ${scope}`;
       if (cursor && cursor.revision !== collection.revision)
         return { stale: true as const };
       if (cursor) {
@@ -242,14 +248,20 @@ agentRoutes.post("/agents", async (c) => {
       input.scope === "team" ? "admin" : "member",
     );
     const a = requireHuman(c);
-    if (input.scope === "personal" && input.memberIds?.length)
+    if (
+      input.scope === "personal" &&
+      (input.memberIds !== undefined || input.allMembers !== undefined)
+    )
       badRequest("Personal agents are available only to their creator");
-    const ids = input.scope === "team" ? (input.memberIds ?? []) : [];
+    const ids =
+      input.scope === "team"
+        ? [...new Set([a.userId, ...(input.memberIds ?? [])])]
+        : [];
     await validateMembers(tx, ids);
     const [created] =
-      await tx`INSERT INTO agents(name,scope,creator_id) VALUES(${input.name},${input.scope},${a.userId}) RETURNING id`;
+      await tx`INSERT INTO agents(name,scope,creator_id,all_members) VALUES(${input.name},${input.scope},${a.userId},${input.allMembers ?? false}) RETURNING id`;
     for (const userId of ids)
-      await tx`INSERT INTO agent_members(agent_id,user_id) VALUES(${created.id},${userId})`;
+      await tx`INSERT INTO agent_members(agent_id,user_id) VALUES(${created.id},${userId}) ON CONFLICT DO NOTHING`;
     const [row] = await tx<
       Agent[]
     >`SELECT ${agentFields} FROM agents a WHERE a.id=${created.id}`;
@@ -285,14 +297,40 @@ agentRoutes.patch("/agents/:id", async (c) => {
     input = await body(c, patch);
   const agent = await sql.begin(async (tx) => {
     const { row, a } = await managed(tx, c, id, input.version);
-    if (row.scope === "personal" && input.memberIds !== undefined)
+    if (
+      row.scope === "personal" &&
+      (input.memberIds !== undefined || input.allMembers !== undefined)
+    )
       badRequest("Personal agents are available only to their creator");
+    const allMembers = input.allMembers ?? row.allMembers;
+    const [creator] =
+      await tx`SELECT id FROM users WHERE id=${row.creatorId} AND disabled_at IS NULL FOR SHARE`;
+    const ids =
+      input.memberIds === undefined
+        ? row.memberIds
+        : [
+            ...new Set([
+              ...(creator ? [row.creatorId] : []),
+              ...input.memberIds,
+            ]),
+          ];
+    await validateMembers(tx, ids);
+    const before = await tx<
+      { id: string; boardId: string }[]
+    >`SELECT id,board_id FROM tasks WHERE agent_id=${id}`;
+    // Expansion must precede grant removal; narrowing follows the final grants.
+    if (allMembers && !row.allMembers)
+      await tx`UPDATE agents SET all_members=true WHERE id=${id}`;
     if (input.memberIds !== undefined) {
-      await validateMembers(tx, input.memberIds);
+      await tx`DELETE FROM agent_members WHERE agent_id=${id} AND NOT(user_id=ANY(${ids}::uuid[]))`;
+      for (const userId of ids)
+        await tx`INSERT INTO agent_members(agent_id,user_id) VALUES(${id},${userId}) ON CONFLICT DO NOTHING`;
+    }
+    await tx`UPDATE agents SET name=${input.name ?? row.name},all_members=${allMembers},version=version+1,updated_at=now() WHERE id=${id}`;
+    if (before.length) {
       const cleared = await tx<
         { id: string; boardId: string }[]
-      >`SELECT id,board_id FROM tasks WHERE agent_id=${id} AND NOT(assignee_id=ANY(${input.memberIds}::uuid[]))`;
-      await tx`DELETE FROM agent_members WHERE agent_id=${id} AND NOT(user_id=ANY(${input.memberIds}::uuid[]))`;
+      >`SELECT id,board_id FROM tasks WHERE id=ANY(${before.map((task) => task.id)}::uuid[]) AND agent_id IS NULL`;
       for (const task of cleared)
         await recordActivity(
           tx,
@@ -302,10 +340,7 @@ agentRoutes.patch("/agents/:id", async (c) => {
           task.boardId,
           task.id,
         );
-      for (const userId of input.memberIds)
-        await tx`INSERT INTO agent_members(agent_id,user_id) VALUES(${id},${userId}) ON CONFLICT DO NOTHING`;
     }
-    await tx`UPDATE agents SET name=${input.name ?? row.name},version=version+1,updated_at=now() WHERE id=${id}`;
     return (
       await tx<Agent[]>`SELECT ${agentFields} FROM agents a WHERE a.id=${id}`
     )[0];

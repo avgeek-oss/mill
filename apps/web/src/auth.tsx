@@ -248,7 +248,7 @@ export function Auth({
   return (
     <AuthFrame title={title} description={description}>
       {mode === "invite" && invitationState === "pending" && (
-        <p role="status" className="text-sm text-muted">
+        <p role="status" className="text-xs text-muted">
           Checking your invitation…
         </p>
       )}
@@ -263,7 +263,7 @@ export function Auth({
               Retry invitation lookup
             </Button>
           )}
-          <p className="text-sm text-muted">
+          <p className="text-xs text-muted">
             Ask your workspace administrator for a new invitation if this link
             has expired or was revoked.
           </p>
@@ -330,7 +330,7 @@ export function Auth({
           </FieldGroup>
           <ErrorMessage>{error}</ErrorMessage>
           {notice && (
-            <p role="status" className="text-sm text-success">
+            <p role="status" className="text-xs text-success-soft-foreground">
               {notice}
             </p>
           )}
@@ -365,7 +365,7 @@ export function Auth({
             Sign in with a passkey
           </Button>
           <Button
-            variant="ghost"
+            variant="secondary"
             onPress={() => {
               setMode("recover");
               setError("");
@@ -378,8 +378,8 @@ export function Auth({
       )}
       {(mode !== "login" || challenge) && (
         <Button
-          className="w-fit text-sm text-muted underline underline-offset-4"
-          variant="ghost"
+          className="w-fit"
+          variant="secondary"
           onPress={backToSignIn}
           isDisabled={busy}
         >

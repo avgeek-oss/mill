@@ -117,7 +117,7 @@ function databaseArguments(configuration, statement) {
   ];
 }
 function packagedMigrationArguments(configuration, through) {
-  assert.ok([5, 6, 7, 8].includes(through));
+  assert.ok([5, 6, 7, 8, 9].includes(through));
   return [
     ...configuration.compose,
     "run",
@@ -374,6 +374,8 @@ try {
   assert.ok(freshTaskStatuses[originalFixture.agentTaskId]);
   const primaryAgentDataQuery = `SELECT json_build_object(
     'migration008',(SELECT to_jsonb(mill_migrations) FROM mill_migrations WHERE name='008_agents.sql'),
+    'migration009',(SELECT to_jsonb(mill_migrations) FROM mill_migrations WHERE name='009_agents_access.sql'),
+    'accessRetryConstraint',(SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname='api_idempotency_invalidation_reason_check'),
     'agents',(SELECT jsonb_agg(to_jsonb(agents) ORDER BY id) FROM agents),
     'grants',(SELECT jsonb_agg(to_jsonb(agent_members) ORDER BY agent_id,user_id) FROM agent_members),
     'assignments',(SELECT jsonb_agg(jsonb_build_object('id',id,'agentId',agent_id,'assigneeId',assignee_id) ORDER BY id) FROM tasks WHERE id IN ('${originalFixture.taskId}','${originalFixture.agentTaskId}')),
@@ -386,8 +388,8 @@ try {
       databaseArguments(primary, primaryAgentDataQuery),
     ),
   );
-  assert.equal(primaryAgentData.agents.length, 2);
-  assert.equal(primaryAgentData.grants.length, 2);
+  assert.equal(primaryAgentData.agents.length, 3);
+  assert.equal(primaryAgentData.grants.length, 3);
   assert.ok(
     primaryAgentData.assignments.every(
       (item) =>
@@ -455,7 +457,7 @@ try {
     ),
   );
   const previousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
-    FROM mill_migrations WHERE name NOT IN ('005_permanent_deletion.sql','006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql')`;
+    FROM mill_migrations WHERE name NOT IN ('005_permanent_deletion.sql','006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql')`;
   const previousMigrations = JSON.parse(
     await run(
       "upgrade-existing-migrations",
@@ -713,7 +715,7 @@ try {
     "mill",
   ]);
   const taskHistoryPreviousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
-    FROM mill_migrations WHERE name NOT IN ('006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql')`;
+    FROM mill_migrations WHERE name NOT IN ('006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql')`;
   const taskHistoryPreviousMigrations = JSON.parse(
     await run(
       "task-history-existing-migrations",
@@ -932,7 +934,7 @@ try {
     },
   });
   const simplificationPreviousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
-    FROM mill_migrations WHERE name NOT IN ('007_fixed_task_statuses.sql','008_agents.sql')`;
+    FROM mill_migrations WHERE name NOT IN ('007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql')`;
   const simplificationPreviousMigrations = JSON.parse(
     await run(
       "simplification-existing-migrations",
@@ -1161,6 +1163,15 @@ try {
     { mode: 0o600 },
   );
   await run(
+    "domain-upgrades-retain-access-tombstones",
+    "docker",
+    databaseArguments(
+      primary,
+      `ALTER TABLE api_idempotency DROP CONSTRAINT api_idempotency_invalidation_reason_check,
+      ADD CONSTRAINT api_idempotency_invalidation_reason_check ${primaryAgentData.accessRetryConstraint};`,
+    ),
+  );
+  await run(
     "simplified-production-start",
     "docker",
     [
@@ -1297,10 +1308,26 @@ try {
     legacyOAuthRequestId: randomUUID(),
     legacyOAuthClientId: `legacy-${randomUUID()}`,
     retryKey: randomUUID(),
+    policyAgentId: randomUUID(),
+    policyTeamAgentId: randomUUID(),
+    policyApiCredentialId: randomUUID(),
+    policyOAuthCredentialId: randomUUID(),
+    policyRetryKey: randomUUID(),
   };
+  agentFixture.policyAgentIds = [
+    agentFixture.policyAgentId,
+    agentFixture.policyTeamAgentId,
+  ];
   const legacyApiToken = `mill_${randomBytes(32).toString("base64url")}`;
   const legacyOAuthToken = `mill_${randomBytes(32).toString("base64url")}`;
-  secrets.push(legacyApiToken, legacyOAuthToken);
+  const policyApiToken = `mill_${randomBytes(32).toString("base64url")}`;
+  const policyOAuthToken = `mill_${randomBytes(32).toString("base64url")}`;
+  secrets.push(
+    legacyApiToken,
+    legacyOAuthToken,
+    policyApiToken,
+    policyOAuthToken,
+  );
   const legacyAgentRetryHash = createHash("sha256")
     .update(
       `POST\n/api/boards\n${JSON.stringify({ name: "Earlier Agent installation", prefix: "INST" })}`,
@@ -1494,6 +1521,129 @@ try {
     ),
     expectedAgentUpgrade,
   );
+  await run(
+    "pre-access-policy-realistic-fixture",
+    "docker",
+    databaseArguments(
+      agentUpgrade,
+      `INSERT INTO agents(id,name,scope,creator_id) VALUES
+        ('${agentFixture.policyAgentId}','Existing personal Agent','personal','${agentFixture.ownerId}'),
+        ('${agentFixture.policyTeamAgentId}','Existing team Agent','team','${agentFixture.ownerId}');
+      INSERT INTO agent_members(agent_id,user_id) VALUES
+        ('${agentFixture.policyTeamAgentId}','${agentFixture.memberId}');
+      UPDATE tasks SET agent_id='${agentFixture.policyAgentId}',assignee_id='${agentFixture.ownerId}' WHERE id='${agentFixture.taskId}';
+      INSERT INTO credentials(id,user_id,agent_id,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at) VALUES
+        ('${agentFixture.policyApiCredentialId}','${agentFixture.ownerId}','${agentFixture.policyAgentId}','Earlier selected-Agent API key',
+          '${createHash("sha256").update(policyApiToken).digest("hex")}','mill_policy',ARRAY['read','write'],ARRAY['${agentFixture.boardId}'::uuid],'api-key',NULL,NULL,now()+interval '1 day'),
+        ('${agentFixture.policyOAuthCredentialId}','${agentFixture.ownerId}','${agentFixture.policyAgentId}','Earlier selected-Agent OAuth',
+          '${createHash("sha256").update(policyOAuthToken).digest("hex")}','mill_policy',ARRAY['read','write'],ARRAY['${agentFixture.boardId}'::uuid],'oauth',${sqlString(agentFixture.legacyOAuthClientId)},${sqlString(`${agentUpgrade.url}/mcp`)},now()+interval '1 day');
+      INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,board_ids,agent_ids) VALUES
+        ('${agentFixture.ownerId}','${agentFixture.policyRetryKey}','${legacyAgentRetryHash}',
+          ${sqlString(JSON.stringify(legacyAgentRetryResponse))}::jsonb,201,ARRAY['${agentFixture.boardId}'::uuid],ARRAY['${agentFixture.policyAgentId}'::uuid]);`,
+    ),
+  );
+  const accessPolicyContentQuery = `SELECT jsonb_build_object(
+    'migrations',(SELECT jsonb_agg(to_jsonb(mill_migrations) ORDER BY name) FROM mill_migrations WHERE name<'009_agents_access.sql'),
+    'agents',(SELECT jsonb_agg(to_jsonb(agents)-'all_members' ORDER BY id) FROM agents),
+    'grants',(SELECT jsonb_agg(to_jsonb(agent_members) ORDER BY agent_id,user_id) FROM agent_members),
+    'tasks',(SELECT jsonb_agg(to_jsonb(tasks) ORDER BY id) FROM tasks),
+    'comments',(SELECT jsonb_agg(to_jsonb(comments) ORDER BY id) FROM comments),
+    'activity',(SELECT jsonb_agg(to_jsonb(activity) ORDER BY id) FROM activity),
+    'notifications',(SELECT jsonb_agg(to_jsonb(notifications) ORDER BY id) FROM notifications),
+    'oauth',(SELECT to_jsonb(credentials)-'token_hash'-'token_prefix' FROM credentials WHERE id='${agentFixture.policyOAuthCredentialId}'),
+    'api',(SELECT to_jsonb(credentials)-'token_hash'-'token_prefix' FROM credentials WHERE id='${agentFixture.policyApiCredentialId}'),
+    'retry',(SELECT to_jsonb(api_idempotency)-'response' FROM api_idempotency WHERE key='${agentFixture.policyRetryKey}')
+  )::text`;
+  const beforeAccessPolicy = JSON.parse(
+    await run(
+      "pre-access-policy-original-content",
+      "docker",
+      databaseArguments(agentUpgrade, accessPolicyContentQuery),
+    ),
+  );
+  assert.equal(beforeAccessPolicy.migrations.length, 8);
+  assert.equal(beforeAccessPolicy.agents.length, 2);
+  assert.equal(beforeAccessPolicy.grants.length, 1);
+  assert.equal(beforeAccessPolicy.api.revoked_at, null);
+  assert.equal(beforeAccessPolicy.oauth.revoked_at, null);
+  await run(
+    "packaged-agent-access-policy-upgrade",
+    "docker",
+    packagedMigrationArguments(agentUpgrade, 9),
+    {},
+    240_000,
+  );
+  const afterAccessPolicy = JSON.parse(
+    await run(
+      "agent-access-policy-preservation",
+      "docker",
+      databaseArguments(agentUpgrade, accessPolicyContentQuery),
+    ),
+  );
+  for (const key of [
+    "migrations",
+    "agents",
+    "tasks",
+    "comments",
+    "activity",
+    "notifications",
+    "oauth",
+  ])
+    assert.deepEqual(afterAccessPolicy[key], beforeAccessPolicy[key], key);
+  assert.deepEqual(
+    afterAccessPolicy.grants,
+    [
+      ...beforeAccessPolicy.grants,
+      {
+        agent_id: agentFixture.policyTeamAgentId,
+        user_id: agentFixture.ownerId,
+      },
+    ].sort(
+      (a, b) =>
+        a.agent_id.localeCompare(b.agent_id) ||
+        a.user_id.localeCompare(b.user_id),
+    ),
+  );
+  assert.ok(afterAccessPolicy.api.revoked_at);
+  assert.deepEqual(afterAccessPolicy.api, {
+    ...beforeAccessPolicy.api,
+    agent_id: null,
+    board_ids: null,
+    scopes: [],
+    revoked_at: afterAccessPolicy.api.revoked_at,
+  });
+  assert.deepEqual(afterAccessPolicy.retry, {
+    ...beforeAccessPolicy.retry,
+    status: 410,
+    invalidation_reason: "upgrade",
+    board_ids: [],
+    task_ids: [],
+    agent_ids: [],
+  });
+  const accessPolicyChecksum = createHash("sha256")
+    .update(
+      await readFile(
+        join(root, "packages/database/migrations/009_agents_access.sql"),
+      ),
+    )
+    .digest("hex");
+  const installedAccessPolicy = JSON.parse(
+    await run(
+      "agent-access-policy-schema",
+      "docker",
+      databaseArguments(
+        agentUpgrade,
+        `SELECT jsonb_build_object(
+      'migration',(SELECT to_jsonb(mill_migrations) FROM mill_migrations WHERE name='009_agents_access.sql'),
+      'allMembersDefault',(SELECT bool_and(NOT all_members) FROM agents),
+      'accessConstraint',(SELECT count(*) FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname='credentials_access_shape')
+    )::text`,
+      ),
+    ),
+  );
+  assert.equal(installedAccessPolicy.migration.checksum, accessPolicyChecksum);
+  assert.equal(installedAccessPolicy.allMembersDefault, true);
+  assert.equal(installedAccessPolicy.accessConstraint, 1);
   const agentState = join(evidence, "agent-fixture-state.json");
   const agentUpgradeState = join(evidence, "agent-upgrade-fixture.json");
   await writeFile(
@@ -1535,6 +1685,8 @@ try {
       MILL_VERIFY_AGENT_UPGRADE_STATE: agentUpgradeState,
       MILL_VERIFY_LEGACY_API_TOKEN: legacyApiToken,
       MILL_VERIFY_LEGACY_OAUTH_TOKEN: legacyOAuthToken,
+      MILL_VERIFY_POLICY_API_TOKEN: policyApiToken,
+      MILL_VERIFY_POLICY_OAUTH_TOKEN: policyOAuthToken,
     },
   );
   const assignedAgentFixture = JSON.parse(await readFile(agentState, "utf8"));
@@ -1582,7 +1734,7 @@ try {
       ),
     ),
   );
-  assert.equal(retainedAgentCredentialIds.length, 4);
+  assert.equal(retainedAgentCredentialIds.length, 6);
   const retainedAgentCredentialsSql = retainedAgentCredentialIds
     .map((id) => {
       assert.match(
@@ -1612,24 +1764,51 @@ try {
       databaseArguments(agentUpgrade, persistedAgentDataQuery),
     ),
   );
-  assert.equal(persistedAgentData.migrations.length, 8);
+  assert.equal(persistedAgentData.migrations.length, 9);
   assert.deepEqual(
     persistedAgentData.migrations.slice(0, 7),
     legacyAgentContent.previousMigrations,
   );
-  assert.equal(persistedAgentData.agents.length, 2);
-  assert.equal(persistedAgentData.grants.length, 2);
-  assert.equal(persistedAgentData.tasks.length, 2);
-  assert.equal(persistedAgentData.credentials.length, 4);
+  assert.deepEqual(
+    persistedAgentData.migrations.slice(0, 8),
+    beforeAccessPolicy.migrations,
+  );
+  assert.equal(persistedAgentData.agents.length, 5);
+  assert.equal(persistedAgentData.grants.length, 5);
+  assert.equal(persistedAgentData.tasks.length, 4);
+  assert.equal(persistedAgentData.credentials.length, 6);
+  const everyoneAgent = persistedAgentData.agents.find(
+    (item) => item.id === assignedAgentFixture.allMembersAgentId,
+  );
+  assert.equal(everyoneAgent?.all_members, true);
+  assert.ok(
+    !persistedAgentData.grants.some(
+      (item) =>
+        item.agent_id === everyoneAgent.id &&
+        item.user_id === assignedAgentFixture.futureMemberId,
+    ),
+  );
+  assert.ok(
+    persistedAgentData.tasks.some(
+      (item) =>
+        item.id === assignedAgentFixture.futureAgentTaskId &&
+        item.agent_id === everyoneAgent.id &&
+        item.assignee_id === assignedAgentFixture.futureMemberId,
+    ),
+  );
   const boundApiCredential = persistedAgentData.credentials.find(
     (item) =>
       item.token_type === "api-key" &&
-      item.agent_id === assignedAgentFixture.agentId,
+      item.id !== agentFixture.legacyApiCredentialId &&
+      item.id !== agentFixture.policyApiCredentialId,
   );
   assert.ok(
     boundApiCredential?.revoked_at,
-    "The real selected-Agent API-key check retains its revoked metadata",
+    "The real personal API-key check retains its revoked metadata",
   );
+  assert.equal(boundApiCredential.agent_id, null);
+  assert.equal(boundApiCredential.board_ids, null);
+  assert.deepEqual(boundApiCredential.scopes, []);
   const boundOAuthCredential = persistedAgentData.credentials.find(
     (item) => item.id === assignedAgentFixture.oauthCredentialId,
   );
@@ -1655,7 +1834,16 @@ try {
     "--output",
     agentBackup,
   ]);
-  const agentRecovery = await configuration(agentRecoveryProject, await port());
+  await run("explicit-agent-stop-before-recovery", "docker", [
+    ...agentUpgrade.compose,
+    "stop",
+    "mill",
+  ]);
+  // Preserve the MCP resource origin when proving an existing OAuth token after restore.
+  const agentRecovery = await configuration(
+    agentRecoveryProject,
+    Number(new URL(agentUpgrade.url).port),
+  );
   await run(
     "explicit-agent-empty-recovery-postgres",
     "docker",
@@ -1690,6 +1878,8 @@ try {
       MILL_VERIFY_AGENT_RESTORE_STATE: agentUpgradeState,
       MILL_VERIFY_LEGACY_API_TOKEN: legacyApiToken,
       MILL_VERIFY_LEGACY_OAUTH_TOKEN: legacyOAuthToken,
+      MILL_VERIFY_POLICY_API_TOKEN: policyApiToken,
+      MILL_VERIFY_POLICY_OAUTH_TOKEN: policyOAuthToken,
     },
   );
   assert.deepEqual(
@@ -1762,7 +1952,7 @@ try {
             "Container-built notices, all guides and their local CSS/font resource closure match anonymous HTTP bytes across installation, database outage/recovery, upgrade and restore",
         },
         schemaUpgrade:
-          "Under the current 008 installation, predecessor domain tables are reconstructed for isolated packaged stages 005, 006 and 007 with the app stopped. These domain reconstructions preserve 008 metadata and existing personal/team Agents, grants, selected OAuth credential and task assignments; they do not represent a whole pre-008 installation. The stages verify permanent deletion, terminal retries, task ownership, unchanged history, all six fixed statuses plus an unknown-to-Todo mapping, independent former subtasks, removed live structure/email preferences and exact 001–006 records. A separate empty project uses only packaged migrations 001–007 before an actual forward 008 migration; it proves revoked unbound API/OAuth keys, closed old consent, no invented Agents, unchanged legacy task/comment/history/session data and exact 001–007 records. Human-created Agents and selected API/OAuth/MCP assignments are then verified and separately restored",
+          "Under the current 009 installation, predecessor domain tables are reconstructed for isolated packaged stages 005, 006 and 007 with the app stopped. These domain reconstructions preserve 008 and 009 metadata and existing personal/team Agents, grants, selected OAuth credential and task assignments; they do not represent a whole pre-008 installation. The stages verify permanent deletion, terminal retries, task ownership, unchanged history, all six fixed statuses plus an unknown-to-Todo mapping, independent former subtasks, removed live structure/email preferences and exact 001–006 records. A separate empty project uses only packaged migrations 001–007 before an actual forward 008 migration; it proves revoked unbound API/OAuth keys, closed old consent, no invented Agents, unchanged legacy task/comment/history/session data and exact 001–007 records. A genuine 008 checkpoint seeds active bound API/OAuth credentials and existing personal/team Agents before the forward 009 policy migration. Personal REST keys, Agent OAuth/MCP and future-member all-members assignments are then verified and separately restored",
         upgradeFixture: {
           ...upgradeFixture,
           legacyRetry,
@@ -1795,12 +1985,16 @@ try {
           migrationChecksum: agentChecksum,
           previousMigrations: legacyAgentContent.previousMigrations,
           verifiedBeforeAgentCreation: expectedAgentUpgrade,
+          accessPolicyMigrationChecksum: accessPolicyChecksum,
+          verifiedBeforeAccessPolicy: beforeAccessPolicy,
+          verifiedAfterAccessPolicy: afterAccessPolicy,
+          accessPolicySchema: installedAccessPolicy,
           verifiedRestoredData: persistedAgentData,
           verification:
-            "True packaged 001–007→008 installation; actual legacy bearer REST/MCP rejection and closed consent; human-created personal/team Agents; selected-Agent API and PKCE OAuth/MCP; database-enforced active human, personal owner and team grant restrictions; exact new Agent/grant/assignment/credential/history/session/migration data after full restore",
+            "True packaged 001–007→008→009 installation with an actual 008 checkpoint. Existing Agent-bound API keys are revoked and unbound; selected-Agent OAuth, tasks, comments, history and earlier migration records survive. Team creators receive pinned grants. Current personal REST keys use human permissions and Agents use scoped OAuth MCP. An all-members Agent includes a future accepted member without an individual grant. Full restore preserves these records and the MCP resource origin, and rechecks both legacy tokens and existing selected-Agent OAuth against the restored service",
         },
         restore:
-          "Two post-008 custom-format pg_dump backups restored transactionally into separate empty projects. The domain-stage restore verifies original and legacy tasks/comments/members, unchanged human/agent task history, statuses, independent former subtasks, absent global audit/removed routes, permanent deletion, terminal stale-create retries and current Agent fixtures. The actual 007→008 restore verifies legacy revocations and terminal cache plus new explicit Agent grants, task assignments, selected OAuth metadata, historical session and unchanged migration records",
+          "Two post-009 custom-format pg_dump backups restored transactionally into separate empty projects. The domain-stage restore verifies original and legacy tasks/comments/members, unchanged human/agent task history, statuses, independent former subtasks, absent global audit/removed routes, permanent deletion, terminal stale-create retries and current Agent fixtures. The actual 007→008→009 restore verifies legacy revocations, terminal cache, policy-preserved OAuth through real MCP at the retained resource origin, personal REST permissions, future-member team access, explicit Agent grants, task assignments, historical sessions and unchanged migration records",
         cookieLimit:
           "Explicitly forwarded disposable cookies on loopback HTTP; this does not prove browser Secure-cookie policy or physical passkeys",
         completedAt: new Date().toISOString(),

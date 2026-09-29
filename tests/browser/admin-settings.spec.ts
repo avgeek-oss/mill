@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import postgres from "postgres";
 import {
@@ -111,6 +111,11 @@ test.afterAll(async () => {
 test("People lists load independently, show separate recovery and protect the last administrator", async ({
   page,
 }) => {
+  const avatarRequests = new Set<string>();
+  await page.route("https://www.gravatar.com/avatar/**", async (route) => {
+    avatarRequests.add(route.request().url());
+    await route.fulfill({ status: 404, body: "" });
+  });
   await login(page, "/settings/workspace");
   let failMembers = true;
   let release!: () => void;
@@ -155,6 +160,27 @@ test("People lists load independently, show separate recovery and protect the la
     await expect(
       members.getByRole("grid", { name: "Workspace members", exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Workspace members", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Invitations", exact: true }),
+    ).toHaveCount(0);
+    const avatar = members.getByRole("img", {
+      name: bootstrap.name,
+      exact: true,
+    });
+    await expect(avatar).toBeVisible();
+    await expect(avatar.getByText("AM", { exact: true })).toBeVisible();
+    const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(bootstrap.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
+    await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
+    const ownRow = members.getByRole("row").filter({ has: avatar });
+    const adminChip = ownRow
+      .locator(".chip")
+      .filter({ hasText: /^Admin$/ })
+      .filter({ visible: true });
+    await expect(adminChip).toHaveCount(1);
+    await expect(adminChip.locator("svg")).toHaveCount(1);
     await expect(
       members.getByRole("button", { name: `Edit role for ${bootstrap.name}` }),
     ).toBeDisabled();

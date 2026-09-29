@@ -6,8 +6,7 @@ import type { ComponentProps } from "react";
 import { cn } from "./utils.js";
 
 export type ButtonVariant =
-  | NonNullable<ComponentProps<typeof HeroButton>["variant"]>
-  | "danger-ghost"
+  | Exclude<NonNullable<ComponentProps<typeof HeroButton>["variant"]>, "ghost">
   | "warning";
 export type ButtonProps = Omit<
   ComponentProps<typeof HeroButton>,
@@ -23,19 +22,13 @@ export function Button({
   ...props
 }: ButtonProps) {
   const variantClass =
-    variant === "danger-ghost"
-      ? "button--danger-ghost"
-      : variant === "warning"
-        ? "button--warning-soft"
-        : undefined;
+    variant === "warning" ? "button--warning-soft" : undefined;
   const resolvedVariant =
-    variant === "danger-ghost"
-      ? "ghost"
-      : variant === "danger"
-        ? "danger-soft"
-        : variant === "warning"
-          ? "secondary"
-          : variant;
+    variant === "danger"
+      ? "danger-soft"
+      : variant === "warning"
+        ? "secondary"
+        : variant;
   return (
     <HeroButton
       {...props}
@@ -90,19 +83,16 @@ export function buttonVariants({
   ...props
 }: ButtonVariantOptions = {}) {
   const resolvedVariant =
-    variant === "danger-ghost"
-      ? "ghost"
-      : variant === "danger"
-        ? "danger-soft"
-        : variant === "warning"
-          ? "secondary"
-          : variant;
+    variant === "danger"
+      ? "danger-soft"
+      : variant === "warning"
+        ? "secondary"
+        : variant;
   return heroButtonVariants({
     ...props,
     size: "sm",
     variant: resolvedVariant,
     className: cn(
-      variant === "danger-ghost" && "button--danger-ghost",
       variant === "warning" && "button--warning-soft",
       classValue,
       className,

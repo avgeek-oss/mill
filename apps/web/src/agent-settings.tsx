@@ -9,8 +9,9 @@ import {
   EmptyState,
   ErrorMessage,
   Table,
+  TableCellStack,
+  TableCellDescription,
   TextField,
-  Link,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -21,15 +22,12 @@ import {
 import { Plus } from "./icons.js";
 import {
   api,
-  ApiError,
   createRetryKey,
   errorText,
   isResponseObject,
   type Session,
 } from "./api.js";
 import { PageHeading } from "./page-heading.js";
-import { useBoardDirectory } from "./board-directory.js";
-import { useAgentDirectory } from "./agents-settings.js";
 
 type Credential = {
   id: string;
@@ -60,16 +58,11 @@ function validCreationResponse(value: unknown) {
     credential.id.length > 0 &&
     typeof credential.name === "string" &&
     credential.name.length > 0 &&
-    typeof credential.agentId === "string" &&
-    credential.agentId.length > 0 &&
-    typeof credential.agentName === "string" &&
-    credential.agentName.length > 0 &&
+    credential.agentId === null &&
+    credential.agentName === null &&
     Array.isArray(credential.scopes) &&
-    credential.scopes.includes("read") &&
-    credential.scopes.every((scope) => scope === "read" || scope === "write") &&
-    (credential.boardIds === null ||
-      (Array.isArray(credential.boardIds) &&
-        credential.boardIds.every((id) => typeof id === "string"))) &&
+    credential.scopes.length === 0 &&
+    credential.boardIds === null &&
     credential.tokenType === "api-key" &&
     typeof credential.expiresAt === "string" &&
     Number.isFinite(Date.parse(credential.expiresAt)) &&
@@ -88,36 +81,15 @@ function stateOf(credential: Credential) {
 }
 
 function CreateCredential({
-  session,
-  boards,
   onClose,
   onCreated,
-  boardsPending,
-  boardsError,
-  onRetryBoards,
 }: {
-  session: Session;
-  boards: Board[];
   onClose: () => void;
   onCreated: (credential: Credential) => void;
-  boardsPending: boolean;
-  boardsError: string;
-  onRetryBoards: () => void;
 }) {
   const formId = useId();
   const [retryKey] = useState(createRetryKey);
   const [name, setName] = useState("");
-  const agents = useAgentDirectory(`${session.user.id}:${session.user.role}`);
-  const [agentId, setAgentId] = useState("");
-  const selectedAgent = agents.items.some((agent) => agent.id === agentId);
-  const blocked =
-    boardsPending ||
-    !!boardsError ||
-    agents.pending ||
-    !!agents.error ||
-    !selectedAgent;
-  const [permission, setPermission] = useState("read");
-  const [boardId, setBoardId] = useState("all");
   const [expiry, setExpiry] = useState("30");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -130,12 +102,9 @@ function CreateCredential({
     onClose();
   }
   async function create() {
-    if (pending || blocked) return;
+    if (pending) return;
     const payload = {
       name: name.trim(),
-      agentId,
-      scopes: permission === "write" ? ["read", "write"] : ["read"],
-      ...(boardId === "all" ? {} : { boardIds: [boardId] }),
       expiresInDays: Number(expiry),
     };
     setPending(true);
@@ -157,8 +126,6 @@ function CreateCredential({
       onCreated(result.credential);
     } catch (cause) {
       setError(errorText(cause));
-      if (cause instanceof ApiError && [400, 403, 404].includes(cause.status))
-        void agents.reload();
     } finally {
       setPending(false);
     }
@@ -192,7 +159,11 @@ function CreateCredential({
             <Button variant="secondary" isDisabled={pending} onPress={close}>
               Cancel
             </Button>
-            <Button type="submit" form={formId} isDisabled={pending || blocked}>
+            <Button
+              type="submit"
+              form={formId}
+              isDisabled={pending || !name.trim()}
+            >
               {pending ? "Creating…" : "Create API key"}
             </Button>
           </>
@@ -201,9 +172,9 @@ function CreateCredential({
     >
       {token ? (
         <div className="content-grid">
-          <p className="text-sm text-muted">
-            Save this key in your agent’s secret storage. It is shown only in
-            this dialog and cannot be viewed again after you close it.
+          <p className="text-xs font-normal text-muted">
+            Save this key in your secret storage. It is shown only in this
+            dialog and cannot be viewed again after you close it.
           </p>
           <TextField
             label="API key"
@@ -214,7 +185,10 @@ function CreateCredential({
           />
           <ErrorMessage>{error}</ErrorMessage>
           {copied && (
-            <p role="status" className="text-sm text-success">
+            <p
+              role="status"
+              className="text-xs font-normal text-success-soft-foreground"
+            >
               API key copied.
             </p>
           )}
@@ -239,99 +213,19 @@ function CreateCredential({
             disabled={pending}
           />
           <Choice
-            label="Agent"
-            value={agentId}
-            onChange={setAgentId}
-            search
-            disabled={pending || agents.pending || !!agents.error}
-            items={agents.items.map((agent) => ({
-              id: agent.id,
-              name: agent.name,
+            label="Expiry"
+            value={expiry}
+            onChange={setExpiry}
+            disabled={pending}
+            items={[30, 60, 90, 365].map((days) => ({
+              id: String(days),
+              name: `${days} days`,
             }))}
           />
-          {agents.pending && (
-            <p role="status" className="text-sm text-muted">
-              Loading agents…
-            </p>
-          )}
-          <ErrorMessage>{agents.error}</ErrorMessage>
-          {agents.error && (
-            <Button variant="secondary" onPress={() => void agents.reload()}>
-              Retry agents
-            </Button>
-          )}
-          {!agents.pending && !agents.error && !agents.items.length && (
-            <p className="text-sm text-muted">
-              {session.user.role === "viewer"
-                ? "Ask an administrator to assign you to a team agent."
-                : "Create a personal agent or ask an administrator to assign you to a team agent."}{" "}
-              <Link href="/settings/agents">Go to Agents</Link>
-            </p>
-          )}
-          {agentId && !agents.pending && !agents.error && !selectedAgent && (
-            <ErrorMessage>
-              This agent is no longer available. Choose another agent.
-            </ErrorMessage>
-          )}
-          <Choice
-            label="Access"
-            value={permission}
-            onChange={setPermission}
-            disabled={pending}
-            items={[
-              { id: "read", name: "Read only" },
-              ...(session.user.role === "viewer"
-                ? []
-                : [{ id: "write", name: "Read and write" }]),
-            ]}
-          />
-          <p className="text-sm text-muted">
-            This key uses your current workspace role.
+          <p className="text-xs font-normal text-muted">
+            This key uses your current permissions. Keep it private; you can
+            revoke it at any time.
           </p>
-          <Choice
-            label="Board access"
-            value={boardId}
-            onChange={setBoardId}
-            search
-            disabled={pending || boardsPending || Boolean(boardsError)}
-            items={[
-              { id: "all", name: "All boards" },
-              ...boards.map((board) => ({
-                id: board.id,
-                name: board.name,
-              })),
-            ]}
-          />
-          {boardsPending && (
-            <p role="status" className="text-sm text-muted">
-              Loading boards…
-            </p>
-          )}
-          {boardsError && (
-            <div className="content-grid">
-              <ErrorMessage>{boardsError}</ErrorMessage>
-              <Button variant="secondary" onPress={onRetryBoards}>
-                Retry loading boards
-              </Button>
-            </div>
-          )}
-          <p className="text-sm text-muted">
-            All boards includes boards created later. Choose a board to limit
-            this key to its tasks and discussion.
-          </p>
-          <TextField
-            label="Expires in days"
-            className="max-md:text-base!"
-            type="number"
-            value={expiry}
-            onChange={(event) => setExpiry(event.target.value)}
-            min={1}
-            max={365}
-            step={1}
-            required
-            disabled={pending}
-            description="Choose 1–365 days. Access ends automatically at expiry; you can revoke it sooner."
-          />
           <ErrorMessage>{error}</ErrorMessage>
         </form>
       )}
@@ -403,22 +297,31 @@ function RevokeCredential({
       }
     >
       <div className="content-grid">
-        <p className="text-sm">
+        <p className="text-xs font-normal text-muted">
           {complete ? (
             <>
-              <strong>{credential.name}</strong> has been revoked. Its access
-              has ended.
+              <strong className="font-normal text-foreground">
+                {credential.name}
+              </strong>{" "}
+              has been revoked. Its access has ended.
             </>
           ) : (
             <>
-              Agents using <strong>{credential.name}</strong> will lose access
-              immediately. You can create a new key if they need access again.
+              Tools using{" "}
+              <strong className="font-normal text-foreground">
+                {credential.name}
+              </strong>{" "}
+              will lose access immediately. You can create a new key if they
+              need access again.
             </>
           )}
         </p>
         <ErrorMessage>{error}</ErrorMessage>
         {complete && (
-          <p role="status" className="text-sm text-success">
+          <p
+            role="status"
+            className="text-xs font-normal text-success-soft-foreground"
+          >
             API key revoked.
           </p>
         )}
@@ -443,12 +346,6 @@ export function AgentSettings({
   const [moreError, setMoreError] = useState("");
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<Credential | null>(null);
-  const {
-    boards: knownBoards,
-    pending: boardsPending,
-    error: boardsError,
-    reload: loadBoards,
-  } = useBoardDirectory(`${session.user.id}:${session.user.role}`);
   const generation = useRef(0);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
@@ -528,7 +425,7 @@ export function AgentSettings({
     <div className="content-grid min-w-0">
       <PageHeading
         title="API keys"
-        icon={<HugeiconsIcon icon={Key01Icon} size={24} />}
+        icon={<HugeiconsIcon icon={Key01Icon} size={20} />}
 
         actions={
           <Button onPress={() => setCreating(true)}>
@@ -543,7 +440,7 @@ export function AgentSettings({
       >
         <div className="min-w-0">
           {pending && items === null ? (
-            <p role="status" className="text-sm text-muted">
+            <p role="status" className="text-xs font-normal text-muted">
               Loading API keys…
             </p>
           ) : error && items === null ? (
@@ -595,7 +492,7 @@ export function AgentSettings({
                       const revoke =
                         state === "Active" ? (
                           <Button
-                            variant="ghost"
+                            variant="danger-soft"
                             aria-label={`Revoke ${credential.name}`}
                             onPress={() => setRevoking(credential)}
                           >
@@ -603,63 +500,44 @@ export function AgentSettings({
                             Revoke
                           </Button>
                         ) : null;
-                      const boardNames =
-                        credential.boardIds === null
-                          ? "All boards"
-                          : credential.boardIds.length
-                            ? credential.boardIds
-                                .map(
-                                  (id) =>
-                                    knownBoards.find((board) => board.id === id)
-                                      ?.name ?? "Unavailable board",
-                                )
-                                .join(", ")
-                            : "No boards";
                       return (
                         <Table.Row key={credential.id} id={credential.id}>
                           <Table.Cell className="whitespace-normal!">
-                            <div className="min-w-0 space-y-1 md:max-w-xs">
-                              <p className="text-sm font-medium break-words">
+                            <TableCellStack className="md:max-w-xs">
+                              <span className="break-words">
                                 {credential.name}
-                              </p>
-                              <p className="text-sm text-muted break-words">
-                                {credential.scopes.includes("write")
-                                  ? "Read and write"
-                                  : "Read only"}{" "}
-                                · {boardNames}
-                              </p>
-                              <p className="text-sm text-muted">
-                                {credential.agentName ?? "Agent unavailable"}
-                              </p>
-                              {credential.tokenType === "oauth" && (
-                                <p className="text-sm text-muted">
-                                  OAuth connection
-                                </p>
-                              )}
-                              <div className="text-sm text-muted md:hidden">
-                                <p>Expires {date(credential.expiresAt)}</p>
-                                <p>
+                              </span>
+                              <Chip size="small" variant="secondary">
+                                {credential.tokenType === "oauth"
+                                  ? "OAuth"
+                                  : "API key"}
+                              </Chip>
+                              <div className="grid gap-0.5 md:hidden">
+                                <TableCellDescription>
+                                  Expires {date(credential.expiresAt)}
+                                </TableCellDescription>
+                                <TableCellDescription>
                                   {credential.lastUsedAt
                                     ? `Last used ${date(credential.lastUsedAt)}`
                                     : "Never used"}
-                                </p>
+                                </TableCellDescription>
                               </div>
                               <div className="flex items-center justify-between gap-3 pt-1 md:hidden">
                                 {status}
                                 {revoke}
                               </div>
-                            </div>
+                            </TableCellStack>
                           </Table.Cell>
                           <Table.Cell className="hidden md:table-cell">
                             {status}
                           </Table.Cell>
                           <Table.Cell className="hidden md:table-cell">
-                            <span className="text-sm text-muted">
+                            <span className="text-sm font-normal">
                               {date(credential.expiresAt)}
                             </span>
                           </Table.Cell>
                           <Table.Cell className="hidden md:table-cell">
-                            <span className="text-sm text-muted">
+                            <span className="text-sm font-normal">
                               {credential.lastUsedAt
                                 ? date(credential.lastUsedAt)
                                 : "Never used"}
@@ -667,7 +545,9 @@ export function AgentSettings({
                           </Table.Cell>
                           <Table.Cell className="hidden md:table-cell">
                             {revoke ?? (
-                              <span className="text-sm text-muted">—</span>
+                              <span className="text-sm font-normal text-muted">
+                                —
+                              </span>
                             )}
                           </Table.Cell>
                         </Table.Row>
@@ -682,7 +562,7 @@ export function AgentSettings({
               <EmptyState.Header>
                 <EmptyState.Title>No API keys yet</EmptyState.Title>
                 <EmptyState.Description>
-                  Create a key for an existing agent.
+                  Create a personal key to use Mill through the REST API.
                 </EmptyState.Description>
               </EmptyState.Header>
             </EmptyState>
@@ -717,11 +597,6 @@ export function AgentSettings({
       </section>
       {creating && (
         <CreateCredential
-          session={session}
-          boards={knownBoards}
-          boardsPending={boardsPending}
-          boardsError={boardsError}
-          onRetryBoards={() => void loadBoards()}
           onClose={() => setCreating(false)}
           onCreated={(credential) => {
             setItems((previous) => [

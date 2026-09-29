@@ -103,31 +103,58 @@ export async function revalidateAuthority(
     throw new HTTPException(401, {
       message: "Your membership changed. Sign in again.",
     });
-  if (existing.kind === "agent") {
+  if (existing.credentialId) {
     const [credential] = await tx<
-      { scopes: string[]; boardIds: string[] | null; agentId: string | null }[]
-    >`SELECT scopes,board_ids,agent_id FROM credentials WHERE id=${existing.credentialId!} AND user_id=${existing.userId} AND revoked_at IS NULL AND expires_at>now() FOR SHARE`;
+      {
+        scopes: string[];
+        boardIds: string[] | null;
+        agentId: string | null;
+        tokenType: string;
+      }[]
+    >`SELECT scopes,board_ids,agent_id,token_type FROM credentials WHERE id=${existing.credentialId} AND user_id=${existing.userId} AND revoked_at IS NULL AND expires_at>now() FOR SHARE`;
     if (!credential)
       throw new HTTPException(401, {
         message: "This credential expired or was revoked",
       });
-    if (!credential.agentId)
+    if (
+      credential.tokenType === "api-key" &&
+      existing.kind === "human" &&
+      !credential.agentId &&
+      credential.boardIds === null &&
+      credential.scopes.length === 0
+    ) {
+      c.set("actor", {
+        ...existing,
+        name: member.name,
+        role: member.role,
+        credentialType: "api-key",
+        scopes: member.role === "viewer" ? ["read"] : ["read", "write"],
+        agentId: undefined,
+        boardIds: undefined,
+      });
+    } else if (
+      credential.tokenType === "oauth" &&
+      existing.kind === "agent" &&
+      credential.agentId
+    ) {
+      const selectedAgent = await requireAgentAccess(
+        tx,
+        existing.userId,
+        credential.agentId,
+      );
+      c.set("actor", {
+        ...existing,
+        name: `${selectedAgent.name} via ${member.name}`,
+        agentId: selectedAgent.id,
+        role: member.role,
+        credentialType: "oauth",
+        scopes: credential.scopes,
+        boardIds: credential.boardIds ?? undefined,
+      });
+    } else
       throw new HTTPException(401, {
         message: "This credential is no longer valid",
       });
-    const selectedAgent = await requireAgentAccess(
-      tx,
-      existing.userId,
-      credential.agentId,
-    );
-    c.set("actor", {
-      ...existing,
-      name: `${selectedAgent.name} via ${member.name}`,
-      agentId: selectedAgent.id,
-      role: member.role,
-      scopes: credential.scopes,
-      boardIds: credential.boardIds ?? undefined,
-    });
   } else {
     const token = sessionToken(c.req.raw);
     const [session] = token

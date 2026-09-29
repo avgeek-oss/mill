@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   Button,
+  Avatar,
   Chip,
   Choice,
   Dialog,
@@ -200,7 +201,7 @@ export function TaskDialog({
     const available =
       selected.scope === "personal"
         ? selected.creatorId === form.assigneeId
-        : selected.memberIds.includes(form.assigneeId);
+        : selected.allMembers || selected.memberIds.includes(form.assigneeId);
     return available
       ? ""
       : "This agent is not available to the selected assignee.";
@@ -416,7 +417,7 @@ export function TaskDialog({
             (!selection.id || detail) && <ErrorMessage>{error}</ErrorMessage>}
           <div className="flex flex-wrap items-center justify-end gap-2">
             <TypographyText
-              className="mr-auto text-sm"
+              className="mr-auto text-xs"
               color="muted"
               role="status"
             >
@@ -439,7 +440,7 @@ export function TaskDialog({
       }
     >
       {loading ? (
-        <TypographyParagraph size="sm" color="muted" role="status">
+        <TypographyParagraph className="text-xs" color="muted" role="status">
           Loading task…
         </TypographyParagraph>
       ) : selection.id && !detail ? (
@@ -447,7 +448,7 @@ export function TaskDialog({
           <Alert.Indicator />
           <Alert.Content>
             <Alert.Title>Unable to load this task</Alert.Title>
-            <Alert.Description>
+            <Alert.Description className="text-xs">
               {error || "Try loading the task again."}
             </Alert.Description>
             <Button
@@ -466,7 +467,7 @@ export function TaskDialog({
               <Alert.Indicator />
               <Alert.Content>
                 <Alert.Title>Your draft is preserved</Alert.Title>
-                <Alert.Description>
+                <Alert.Description className="text-xs">
                   Another person changed this task. Reload the current version
                   before trying again. Your draft stays here until you reload.
                 </Alert.Description>
@@ -549,7 +550,7 @@ export function TaskDialog({
                     {form.description ? (
                       <Markdown>{form.description}</Markdown>
                     ) : (
-                      <TypographyParagraph size="sm" color="muted">
+                      <TypographyParagraph className="text-xs" color="muted">
                         No description yet.
                       </TypographyParagraph>
                     )}
@@ -599,7 +600,7 @@ export function TaskDialog({
                       </Checkbox>
                       {editable && (
                         <Button
-                          variant="ghost"
+                          variant="secondary"
                           isIconOnly
                           aria-label={`Remove ${item.text}`}
                           onPress={() =>
@@ -661,7 +662,21 @@ export function TaskDialog({
                 label="Assignee"
                 value={form.assigneeId}
                 onChange={(value) => patch("assigneeId", value)}
-                items={[{ id: "", name: "Unassigned" }, ...members]}
+                items={[
+                  { id: "", name: "Unassigned" },
+                  ...members.map((member) => ({
+                    id: member.id,
+                    name: member.name,
+                    description: member.email,
+                    startContent: (
+                      <Avatar
+                        email={member.email}
+                        name={member.name}
+                        size="sm"
+                      />
+                    ),
+                  })),
+                ]}
                 disabled={!editable}
                 search
               />
@@ -700,7 +715,7 @@ export function TaskDialog({
                 </div>
               )}
               {form.agentId && !form.assigneeId && (
-                <TypographyParagraph size="sm" color="muted">
+                <TypographyParagraph className="text-xs" color="muted">
                   Choose a human assignee to use an agent.
                 </TypographyParagraph>
               )}
@@ -729,7 +744,7 @@ export function TaskDialog({
               />
               {detail && (
                 <>
-                  <TypographyParagraph size="sm" color="muted">
+                  <TypographyParagraph className="text-xs" color="muted">
                     Created{" "}
                     {new Date(detail.task.createdAt).toLocaleDateString(
                       undefined,
@@ -743,7 +758,7 @@ export function TaskDialog({
                     )}
                   </TypographyParagraph>
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     onPress={() =>
                       void navigator.clipboard
                         .writeText(
@@ -762,7 +777,7 @@ export function TaskDialog({
                   </Button>
                   {writable && (
                     <Button
-                      variant="danger-ghost"
+                      variant="danger"
                       isDisabled={busy}
                       onPress={() => {
                         setError("");
@@ -811,7 +826,7 @@ export function TaskDialog({
                             </div>
                             <time
                               dateTime={item.createdAt}
-                              className="text-sm text-muted"
+                              className="text-xs text-muted"
                             >
                               {new Date(item.createdAt).toLocaleString(
                                 undefined,
@@ -829,7 +844,7 @@ export function TaskDialog({
                         </li>
                       ))}
                       {!detail.activity.length && (
-                        <li className="muted">No activity yet.</li>
+                        <li className="text-xs text-muted">No activity yet.</li>
                       )}
                     </ol>
                     {activityMore && (
@@ -850,7 +865,7 @@ export function TaskDialog({
                             <TypographyText textRole="label">
                               {item.authorName}
                             </TypographyText>
-                            <time className="muted small">
+                            <time className="text-xs text-muted">
                               {new Date(item.createdAt).toLocaleString(
                                 undefined,
                                 {
@@ -867,7 +882,7 @@ export function TaskDialog({
                               user.role === "admin") && (
                               <div className="row">
                                 <Button
-                                  variant="ghost"
+                                  variant="secondary"
                                   isDisabled={busy}
                                   onPress={() => {
                                     setCommentEdit(item);
@@ -877,7 +892,7 @@ export function TaskDialog({
                                   Edit
                                 </Button>
                                 <Button
-                                  variant="danger-ghost"
+                                  variant="danger"
                                   isDisabled={busy}
                                   onPress={() => setCommentToDelete(item)}
                                 >
@@ -931,7 +946,7 @@ export function TaskDialog({
                           </Button>
                           {commentEdit && (
                             <Button
-                              variant="ghost"
+                              variant="secondary"
                               isDisabled={busy}
                               onPress={() => {
                                 setCommentEdit(null);
@@ -1000,7 +1015,7 @@ export function TaskDialog({
           </>
         }
       >
-        <TypographyParagraph size="sm">
+        <TypographyParagraph className="text-xs">
           This comment will be removed from the task discussion.
         </TypographyParagraph>
         <ErrorMessage>{errorAction === "discussion" ? error : ""}</ErrorMessage>
@@ -1029,7 +1044,7 @@ export function TaskDialog({
           </>
         }
       >
-        <TypographyParagraph size="sm">
+        <TypographyParagraph className="text-xs">
           Permanently delete this task and its comments? This cannot be undone.
           There is no restore.
         </TypographyParagraph>

@@ -328,3 +328,66 @@ test("task cursors reject malformed, legacy, forged and wrong-search anchors", a
     items.map((item) => item.id),
   );
 });
+
+test("a personal API key reads future-board task pages and restarts after its human-owner edit", async () => {
+  const { cookie } = await setupUser();
+  const key = await json(
+    await request("/api/credentials", {
+      cookie,
+      body: { name: "Task page automation", expiresInDays: 365 },
+    }),
+    201,
+  );
+  assert.equal(key.credential.agentId, null);
+  assert.equal(key.credential.boardIds, null);
+  const future = await createBoard(cookie, "Created after key", "FUTURE");
+  const items: Task[] = [];
+  for (const title of ["A", "B", "C", "D"])
+    items.push(await createTask(cookie, future.id, title));
+  const path = `/api/boards/${future.id}/tasks?limit=2&sort=title`;
+  const first: Page = await json(await request(path, { token: key.token }));
+  assert.deepEqual(
+    first.items.map((item) => item.id),
+    items.slice(0, 2).map((item) => item.id),
+  );
+  assert.ok(first.nextCursor);
+  assert.deepEqual(
+    await json(
+      await request(`${path}&cursor=${first.nextCursor}`, { token: key.token }),
+    ),
+    await json(await request(`${path}&cursor=${first.nextCursor}`, { cookie })),
+  );
+  const changed = await json(
+    await request(`/api/tasks/${items[2]!.id}`, {
+      token: key.token,
+      method: "PATCH",
+      body: { version: items[2]!.version, title: "AA" },
+    }),
+  );
+  assert.equal(changed.task.agentId, null);
+  const stale = await json(
+    await request(`${path}&cursor=${first.nextCursor}`, { token: key.token }),
+    409,
+  );
+  assert.equal(stale.code, "task_list_changed");
+  let current: Page = await json(await request(path, { token: key.token }));
+  const ids = current.items.map((item) => item.id);
+  while (current.hasMore) {
+    assert.ok(current.nextCursor);
+    current = await json(
+      await request(`${path}&cursor=${current.nextCursor}`, {
+        token: key.token,
+      }),
+    );
+    ids.push(...current.items.map((item) => item.id));
+    assert.ok(ids.length <= items.length);
+  }
+  assert.equal(current.nextCursor, null);
+  assert.deepEqual(ids, [
+    items[0]!.id,
+    items[2]!.id,
+    items[1]!.id,
+    items[3]!.id,
+  ]);
+  assert.equal(new Set(ids).size, items.length);
+});

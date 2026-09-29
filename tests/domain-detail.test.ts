@@ -2,9 +2,11 @@ import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   cleanupDatabase,
+  callMcpTool,
   request,
   resetDatabase,
   setupAgent,
+  setupOAuthAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -125,22 +127,35 @@ test("task detail, comments and activity resolve permissions through the owning 
     }),
     201,
   );
-  const { token } = await json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        agentId: (await setupAgent(cookie)).id,
-        name: "Limited reader",
-        scopes: ["read"],
-        boardIds: [allowed.id],
-      },
-    }),
-    201,
+  const { token } = await setupOAuthAgent(cookie, {
+    agentId: (await setupAgent(cookie)).id,
+    scopes: ["read"],
+    boardIds: [allowed.id],
+  });
+  const permitted = await callMcpTool(token, "get_board", {
+    boardId: allowed.id,
+  });
+  assert.equal(permitted.response.status, 200);
+  assert.equal(permitted.result?.isError, false);
+  assert.equal(
+    (permitted.result?.structuredContent?.board as { id: string }).id,
+    allowed.id,
   );
-  for (const path of [
-    `/api/tasks/${task.id}?commentLimit=0&activityLimit=0`,
-    `/api/tasks/${task.id}/comments`,
-    `/api/tasks/${task.id}/activity`,
-  ])
-    assert.equal((await request(path, { token })).status, 403, path);
+  for (const [name, arguments_] of [
+    ["get_task", { taskId: task.id, commentLimit: 0, activityLimit: 0 }],
+    ["list_comments", { taskId: task.id }],
+    ["get_activity", { taskId: task.id }],
+  ] as const) {
+    const denied = await callMcpTool(token, name, arguments_);
+    assert.equal(denied.response.status, 200);
+    assert.equal(denied.error, undefined);
+    assert.equal(denied.result?.isError, true, name);
+    assert.equal(
+      denied.result?.structuredContent?.error,
+      "This credential does not permit this action",
+      name,
+    );
+    assert.equal(denied.result?.structuredContent?.task, undefined);
+    assert.equal(denied.result?.structuredContent?.items, undefined);
+  }
 });

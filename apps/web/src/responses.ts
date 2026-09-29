@@ -45,6 +45,7 @@ export function hasAgentResponse(value: unknown) {
     (agent.scope === "personal" || agent.scope === "team") &&
     typeof agent.creatorId === "string" &&
     agent.creatorId.length > 0 &&
+    typeof agent.allMembers === "boolean" &&
     Array.isArray(agent.memberIds) &&
     agent.memberIds.every(
       (memberId) => typeof memberId === "string" && memberId.length > 0,

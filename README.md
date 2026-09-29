@@ -4,9 +4,9 @@ Mill is a self-hosted task list for people and external agents, created by Avgee
 
 Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have stable identifiers, Markdown descriptions, human assignees, optional Agents, priorities, due dates, checklists, comments, and activity. Team members use Admin, Member, or Viewer access.
 
-People and Agents are separate. Create an Agent in the human interface, keep it personal or let an administrator grant named team members access, then select it when creating a personal API key or approving OAuth. A task's Agent is separate from its human assignee and never runs work automatically. REST and MCP enforce the same membership, Agent access, scope, and board checks as the browser.
+People and Agents are separate. Personal API keys use their human owner's current permissions for REST across all accessible boards. MCP OAuth requires an existing Agent created in the human interface: personal Agents belong to their creator, and team Agents serve selected people or all current and future team members. A task's Agent is separate from its human assignee and never runs work automatically. The server enforces current membership and permissions for every connection.
 
-The repository remains private during B1 review. The proposed release is `v1.0.0-beta.1`. The current revision adds explicit Agents and the requested Towbar interface changes. Complete local source verification and all 76 browser cases pass, with independent desktop/phone review in both themes. Exact-commit packaged installation/restore and hosted CI results are tracked separately on the private review PR. Check [B1 verification](docs/b1-verification.md) for the current requirements; receipts through the preceding `7fc132` candidate are historical for this revision.
+The repository remains private during B1 review. The proposed release is `v1.0.0-beta.1`. The current revision separates personal API keys from MCP Agents, adds current-and-future-member team access, and updates the Towbar interface compositions. Verification for this revision is pending. Earlier candidate receipts, including the prior 84-case and 76-case runs, are historical and do not establish the latest behavior. Check [B1 verification](docs/b1-verification.md) for the current requirements and exact-revision source, browser, packaged installation/restore, and hosted CI evidence.
 
 ## Install locally
 
@@ -44,7 +44,7 @@ Run `pnpm dev:web` in a second terminal for the frontend development server at [
 
 - [Installation](docs/installation.md), [configuration](docs/configuration.md), and [first board](docs/getting-started.md)
 - [Team, tasks, and permissions](docs/workflows.md)
-- [REST API and MCP](docs/agents.md)
+- [REST API and MCP](docs/agents.md), [API reference](docs/api.md), and [access security](docs/authentication.md#external-credential-boundaries)
 - [Operations](docs/operations.md), [backup and recovery](docs/backup.md), and [upgrades](docs/upgrades.md)
 - [Troubleshooting](docs/troubleshooting.md) and [B1 release notes](docs/release-notes.md)
 - [Contributing](CONTRIBUTING.md), [security reports](SECURITY.md), and [code of conduct](CODE_OF_CONDUCT.md)

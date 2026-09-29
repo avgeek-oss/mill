@@ -154,9 +154,8 @@ for (const action of ["edit", "comment"] as const) {
 }
 
 for (const winner of ["delete", "issuance"] as const) {
-  test(`no-key credential creation and board deletion retain scope locks when ${winner} goes first`, async () => {
+  test(`personal API key issuance and board deletion preserve human access when ${winner} goes first`, async () => {
     const { cookie, user, board } = await fixture();
-    const agent = await setupAgent(cookie);
     const gate = await barrier((tx) =>
       winner === "delete"
         ? tx`SELECT id FROM boards WHERE id=${board.id} FOR UPDATE`
@@ -171,12 +170,7 @@ for (const winner of ["delete", "issuance"] as const) {
     const issuance = () =>
       request("/api/credentials", {
         cookie,
-        body: {
-          agentId: agent.id,
-          name: "Concurrent scope",
-          scopes: ["read", "write"],
-          boardIds: [board.id],
-        },
+        body: { name: "Concurrent personal key" },
       });
     let first: Promise<Response>;
     let second: Promise<Response>;
@@ -191,24 +185,43 @@ for (const winner of ["delete", "issuance"] as const) {
     const issued = await (winner === "delete" ? second! : first!);
     const deleted = await (winner === "delete" ? first! : second!);
     assert.equal(deleted.status, 200, await deleted.clone().text());
-    assert.equal(
-      issued.status,
-      winner === "delete" ? 400 : 201,
-      await issued.clone().text(),
-    );
+    assert.equal(issued.status, 201, await issued.clone().text());
     assert.equal(
       (await sql`SELECT id FROM credentials WHERE ${board.id}=ANY(board_ids)`)
         .length,
       0,
     );
-    if (winner === "issuance") {
-      const { credential, token } = await issued.json();
-      const [stored] =
-        await sql`SELECT board_ids,revoked_at FROM credentials WHERE id=${credential.id}`;
-      assert.deepEqual(stored.boardIds, []);
-      assert.ok(stored.revokedAt);
-      assert.equal((await request("/api/boards", { token })).status, 401);
-    }
+    const { credential, token } = await issued.json();
+    const [stored] =
+      await sql`SELECT user_id,agent_id,board_ids,scopes,token_type,revoked_at FROM credentials WHERE id=${credential.id}`;
+    assert.equal(stored.userId, user.id);
+    assert.equal(stored.agentId, null);
+    assert.equal(stored.boardIds, null);
+    assert.deepEqual(stored.scopes, []);
+    assert.equal(stored.tokenType, "api-key");
+    assert.equal(stored.revokedAt, null);
+    assert.equal((await sql`SELECT * FROM agents`).length, 0);
+    const directory = await json(await request("/api/boards", { token }));
+    assert.deepEqual(directory.items, []);
+    const { board: subsequent } = await json(
+      await request("/api/boards", {
+        cookie,
+        body: { name: "After deletion", prefix: "AFTER" },
+      }),
+      201,
+    );
+    const { task: personalWork } = await json(
+      await request(`/api/boards/${subsequent.id}/tasks`, {
+        token,
+        body: { title: "Current human authority" },
+      }),
+      201,
+    );
+    const [created] =
+      await sql`SELECT actor_id,actor_name,actor_kind FROM activity WHERE task_id=${personalWork.id}`;
+    assert.equal(created.actorId, user.id);
+    assert.equal(created.actorName, user.name);
+    assert.equal(created.actorKind, "human");
   });
 }
 
@@ -383,7 +396,7 @@ for (const winner of ["delete", "issuance"] as const) {
 
 for (const change of ["role", "revoke"] as const) {
   test(`a task delete queued after ${change} rechecks workspace authority`, async () => {
-    const { cookie, board, task } = await fixture();
+    const { cookie, task } = await fixture();
     const invitation = await json(
       await request("/api/auth/invitations", {
         cookie,
@@ -403,12 +416,7 @@ for (const change of ["role", "revoke"] as const) {
     const credential = await json(
       await request("/api/credentials", {
         cookie: memberCookie,
-        body: {
-          agentId: (await setupAgent(memberCookie)).id,
-          name: "Pending delete",
-          scopes: ["read", "write"],
-          boardIds: [board.id],
-        },
+        body: { name: "Pending personal delete" },
       }),
       201,
     );

@@ -23,10 +23,7 @@ export function setApiDispatcher(
 export async function serveMcp(c: Context<Env>) {
   const principal = actor(c);
   if (principal.kind !== "agent")
-    return c.json(
-      { error: "Use an API credential or OAuth token for MCP" },
-      403,
-    );
+    return c.json({ error: "Connect an Agent with OAuth for MCP" }, 403);
   const allowed = tools.filter(
     (tool) =>
       (tool.readOnly

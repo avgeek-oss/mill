@@ -7,6 +7,8 @@ import {
   request,
   resetDatabase,
   setupUser,
+  setupOAuthAgent,
+  callMcpTool,
   sql,
 } from "./support.js";
 
@@ -66,18 +68,21 @@ async function editAgent(
     )
   ).agent;
 }
-async function key(cookie: string, agent: Agent) {
+async function key(cookie: string) {
   return json(
-    await request("/api/credentials", {
-      cookie,
-      body: {
-        name: "API client",
-        agentId: agent.id,
-        scopes: ["read", "write"],
-      },
-    }),
+    await request("/api/credentials", { cookie, body: { name: "API client" } }),
     201,
   );
+}
+async function agentTool(
+  token: string,
+  name: string,
+  args: Record<string, unknown>,
+) {
+  const called = await callMcpTool(token, name, args);
+  assert.equal(called.response.status, 200, JSON.stringify(called));
+  assert.equal(called.result?.isError, false, JSON.stringify(called));
+  return called.result!.structuredContent as { task: Task };
 }
 type AgentPage = {
   items: Agent[];
@@ -222,7 +227,7 @@ test("team management is administrator-only and assignment access requires an ex
   ]);
   assert.deepEqual(
     [...team.memberIds].sort(),
-    [writer.user.id, viewer.user.id].sort(),
+    [admin.user.id, writer.user.id, viewer.user.id].sort(),
   );
   const secondAdmin = await member(admin.cookie, "Secondadmin", "admin");
   assert.deepEqual(await agents({ cookie: secondAdmin.cookie }), []);
@@ -236,7 +241,10 @@ test("team management is administrator-only and assignment access requires an ex
     name: "Admin-managed helper",
   });
   assert.equal(team.creatorId, admin.user.id);
-  assert.deepEqual(await agents({ cookie: admin.cookie }), []);
+  assert.deepEqual(
+    (await agents({ cookie: admin.cookie })).map((item) => item.id),
+    [team.id],
+  );
   assert.deepEqual(
     (await agents({ cookie: admin.cookie }, "manage=true")).map(
       (item) => item.id,
@@ -320,8 +328,14 @@ test("bearer clients can read eligible Agents but cannot create or manage them",
   const visible = await createAgent(admin.cookie, "Granted team", "team", [
     admin.user.id,
   ]);
-  const hidden = await createAgent(admin.cookie, "Unlisted team", "team", []);
-  const credential = await key(admin.cookie, identity);
+  const secondAdmin = await member(admin.cookie, "Otheradmin", "admin");
+  const hidden = await createAgent(
+    secondAdmin.cookie,
+    "Unlisted team",
+    "team",
+    [],
+  );
+  const credential = await key(admin.cookie);
   assert.deepEqual(
     (await agents({ token: credential.token })).map((item) => item.id),
     [visible.id, identity.id],
@@ -490,9 +504,13 @@ test("human and Agent assignment are independent and both acting user and assign
     admin.user.id,
     teammate.user.id,
   ]);
-  const restricted = await createAgent(admin.cookie, "Member helper", "team", [
-    teammate.user.id,
-  ]);
+  const otherAdmin = await member(admin.cookie, "Othermanager", "admin");
+  const restricted = await createAgent(
+    otherAdmin.cookie,
+    "Member helper",
+    "team",
+    [teammate.user.id],
+  );
   let task = await createTask(admin.cookie, work.id, "Human work", {
     assigneeId: teammate.user.id,
   });
@@ -629,20 +647,18 @@ test("unrelated human task edits preserve a valid Agent that the editor cannot s
 test("Agent renames update current names while preserving previous task action attribution", async () => {
   const admin = await setupUser();
   const identity = await createAgent(admin.cookie, "First helper");
-  const credential = await key(admin.cookie, identity);
+  const credential = await setupOAuthAgent(admin.cookie, {
+    agentId: identity.id,
+  });
   const work = await board(admin.cookie);
   const task = (
-    await json(
-      await request(`/api/boards/${work.id}/tasks`, {
-        token: credential.token,
-        body: {
-          title: "Agent-created work",
-          assigneeId: admin.user.id,
-          agentId: identity.id,
-        },
-      }),
-      201,
-    )
+    await agentTool(credential.token, "create_task", {
+      boardId: work.id,
+      title: "Agent-created work",
+      assigneeId: admin.user.id,
+      agentId: identity.id,
+      idempotencyKey: "agent-name-create",
+    })
   ).task as Task;
   const before = await json(
     await request(`/api/tasks/${task.id}/activity`, { cookie: admin.cookie }),
@@ -658,13 +674,12 @@ test("Agent renames update current names while preserving previous task action a
   );
   assert.equal(detail.task.agentName, renamed.name);
   assert.equal(detail.task.agentId, identity.id);
-  await json(
-    await request(`/api/tasks/${task.id}`, {
-      token: credential.token,
-      method: "PATCH",
-      body: { version: task.version, description: "New context" },
-    }),
-  );
+  await agentTool(credential.token, "update_task", {
+    taskId: task.id,
+    version: task.version,
+    description: "New context",
+    idempotencyKey: "agent-name-edit",
+  });
   const after = await json(
     await request(`/api/tasks/${task.id}/activity`, { cookie: admin.cookie }),
   );
@@ -681,7 +696,7 @@ test("Agent renames update current names while preserving previous task action a
     await request("/api/credentials", { cookie: admin.cookie }),
   );
   assert.equal(listed.items[0].agentName, renamed.name);
-  assert.equal(listed.items[0].name, "API client");
+  assert.equal(listed.items[0].tokenType, "oauth");
 });
 
 async function pendingConsent(userId: string, agentId: string) {
@@ -698,7 +713,9 @@ test("grant revocation clears task bindings, revokes credentials and pending con
     admin.user.id,
     owner.user.id,
   ]);
-  const credential = await key(owner.cookie, shared);
+  const credential = await setupOAuthAgent(owner.cookie, {
+    agentId: shared.id,
+  });
   const pending = await pendingConsent(owner.user.id, shared.id);
   const task = await createTask(admin.cookie, work.id, "Retained task", {
     assigneeId: owner.user.id,
@@ -775,9 +792,11 @@ test("grant revocation clears task bindings, revokes credentials and pending con
     ).task.agentId,
     null,
   );
-  const freshCredential = await key(owner.cookie, shared);
+  const freshCredential = await setupOAuthAgent(owner.cookie, {
+    agentId: shared.id,
+  });
   assert.equal(
-    (await request("/api/agents", { token: freshCredential.token })).status,
+    (await callMcpTool(freshCredential.token, "list_agents")).response.status,
     200,
   );
 });
@@ -785,22 +804,20 @@ test("grant revocation clears task bindings, revokes credentials and pending con
 test("Agent deletion clears bindings and credentials while preserving tasks, comments and historical names", async () => {
   const admin = await setupUser();
   const identity = await createAgent(admin.cookie, "Deleted helper");
-  const credential = await key(admin.cookie, identity);
+  const credential = await setupOAuthAgent(admin.cookie, {
+    agentId: identity.id,
+  });
   const pending = await pendingConsent(admin.user.id, identity.id);
   const work = await board(admin.cookie);
   const task = (
-    await json(
-      await request(`/api/boards/${work.id}/tasks`, {
-        token: credential.token,
-        body: {
-          title: "Surviving work",
-          assigneeId: admin.user.id,
-          agentId: identity.id,
-          priority: "high",
-        },
-      }),
-      201,
-    )
+    await agentTool(credential.token, "create_task", {
+      boardId: work.id,
+      title: "Surviving work",
+      assigneeId: admin.user.id,
+      agentId: identity.id,
+      priority: "high",
+      idempotencyKey: "agent-delete-create",
+    })
   ).task as Task;
   await json(
     await request(`/api/tasks/${task.id}/comments`, {
@@ -937,7 +954,10 @@ test("member removal invalidates management pages when rendered grants change wi
     await request("/api/agents?manage=true&limit=1", { cookie: admin.cookie }),
   );
   assert.ok(first.nextCursor);
-  assert.deepEqual(first.items[0]!.memberIds, [granted.user.id]);
+  assert.deepEqual(
+    [...first.items[0]!.memberIds].sort(),
+    [admin.user.id, granted.user.id].sort(),
+  );
   await json(
     await request(`/api/auth/members/${granted.user.id}`, {
       cookie: admin.cookie,
@@ -957,7 +977,7 @@ test("member removal invalidates management pages when rendered grants change wi
     restarted.map((agent) => agent.id),
     [firstAgent.id, lastAgent.id],
   );
-  assert.deepEqual(restarted[0]!.memberIds, []);
+  assert.deepEqual(restarted[0]!.memberIds, [admin.user.id]);
   assert.equal(restarted[0]!.version, firstAgent.version);
 });
 
@@ -1011,5 +1031,326 @@ test("Agent cursors reject forged, legacy, cross-account and wrong-mode anchors 
   assert.deepEqual(
     continued.map((item) => item.name),
     ["A", "B", "C"],
+  );
+});
+
+test("team creators are pinned and all-members Agents include future active people without stored grants", async () => {
+  const admin = await setupUser();
+  const existing = await member(admin.cookie, "Existing");
+  let team = (
+    await json(
+      await request("/api/agents", {
+        cookie: admin.cookie,
+        body: {
+          name: "Everyone",
+          scope: "team",
+          allMembers: true,
+          memberIds: [],
+        },
+      }),
+      201,
+    )
+  ).agent as Agent;
+  assert.equal(team.allMembers, true);
+  assert.deepEqual(team.memberIds, [admin.user.id]);
+  assert.equal((await agents({ cookie: existing.cookie }))[0]!.id, team.id);
+  const future = await member(admin.cookie, "Future", "viewer");
+  assert.equal((await agents({ cookie: future.cookie }))[0]!.id, team.id);
+  assert.equal(
+    (await sql`SELECT * FROM agent_members WHERE user_id=${future.user.id}`)
+      .length,
+    0,
+  );
+  assert.equal(
+    (
+      await request(`/api/agents/${team.id}`, {
+        cookie: future.cookie,
+        method: "PATCH",
+        body: { version: team.version, allMembers: false },
+      })
+    ).status,
+    403,
+  );
+  const work = await board(admin.cookie);
+  const task = await createTask(admin.cookie, work.id, "Future member work", {
+    agentId: team.id,
+    assigneeId: future.user.id,
+  });
+  const disabledWork = await createTask(
+    admin.cookie,
+    work.id,
+    "Disabled member work",
+    {
+      agentId: team.id,
+      assigneeId: existing.user.id,
+    },
+  );
+  await json(
+    await request(`/api/auth/members/${existing.user.id}`, {
+      cookie: admin.cookie,
+      method: "DELETE",
+    }),
+  );
+  const disabledDetail = await json(
+    await request(`/api/tasks/${disabledWork.id}`, { cookie: admin.cookie }),
+  );
+  assert.equal(disabledDetail.task.agentId, null);
+  assert.equal(disabledDetail.task.assigneeId, existing.user.id);
+  assert.equal(
+    disabledDetail.activity.filter(
+      (item: { action: string }) => item.action === "task.updated",
+    ).length,
+    1,
+  );
+  assert.equal(
+    (
+      await json(
+        await request(`/api/tasks/${task.id}`, { cookie: admin.cookie }),
+      )
+    ).task.agentId,
+    team.id,
+  );
+  team = await editAgent(admin.cookie, team, {
+    allMembers: false,
+    memberIds: [],
+  });
+  assert.equal(team.allMembers, false);
+  assert.deepEqual(team.memberIds, [admin.user.id]);
+  assert.deepEqual(await agents({ cookie: future.cookie }), []);
+  const detail = await json(
+    await request(`/api/tasks/${task.id}`, { cookie: admin.cookie }),
+  );
+  assert.equal(detail.task.agentId, null);
+  assert.equal(detail.task.assigneeId, future.user.id);
+  assert.equal(detail.activity[0].action, "task.updated");
+  assert.deepEqual(detail.activity[0].detail, { fields: ["agentId"] });
+  assert.equal(detail.activity[0].actorId, admin.user.id);
+  const personal = await createAgent(admin.cookie, "Personal");
+  assert.equal(personal.allMembers, false);
+  for (const allMembers of [false, true])
+    assert.equal(
+      (
+        await request(`/api/agents/${personal.id}`, {
+          cookie: admin.cookie,
+          method: "PATCH",
+          body: { version: personal.version, allMembers },
+        })
+      ).status,
+      400,
+    );
+});
+
+test("all-members policy transitions preserve eligible work and invalidate policy-dependent cursors and retries", async () => {
+  const admin = await setupUser();
+  const selected = await member(admin.cookie, "Selected");
+  const losing = await member(admin.cookie, "Losing");
+  let team = await createAgent(admin.cookie, "A shared", "team", [
+    selected.user.id,
+  ]);
+  await createAgent(admin.cookie, "Z personal");
+  const work = await board(admin.cookie);
+  const retained = await createTask(
+    admin.cookie,
+    work.id,
+    "Explicit retained",
+    { agentId: team.id, assigneeId: selected.user.id },
+  );
+  const expand = {
+    cookie: admin.cookie,
+    method: "PATCH",
+    headers: { "Idempotency-Key": "policy-expand" },
+    body: { version: team.version, allMembers: true, memberIds: [] },
+  };
+  team = (await json(await request(`/api/agents/${team.id}`, expand))).agent;
+  const other = await createTask(admin.cookie, work.id, "Dynamic retained", {
+    agentId: team.id,
+    assigneeId: losing.user.id,
+  });
+  const first = await page({ cookie: admin.cookie }, "manage=true");
+  // Store a page with an actual continuation before narrowing.
+  await createAgent(admin.cookie, "ZZ personal");
+  const current = await page({ cookie: admin.cookie }, "manage=true");
+  assert.ok(current.nextCursor);
+  const retryIdentity = (
+    await sql`SELECT actor_key,key,request_hash,created_at FROM api_idempotency WHERE key='policy-expand'`
+  )[0];
+  team = await editAgent(admin.cookie, team, {
+    allMembers: false,
+    memberIds: [selected.user.id],
+  });
+  assert.equal(
+    (
+      await json(
+        await request(`/api/tasks/${retained.id}`, { cookie: admin.cookie }),
+      )
+    ).task.agentId,
+    team.id,
+  );
+  const changed = await json(
+    await request(`/api/tasks/${other.id}`, { cookie: admin.cookie }),
+  );
+  assert.equal(changed.task.agentId, null);
+  assert.equal(changed.task.assigneeId, losing.user.id);
+  assert.equal(
+    (
+      await request(
+        `/api/agents?manage=true&limit=2&cursor=${current.nextCursor}`,
+        { cookie: admin.cookie },
+      )
+    ).status,
+    409,
+  );
+  assert.equal((await request(`/api/agents/${team.id}`, expand)).status, 410);
+  const cache = (
+    await sql`SELECT * FROM api_idempotency WHERE key='policy-expand'`
+  )[0];
+  assert.equal(cache.invalidationReason, "access");
+  assert.equal(cache.response, null);
+  assert.deepEqual(cache.agentIds, []);
+  assert.deepEqual(
+    (
+      await sql`SELECT actor_key,key,request_hash,created_at FROM api_idempotency WHERE key='policy-expand'`
+    )[0],
+    retryIdentity,
+  );
+  assert.ok(first.items.some((item) => item.id === team.id));
+  team = await editAgent(admin.cookie, team, { allMembers: true });
+  const renewed = await editTask(admin.cookie, changed.task, {
+    agentId: team.id,
+  });
+  const version = renewed.version;
+  team = await editAgent(admin.cookie, team, { memberIds: [] });
+  const unchanged = await json(
+    await request(`/api/tasks/${other.id}`, { cookie: admin.cookie }),
+  );
+  assert.equal(unchanged.task.agentId, team.id);
+  assert.equal(unchanged.task.version, version);
+  assert.deepEqual(team.memberIds, [admin.user.id]);
+});
+
+test("reinvited team creators regain pinned access without resurrecting credentials, task bindings or history", async () => {
+  const creator = await setupUser();
+  const admin = await member(creator.cookie, "Secondadmin", "admin");
+  const team = await createAgent(creator.cookie, "Creator team", "team", []);
+  assert.equal(team.allMembers, false);
+  assert.deepEqual(team.memberIds, [creator.user.id]);
+  const work = await board(creator.cookie);
+  const task = await createTask(
+    creator.cookie,
+    work.id,
+    "Preserve creator work",
+    {
+      agentId: team.id,
+      assigneeId: creator.user.id,
+      description: "Keep existing context",
+      checklist: [{ id: "one", text: "Keep the checklist", done: true }],
+    },
+  );
+  await json(
+    await request(`/api/tasks/${task.id}/comments`, {
+      cookie: creator.cookie,
+      body: { body: "Keep the discussion" },
+    }),
+    201,
+  );
+  const connection = await setupOAuthAgent(creator.cookie, {
+    agentId: team.id,
+  });
+  await json(
+    await request(`/api/auth/members/${creator.user.id}`, {
+      cookie: admin.cookie,
+      method: "DELETE",
+    }),
+  );
+  const retired = (
+    await sql`SELECT * FROM credentials WHERE id=${connection.credential.id}`
+  )[0];
+  assert.ok(retired.revokedAt);
+  assert.equal(
+    (await sql`SELECT * FROM agent_members WHERE agent_id=${team.id}`).length,
+    0,
+  );
+  const disabledDetail = await json(
+    await request(`/api/tasks/${task.id}`, { cookie: admin.cookie }),
+  );
+  assert.equal(disabledDetail.task.agentId, null);
+  assert.equal(disabledDetail.task.assigneeId, creator.user.id);
+  assert.equal(
+    disabledDetail.activity.filter(
+      (item: { action: string }) => item.action === "task.updated",
+    ).length,
+    1,
+  );
+  const retained = new Map<string, unknown>();
+  for (const table of ["tasks", "comments", "activity"])
+    retained.set(
+      table,
+      await sql`SELECT to_jsonb(${sql(table)}) AS content FROM ${sql(table)} ORDER BY id`,
+    );
+  const invitation = await json(
+    await request("/api/auth/invitations", {
+      cookie: admin.cookie,
+      body: { email: creator.user.email, role: "member" },
+    }),
+    201,
+  );
+  assert.equal(
+    (await sql`SELECT * FROM agent_members WHERE agent_id=${team.id}`).length,
+    0,
+    "An invitation alone grants no access",
+  );
+  const accepted = await request("/api/auth/accept-invitation", {
+    body: {
+      token: invitation.token,
+      name: "Returning creator",
+      password: "Another secure passphrase 42!",
+    },
+  });
+  const { user } = await json(accepted, 201);
+  assert.equal(user.id, creator.user.id);
+  assert.equal(user.role, "member");
+  const cookie = accepted.headers.get("set-cookie")!.split(";")[0]!;
+  const available = await agents({ cookie });
+  assert.deepEqual(
+    available.map((item) => item.id),
+    [team.id],
+  );
+  assert.equal(available[0]!.allMembers, false);
+  assert.deepEqual(available[0]!.memberIds, [creator.user.id]);
+  for (const [table, rows] of retained)
+    assert.deepEqual(
+      await sql`SELECT to_jsonb(${sql(table)}) AS content FROM ${sql(table)} ORDER BY id`,
+      rows,
+      table,
+    );
+  assert.deepEqual(
+    (
+      await sql`SELECT * FROM credentials WHERE id=${connection.credential.id}`
+    )[0],
+    retired,
+  );
+  assert.equal(
+    (await callMcpTool(connection.token, "get_task", { taskId: task.id }))
+      .response.status,
+    401,
+  );
+  const fresh = await setupOAuthAgent(cookie, { agentId: team.id });
+  assert.notEqual(fresh.credential.id, connection.credential.id);
+  assert.equal(
+    (await callMcpTool(fresh.token, "get_task", { taskId: task.id })).result
+      ?.isError,
+    false,
+  );
+  const newWork = await createTask(
+    cookie,
+    work.id,
+    "Fresh creator assignment",
+    { agentId: team.id, assigneeId: user.id },
+  );
+  assert.equal(newWork.agentId, team.id);
+  assert.equal(
+    (await json(await request(`/api/tasks/${task.id}`, { cookie }))).task
+      .agentId,
+    null,
   );
 });

@@ -19,13 +19,14 @@ export {
   TextArea,
   TextArea as Textarea,
   Separator,
-  Avatar,
   Switch,
   Spinner,
   Popover,
   Dropdown,
   ScrollShadow,
   Autocomplete,
+  Toast,
+  toast,
 } from "@heroui/react";
 export { cn } from "./utils.js";
 export * from "./typography/typography.js";
@@ -37,6 +38,8 @@ export * from "./navigation/tabs.js";
 export * from "./overlays/tooltip.js";
 export * from "./overlays/heading-help.js";
 export * from "./data-display/chip.js";
+export * from "./data-display/avatar.js";
+export * from "./data-display/table-cell-text.js";
 export * from "./data-display/widget.js";
 export * from "./data-display/table.js";
 export * from "./data-display/list-view.js";
