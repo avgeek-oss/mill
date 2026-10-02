@@ -27,6 +27,30 @@ async function expectTheme(page: Page, theme: "light" | "dark") {
   if (theme === "dark") await expect(root).toHaveClass(/\bdark\b/);
   else await expect(root).not.toHaveClass(/\bdark\b/);
 }
+async function measureRevokeBounds(button: Locator) {
+  return button.evaluate((element) => {
+    const container = element.closest("table")?.parentElement;
+    if (!container) throw new Error("API key table scroll container missing");
+    const action = element.getBoundingClientRect();
+    const visibleArea = container.getBoundingClientRect();
+    return {
+      actionLeft: action.left,
+      actionRight: action.right,
+      containerLeft: visibleArea.left,
+      containerRight: visibleArea.right,
+      clientWidth: container.clientWidth,
+      scrollWidth: container.scrollWidth,
+      overflowX: getComputedStyle(container).overflowX,
+    };
+  });
+}
+function expectUnclippedRevoke(
+  bounds: Awaited<ReturnType<typeof measureRevokeBounds>>,
+) {
+  expect(bounds.actionLeft).toBeGreaterThanOrEqual(bounds.containerLeft - 1);
+  expect(bounds.actionRight).toBeLessThanOrEqual(bounds.containerRight + 1);
+  expect(bounds.scrollWidth).toBeLessThanOrEqual(bounds.clientWidth + 1);
+}
 async function chooseTheme(page: Page, theme: "light" | "dark", touch = false) {
   await expect(
     page.getByRole("button", { name: /^Appearance: switch to / }),
@@ -998,6 +1022,25 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       "Action",
     ]);
     expect(columns.every((column) => column.right <= 1280)).toBe(true);
+    const revokeGeometry = [];
+    for (const width of [1280, 768]) {
+      await page.setViewportSize({ width, height: 800 });
+      const bounds = await measureRevokeBounds(
+        page.getByRole("button", {
+          name: "Revoke Release planning reader",
+          exact: true,
+        }),
+      );
+      expectUnclippedRevoke(bounds);
+      revokeGeometry.push({ width, ...bounds });
+      if (width === 768)
+        await page.screenshot({
+          path: testInfo.outputPath(`api-keys-tablet-${theme}.png`),
+          fullPage: true,
+          animations: "disabled",
+        });
+    }
+    await page.setViewportSize({ width: 1280, height: 800 });
     const unusedRow = page.getByRole("row", {
       name: new RegExp(longCredentialName),
     });
@@ -1020,7 +1063,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       .toEqual(["36px", "36px", "8px"]);
     await writeFile(
       testInfo.outputPath(`api-keys-desktop-${theme}-columns.json`),
-      JSON.stringify(columns, null, 2),
+      JSON.stringify({ columns, revokeGeometry }, null, 2),
     );
     await expectTheme(page, theme);
     await page.screenshot({
@@ -1081,6 +1124,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       exact: true,
     });
     for (const target of [action, longAction]) {
+      expectUnclippedRevoke(await measureRevokeBounds(target));
       const bounds = await target.boundingBox();
       expect(
         Boolean(bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390),

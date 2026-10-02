@@ -43,7 +43,7 @@ import {
   hasOkResponse,
   hasTaskResponse,
 } from "./responses.js";
-import { ErrorPage } from "./error-page.js";
+import { ErrorPage, errorPageCode } from "./error-page.js";
 import { LinkIcon, MoreHorizontal, Trash2 } from "./icons.js";
 import { Markdown } from "./markdown.js";
 import { priorityOptions } from "./task-priority.js";
@@ -293,11 +293,7 @@ export function TaskPage({
   const error = editor.loadError;
   const loadFailure = (
     <ErrorPage
-      code={
-        [403, 404].includes(editor.loadErrorStatus)
-          ? String(editor.loadErrorStatus)
-          : "500"
-      }
+      code={errorPageCode(editor.loadErrorStatus)}
       title={
         editor.loadErrorStatus === 403
           ? "Task access required"

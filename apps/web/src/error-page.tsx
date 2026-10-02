@@ -8,8 +8,14 @@ import { AlertCircleIcon, Search01Icon } from "@hugeicons/core-free-icons";
 import { MillMark } from "./brand.js";
 
 // Adapted from Towbar's Apache-2.0 ErrorScreen composition.
+export function errorPageCode(status: number) {
+  if (status === 0) return "Connection";
+  if (status >= 400 && status < 600) return String(status);
+  return "Error";
+}
+
 export function ErrorPage({
-  code = "500",
+  code = "Error",
   onRetry,
   title,
   description,

@@ -2416,6 +2416,10 @@ test("long content, fixed statuses, tablet/phone themes and operational errors",
       }),
     });
   await expect(networkError).toBeVisible();
+  await expect(networkError.getByText("500", { exact: true })).toHaveCount(0);
+  await expect(
+    networkError.getByText("Connection", { exact: true }),
+  ).toBeVisible();
   await expect(
     networkError.getByText(
       "Mill could not be reached. Check your connection and try again.",

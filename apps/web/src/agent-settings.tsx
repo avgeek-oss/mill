@@ -414,10 +414,12 @@ export function AgentSettings({
               <Table.ScrollContainer>
                 <Table.Content
                   aria-label="API keys"
-                  className="max-md:w-full! max-md:table-fixed!"
+                  className="w-full! table-fixed!"
                 >
                   <Table.Header>
-                    <Table.Column isRowHeader>Name</Table.Column>
+                    <Table.Column isRowHeader className="md:w-1/4">
+                      Name
+                    </Table.Column>
                     <Table.Column className="hidden md:table-cell">
                       Status
                     </Table.Column>
@@ -430,7 +432,7 @@ export function AgentSettings({
                     <Table.Column className="hidden md:table-cell">
                       Last used
                     </Table.Column>
-                    <Table.Column className="hidden md:table-cell">
+                    <Table.Column className="hidden md:table-cell md:w-32">
                       Action
                     </Table.Column>
                   </Table.Header>

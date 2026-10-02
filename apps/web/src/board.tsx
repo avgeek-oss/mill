@@ -67,7 +67,7 @@ const CreateTaskDialog = lazy(() =>
     default: m.CreateTaskDialog,
   })),
 );
-import { ErrorPage } from "./error-page.js";
+import { ErrorPage, errorPageCode } from "./error-page.js";
 type Page = { items: Task[]; total: number; page: number; revision: string };
 export function BoardPage({
   boardId,
@@ -255,7 +255,7 @@ export function BoardPage({
           setAccessDenied(true);
         }
         setError(errorText(e));
-        setErrorStatus(e instanceof ApiError ? e.status : 0);
+        setErrorStatus(e instanceof ApiError ? e.status : -1);
         setTaskListChanged(changed);
       }
     } finally {
@@ -582,10 +582,15 @@ export function BoardPage({
     );
   }
   if (!accessDenied && !board && !loading && errorStatus >= 500)
-    return <ErrorPage onRetry={() => void load(requestedPage.current, true)} />;
+    return (
+      <ErrorPage
+        code={errorPageCode(errorStatus)}
+        onRetry={() => void load(requestedPage.current, true)}
+      />
+    );
   const accessFailure = (
     <ErrorPage
-      code={[403, 404].includes(errorStatus) ? String(errorStatus) : "500"}
+      code={errorPageCode(errorStatus)}
       title={
         errorStatus === 403 ? "Board access required" : "Board unavailable"
       }

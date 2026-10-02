@@ -237,7 +237,7 @@ class TaskEditorController {
       } catch (cause) {
         if (!this.current(generation) || sequence !== this.loadSequence) return;
         this.loadError = errorText(cause);
-        this.loadErrorStatus = cause instanceof ApiError ? cause.status : 0;
+        this.loadErrorStatus = cause instanceof ApiError ? cause.status : -1;
         if (cause instanceof ApiError && [403, 404].includes(cause.status))
           this.accessDenied = true;
       } finally {
