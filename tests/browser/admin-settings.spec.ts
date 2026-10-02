@@ -172,6 +172,14 @@ test("People lists load independently, show separate recovery and protect the la
     });
     await expect(avatar).toBeVisible();
     await expect(avatar.getByText("AM", { exact: true })).toBeVisible();
+    await expect
+      .poll(() =>
+        avatar.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return [style.width, style.height, style.borderRadius];
+        }),
+      )
+      .toEqual(["32px", "32px", "8px"]);
     const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(bootstrap.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
     await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
     const ownRow = members
@@ -291,9 +299,9 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
     await reveal
       .getByRole("button", { name: "Copy invitation link", exact: true })
       .click();
-    await expect(reveal.getByRole("status")).toContainText(
-      "Invitation link copied",
-    );
+    await expect(
+      page.getByText("Invitation link copied.", { exact: true }),
+    ).toBeVisible();
     expect(
       (await page.evaluate(() => navigator.clipboard.readText())) === inviteUrl,
       "Clipboard contains the exact invitation link",
@@ -335,8 +343,10 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
     await roleDialog
       .getByRole("button", { name: "Update role", exact: true })
       .click();
-    await expect(roleDialog.getByRole("status")).toContainText("Role updated");
-    await roleDialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(roleDialog).toHaveCount(0);
+    await expect(
+      page.getByText("Role updated.", { exact: true }),
+    ).toBeVisible();
     expect(
       (await json(admin, "/auth/members")).items.find(
         (person: { id: string }) => person.id === memberId,
@@ -370,9 +380,9 @@ test("team settings persist without backup or portable data surfaces", async ({
     .getByRole("textbox", { name: /^Name/ })
     .fill("Admin workspace verification");
   await page.getByRole("button", { name: "Update", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("status")).toContainText(
-    "Workspace updated",
-  );
+  await expect(
+    page.getByText("Team settings updated.", { exact: true }),
+  ).toBeVisible();
   expect((await json(admin, "/auth/me")).workspace.name).toBe(
     "Admin workspace verification",
   );
@@ -555,9 +565,14 @@ test("People and team settings layouts remain usable in both themes at desktop a
   try {
     const touch = await touchContext.newPage();
     await login(touch);
-    expect(
-      await touch.evaluate(() => matchMedia("(pointer: coarse)").matches),
-    ).toBe(true);
+    const touchMedia = await touch.evaluate(() => ({
+      coarse: matchMedia("(pointer: coarse)").matches,
+      noHover: matchMedia("(hover: none)").matches,
+      touchPoints: navigator.maxTouchPoints,
+    }));
+    expect(touchMedia.coarse).toBe(true);
+    expect(touchMedia.noHover).toBe(true);
+    expect(touchMedia.touchPoints).toBeGreaterThan(0);
     for (const width of [390, 429]) {
       await touch.setViewportSize({ width, height: 926 });
       for (const theme of ["light", "dark"]) {
@@ -773,10 +788,10 @@ test("invitation pagination reaches and revokes an older active invitation beyon
     await dialog
       .getByRole("button", { name: "Revoke invitation", exact: true })
       .click();
-    await expect(dialog.getByRole("status")).toContainText(
-      "Invitation revoked",
-    );
-    await dialog.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByText("Invitation revoked.", { exact: true }),
+    ).toBeVisible();
     expect(
       (await sql`SELECT revoked_at FROM invitations WHERE id=${oldId}`)[0]
         .revoked_at,
@@ -853,13 +868,23 @@ test("invitation pagination reaches and revokes an older active invitation beyon
     ).toBe(200);
     expect(acknowledgement.ok).toBe(true);
     expect(removalAttempts).toBe(2);
-    await expect(removal.getByRole("status")).toContainText(
-      "Workspace access removed",
-    );
-    await removal.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(removal).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Invite a person", exact: true }),
-    ).toBeFocused();
+      page.getByText("Workspace access removed.", { exact: true }),
+    ).toBeVisible();
+    const inviteAction = page.getByRole("button", {
+      name: "Invite a person",
+      exact: true,
+    });
+    const focusState = await inviteAction.evaluate((element) => ({
+      active: document.activeElement?.outerHTML.slice(0, 500),
+      connected: element.isConnected,
+      disabled: element.hasAttribute("disabled"),
+      ariaDisabled: element.getAttribute("aria-disabled"),
+      visibility: getComputedStyle(element).visibility,
+      inertAncestor: Boolean(element.closest("[inert]")),
+    }));
+    await expect(inviteAction, JSON.stringify(focusState)).toBeFocused();
     expect(
       (await json(admin, "/auth/members")).items.some(
         (person: { id: string }) => person.id === memberId,

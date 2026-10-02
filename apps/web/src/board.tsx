@@ -100,6 +100,7 @@ export function BoardPage({
   const [displayedSort, setDisplayedSort] = useState(filters.sort);
   const [errorStatus, setErrorStatus] = useState(0);
   const [accessDenied, setAccessDenied] = useState(false);
+  const deniedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [taskListChanged, setTaskListChanged] = useState(false);
@@ -132,6 +133,21 @@ export function BoardPage({
   const boardContent = useRef<HTMLDivElement>(null);
   const appSuspended = useAppSuspended();
   const writable = !!board && user.role !== "viewer";
+  useLayoutEffect(() => {
+    if (
+      !board ||
+      loading ||
+      accessDenied ||
+      window.history.state?.millFocusAfterTaskDeletion !== true
+    )
+      return;
+    const target = newTaskButton.current;
+    if (!target) return;
+    const nextState = { ...window.history.state };
+    delete nextState.millFocusAfterTaskDeletion;
+    window.history.replaceState(nextState, "", window.location.href);
+    target.focus({ preventScroll: true });
+  }, [board, loading, accessDenied]);
   const agentDirectory = useAgentDirectory(`${user.id}:${user.role}`);
   function changeList(changes: Partial<BoardUrlState>, replace = false) {
     if (window.location.pathname !== `/boards/${boardId}`) return;
@@ -216,6 +232,7 @@ export function BoardPage({
       ]);
       if (!page || request !== latestLoad.current) return;
       setBoard(info.board);
+      deniedRef.current = false;
       setAccessDenied(false);
       setErrorStatus(0);
       onBoardLoaded(info.board);
@@ -231,8 +248,12 @@ export function BoardPage({
     } catch (e) {
       if (request === latestLoad.current) {
         const changed = e instanceof ApiError && e.status === 409;
-        if (e instanceof ApiError && [403, 404].includes(e.status))
+        if (e instanceof ApiError && [403, 404].includes(e.status)) {
+          if (!deniedRef.current)
+            window.dispatchEvent(new Event("mill:route-access-denied"));
+          deniedRef.current = true;
           setAccessDenied(true);
+        }
         setError(errorText(e));
         setErrorStatus(e instanceof ApiError ? e.status : 0);
         setTaskListChanged(changed);

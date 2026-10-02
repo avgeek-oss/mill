@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  chromium,
   expect,
   test,
   type APIRequestContext,
@@ -39,6 +40,17 @@ test.beforeAll(async ({ baseURL }) => {
 async function authenticate(page: Page) {
   await page.context().addCookies(sessionCookies);
   expect((await page.request.get("/api/auth/me")).status()).toBe(200);
+}
+
+async function expectTouchContext(page: Page) {
+  const input = await page.evaluate(() => ({
+    coarse: matchMedia("(pointer: coarse)").matches,
+    noHover: matchMedia("(hover: none)").matches,
+    touchPoints: navigator.maxTouchPoints,
+  }));
+  expect(input.coarse).toBe(true);
+  expect(input.noHover).toBe(true);
+  expect(input.touchPoints).toBeGreaterThan(0);
 }
 
 for (const failure of ["server", "network"] as const) {
@@ -108,6 +120,219 @@ test("an unauthenticated session still opens the sign-in form", async ({
   ).toHaveCount(0);
 });
 
+test("cold sign-in and board routes reach usable controls on a throttled connection", async ({
+  browser,
+}, testInfo) => {
+  test.setTimeout(90000);
+  expect(browser.browserType().name()).toBe("chromium");
+  const coldBrowser = await chromium.launch({ channel: "chromium" });
+  try {
+    for (const scenario of ["sign-in", "board"] as const) {
+      const context = await coldBrowser.newContext({
+        baseURL: origin,
+        viewport: { width: 1280, height: 800 },
+      });
+      try {
+        if (scenario === "board") await context.addCookies(sessionCookies);
+        const page = await context.newPage();
+        const connection = await context.newCDPSession(page);
+        await connection.send("Network.enable");
+        await connection.send("Network.setCacheDisabled", {
+          cacheDisabled: true,
+        });
+        await connection.send("Network.emulateNetworkConditions", {
+          offline: false,
+          latency: 150,
+          downloadThroughput: 200_000,
+          uploadThroughput: 93_750,
+        });
+        await page.goto(scenario === "board" ? `/boards/${boardId}` : "/", {
+          waitUntil: "commit",
+        });
+        if (scenario === "board") {
+          await expect(
+            page.getByRole("heading", { name: "Recovery verification" }),
+          ).toBeVisible({ timeout: 30000 });
+          await expect(
+            page.getByRole("button", { name: "New task", exact: true }),
+          ).toBeVisible();
+        } else {
+          await expect(
+            page.getByRole("heading", { name: "Sign in to Mill" }),
+          ).toBeVisible({ timeout: 30000 });
+          await expect(
+            page.getByLabel("Password", { exact: true }),
+          ).toBeVisible();
+        }
+        const observation = await page.evaluate(() => {
+          const resources = performance.getEntriesByType(
+            "resource",
+          ) as PerformanceResourceTiming[];
+          const bytes = (pattern: RegExp) =>
+            resources
+              .filter((resource) =>
+                pattern.test(new URL(resource.name).pathname),
+              )
+              .reduce((sum, resource) => sum + resource.transferSize, 0);
+          const navigation = performance.getEntriesByType("navigation")[0] as
+            PerformanceNavigationTiming | undefined;
+          return {
+            usableByMs: Math.round(performance.now()),
+            htmlTransferBytes: navigation?.transferSize ?? 0,
+            entryJsTransferBytes: bytes(/^\/assets\/index-[^/]+\.js$/),
+            cssTransferBytes: bytes(/^\/assets\/index-[^/]+\.css$/),
+            routeJsTransferBytes: bytes(/^\/assets\/(?!index-)[^/]+\.js$/),
+            bootstrapJsTransferBytes: bytes(/^\/startup-recovery\.js$/),
+            finePointer: matchMedia("(pointer: fine)").matches,
+            hover: matchMedia("(hover: hover)").matches,
+          };
+        });
+        expect(observation.finePointer).toBe(true);
+        expect(observation.hover).toBe(true);
+        expect(observation.entryJsTransferBytes).toBeGreaterThan(0);
+        expect(observation.cssTransferBytes).toBeGreaterThan(0);
+        const result = {
+          scenario,
+          throttling: "1.6 Mbps down, 750 kbps up, 150 ms latency",
+          ...observation,
+        };
+        console.log(`cold-load ${JSON.stringify(result)}`);
+        await testInfo.attach(`cold-${scenario}.json`, {
+          body: JSON.stringify(result, null, 2),
+          contentType: "application/json",
+        });
+      } finally {
+        await context.close();
+      }
+    }
+  } finally {
+    await coldBrowser.close();
+  }
+});
+
+test("a failed application entry shows recovery before React starts", async ({
+  page,
+}) => {
+  let failEntry = true;
+  await page.route("**/assets/index-*.js", async (route) => {
+    if (!failEntry) return route.continue();
+    failEntry = false;
+    await route.abort("connectionfailed");
+  });
+
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Mill could not start" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Reload Mill" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sign in to Mill" }),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Reload Mill" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Sign in to Mill" }),
+  ).toBeVisible();
+});
+
+test("a held application entry offers recovery and can still finish loading", async ({
+  page,
+}) => {
+  test.setTimeout(45000);
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/assets/index-*.js", async (route) => {
+    await blocked;
+    await route.continue();
+  });
+
+  try {
+    await page.goto("/", { waitUntil: "commit" });
+    await expect(
+      page.getByRole("heading", { name: "Mill could not start" }),
+    ).toBeVisible({ timeout: 20000 });
+    release();
+    await expect(
+      page.getByRole("heading", { name: "Sign in to Mill" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Mill could not start" }),
+    ).toHaveCount(0);
+  } finally {
+    release();
+  }
+});
+
+test("a slow sign-in chunk does not show entry recovery after React starts", async ({
+  page,
+}) => {
+  test.setTimeout(45000);
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/assets/auth-*.js", async (route) => {
+    await blocked;
+    await route.continue();
+  });
+
+  try {
+    await page.goto("/", { waitUntil: "commit" });
+    await expect(page.locator("#root")).toHaveAttribute(
+      "data-mill-entry-started",
+      "true",
+    );
+    await page.waitForTimeout(16000);
+    await expect(
+      page.getByRole("heading", { name: "Mill could not start" }),
+    ).toHaveCount(0);
+    release();
+    await expect(
+      page.getByRole("heading", { name: "Sign in to Mill" }),
+    ).toBeVisible();
+  } finally {
+    release();
+  }
+});
+
+test("a stale entry reloads once to the current application build", async ({
+  page,
+}) => {
+  const staleEntry = "/assets/index-stale.js";
+  let firstHtml = true;
+  let navigations = 0;
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+      navigations++;
+  });
+  await page.route(
+    (url) => url.pathname === "/",
+    async (route) => {
+      const response = await route.fetch();
+      if (!firstHtml) return route.fulfill({ response });
+      firstHtml = false;
+      const html = await response.text();
+      const staleHtml = html.replace(
+        /src="\/assets\/index-[^"]+\.js"/,
+        `src="${staleEntry}"`,
+      );
+      expect(staleHtml).not.toBe(html);
+      await route.fulfill({ response, body: staleHtml });
+    },
+  );
+
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Sign in to Mill" }),
+  ).toBeVisible();
+  expect(navigations).toBe(2);
+  expect(
+    await page.evaluate(() => sessionStorage.getItem("mill:entry-reload")),
+  ).toBe(new URL(staleEntry, origin).href);
+});
+
 for (const action of ["Reload", "Go to boards"]) {
   test(`a failed page module recovers through ${action}`, async ({ page }) => {
     await authenticate(page);
@@ -119,7 +344,7 @@ for (const action of ["Reload", "Go to boards"]) {
     });
     await page.goto(`/boards/${boardId}`);
     await expect(
-      page.getByRole("heading", { name: "Something went wrong" }),
+      page.getByRole("heading", { name: "Unable to open this page" }),
     ).toBeVisible();
     const navigation = page.waitForRequest(
       (request) =>
@@ -131,16 +356,15 @@ for (const action of ["Reload", "Go to boards"]) {
       page.getByRole("navigation", { name: "Workspace navigation" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Something went wrong" }),
+      page.getByRole("heading", { name: "Unable to open this page" }),
     ).toHaveCount(0);
     await expect(page).toHaveURL(/\/boards\/[^/]+$/);
   });
 }
 
-test("phone actions and fields retain touch targets and readable input text", async ({
-  browser,
-}) => {
-  const context = await browser.newContext({
+test("phone actions and fields retain touch targets and readable input text", async () => {
+  const phoneBrowser = await chromium.launch({ channel: "chromium" });
+  const context = await phoneBrowser.newContext({
     baseURL: origin,
     viewport: { width: 390, height: 844 },
     isMobile: true,
@@ -150,6 +374,7 @@ test("phone actions and fields retain touch targets and readable input text", as
     const page = await context.newPage();
     await authenticate(page);
     await page.goto("/settings/workspace");
+    await expectTouchContext(page);
     await expect(
       page.getByRole("textbox", { name: "Name", exact: true }),
     ).toBeVisible();
@@ -188,6 +413,7 @@ test("phone actions and fields retain touch targets and readable input text", as
     expect(bounds!.width).toBeGreaterThanOrEqual(44);
   } finally {
     await context.close();
+    await phoneBrowser.close();
   }
 });
 
@@ -196,7 +422,9 @@ test("missing pages have a primary recovery action in both themes and viewport s
 }, testInfo) => {
   for (const width of [1280, 390]) {
     for (const theme of ["light", "dark"]) {
-      const context = await browser.newContext({
+      const touchBrowser =
+        width === 390 ? await chromium.launch({ channel: "chromium" }) : null;
+      const context = await (touchBrowser ?? browser).newContext({
         baseURL: origin,
         viewport: { width, height: 844 },
         isMobile: width === 390,
@@ -209,6 +437,7 @@ test("missing pages have a primary recovery action in both themes and viewport s
         }, theme);
         const page = await context.newPage();
         await page.goto("/missing-review-page");
+        if (width === 390) await expectTouchContext(page);
         const heading = page.getByRole("heading", {
           name: "This page could not be found",
           exact: true,
@@ -232,6 +461,7 @@ test("missing pages have a primary recovery action in both themes and viewport s
           ),
         ).toBe(true);
         if (width === 390) {
+          await expectTouchContext(page);
           const bounds = await action.boundingBox();
           expect(bounds!.height).toBeGreaterThanOrEqual(44);
         }
@@ -244,6 +474,7 @@ test("missing pages have a primary recovery action in both themes and viewport s
         await expect(heading).toHaveCount(0);
       } finally {
         await context.close();
+        await touchBrowser?.close();
       }
     }
   }
@@ -272,7 +503,10 @@ test("board read failure retries without a transient placeholder or empty state"
   try {
     await page.goto(`/boards/${boardId}`);
     await expect(
-      page.getByRole("heading", { name: "Something went wrong", exact: true }),
+      page.getByRole("heading", {
+        name: "Mill could not load this page",
+        exact: true,
+      }),
     ).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath("board-read-failed.png"),
@@ -307,7 +541,10 @@ test("board read failure retries without a transient placeholder or empty state"
       page.getByRole("status", { name: "Loading tasks…" }),
     ).toHaveCount(0);
     await expect(
-      page.getByRole("heading", { name: "Something went wrong", exact: true }),
+      page.getByRole("heading", {
+        name: "Mill could not load this page",
+        exact: true,
+      }),
     ).toHaveCount(0);
   } finally {
     release();
@@ -322,7 +559,11 @@ test("limited roles see permission recovery without administrative data requests
     try {
       for (const width of [1280, 390]) {
         for (const theme of ["light", "dark"]) {
-          const context = await browser.newContext({
+          const touchBrowser =
+            width === 390
+              ? await chromium.launch({ channel: "chromium" })
+              : null;
+          const context = await (touchBrowser ?? browser).newContext({
             baseURL: origin,
             viewport: { width, height: 844 },
             isMobile: width === 390,
@@ -347,6 +588,7 @@ test("limited roles see permission recovery without administrative data requests
             });
             for (const section of ["members", "workspace"]) {
               await page.goto(`/settings/${section}`);
+              if (width === 390) await expectTouchContext(page);
               await expect(
                 page.getByRole("heading", {
                   name: "Administrator access required",
@@ -403,6 +645,7 @@ test("limited roles see permission recovery without administrative data requests
             ).toBe(404);
           } finally {
             await context.close();
+            await touchBrowser?.close();
           }
         }
       }

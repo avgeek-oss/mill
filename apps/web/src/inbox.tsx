@@ -90,6 +90,17 @@ export function NotificationsPopover({
     return () => window.removeEventListener("mill:expired", onExpired);
   }, []);
 
+  useEffect(() => {
+    const onAccessDenied = () => {
+      currentOpen.current = false;
+      openingSequence.current++;
+      setIsOpen(false);
+    };
+    window.addEventListener("mill:route-access-denied", onAccessDenied);
+    return () =>
+      window.removeEventListener("mill:route-access-denied", onAccessDenied);
+  }, []);
+
   const load = useCallback(
     async (cursor?: string) => {
       const request = ++sequence.current;

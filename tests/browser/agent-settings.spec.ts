@@ -271,8 +271,8 @@ test("personal agents are created, edited with conflict recovery, and deleted wi
     .getByLabel("Name", { exact: true })
     .fill("Browser personal assistant edited");
   await edit.getByRole("button", { name: "Save changes", exact: true }).click();
-  await expect(edit.getByRole("status")).toHaveText("Agent updated.");
-  await edit.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(edit).toHaveCount(0);
+  await expect(page.getByText("Agent updated.", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("row", { name: /Browser personal assistant edited/ }),
   ).toBeVisible();
@@ -335,9 +335,17 @@ test("personal agents are created, edited with conflict recovery, and deleted wi
   await removal
     .getByRole("button", { name: "Delete agent", exact: true })
     .click();
-  await expect(removal.getByRole("status")).toHaveText("Agent deleted.");
-  await removal.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(create).toBeFocused();
+  await expect(removal).toHaveCount(0);
+  await expect(page.getByText("Agent deleted.", { exact: true })).toBeVisible();
+  const focusState = await create.evaluate((element) => ({
+    active: document.activeElement?.outerHTML.slice(0, 500),
+    connected: element.isConnected,
+    disabled: element.hasAttribute("disabled"),
+    ariaDisabled: element.getAttribute("aria-disabled"),
+    visibility: getComputedStyle(element).visibility,
+    inertAncestor: Boolean(element.closest("[inert]")),
+  }));
+  await expect(create, JSON.stringify(focusState)).toBeFocused();
   await expect(
     page.getByRole("row", { name: /Browser personal assistant edited/ }),
   ).toHaveCount(0);
@@ -522,11 +530,16 @@ test("initial loading, failed loading, empty list and the personal key form rema
   await expect(
     region.getByText("No API keys yet", { exact: true }),
   ).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Boards", exact: true })
+    .click();
   await expect(
     page
-      .getByRole("navigation", { name: "Workspace navigation" })
+      .getByRole("navigation", { name: "Boards navigation" })
       .getByRole("link", { name: board.name, exact: true }),
   ).toBeVisible();
+  await openAgents(page);
   const directoryBaseline = { boards: boardLookups, agents: agentLookups };
   const dialog = await createDialog(page, "A personal key without an Agent");
   await expect(dialog.getByRole("textbox")).toHaveCount(1);
@@ -647,7 +660,9 @@ test("response loss retries the same creation, reveals the original token locall
   await reveal
     .getByRole("button", { name: "Copy API key", exact: true })
     .click();
-  await expect(reveal.getByRole("status")).toHaveText("API key copied.");
+  await expect(
+    page.getByText("API key copied.", { exact: true }),
+  ).toBeVisible();
   expect(
     (await page.evaluate(() => navigator.clipboard.readText())) === original,
     "Copy places the original credential on the clipboard",
@@ -762,10 +777,12 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
   await dialog
     .getByRole("button", { name: "Revoke API key", exact: true })
     .click();
-  await expect(dialog.getByRole("status")).toHaveText("API key revoked.");
+  await expect(dialog).toHaveCount(0);
+  await expect(
+    page.getByText("API key revoked.", { exact: true }),
+  ).toBeVisible();
   expect(keys[0] === keys[1]).toBe(true);
   expect(keys[1] === keys[2]).toBe(true);
-  await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await expect(
     page.getByRole("row", { name: /Revocation retry agent/ }),
   ).toContainText("Revoked");
@@ -853,13 +870,10 @@ test("older active credentials remain reachable and revocable after the default 
     .getByRole("dialog")
     .getByRole("button", { name: "Revoke API key", exact: true })
     .click();
-  await expect(page.getByRole("dialog").getByRole("status")).toHaveText(
-    "API key revoked.",
-  );
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Done", exact: true })
-    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(
+    page.getByText("API key revoked.", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("row", { name: /Older active agent/ }),
   ).toContainText("Revoked");
@@ -887,6 +901,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       memberIds: [viewer.id],
     })
   ).agent;
+  const personalAgentName = "Viewer personal assistant";
   const credential = await json(page.request, "/credentials", {
     name: "Release planning reader",
     expiresInDays: 30,
@@ -922,6 +937,10 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
           item.actorId === viewer.id && item.actorKind === "human",
       ),
     ).toBe(true);
+    await json(page.request, "/agents", {
+      name: personalAgentName,
+      scope: "personal",
+    });
   } finally {
     await json(
       admin,
@@ -971,13 +990,34 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
           .filter((column) => column.width > 0),
       );
     expect(columns.map((column) => column.name)).toEqual([
-      "API key",
+      "Name",
       "Status",
+      "Created",
       "Expires",
       "Last used",
       "Action",
     ]);
     expect(columns.every((column) => column.right <= 1280)).toBe(true);
+    const unusedRow = page.getByRole("row", {
+      name: new RegExp(longCredentialName),
+    });
+    await expect(unusedRow.getByText("API key", { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(unusedRow.locator("td").nth(2)).not.toBeEmpty();
+    await expect(
+      unusedRow
+        .getByText("Never used", { exact: true })
+        .filter({ visible: true }),
+    ).toHaveClass(/text-muted/);
+    await expect
+      .poll(() =>
+        page.locator("button [data-slot='avatar']").evaluate((element) => {
+          const style = getComputedStyle(element);
+          return [style.width, style.height, style.borderRadius];
+        }),
+      )
+      .toEqual(["36px", "36px", "8px"]);
     await writeFile(
       testInfo.outputPath(`api-keys-desktop-${theme}-columns.json`),
       JSON.stringify(columns, null, 2),
@@ -992,6 +1032,17 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
     await expect(
       page.getByRole("row", { name: new RegExp(visibleAgent.name) }),
     ).toBeVisible();
+    const teamColor = await page
+      .getByRole("row", { name: new RegExp(visibleAgent.name) })
+      .getByText("Team", { exact: true })
+      .filter({ visible: true })
+      .evaluate((element) => getComputedStyle(element).color);
+    const personalColor = await page
+      .getByRole("row", { name: new RegExp(personalAgentName) })
+      .getByText("Personal", { exact: true })
+      .filter({ visible: true })
+      .evaluate((element) => getComputedStyle(element).color);
+    expect(teamColor).not.toBe(personalColor);
     await expectTheme(page, theme);
     await page.screenshot({
       path: testInfo.outputPath(`agent-directory-desktop-${theme}.png`),
@@ -1013,6 +1064,14 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
   try {
     const mobile = await phone.newPage();
     await mobile.goto("/settings/api-keys");
+    const touchMedia = await mobile.evaluate(() => ({
+      coarse: matchMedia("(pointer: coarse)").matches,
+      noHover: matchMedia("(hover: none)").matches,
+      touchPoints: navigator.maxTouchPoints,
+    }));
+    expect(touchMedia.coarse).toBe(true);
+    expect(touchMedia.noHover).toBe(true);
+    expect(touchMedia.touchPoints).toBeGreaterThan(0);
     const action = mobile.getByRole("button", {
       name: "Revoke Release planning reader",
       exact: true,
@@ -1054,6 +1113,11 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
         );
       expect(cells).toHaveLength(1);
       expect(cells.every((cell) => cell.right <= 390)).toBe(true);
+      await expect(
+        mobile
+          .getByRole("row", { name: new RegExp(longCredentialName) })
+          .getByText(/^Created /),
+      ).toBeVisible();
       await writeFile(
         testInfo.outputPath(`api-keys-phone-${theme}-cells.json`),
         JSON.stringify(cells, null, 2),
@@ -1066,9 +1130,11 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       await expectTheme(mobile, theme);
       await mobile.screenshot({
         path: testInfo.outputPath(`api-keys-phone-${theme}.png`),
-        fullPage: true,
         animations: "disabled",
       });
+      expect(
+        await mobile.evaluate(() => matchMedia("(pointer: coarse)").matches),
+      ).toBe(true);
       await mobile.goto("/settings/agents");
       await expect(
         mobile.getByRole("row", { name: new RegExp(visibleAgent.name) }),
@@ -1076,9 +1142,11 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       await expectTheme(mobile, theme);
       await mobile.screenshot({
         path: testInfo.outputPath(`agent-directory-phone-${theme}.png`),
-        fullPage: true,
         animations: "disabled",
       });
+      expect(
+        await mobile.evaluate(() => matchMedia("(pointer: coarse)").matches),
+      ).toBe(true);
       await openAgents(mobile);
       const form = await createDialog(
         mobile,
@@ -1303,6 +1371,16 @@ test("125 active people keep selections across pages and search with bounded whe
     ).toBe(true);
   }
   try {
+    const touchProbe = await phone.newPage();
+    const touchMedia = await touchProbe.evaluate(() => ({
+      coarse: matchMedia("(pointer: coarse)").matches,
+      noHover: matchMedia("(hover: none)").matches,
+      touchPoints: navigator.maxTouchPoints,
+    }));
+    expect(touchMedia.coarse).toBe(true);
+    expect(touchMedia.noHover).toBe(true);
+    expect(touchMedia.touchPoints).toBeGreaterThan(0);
+    await touchProbe.close();
     const directory = await json(admin, "/auth/members");
     expect(
       directory.items.filter((person: Person) =>
@@ -1408,6 +1486,9 @@ test("125 active people keep selections across pages and search with bounded whe
         path: testInfo.outputPath(`agent-people-phone-${theme}.png`),
         animations: "disabled",
       });
+      expect(
+        await mobile.evaluate(() => matchMedia("(pointer: coarse)").matches),
+      ).toBe(true);
       await edit.getByRole("button", { name: "Cancel", exact: true }).tap();
     }
   } finally {
@@ -1629,8 +1710,10 @@ test("all team members includes future people and switching back preserves named
     await edit
       .getByRole("button", { name: "Save changes", exact: true })
       .click();
-    await expect(edit.getByRole("status")).toHaveText("Agent updated.");
-    await edit.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(edit).toHaveCount(0);
+    await expect(
+      page.getByText("Agent updated.", { exact: true }),
+    ).toBeVisible();
     const saved = (await json(admin, `/agents/${id}?manage=true`)).agent;
     created = saved;
     expect(saved.allMembers).toBe(false);

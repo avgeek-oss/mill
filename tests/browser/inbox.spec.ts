@@ -124,10 +124,8 @@ async function openNotifications(page: Page) {
 function inbox(page: Page) {
   return page.getByRole("dialog", { name: "Notifications", exact: true });
 }
-function taskDialog(page: Page) {
-  return page.getByRole("dialog").filter({
-    has: page.getByLabel("Title", { exact: true }),
-  });
+function taskPage(page: Page) {
+  return page.locator(".task-page-layout");
 }
 function rows(page: Page) {
   return inbox(page).getByRole("listitem");
@@ -256,10 +254,10 @@ test("the single list reaches older notifications and marks refresh the durable 
     popup = await popupPromise;
     await popup.waitForURL(`**/boards/${boardId}/tasks/${task.id}`);
     await expect(popup).toHaveURL(expectedURL);
-    await expect(taskDialog(popup)).toBeVisible();
+    await expect(taskPage(popup)).toBeVisible();
     await expect(
-      taskDialog(popup).getByLabel("Title", { exact: true }),
-    ).toHaveValue(taskTitle);
+      taskPage(popup).getByRole("heading", { name: taskTitle }),
+    ).toBeVisible();
     expect(page.context().pages()).toHaveLength(2);
     expect(marks).toBe(0);
     expect((await json(who.api, "/notifications")).unreadCount).toBe(120);
@@ -267,11 +265,11 @@ test("the single list reaches older notifications and marks refresh the durable 
     page.context().off("response", onResponse);
     page.context().off("request", onRequest);
     const title = popup
-      ? taskDialog(popup).getByLabel("Title", { exact: true })
+      ? taskPage(popup).getByRole("heading", { name: taskTitle })
       : undefined;
     const titleVisible = (await title?.isVisible().catch(() => false)) ?? false;
     const titleMatches = titleVisible
-      ? (await title?.inputValue({ timeout: 1000 }).catch(() => null)) ===
+      ? (await title?.textContent({ timeout: 1000 }).catch(() => null)) ===
         taskTitle
       : false;
     await testInfo.attach("notification-native-popup.json", {
@@ -306,7 +304,7 @@ test("the single list reaches older notifications and marks refresh the durable 
   page.context().on("request", onRequest);
   await link.click();
   await expect(page).toHaveURL(expectedURL);
-  await expect(taskDialog(page)).toBeVisible();
+  await expect(taskPage(page)).toBeVisible();
   expect(marks).toBe(1);
   page.context().off("request", onRequest);
   await page.goBack();
@@ -406,8 +404,11 @@ test("Viewer members and their personal API key preserve notification ownership"
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
   await expect(
-    taskDialog(page).getByLabel("Title", { exact: true }),
-  ).toBeDisabled();
+    taskPage(page).getByRole("heading", { name: fixture.task.title }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Edit task details" }),
+  ).toHaveCount(0);
 });
 
 test("opening an unread task marks its notification read and read links do not mark again", async ({
@@ -431,7 +432,7 @@ test("opening an unread task marks its notification read and read links do not m
     await settled(page);
     expect((await json(who.api, "/notifications")).unreadCount).toBe(2);
     await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
-    await expect(taskDialog(page)).toHaveCount(0);
+    await expect(taskPage(page)).toHaveCount(0);
     await expect(
       row(page, "Opening Inbox teammate 2").getByText("Unread", {
         exact: true,
@@ -444,7 +445,7 @@ test("opening an unread task marks its notification read and read links do not m
   await expect(page).toHaveURL(
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
-  await expect(taskDialog(page)).toBeVisible();
+  await expect(taskPage(page)).toBeVisible();
   await expect(
     page.getByLabel("1 unread notifications", { exact: true }),
   ).toBeVisible();
@@ -459,7 +460,7 @@ test("opening an unread task marks its notification read and read links do not m
   const read = row(page, "Opening Inbox teammate 2");
   await expect(read.getByText("Read", { exact: true })).toBeVisible();
   await read.getByRole("link").click();
-  await expect(taskDialog(page)).toBeVisible();
+  await expect(taskPage(page)).toBeVisible();
   await settled(page);
   expect(marks).toBe(1);
   await page.goto(`/boards/${boardId}`);
@@ -468,7 +469,7 @@ test("opening an unread task marks its notification read and read links do not m
   await expect(row(page, "Opening Inbox teammate 1")).toBeVisible();
   expect((await json(who.api, "/notifications")).unreadCount).toBe(1);
   await row(page, "Opening Inbox teammate 1").getByRole("link").press("Enter");
-  await expect(taskDialog(page)).toBeVisible();
+  await expect(taskPage(page)).toBeVisible();
   expect((await json(who.api, "/notifications")).unreadCount).toBe(0);
   expect(marks).toBe(2);
 });
@@ -487,7 +488,7 @@ test("failed task opening retains its row error and retries the original mark be
   await latest.getByRole("link").click();
   await expect(latest.getByRole("alert")).toContainText("could not be reached");
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
-  await expect(taskDialog(page)).toHaveCount(0);
+  await expect(taskPage(page)).toHaveCount(0);
   const [unchanged] =
     await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
   expect(unchanged.readAt).toBeNull();
@@ -515,7 +516,7 @@ test("failed task opening retains its row error and retries the original mark be
     await requested;
     await expect(latest.getByRole("status")).toHaveText("Opening task…");
     await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
-    await expect(taskDialog(page)).toHaveCount(0);
+    await expect(taskPage(page)).toHaveCount(0);
     await expect(latest.getByRole("button")).toHaveCount(0);
     await expect(
       inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
@@ -530,7 +531,7 @@ test("failed task opening retains its row error and retries the original mark be
   await expect(page).toHaveURL(
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
-  await expect(taskDialog(page)).toBeVisible();
+  await expect(taskPage(page)).toBeVisible();
   await expect(
     page.getByLabel("1 unread notifications", { exact: true }),
   ).toBeVisible();
@@ -585,7 +586,7 @@ test("pending task opening cannot navigate after dismissing and reopening the li
     }),
   ).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
-  await expect(taskDialog(page)).toHaveCount(0);
+  await expect(taskPage(page)).toHaveCount(0);
   pending = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -610,7 +611,7 @@ test("pending task opening cannot navigate after dismissing and reopening the li
   }
   await settled(page);
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
-  await expect(taskDialog(page)).toHaveCount(0);
+  await expect(taskPage(page)).toHaveCount(0);
   await expect(
     row(page, "Other open Inbox teammate 1").getByText("Unread", {
       exact: true,
@@ -930,7 +931,7 @@ test("dismissing a pending task opening keeps the acknowledged read without dela
   }
   await settled(page);
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
-  await expect(taskDialog(page)).toHaveCount(0);
+  await expect(taskPage(page)).toHaveCount(0);
   const [marked] =
     await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
   expect(marked.readAt).not.toBeNull();
@@ -938,7 +939,7 @@ test("dismissing a pending task opening keeps the acknowledged read without dela
   const read = row(page, "Dismissed opening teammate 1");
   await expect(read.getByText("Read", { exact: true })).toBeVisible();
   await read.getByRole("link").press("Enter");
-  await expect(taskDialog(page)).toBeVisible();
+  await expect(taskPage(page)).toBeVisible();
   await expect(page).toHaveURL(
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
@@ -1118,9 +1119,14 @@ test.describe("touch notifications", () => {
     await expect(
       page.getByRole("button", { name: "Open navigation", exact: true }),
     ).toBeVisible();
-    expect(
-      await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
-    ).toBe(true);
+    const touchMedia = await page.evaluate(() => ({
+      coarse: matchMedia("(pointer: coarse)").matches,
+      noHover: matchMedia("(hover: none)").matches,
+      touchPoints: navigator.maxTouchPoints,
+    }));
+    expect(touchMedia.coarse).toBe(true);
+    expect(touchMedia.noHover).toBe(true);
+    expect(touchMedia.touchPoints).toBeGreaterThan(0);
     const trigger = page.getByRole("button", {
       name: "Open notifications",
       exact: true,

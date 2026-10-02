@@ -135,6 +135,11 @@ export function TaskPage({
   }, [sessionRevision, editor.reload]);
 
   useEffect(() => {
+    if (editor.accessDenied)
+      window.dispatchEvent(new Event("mill:route-access-denied"));
+  }, [editor.accessDenied]);
+
+  useEffect(() => {
     let current = true;
     setBoardError("");
     void api<{ board: Board }>(`/boards/${boardId}`, undefined, "GET", {
@@ -263,7 +268,11 @@ export function TaskPage({
         },
       });
       deleteKey.reset();
-      window.history.replaceState(window.history.state, "", returnHref);
+      window.history.replaceState(
+        { ...window.history.state, millFocusAfterTaskDeletion: true },
+        "",
+        returnHref,
+      );
       window.dispatchEvent(new Event("mill:navigate"));
     } catch (error) {
       if (

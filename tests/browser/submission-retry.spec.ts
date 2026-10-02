@@ -68,7 +68,9 @@ async function open(page: Page, task = false) {
   await page.context().addCookies(sessionCookies);
   await page.goto(`/boards/${boardId}${task ? `/tasks/${taskId}` : ""}`);
   await expect(
-    page.getByRole("heading", { name: "Submission retry verification" }),
+    page.getByRole("heading", {
+      name: task ? "Comment retry fixture" : "Submission retry verification",
+    }),
   ).toBeVisible();
 }
 
@@ -158,21 +160,20 @@ test("task retries reuse a committed operation and fresh submissions receive new
   await expect(page.getByLabel("Title", { exact: true })).toHaveValue(title);
   await page.getByRole("button", { name: "Create task", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Save changes", exact: true }),
+    page.getByRole("heading", { name: title, exact: true }),
   ).toBeVisible();
   expect(attempts).toHaveLength(2);
   expect(attempts[1].key).toBe(attempts[0].key);
   expect(attempts[1].replayed).toBe("true");
   expect(attempts[1].body.task.id).toBe(attempts[0].body.task.id);
   await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "Close", exact: true })
+    .getByRole("button", { name: "Back to board", exact: true })
     .click();
   await page.getByRole("button", { name: "New task", exact: true }).click();
   await page.getByLabel("Title", { exact: true }).fill(title);
   await page.getByRole("button", { name: "Create task", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Save changes", exact: true }),
+    page.getByRole("heading", { name: title, exact: true }),
   ).toBeVisible();
   expect(attempts).toHaveLength(3);
   expect(attempts[2].key).not.toBe(attempts[0].key);
@@ -203,7 +204,7 @@ test("changing a failed task draft starts a distinct operation", async ({
   await page.getByLabel("Title", { exact: true }).fill(`${title} revised`);
   await page.getByRole("button", { name: "Create task", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Save changes", exact: true }),
+    page.getByRole("heading", { name: `${title} revised`, exact: true }),
   ).toBeVisible();
   expect(attempts).toHaveLength(2);
   expect(attempts[1].key).not.toBe(attempts[0].key);
@@ -248,7 +249,7 @@ test("reverting an unresolved draft reuses its original committed operation", as
   await input.fill(title);
   await submit.click();
   await expect(
-    page.getByRole("button", { name: "Save changes", exact: true }),
+    page.getByRole("heading", { name: title, exact: true }),
   ).toBeVisible();
   expect(attempts).toHaveLength(3);
   expect(attempts[1].key).not.toBe(attempts[0].key);
@@ -280,10 +281,13 @@ for (const failure of ["connection", "truncated", "empty"] as const) {
     );
     const text = `Comment ${failure} response ${randomBytes(3).toString("hex")}`;
     const input = page.getByLabel("Add a comment", { exact: true });
-    const submit = page.getByRole("button", { name: "Comment", exact: true });
+    const submit = page.getByRole("button", {
+      name: "Send comment",
+      exact: true,
+    });
     await input.fill(text);
     await submit.click();
-    await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
+    await expect(page.getByRole("alert")).toContainText(
       failure === "connection"
         ? "could not be reached"
         : failure === "empty"
@@ -317,3 +321,45 @@ for (const failure of ["connection", "truncated", "empty"] as const) {
     ).toHaveLength(2);
   });
 }
+
+test("an immediately saved title recovers a lost acknowledgement without a duplicate update", async ({
+  page,
+}) => {
+  await open(page, true);
+  const before = (await (await page.request.get(`/api/tasks/${taskId}`)).json())
+    .task;
+  const title = `Atomic lost response ${randomBytes(3).toString("hex")}`;
+  const attempts: { version: number; title: string }[] = [];
+  await page.route(`**/api/tasks/${taskId}`, async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    attempts.push(route.request().postDataJSON());
+    const response = await route.fetch();
+    if (attempts.length === 1) {
+      expect(response.ok()).toBeTruthy();
+      return route.abort("connectionfailed");
+    }
+    await route.fulfill({ response });
+  });
+  await page
+    .getByRole("button", { name: "Edit task details", exact: true })
+    .click();
+  const modal = page.getByRole("dialog", { name: "Edit task", exact: true });
+  const input = modal.getByLabel("Title", { exact: true });
+  await input.fill(title);
+  await input.press("Tab");
+  await expect(modal.getByRole("alert")).toContainText("could not be reached");
+  await expect(input).toHaveValue(title);
+  await modal.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(modal.getByRole("alert")).toHaveCount(0);
+  await modal.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: title, exact: true }),
+  ).toBeVisible();
+  const after = (await (await page.request.get(`/api/tasks/${taskId}`)).json())
+    .task;
+  expect(after.version).toBe(before.version + 1);
+  expect(after.description).toBe(before.description);
+  expect(attempts).toHaveLength(2);
+  expect(attempts[0]).toEqual({ version: before.version, title });
+  expect(attempts[1]).toEqual(attempts[0]);
+});

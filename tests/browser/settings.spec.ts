@@ -165,10 +165,8 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
     .getByRole("button", { name: "Save preferences", exact: true })
     .click();
   await expect(
-    page
-      .getByRole("region", { name: "Profile details", exact: true })
-      .getByRole("status"),
-  ).toContainText("Preferences saved");
+    page.getByText("Preferences saved.", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /email/i })).toHaveCount(0);
   await expect(
     page.getByText("Email delivery is unavailable for this installation.", {
@@ -190,10 +188,8 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
     .getByRole("button", { name: "Save notifications", exact: true })
     .click();
   await expect(
-    page
-      .getByRole("region", { name: "Notifications", exact: true })
-      .getByRole("status"),
-  ).toContainText("Notifications saved");
+    page.getByText("Notifications saved.", { exact: true }),
+  ).toBeVisible();
   expect((await json(page.request, "/auth/me")).user.name).toBe(admin.name);
   await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
     "Unsaved profile draft",
@@ -263,12 +259,7 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
   await accountAction(page, "Account security");
   await page.getByRole("button", { name: "Add passkey", exact: true }).click();
   await confirmPassword(page);
-  await expect(
-    page
-      .getByRole("region", { name: "Passkeys", exact: true })
-      .getByRole("status")
-      .filter({ hasText: "Passkey added" }),
-  ).toContainText("Passkey added");
+  await expect(page.getByText("Passkey added.", { exact: true })).toBeVisible();
   await expect(page.getByText("My passkey", { exact: false })).toBeVisible();
   const credentials = await cdp.send("WebAuthn.getCredentials", {
     authenticatorId,
@@ -318,9 +309,9 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     origin,
   });
   await recoveryDialog.getByRole("button", { name: "Copy codes" }).click();
-  await expect(recoveryDialog.getByRole("status")).toHaveText(
-    "Recovery codes copied.",
-  );
+  await expect(
+    page.getByText("Recovery codes copied.", { exact: true }),
+  ).toBeVisible();
   const copiedCodes = await page.evaluate(() => navigator.clipboard.readText());
   expect(copiedCodes.split("\n").length).toBe(10);
   expect(
@@ -457,11 +448,22 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
           .getByRole("button", { name: "Create task", exact: true })
           .click();
         await expect(
-          person.getByRole("dialog").getByRole("heading", { name: /^SET-/ }),
+          person.getByRole("heading", {
+            name: "Member created a real task",
+            exact: true,
+          }),
         ).toBeVisible();
-        await expect(person.getByLabel("Title", { exact: true })).toHaveValue(
-          "Member created a real task",
+        await expect(person).toHaveURL(
+          new RegExp(`/boards/${board.id}/tasks/`),
         );
+        const created = await json(person.request, `/boards/${board.id}/tasks`);
+        expect(
+          created.items.some(
+            (task: { title: string; identifier: string }) =>
+              task.title === "Member created a real task" &&
+              /^SET-/.test(task.identifier),
+          ),
+        ).toBe(true);
       }
     } finally {
       await context.close();
@@ -485,8 +487,10 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
   await revoke
     .getByRole("button", { name: "Revoke invitation", exact: true })
     .click();
-  await expect(revoke.getByRole("status")).toContainText("Invitation revoked");
-  await revoke.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(revoke).toHaveCount(0);
+  await expect(
+    page.getByText("Invitation revoked.", { exact: true }),
+  ).toBeVisible();
   await expect(pending).toContainText("Revoked");
   await page.reload();
   await expect(
@@ -558,11 +562,10 @@ test("assignment and mention notifications open the correct task and preferences
     .filter({ hasText: /mentioned you/i })
     .getByRole("link")
     .click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  await expect(page.getByLabel("Title", { exact: true })).toHaveValue(
-    "Review notification delivery",
-  );
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review notification delivery" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Back to board" }).click();
   await page
     .getByRole("button", { name: "Open notifications", exact: true })
     .click();
@@ -586,10 +589,8 @@ test("assignment and mention notifications open the correct task and preferences
     .getByRole("button", { name: "Save notifications", exact: true })
     .click();
   await expect(
-    page
-      .getByRole("region", { name: "Notifications", exact: true })
-      .getByRole("status"),
-  ).toContainText("Notifications saved");
+    page.getByText("Notifications saved.", { exact: true }),
+  ).toBeVisible();
   await json(adminApi, `/boards/${board.id}/tasks`, {
     status: "todo",
     title: "Assignment preference excludes this alert",
@@ -688,8 +689,10 @@ test("a personal API key uses current human permissions and loses access when re
     await revoke
       .getByRole("button", { name: "Revoke API key", exact: true })
       .click();
-    await expect(revoke.getByRole("status")).toContainText("API key revoked");
-    await revoke.getByRole("button", { name: "Done", exact: true }).click();
+    await expect(revoke).toHaveCount(0);
+    await expect(
+      page.getByText("API key revoked.", { exact: true }),
+    ).toBeVisible();
     await expect(row).toContainText("Revoked");
     expect((await key.get(`/api/boards/${board.id}/tasks`)).status()).toBe(401);
   } finally {
@@ -711,9 +714,9 @@ test("team settings persist without backup or portable data surfaces", async ({
   const name = page.getByRole("textbox", { name: /^Name/ });
   await name.fill("Settings workspace verification");
   await page.getByRole("button", { name: "Update", exact: true }).click();
-  await expect(page.getByRole("main").getByRole("status")).toContainText(
-    "Workspace updated",
-  );
+  await expect(
+    page.getByText("Team settings updated.", { exact: true }),
+  ).toBeVisible();
   expect((await json(page.request, "/auth/me")).workspace.name).toBe(
     "Settings workspace verification",
   );
@@ -777,8 +780,8 @@ test("session management revokes another browser without signing out the current
       .first()
       .click();
     await expect(
-      sessionSection.getByRole("status").filter({ hasText: "Session revoked" }),
-    ).toContainText("Session revoked");
+      page.getByText("Session revoked.", { exact: true }),
+    ).toBeVisible();
     await sessionSection
       .getByRole("button", { name: "Sign out", exact: true })
       .first()
@@ -928,7 +931,9 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
   await page.getByLabel("Password", { exact: true }).press("Enter");
   expect((await (await loginResponse).json()).methods).toEqual(["passkey"]);
   await page.getByRole("button", { name: "Cancel passkey request" }).click();
-  await expect(page.getByRole("alert")).toContainText("cancelled");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "cancelled" }),
+  ).toContainText("cancelled");
   await expect(page.getByLabel("Recovery code", { exact: true })).toHaveCount(
     0,
   );
@@ -1038,11 +1043,24 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
   await page.getByLabel("Password", { exact: true }).fill(nextPassword);
   await page.getByLabel("Confirm password", { exact: true }).fill(nextPassword);
   await page.getByLabel("Confirm password", { exact: true }).press("Enter");
-  await expect(page.getByRole("status")).toContainText(
-    "password has been reset",
-  );
   await expect(page).toHaveURL(`${origin}/`);
+  await expect(
+    page.getByRole("heading", { name: "Sign in to Mill" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "notification." }).getByRole("alert"),
+  ).toContainText("Password reset. Sign in to continue.");
   await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
+  await page.getByLabel("Password", { exact: true }).press("Enter");
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "email address or password is incorrect" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sign in to Mill" }),
+  ).toBeVisible();
   await page.getByLabel("Password", { exact: true }).fill(nextPassword);
   await page.getByLabel("Password", { exact: true }).press("Enter");
   await expect(
@@ -1075,6 +1093,14 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
   try {
     const mobile = await phone.newPage();
     await mobile.goto("/settings/profile");
+    const touchMedia = await mobile.evaluate(() => ({
+      coarse: matchMedia("(pointer: coarse)").matches,
+      noHover: matchMedia("(hover: none)").matches,
+      touchPoints: navigator.maxTouchPoints,
+    }));
+    expect(touchMedia.coarse).toBe(true);
+    expect(touchMedia.noHover).toBe(true);
+    expect(touchMedia.touchPoints).toBeGreaterThan(0);
     await expect(mobile.getByLabel("Name", { exact: true })).toBeVisible();
     expect(
       await mobile.evaluate(
@@ -1105,6 +1131,11 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
       .click();
     await mobile.screenshot({
       path: testInfo.outputPath("profile-phone-light.png"),
+      fullPage: true,
+      animations: "disabled",
+    });
+    await mobile.screenshot({
+      path: "docs/screenshots/mobile-profile.png",
       fullPage: true,
       animations: "disabled",
     });

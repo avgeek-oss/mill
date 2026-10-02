@@ -732,6 +732,14 @@ test("phone consent in both themes keeps long context readable and supports keyb
           localStorage.setItem("mill:theme", value);
         }, theme);
         const mobile = await context.newPage();
+        const touchMedia = await mobile.evaluate(() => ({
+          coarse: matchMedia("(pointer: coarse)").matches,
+          noHover: matchMedia("(hover: none)").matches,
+          touchPoints: navigator.maxTouchPoints,
+        }));
+        expect(touchMedia.coarse).toBe(true);
+        expect(touchMedia.noHover).toBe(true);
+        expect(touchMedia.touchPoints).toBeGreaterThan(0);
         await clientCallback(mobile);
         await mobile.goto(connection.url);
         await selectAgent(mobile, operator.agent!.name, "touch");
