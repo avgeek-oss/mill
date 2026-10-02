@@ -37,7 +37,6 @@ export const TASK_STATUSES = [
   "wont_do",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
-export type ChecklistItem = { id: string; text: string; done: boolean };
 export type Task = {
   id: string;
   boardId: string;
@@ -50,7 +49,6 @@ export type Task = {
   agentName: string | null;
   priority: "none" | "low" | "medium" | "high" | "urgent";
   dueDate: string | null;
-  checklist: ChecklistItem[];
   version: number;
   createdAt: string;
   updatedAt: string;

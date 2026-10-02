@@ -30,7 +30,6 @@ type TaskResult = {
     title: string;
     description: string;
     version: number;
-    checklist: unknown[];
     assigneeId: string | null;
     agentId: string | null;
     agentName: string | null;
@@ -380,7 +379,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
             assigneeId: user.id,
             agentId: agent.id,
             description: "**Markdown** task",
-            checklist: [{ id: "one", text: "Verify SDK", done: false }],
             priority: "high",
             dueDate: "2026-10-01",
             idempotencyKey: "mcp-create-retry-0001",
@@ -390,16 +388,14 @@ test("External credentials and actual MCP task workflows enforce current permiss
           assert.equal(task.task.agentId, agent.id);
           assert.equal(task.task.agentName, agent.name);
           assert.equal(task.task.assigneeId, user.id);
-          const withoutHuman = await client.callTool({
-            name: "create_task",
-            arguments: {
-              ...args,
-              title: "Agent without human",
-              assigneeId: null,
-              idempotencyKey: "mcp-agent-without-human",
-            },
+          const withoutHuman = await result<TaskResult>(client, "create_task", {
+            ...args,
+            title: "Agent without human",
+            assigneeId: null,
+            idempotencyKey: "mcp-agent-without-human",
           });
-          assert.equal(withoutHuman.isError, true);
+          assert.equal(withoutHuman.task.assigneeId, null);
+          assert.equal(withoutHuman.task.agentId, agent.id);
           const assigned = await result<{ items: TaskResult["task"][] }>(
             client,
             "list_tasks",
@@ -407,7 +403,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           );
           assert.deepEqual(
             assigned.items.map((item) => item.id),
-            [task.task.id],
+            [withoutHuman.task.id, task.task.id],
           );
           const detail = await result<TaskResult>(client, "get_task", {
             taskId: task.task.id,
@@ -466,7 +462,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
             version: task.task.version,
             title: "Actual MCP task edited",
             status: "in_progress",
-            checklist: [{ id: "one", text: "Verify SDK", done: true }],
           });
           assert.equal(task.task.title, "Actual MCP task edited");
           assert.equal(task.task.status, "in_progress");
@@ -554,13 +549,11 @@ test("External credentials and actual MCP task workflows enforce current permiss
             idempotencyKey: "mcp-comment-retry-0001",
           });
           assert.equal(commentRetry.comment.id, comment.comment.id);
-          const edited = await result<{
-            comment: { id: string; version: number };
-          }>(client, "update_comment", {
-            commentId: comment.comment.id,
-            version: comment.comment.version,
-            body: "Reviewed through MCP",
-          });
+          assert(
+            !(await client.listTools()).tools.some(
+              (tool) => tool.name === "update_comment",
+            ),
+          );
           const activity = await result<{
             items: { actorKind: string; actorName: string }[];
           }>(client, "get_activity", { taskId: task.task.id });
@@ -588,8 +581,8 @@ test("External credentials and actual MCP task workflows enforce current permiss
             [task.task.id],
           );
           await result(client, "delete_comment", {
-            commentId: edited.comment.id,
-            version: edited.comment.version,
+            commentId: comment.comment.id,
+            version: comment.comment.version,
           });
           const deletion = await result<{ ok: boolean }>(
             client,
@@ -678,22 +671,18 @@ test("External credentials and actual MCP task workflows enforce current permiss
               body: { body: "Another person's comment" },
             }),
           );
-          for (const name of ["update_comment", "delete_comment"])
-            assert.equal(
-              (
-                await client.callTool({
-                  name,
-                  arguments: {
-                    commentId: memberComment.comment.id,
-                    version: memberComment.comment.version,
-                    ...(name === "update_comment"
-                      ? { body: "Agent cannot moderate" }
-                      : {}),
-                  },
-                })
-              ).isError,
-              true,
-            );
+          assert.equal(
+            (
+              await client.callTool({
+                name: "delete_comment",
+                arguments: {
+                  commentId: memberComment.comment.id,
+                  version: memberComment.comment.version,
+                },
+              })
+            ).isError,
+            true,
+          );
           const notifications = await result<{
             items: { taskId: string }[];
             unreadCount: number;
@@ -787,11 +776,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
             boardId: first.board.id,
             title: "Full-size readable task",
             description: "\u0001".repeat(100000),
-            checklist: Array.from({ length: 100 }, (_, index) => ({
-              id: `item-${index}-` + "\u0001".repeat(90),
-              text: "\u0001".repeat(500),
-              done: false,
-            })),
           });
           await sql`INSERT INTO comments(task_id,author_id,body,created_at) SELECT ${large.task.id},${user.id},${"言".repeat(9900)},now()+sequence*interval '1 millisecond' FROM generate_series(1,100) sequence`;
           const longDetail = await result<
@@ -801,7 +785,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
             }
           >(client, "get_task", { taskId: large.task.id });
           assert.equal(longDetail.task.description.length, 100000);
-          assert.equal(longDetail.task.checklist.length, 100);
+          assert.equal(Object.hasOwn(longDetail.task, "checklist"), false);
           assert.equal(longDetail.comments.length, 0);
           assert.equal(longDetail.commentsPage.hasMore, true);
           assert.equal(longDetail.commentsPage.nextCursor, null);

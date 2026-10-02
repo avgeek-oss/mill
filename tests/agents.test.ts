@@ -495,7 +495,7 @@ test("version conflicts and idempotent retries preserve one Agent and its accept
   assert.deepEqual(await agents({ cookie: admin.cookie }, "manage=true"), []);
 });
 
-test("human and Agent assignment are independent and both acting user and assignee need access", async () => {
+test("Agent assignment can stand alone and any human assignee needs access", async () => {
   const admin = await setupUser();
   const teammate = await member(admin.cookie, "Teammate");
   const work = await board(admin.cookie);
@@ -523,7 +523,6 @@ test("human and Agent assignment are independent and both acting user and assign
   for (const [fields, status] of [
     [{ agentId: personal.id }, 403],
     [{ agentId: restricted.id }, 403],
-    [{ assigneeId: null }, 400],
     [{ assigneeId: randomUUID() }, 400],
   ] as const)
     assert.equal(
@@ -544,6 +543,9 @@ test("human and Agent assignment are independent and both acting user and assign
     ).task,
     task,
   );
+  task = await editTask(admin.cookie, task, { assigneeId: null });
+  assert.equal(task.agentId, shared.id);
+  assert.equal(task.assigneeId, null);
   task = await editTask(admin.cookie, task, { assigneeId: admin.user.id });
   assert.equal(task.agentId, shared.id);
   task = await editTask(admin.cookie, task, { agentId: personal.id });
@@ -556,7 +558,6 @@ test("human and Agent assignment are independent and both acting user and assign
   task = await editTask(admin.cookie, task, { assigneeId: null });
   assert.equal(task.assigneeId, null);
   for (const [fields, status] of [
-    [{ agentId: shared.id }, 400],
     [{ agentId: personal.id, assigneeId: teammate.user.id }, 403],
     [{ agentId: restricted.id, assigneeId: teammate.user.id }, 403],
   ] as const)
@@ -578,6 +579,12 @@ test("human and Agent assignment are independent and both acting user and assign
     filtered.items.map((item: Task) => item.id),
     [task.id],
   );
+  const agentOnly = await createTask(admin.cookie, work.id, "Agent work", {
+    agentId: shared.id,
+  });
+  assert.equal(agentOnly.assigneeId, null);
+  assert.equal(agentOnly.agentId, shared.id);
+  assert.equal(agentOnly.agentName, shared.name);
   const bound = await createTask(admin.cookie, work.id, "Bound work", {
     assigneeId: teammate.user.id,
     agentId: shared.id,
@@ -721,7 +728,6 @@ test("grant revocation clears task bindings, revokes credentials and pending con
     assigneeId: owner.user.id,
     agentId: shared.id,
     description: "Preserve context",
-    checklist: [{ id: "one", text: "Keep this", done: true }],
   });
   await json(
     await request(`/api/tasks/${task.id}/comments`, {
@@ -749,7 +755,6 @@ test("grant revocation clears task bindings, revokes credentials and pending con
   assert.equal(detail.task.version, task.version + 1);
   assert.equal(detail.task.assigneeId, owner.user.id);
   assert.equal(detail.task.description, task.description);
-  assert.deepEqual(detail.task.checklist, task.checklist);
   assert.equal(detail.comments[0].body, "Retained discussion");
   for (const previous of before.items)
     assert.deepEqual(
@@ -1243,7 +1248,6 @@ test("reinvited team creators regain pinned access without resurrecting credenti
       agentId: team.id,
       assigneeId: creator.user.id,
       description: "Keep existing context",
-      checklist: [{ id: "one", text: "Keep the checklist", done: true }],
     },
   );
   await json(

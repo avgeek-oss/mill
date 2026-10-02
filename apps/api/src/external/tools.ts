@@ -1,9 +1,6 @@
 import { z } from "zod";
 import { TASK_STATUSES } from "../../../../packages/contracts/src/index.js";
-import {
-  checklist,
-  taskFields as domainTaskFields,
-} from "../domain/helpers.js";
+import { taskFields as domainTaskFields } from "../domain/helpers.js";
 export type Tool = {
   name: string;
   description: string;
@@ -28,7 +25,6 @@ const taskFields = {
   priority: domainTaskFields.priority.optional(),
   status: z.enum(TASK_STATUSES).optional(),
   dueDate: domainTaskFields.dueDate.optional(),
-  checklist: checklist.optional(),
 };
 const query = {
   q: z.string().max(300).optional(),
@@ -37,10 +33,15 @@ const query = {
   agentId: z.union([id, z.literal("unassigned")]).optional(),
   priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
   sort: z
-    .enum(["createdAt", "updatedAt", "dueDate", "priority", "title"])
+    .enum(["createdAt", "updatedAt", "dueDate", "priority", "status", "title"])
     .optional(),
   limit: z.number().int().min(1).max(100).optional(),
   cursor: z.string().max(1000).optional(),
+  page: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  revision: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/)
+    .optional(),
 };
 function tool(
   name: string,
@@ -109,7 +110,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_tasks",
-    "Search and filter tasks in one board. Combine q, status, assigneeId, agentId, priority and sort. Tasks are newest first by default. Maximum 100 results.",
+    "Search and filter tasks in one board. Combine q, status, assigneeId, agentId, priority and sort. Tasks are newest first by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists.",
     "GET",
     "/api/boards/:boardId/tasks",
     { ...board, ...query },
@@ -127,14 +128,14 @@ export const tools: Tool[] = [
   ),
   tool(
     "create_task",
-    "Create a task, optionally with a fixed status, human assignee, Agent, priority, due date and checklist. An Agent requires an active human assignee, and both you and the assignee must have access to that existing Agent. Status defaults to todo. Reuse idempotencyKey on retries.",
+    "Create a task, optionally with a fixed status, human assignee, Agent, priority and due date. An Agent can be assigned without a human assignee. You must have access to the Agent, and any selected human assignee must also have access. Status defaults to todo. Reuse idempotencyKey on retries.",
     "POST",
     "/api/boards/:boardId/tasks",
     { ...board, ...taskFields, ...retry },
   ),
   tool(
     "update_task",
-    "Edit a task or change its fixed status using the current version. agentId and assigneeId may be set together; an Agent requires a human assignee accessible to that Agent. A stale version returns a conflict.",
+    "Edit a task or change its fixed status using the current version. agentId and assigneeId can be set independently; you and any selected human assignee must have access to the Agent when changing the binding. A stale version returns a conflict.",
     "PATCH",
     "/api/tasks/:taskId",
     {
@@ -159,7 +160,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_comments",
-    "Read comments on a task.",
+    "Read comments on a task, newest first. Use the cursor to load older comments.",
     "GET",
     "/api/tasks/:taskId/comments",
     {
@@ -177,19 +178,6 @@ export const tools: Tool[] = [
       ...task,
       body: z.string().min(1).max(10000),
       mentionIds: z.array(id).max(50).optional(),
-      ...retry,
-    },
-  ),
-  tool(
-    "update_comment",
-    "Edit your comment using its current version.",
-    "PATCH",
-    "/api/comments/:commentId",
-    {
-      commentId: id,
-      body: z.string().min(1).max(10000),
-      mentionIds: z.array(id).max(50).optional(),
-      version,
       ...retry,
     },
   ),
@@ -247,10 +235,13 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_members",
-    "List workspace members to resolve assignment and mentions.",
+    "List active workspace members to resolve assignments and mentions. Use nextCursor to continue beyond the first page.",
     "GET",
     "/api/auth/members",
-    {},
+    {
+      limit: z.number().int().min(1).max(1000).optional(),
+      cursor: z.string().max(1000).optional(),
+    },
     { workspaceWide: true },
   ),
 ];

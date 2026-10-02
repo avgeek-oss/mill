@@ -158,7 +158,12 @@ test("personal keys and Agent OAuth retain separate current human access boundar
             token: personalKey.token,
             body: { title: "Explicit assignment", ...input },
           });
-        assert.equal((await create({ agentId: personal.id })).status, 400);
+        const agentOnly = await body<{
+          task: { agentId: string; agentName: string; assigneeId: null };
+        }>(await create({ agentId: personal.id }), 201);
+        assert.equal(agentOnly.task.agentId, personal.id);
+        assert.equal(agentOnly.task.agentName, personal.name);
+        assert.equal(agentOnly.task.assigneeId, null);
         assert.equal(
           (await create({ assigneeId: member.id, agentId: personal.id }))
             .status,
@@ -189,16 +194,15 @@ test("personal keys and Agent OAuth retain separate current human access boundar
         );
         assert.equal(next.task.assigneeId, member.id);
         assert.equal(next.task.agentId, team.id);
-        assert.equal(
-          (
-            await request(`/api/tasks/${next.task.id}`, {
-              token: personalKey.token,
-              method: "PATCH",
-              body: { version: next.task.version, assigneeId: null },
-            })
-          ).status,
-          400,
+        const cleared = await body<typeof assigned>(
+          await request(`/api/tasks/${next.task.id}`, {
+            token: personalKey.token,
+            method: "PATCH",
+            body: { version: next.task.version, assigneeId: null },
+          }),
         );
+        assert.equal(cleared.task.assigneeId, null);
+        assert.equal(cleared.task.agentId, team.id);
         const listed = await body<{
           items: { id: string; agentId: string; agentName: string }[];
         }>(

@@ -97,7 +97,7 @@ async function createTask(
   ).task;
 }
 
-test("task lifecycle persists identifiers, edits, checklist, status and permanent deletion", async () => {
+test("task lifecycle persists identifiers, edits, status and permanent deletion", async () => {
   const { cookie, board } = await fixture();
   const teammate = await member(cookie, "teammate@example.test");
   let item = await createTask(cookie, board.id, "Ship B1", {
@@ -105,7 +105,6 @@ test("task lifecycle persists identifiers, edits, checklist, status and permanen
     assigneeId: teammate.user.id,
     priority: "urgent",
     dueDate: "2026-10-01",
-    checklist: [{ id: "review", text: "Review the board", done: false }],
   });
   assert.equal(item.identifier, "ENG-1");
   assert.equal(item.status, "todo");
@@ -120,7 +119,6 @@ test("task lifecycle persists identifiers, edits, checklist, status and permanen
           version: item.version,
           title: "Ship reviewed B1",
           status: "in_review",
-          checklist: [{ id: "review", text: "Review the board", done: true }],
           assigneeId: null,
           dueDate: null,
         },
@@ -128,7 +126,6 @@ test("task lifecycle persists identifiers, edits, checklist, status and permanen
     )
   ).task;
   assert.equal(item.status, "in_review");
-  assert.equal(item.checklist[0].done, true);
   assert.equal(item.assigneeId, null);
   assert.equal(item.dueDate, null);
   const independent = await createTask(cookie, board.id, "Review permissions");
@@ -197,7 +194,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
         body: { body: "Hijack", version: comment.version },
       })
     ).status,
-    403,
+    404,
   );
   const privateBoard = (
     await json(
@@ -305,13 +302,12 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
   ).comment;
   await mcpDenied(
     token,
-    "update_comment",
+    "delete_comment",
     {
       commentId: otherAuthorComment.id,
       version: otherAuthorComment.version,
-      body: "Agent moderation denied",
     },
-    "Only the author or an administrator can edit this comment",
+    "Only the author or an administrator can delete this comment",
   );
   assert.deepEqual(
     (
@@ -758,13 +754,7 @@ test("bounded input validation rejects invalid sorts, unknown assignments and ov
     { title: "Task", description: "x".repeat(100001) },
     { title: "Task", dueDate: "2026-02-31" },
     { title: "Task", assigneeId: "00000000-0000-4000-8000-000000000000" },
-    {
-      title: "Task",
-      checklist: [
-        { id: "same", text: "One", done: false },
-        { id: "same", text: "Two", done: true },
-      ],
-    },
+    { title: "Task", checklist: [] },
   ])
     assert.equal(
       (await request(`/api/boards/${board.id}/tasks`, { cookie, body: input }))

@@ -64,7 +64,6 @@ const commentCreate = z
     mentionIds: z.array(uuid).max(50).default([]),
   })
   .strict();
-const commentPatch = commentCreate.extend({ version }).strict();
 function previewLimit(c: Parameters<typeof actor>[0], name: string) {
   const raw = c.req.query(name);
   const value = raw === undefined ? 100 : Number(raw);
@@ -250,6 +249,27 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
   const boardId = id(c.req.param("id"));
   await board(c, boardId);
   const limit = pagination(c);
+  const cursorRaw = c.req.query("cursor");
+  const pageRaw = c.req.query("page");
+  const requestedPage = pageRaw === undefined ? 1 : Number(pageRaw);
+  if (
+    pageRaw !== undefined &&
+    (!/^\d+$/.test(pageRaw) ||
+      !Number.isSafeInteger(requestedPage) ||
+      requestedPage < 1)
+  )
+    badRequest("Page must be a positive safe integer");
+  const requestedRevision = c.req.query("revision");
+  if (
+    requestedRevision !== undefined &&
+    !/^[a-f0-9]{32}$/.test(requestedRevision)
+  )
+    badRequest("Use a valid task list revision");
+  if (
+    cursorRaw !== undefined &&
+    (pageRaw !== undefined || requestedRevision !== undefined)
+  )
+    badRequest("Choose cursor pagination or page/revision pagination");
   const q = c.req.query("q")?.trim() ?? "";
   if (q.length > 300) badRequest("Search is limited to 300 characters");
   const status = c.req.query("status");
@@ -280,6 +300,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     title: sql`lower(tasks.title)`,
     dueDate: sql`coalesce(to_char(tasks.due_date,'YYYY-MM-DD'),'9999-12-31')`,
     priority: sql`CASE tasks.priority WHEN 'urgent' THEN '0' WHEN 'high' THEN '1' WHEN 'medium' THEN '2' WHEN 'low' THEN '3' ELSE '4' END`,
+    status: sql`CASE tasks.status WHEN 'backlog' THEN '0' WHEN 'todo' THEN '1' WHEN 'in_progress' THEN '2' WHEN 'in_review' THEN '3' WHEN 'done' THEN '4' ELSE '5' END`,
     updatedAt: sql`to_char(tasks.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US')`,
     createdAt: sql`to_char(tasks.created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS.US')`,
   };
@@ -295,7 +316,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     priority,
     sort,
   });
-  const cursor = decodeCursor(c.req.query("cursor"), cursorSchema);
+  const cursor = decodeCursor(cursorRaw, cursorSchema);
   if (cursor && cursor.fingerprint !== filterKey)
     badRequest("This cursor belongs to a different search");
   const filters = sql`tasks.board_id=${boardId}
@@ -309,10 +330,20 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     async (tx) => {
       await board(c, boardId, "viewer", tx);
       const [collection] = await tx<
-        { revision: string }[]
-      >`SELECT md5(COALESCE(string_agg(id::text||':'||version::text,',' ORDER BY id),'')) AS revision FROM tasks WHERE board_id=${boardId}`;
-      if (cursor && cursor.revision !== collection.revision)
+        { revision: string; total: number }[]
+      >`SELECT md5(COALESCE(string_agg(id::text||':'||version::text,',' ORDER BY id),'')) AS revision,
+        count(*) FILTER (WHERE ${filters})::int AS total FROM tasks WHERE board_id=${boardId}`;
+      if (
+        (cursor && cursor.revision !== collection.revision) ||
+        (requestedRevision !== undefined &&
+          requestedRevision !== collection.revision)
+      )
         return { stale: true as const };
+      const pageNumber = Math.min(
+        requestedPage,
+        Math.max(1, Math.ceil(collection.total / limit)),
+      );
+      const offset = (pageNumber - 1) * limit;
       if (cursor) {
         const [anchor] = await tx<
           { sortKey: string }[]
@@ -324,13 +355,17 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
         (TaskRow & { sortKey: string })[]
       >`SELECT tasks.*,agents.name AS agent_name,${sortKey} AS sort_key FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE ${filters}
       ${cursor ? (descending ? sql`AND (${sortKey},tasks.id)<(${cursor.key},${cursor.id}::uuid)` : sql`AND (${sortKey},tasks.id)>(${cursor.key},${cursor.id}::uuid)`) : sql``}
-      ORDER BY ${sortKey} ${descending ? sql`DESC` : sql`ASC`},tasks.id ${descending ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}`;
+      ORDER BY ${sortKey} ${descending ? sql`DESC` : sql`ASC`},tasks.id ${descending ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}
+      ${pageRaw !== undefined ? sql`OFFSET ${offset}` : sql``}`;
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit);
       const last = page.at(-1);
       return {
         stale: false as const,
         items: page.map(({ sortKey: _sortKey, ...row }) => row),
+        total: collection.total,
+        revision: collection.revision,
+        ...(cursor ? {} : { page: pageNumber }),
         hasMore,
         nextCursor:
           hasMore && last
@@ -372,7 +407,7 @@ domainRoutes.post("/boards/:id/tasks", async (c) => {
     );
     const [created] = await tx<
       TaskRow[]
-    >`INSERT INTO tasks (board_id,status,identifier,title,description,assignee_id,agent_id,priority,due_date,checklist,created_by) VALUES (${boardId},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.agentId ?? null},${input.priority ?? "none"},${input.dueDate ?? null},${tx.json(input.checklist ?? [])},${a.userId}) RETURNING *`;
+    >`INSERT INTO tasks (board_id,status,identifier,title,description,assignee_id,agent_id,priority,due_date,created_by) VALUES (${boardId},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.agentId ?? null},${input.priority ?? "none"},${input.dueDate ?? null},${a.userId}) RETURNING *`;
     await tx`UPDATE boards SET next_number=next_number+1 WHERE id=${boardId}`;
     await recordActivity(
       tx,
@@ -398,7 +433,7 @@ domainRoutes.get("/tasks/:id", async (c) => {
   const comments = previewPage(
     await sql<
       Comment[]
-    >`SELECT comments.*,users.name AS author_name FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ORDER BY created_at,id LIMIT ${commentLimit + 1}`,
+    >`SELECT comments.*,users.name AS author_name FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ORDER BY created_at DESC,id DESC LIMIT ${commentLimit + 1}`,
     commentLimit,
   );
   const activity = previewPage(
@@ -433,7 +468,7 @@ domainRoutes.patch("/tasks/:id", async (c) => {
       effectiveAssignee,
       effectiveAgent !== row.agentId || effectiveAssignee !== row.assigneeId,
     );
-    await tx`UPDATE tasks SET status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},agent_id=${effectiveAgent},priority=${input.priority ?? row.priority},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},checklist=${tx.json(input.checklist ?? row.checklist)},version=version+1,updated_at=now() WHERE id=${taskId}`;
+    await tx`UPDATE tasks SET status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},agent_id=${effectiveAgent},priority=${input.priority ?? row.priority},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},version=version+1,updated_at=now() WHERE id=${taskId}`;
     const [updated] = await tx<
       TaskRow[]
     >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId}`;
@@ -493,7 +528,7 @@ domainRoutes.get("/tasks/:id/comments", async (c) => {
   if (cursor && !anchor)
     badRequest("This comment cursor does not belong to the task");
   const rows =
-    await sql`SELECT comments.*,users.name AS author_name FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ${anchor ? sql`AND (comments.created_at,comments.id)>(SELECT created_at,id FROM comments WHERE id=${anchor.id})` : sql``} ORDER BY created_at,id LIMIT ${limit + 1}`;
+    await sql`SELECT comments.*,users.name AS author_name FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ${anchor ? sql`AND (comments.created_at,comments.id)<(SELECT created_at,id FROM comments WHERE id=${anchor.id})` : sql``} ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`;
   const items = rows.slice(0, limit);
   return c.json({
     items,
@@ -527,12 +562,10 @@ domainRoutes.post("/tasks/:id/comments", async (c) => {
   });
   return c.json({ comment: result }, 201);
 });
-async function changeComment(c: Parameters<typeof actor>[0], remove: boolean) {
+async function deleteComment(c: Parameters<typeof actor>[0]) {
   requireRole(c, "member");
   const commentId = id(c.req.param("id"));
-  const input = remove
-    ? await body(c, z.object({ version }).strict())
-    : await body(c, commentPatch);
+  const input = await body(c, z.object({ version }).strict());
   return sql.begin(async (tx) => {
     const [original] = await tx<
       Comment[]
@@ -555,51 +588,20 @@ async function changeComment(c: Parameters<typeof actor>[0], remove: boolean) {
     >`SELECT * FROM comments WHERE id=${commentId} FOR UPDATE`;
     if (!current) missing("Comment not found");
     assertVersion(current, input.version);
-    if (remove) {
-      await tx`DELETE FROM comments WHERE id=${commentId}`;
-      await recordActivity(
-        tx,
-        a,
-        "comment.deleted",
-        { commentId },
-        row.boardId,
-        row.id,
-      );
-      return { ok: true };
-    }
-    const patch = input as z.infer<typeof commentPatch>;
-    const [updated] =
-      await tx`UPDATE comments SET body=${patch.body},version=version+1,updated_at=now() WHERE id=${commentId} RETURNING *`;
-    await mentionNotifications(
-      tx,
-      a,
-      row.id,
-      patch.body,
-      patch.mentionIds,
-      current.body,
-    );
+    await tx`DELETE FROM comments WHERE id=${commentId}`;
     await recordActivity(
       tx,
       a,
-      "comment.updated",
+      "comment.deleted",
       { commentId },
       row.boardId,
       row.id,
     );
-    return { comment: updated };
+    return { ok: true };
   });
 }
-domainRoutes.patch("/comments/:id", async (c) => {
-  const result = await changeComment(c, false);
-  if ("forbidden" in result)
-    return c.json(
-      { error: "Only the author or an administrator can edit this comment" },
-      403,
-    );
-  return c.json(result);
-});
 domainRoutes.delete("/comments/:id", async (c) => {
-  const result = await changeComment(c, true);
+  const result = await deleteComment(c);
   if ("forbidden" in result)
     return c.json(
       { error: "Only the author or an administrator can delete this comment" },

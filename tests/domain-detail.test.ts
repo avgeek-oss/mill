@@ -28,15 +28,10 @@ test("task detail preserves maximum Unicode content while comment and activity p
     201,
   );
   const description = "漢".repeat(100000);
-  const checklist = Array.from({ length: 100 }, (_unused, index) => ({
-    id: `item-${index}`,
-    text: "討".repeat(500),
-    done: false,
-  }));
   const { task } = await json(
     await request(`/api/boards/${board.id}/tasks`, {
       cookie,
-      body: { title: "Full Unicode context", description, checklist },
+      body: { title: "Full Unicode context", description },
     }),
     201,
   );
@@ -50,7 +45,7 @@ test("task detail preserves maximum Unicode content while comment and activity p
   assert.ok(Buffer.byteLength(raw) < 512 * 1024);
   const bounded = await json(boundedResponse);
   assert.equal(bounded.task.description, description);
-  assert.deepEqual(bounded.task.checklist, checklist);
+  assert.equal(Object.hasOwn(bounded.task, "checklist"), false);
   assert.equal(bounded.task.status, "todo");
   assert.deepEqual(bounded.comments, []);
   assert.deepEqual(bounded.activity, []);

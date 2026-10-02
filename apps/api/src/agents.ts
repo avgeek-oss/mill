@@ -76,9 +76,10 @@ export async function validateTaskAgent(
   checkActor: boolean,
 ): Promise<Agent | null> {
   if (!agentId) return null;
-  if (!assigneeId)
-    badRequest("Choose an active human assignee before assigning an agent");
-  if (checkActor) await requireAgentAccess(tx, userId, agentId);
+  const selectedAgent = checkActor
+    ? await requireAgentAccess(tx, userId, agentId)
+    : null;
+  if (!assigneeId) return selectedAgent;
   try {
     return await requireAgentAccess(tx, assigneeId, agentId);
   } catch (error) {

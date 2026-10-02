@@ -21,21 +21,6 @@ export type TaskRow = Task & { createdBy: string };
 export const uuid = z.uuid();
 export const version = z.number().int().positive();
 export const priorities = ["none", "low", "medium", "high", "urgent"] as const;
-export const checklist = z
-  .array(
-    z
-      .object({
-        id: z.string().min(1).max(100),
-        text: z.string().trim().min(1).max(500),
-        done: z.boolean(),
-      })
-      .strict(),
-  )
-  .max(100)
-  .refine(
-    (items) => new Set(items.map((i) => i.id)).size === items.length,
-    "Checklist IDs must be unique",
-  );
 export const taskFields = {
   title: z.string().trim().min(1).max(300),
   description: z.string().max(100000),
@@ -44,7 +29,6 @@ export const taskFields = {
   priority: z.enum(priorities),
   status: z.enum(TASK_STATUSES),
   dueDate: z.iso.date().nullable(),
-  checklist,
 };
 export async function body<T>(
   c: Context<Env>,

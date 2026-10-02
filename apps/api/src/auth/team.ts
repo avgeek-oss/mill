@@ -60,9 +60,73 @@ teamRoutes.get("/members", async (c) => {
     throw new HTTPException(403, {
       message: "This credential cannot read the team directory",
     });
-  const items =
-    await sql`SELECT id,name,email,role,time_zone FROM users WHERE disabled_at IS NULL ORDER BY name,id LIMIT 1000`;
-  return c.json({ items });
+  const limit = Number(c.req.query("limit") ?? 1000);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 1000)
+    badRequest("Limit must be between 1 and 1000");
+  const rawCursor = c.req.query("cursor");
+  const cursorSchema = z
+    .object({
+      id: z.uuid(),
+      name: z.string(),
+      revision: z.string().regex(/^[a-f0-9]{32}$/),
+    })
+    .strict();
+  let cursor: z.infer<typeof cursorSchema> | undefined;
+  if (rawCursor !== undefined) {
+    try {
+      if (rawCursor.length > 1000) throw new Error("Invalid cursor");
+      cursor = cursorSchema.parse(
+        JSON.parse(Buffer.from(rawCursor, "base64url").toString()),
+      );
+    } catch {
+      badRequest("Invalid member cursor");
+    }
+  }
+  const result = await sql.begin(
+    "isolation level repeatable read read only",
+    async (tx) => {
+      const [collection] = await tx<
+        { revision: string }[]
+      >`SELECT md5(COALESCE(string_agg(id::text||':'||name||':'||email||':'||role||':'||time_zone,',' ORDER BY id),'')) AS revision FROM users WHERE disabled_at IS NULL`;
+      if (cursor && cursor.revision !== collection.revision)
+        return { stale: true as const };
+      const [anchor] = cursor
+        ? await tx`SELECT name FROM users WHERE id=${cursor.id} AND disabled_at IS NULL`
+        : [];
+      if (cursor && (!anchor || anchor.name !== cursor.name))
+        badRequest("This member cursor is no longer active");
+      const rows =
+        await tx`SELECT id,name,email,role,time_zone FROM users WHERE disabled_at IS NULL ${cursor ? tx`AND (name,id)>(${cursor.name},${cursor.id}::uuid)` : tx``} ORDER BY name,id LIMIT ${limit + 1}`;
+      const items = rows.slice(0, limit);
+      const hasMore = rows.length > limit;
+      const last = items.at(-1);
+      return {
+        stale: false as const,
+        items,
+        hasMore,
+        nextCursor:
+          hasMore && last
+            ? Buffer.from(
+                JSON.stringify({
+                  id: last.id,
+                  name: last.name,
+                  revision: collection.revision,
+                }),
+              ).toString("base64url")
+            : null,
+      };
+    },
+  );
+  if (result.stale)
+    return c.json(
+      {
+        error: "The people list changed. Reload it to continue.",
+        code: "member_list_changed",
+      },
+      409,
+    );
+  const { stale: _stale, ...page } = result;
+  return c.json(page);
 });
 teamRoutes.get("/invitations", async (c) => {
   const who = admin(c);

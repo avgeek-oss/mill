@@ -107,20 +107,11 @@ test("workspace audit is absent for every role while task history retains human,
       201,
     )
   ).comment;
-  const edited = (
-    await json(
-      await request(`/api/comments/${comment.id}`, {
-        cookie: writer.cookie,
-        method: "PATCH",
-        body: { version: comment.version, body: "Edited human comment" },
-      }),
-    )
-  ).comment;
   await json(
     await request(`/api/comments/${comment.id}`, {
       cookie: writer.cookie,
       method: "DELETE",
-      body: { version: edited.version },
+      body: { version: comment.version },
     }),
   );
   task = (
@@ -163,7 +154,7 @@ test("workspace audit is absent for every role while task history retains human,
   const history = await json(
     await request(`/api/tasks/${task.id}/activity`, { cookie: viewer.cookie }),
   );
-  assert.equal(history.items.length, 8);
+  assert.equal(history.items.length, 7);
   assert.deepEqual(
     history.items.map((event: { action: string }) => event.action).sort(),
     [
@@ -172,7 +163,6 @@ test("workspace audit is absent for every role while task history retains human,
       "task.updated",
       "task.moved",
       "comment.created",
-      "comment.updated",
       "comment.deleted",
       "comment.created",
     ].sort(),

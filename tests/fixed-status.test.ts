@@ -83,7 +83,6 @@ test("every fixed status persists, creation defaults to Todo and versioned edits
     description: "Preserve this context",
     priority: "high",
     dueDate: "2026-10-04",
-    checklist: [{ id: "review", text: "Review", done: false }],
   });
   assert.equal(item.status, "todo");
   for (const field of ["columnId", "labels", "parentId", "position"])
@@ -113,9 +112,7 @@ test("every fixed status persists, creation defaults to Todo and versioned edits
     assert.equal(item.description, "Preserve this context");
     assert.equal(item.priority, "high");
     assert.equal(item.dueDate, "2026-10-04");
-    assert.deepEqual(item.checklist, [
-      { id: "review", text: "Review", done: false },
-    ]);
+    assert.equal(Object.hasOwn(item, "checklist"), false);
     assert.equal(
       (
         await request(`/api/tasks/${item.id}`, {

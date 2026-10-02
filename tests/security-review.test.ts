@@ -340,10 +340,20 @@ test("REST and MCP resolve task, comment, and activity IDs through board scope",
     ).status,
     403,
   );
-  const commentBypass = await callMcpTool(token, "update_comment", {
+  for (const credentials of [{ cookie }, { token: restToken }])
+    assert.equal(
+      (
+        await request(`/api/comments/${comment.id}`, {
+          ...credentials,
+          method: "PATCH",
+          body: { version: comment.version, body: "Removed edit endpoint" },
+        })
+      ).status,
+      404,
+    );
+  const commentBypass = await callMcpTool(token, "delete_comment", {
     commentId: comment.id,
     version: comment.version,
-    body: "Scope bypass",
   });
   assert.equal(commentBypass.result?.isError, true);
   assert.equal(
@@ -371,10 +381,9 @@ test("REST and MCP resolve task, comment, and activity IDs through board scope",
   await sql`INSERT INTO users(id,workspace_id,name,email,password_hash,role) SELECT ${otherId},workspace_id,'Other author','other-author@example.test',password_hash,'member' FROM users WHERE id=${user.id}`;
   const [otherComment] =
     await sql`INSERT INTO comments(task_id,author_id,body) VALUES(${allowedTask.id},${otherId},'Another person comment') RETURNING id,version`;
-  const moderation = await call("update_comment", {
+  const moderation = await call("delete_comment", {
     commentId: otherComment.id,
     version: otherComment.version,
-    body: "Admin-parent bypass",
   });
   assert.equal(moderation.isError, true);
   assert.equal(
