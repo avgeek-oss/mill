@@ -3,6 +3,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -82,7 +83,15 @@ const NavigationContext = createContext<{
   path: string;
   navigate: (href: string) => void;
   close: () => void;
-}>({ path: "/", navigate: () => {}, close: () => {} });
+  sidebarOpen: boolean;
+  focusNavigationToggle: () => void;
+}>({
+  path: "/",
+  navigate: () => {},
+  close: () => {},
+  sidebarOpen: true,
+  focusNavigationToggle: () => {},
+});
 
 export function usePersistentAppSidebar(storageKey = "mill:sidebar-open") {
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -132,6 +141,7 @@ export type AppLayoutProps = {
   onSidebarOpenChange: (open: boolean) => void;
   path: string;
   sidebar: ReactNode;
+  secondarySidebar?: ReactNode;
   sidebarOpen: boolean;
   toggleShortcut?: boolean;
 };
@@ -144,15 +154,33 @@ export function AppLayout({
   onSidebarOpenChange,
   path,
   sidebar,
+  secondarySidebar,
   sidebarOpen,
   toggleShortcut = false,
 }: AppLayoutProps) {
   const previousPath = useRef(path);
+  const layout = useRef<HTMLDivElement>(null);
+  const desktopSidebar = useRef<HTMLElement>(null);
   const isDesktop = useSyncExternalStore(
     subscribeToViewport,
     isDesktopViewport,
     serverViewport,
   );
+  const focusNavigationToggle = useCallback(() => {
+    layout.current
+      ?.querySelector<HTMLButtonElement>(".navigation-toggle")
+      ?.focus({ preventScroll: true });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (
+      isDesktop &&
+      !sidebarOpen &&
+      desktopSidebar.current?.contains(document.activeElement)
+    ) {
+      focusNavigationToggle();
+    }
+  }, [focusNavigationToggle, isDesktop, sidebarOpen]);
 
   useEffect(() => {
     const routeChanged = previousPath.current !== path;
@@ -177,30 +205,48 @@ export function AppLayout({
       value={{
         path,
         navigate,
+        sidebarOpen,
+        focusNavigationToggle,
         close: () => {
           if (!isDesktop) onSidebarOpenChange(false);
         },
       }}
     >
       <div
-        className={cn(
-          "min-h-dvh",
-          sidebarOpen && "lg:grid lg:grid-cols-[15rem_minmax(0,1fr)]",
-          className,
-        )}
+        ref={layout}
+        className={cn("application-layout min-h-dvh", className)}
+        data-sidebar-open={sidebarOpen}
       >
-        {sidebarOpen && isDesktop ? (
-          <aside
-            id="application-navigation"
-            className="sticky top-0 h-dvh w-60 overflow-hidden border-r border-separator bg-background"
-          >
-            {sidebar}
-          </aside>
+        {isDesktop ? (
+          <div className="application-sidebar sticky top-0 h-dvh min-w-0 overflow-hidden">
+            <aside
+              ref={desktopSidebar}
+              id="application-navigation"
+              aria-hidden={!sidebarOpen}
+              inert={!sidebarOpen}
+              className="application-sidebar-panel h-full w-60 overflow-hidden border-r border-separator bg-background"
+            >
+              {sidebar}
+            </aside>
+          </div>
         ) : null}
         <div className="grid min-h-dvh min-w-0 grid-cols-1 grid-rows-[auto_1fr]">
           {navbar}
-          <main id="main-content" className="min-w-0" tabIndex={-1}>
-            {children}
+          <main
+            id="main-content"
+            className={cn(
+              "min-w-0",
+              secondarySidebar &&
+                "lg:grid lg:grid-cols-[16.5rem_minmax(0,1fr)]",
+            )}
+            tabIndex={-1}
+          >
+            {secondarySidebar && isDesktop ? (
+              <aside className="sticky top-16 h-[calc(100dvh-4rem)] min-w-0 self-start overflow-hidden border-r border-separator bg-background">
+                {secondarySidebar}
+              </aside>
+            ) : null}
+            <div className="min-w-0">{children}</div>
           </main>
         </div>
       </div>
@@ -212,19 +258,34 @@ export function AppLayout({
           <Drawer.Dialog
             id="application-navigation"
             aria-label="Workspace navigation"
-            className="grid w-72 max-w-[calc(100vw-1rem)] grid-cols-1 overflow-hidden bg-background p-0 sm:w-72"
+            data-secondary-navigation={!!secondarySidebar}
+            className="application-navigation-drawer grid max-w-[calc(100vw-1rem)] overflow-hidden bg-background p-0"
           >
             <div
               className="relative h-full min-h-0 min-w-0"
               data-slot="drawer-body"
             >
               {sidebar}
-              <Drawer.CloseTrigger
-                autoFocus
-                aria-label="Close navigation"
-                className="end-3 top-2.5 size-11 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
-              />
+              {!secondarySidebar && (
+                <Drawer.CloseTrigger
+                  autoFocus
+                  aria-label="Close navigation"
+                  className="end-3 top-2.5 size-11 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
+                />
+              )}
             </div>
+            {secondarySidebar && (
+              <div className="flex h-full min-h-0 min-w-0 flex-col border-l border-separator">
+                <div className="relative min-h-16 shrink-0 border-b border-separator">
+                  <Drawer.CloseTrigger
+                    autoFocus
+                    aria-label="Close navigation"
+                    className="end-3 top-2.5 size-11 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
+                  />
+                </div>
+                <div className="min-h-0 flex-1">{secondarySidebar}</div>
+              </div>
+            )}
           </Drawer.Dialog>
         </Drawer.Content>
       </Drawer.Backdrop>
@@ -294,6 +355,48 @@ function RoutedLink({
     >
       {children ?? item.label}
     </a>
+  );
+}
+
+export function SecondarySidebar({
+  title,
+  items,
+  actions,
+  children,
+}: {
+  title: string;
+  items: ShellLinkConfig[];
+  actions?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <nav
+      aria-label={`${title} navigation`}
+      className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain px-3 py-4"
+    >
+      <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 ps-2">
+        <h2 className="text-xs font-medium text-muted">{title}</h2>
+        {actions}
+      </div>
+      {children}
+      <div className="grid gap-0.5">
+        {items.map((item) => (
+          <RoutedLink
+            key={item.id}
+            item={item}
+            className={cn(
+              "flex min-h-9 min-w-0 items-center gap-3 rounded-2xl px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus pointer-coarse:min-h-11",
+              item.active
+                ? "bg-default font-medium text-foreground"
+                : "font-normal text-foreground hover:bg-default/60",
+            )}
+          >
+            {item.icon}
+            <span className="min-w-0 flex-1 break-words">{item.label}</span>
+          </RoutedLink>
+        ))}
+      </div>
+    </nav>
   );
 }
 
@@ -422,7 +525,7 @@ export function Navbar({
           className="navigation-toggle relative size-8 shrink-0 before:absolute before:-inset-1.5 before:content-['']"
           isIconOnly
           onPress={onSidebarToggle}
-          variant="secondary"
+          variant="ghost"
         >
           <HugeiconsIcon
             aria-hidden="true"
@@ -430,7 +533,7 @@ export function Navbar({
             icon={Menu01Icon}
           />
         </Button>
-        <span className="truncate text-sm font-medium">{title}</span>
+        <div className="min-w-0 flex-1 text-sm font-medium">{title}</div>
       </div>
       {actions ? (
         <div className="flex shrink-0 items-center gap-2">{actions}</div>
@@ -496,9 +599,22 @@ export function FooterIdentity({
   workspaceName,
   onLogout,
 }: FooterIdentityProps) {
-  const { navigate, close } = useContext(NavigationContext);
+  const { navigate, close, sidebarOpen, focusNavigationToggle } =
+    useContext(NavigationContext);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useLayoutEffect(() => {
+    if (menuOpen && !sidebarOpen) {
+      const frame = requestAnimationFrame(() => {
+        setMenuOpen(false);
+        focusNavigationToggle();
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [focusNavigationToggle, menuOpen, sidebarOpen]);
+
   return (
-    <Dropdown>
+    <Dropdown isOpen={menuOpen && sidebarOpen} onOpenChange={setMenuOpen}>
       <Dropdown.Trigger
         aria-label={`Account menu for ${name}`}
         className="sidebar-identity flex min-h-16 w-full min-w-0 items-center gap-2.5 px-4 py-3 text-start text-sm"

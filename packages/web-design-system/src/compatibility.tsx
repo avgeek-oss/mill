@@ -1,4 +1,10 @@
-import { useId, type ComponentProps, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useId,
+  type ComponentProps,
+  type ReactNode,
+} from "react";
 import {
   Alert,
   Autocomplete,
@@ -13,9 +19,14 @@ import {
 import { Field, FieldDescription } from "./forms/field.js";
 import { cn } from "./utils.js";
 
+const SuspendedAppContext = createContext(false);
+export const SuspendedAppProvider = SuspendedAppContext.Provider;
+export const useAppSuspended = () => useContext(SuspendedAppContext);
+
 type TextFieldDetails = {
   label: string;
   description?: ReactNode;
+  hideLabel?: boolean;
 };
 export type TextFieldProps = TextFieldDetails &
   (
@@ -23,7 +34,12 @@ export type TextFieldProps = TextFieldDetails &
     | (Omit<ComponentProps<typeof TextArea>, "children"> & { multiline: true })
   );
 
-export function TextField({ label, description, ...props }: TextFieldProps) {
+export function TextField({
+  label,
+  description,
+  hideLabel = false,
+  ...props
+}: TextFieldProps) {
   const generatedId = useId();
   const id = props.id ?? generatedId;
   const descriptionId = `${id}-description`;
@@ -55,7 +71,11 @@ export function TextField({ label, description, ...props }: TextFieldProps) {
   }
   return (
     <Field>
-      <Label htmlFor={id} isRequired={props.required}>
+      <Label
+        htmlFor={id}
+        isRequired={props.required}
+        className={hideLabel ? "sr-only" : undefined}
+      >
         {label}
       </Label>
       {control}
@@ -78,6 +98,7 @@ export type ChoiceProps = Omit<
     name: string;
     startContent?: ReactNode;
     description?: string;
+    muted?: boolean;
   }[];
   disabled?: boolean;
   search?: boolean;
@@ -110,7 +131,9 @@ export function Choice({
             </span>
           ) : null}
           <span className="grid min-w-0 flex-1 gap-0.5 text-sm/5 font-normal">
-            <span className="truncate">{item.name}</span>
+            <span className={item.muted ? "truncate text-muted" : "truncate"}>
+              {item.name}
+            </span>
             {item.description ? (
               <span className="truncate text-xs/4 font-normal text-muted">
                 {item.description}
@@ -139,7 +162,11 @@ export function Choice({
               {selected.startContent}
             </span>
           ) : null}
-          <span className="truncate">{selected?.name ?? "Choose…"}</span>
+          <span
+            className={selected?.muted ? "truncate text-muted" : "truncate"}
+          >
+            {selected?.name ?? "Choose…"}
+          </span>
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>
@@ -199,12 +226,15 @@ export function Dialog({
   className,
   ...props
 }: DialogProps) {
+  const suspended = useContext(SuspendedAppContext);
   return (
     <Modal.Backdrop
-      isOpen={open}
+      isOpen={open && !suspended}
       isDismissable={!isDismissDisabled}
       isKeyboardDismissDisabled={isDismissDisabled}
-      onOpenChange={(value) => !value && !isDismissDisabled && onClose()}
+      onOpenChange={(value) =>
+        !value && !suspended && !isDismissDisabled && onClose()
+      }
     >
       <Modal.Container size={size ?? (wide ? "lg" : "md")} scroll={scroll}>
         <Modal.Dialog
@@ -246,10 +276,11 @@ export function Drawer({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const suspended = useContext(SuspendedAppContext);
   return (
     <Modal.Backdrop
-      isOpen={open}
-      onOpenChange={(value) => !value && onClose()}
+      isOpen={open && !suspended}
+      onOpenChange={(value) => !value && !suspended && onClose()}
       className="drawer-backdrop"
     >
       <Modal.Container className="drawer-container" placement="top">

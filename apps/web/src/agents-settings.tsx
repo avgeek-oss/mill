@@ -16,7 +16,12 @@ import {
   TextField,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BotIcon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
+import {
+  BotIcon,
+  PencilEdit02Icon,
+  UserGroupIcon,
+  UserIcon,
+} from "@hugeicons/core-free-icons";
 import {
   api,
   ApiError,
@@ -26,6 +31,7 @@ import {
   type Session,
 } from "./api.js";
 import { PageHeading } from "./page-heading.js";
+import { loadMemberDirectory } from "./member-directory.js";
 import { Plus, Trash2 } from "./icons.js";
 
 export type { Agent } from "../../../packages/contracts/src/index.js";
@@ -168,7 +174,6 @@ function AgentEditor({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
-  const [complete, setComplete] = useState(false);
   const [retryKey] = useState(createRetryKey);
   const memberGeneration = useRef(0);
   const loadMembers = useCallback(async () => {
@@ -176,25 +181,8 @@ function AgentEditor({
     setMembersPending(true);
     setMembersError("");
     try {
-      const people: Member[] = [];
-      const cursors = new Set<string>();
-      let cursor: string | null = null;
-      do {
-        const page: { items: Member[]; nextCursor?: string | null } =
-          await api<{ items: Member[]; nextCursor?: string | null }>(
-            `/auth/members${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-          );
-        if (request !== memberGeneration.current) return;
-        people.push(...page.items);
-        cursor = page.nextCursor ?? null;
-        if (cursor) {
-          if (cursors.has(cursor))
-            throw new Error(
-              "The people list could not be completed. Try again.",
-            );
-          cursors.add(cursor);
-        }
-      } while (cursor);
+      const people = await loadMemberDirectory();
+      if (request !== memberGeneration.current) return;
       setMembers(people);
     } catch (cause) {
       if (request === memberGeneration.current)
@@ -271,11 +259,8 @@ function AgentEditor({
       });
       retryKey.reset();
       onSaved();
-      if (agent) setComplete(true);
-      else {
-        toast.success("Agent created.");
-        onClose();
-      }
+      toast.success(agent ? "Agent updated." : "Agent created.");
+      onClose();
     } catch (cause) {
       setError(errorText(cause));
       setConflict(cause instanceof ApiError && cause.status === 409);
@@ -315,173 +300,158 @@ function AgentEditor({
       }}
       isDismissDisabled={pending}
       footer={
-        complete ? (
-          <Button onPress={onClose}>Done</Button>
-        ) : (
-          <>
-            <Button variant="secondary" isDisabled={pending} onPress={onClose}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form={formId}
-              isPending={pending}
-              isDisabled={
-                conflict ||
-                (scope === "team" && (membersPending || !!membersError))
-              }
-            >
-              {pending ? "Saving…" : agent ? "Save changes" : "Create agent"}
-            </Button>
-          </>
-        )
+        <>
+          <Button variant="secondary" isDisabled={pending} onPress={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form={formId}
+            isPending={pending}
+            isDisabled={
+              conflict ||
+              (scope === "team" && (membersPending || !!membersError))
+            }
+          >
+            {pending ? "Saving…" : agent ? "Save changes" : "Create agent"}
+          </Button>
+        </>
       }
     >
-      {complete ? (
-        <p
-          role="status"
-          className="text-xs font-normal text-success-soft-foreground"
-        >
-          Agent updated.
+      <form
+        id={formId}
+        className="content-grid"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        <TextField
+          label="Name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          required
+          maxLength={100}
+          disabled={pending}
+          className="max-md:text-base!"
+        />
+        <Choice
+          label="Access"
+          value={scope}
+          onChange={(value) => setScope(value as "personal" | "team")}
+          disabled={pending || !!agent}
+          items={[
+            { id: "personal", name: "Personal" },
+            ...(session.user.role === "admin"
+              ? [{ id: "team", name: "Team" }]
+              : []),
+          ]}
+        />
+        <p className="text-xs font-normal text-muted">
+          {scope === "personal"
+            ? "Only you can use this agent."
+            : "Choose the people who can use this agent. Administrators manage its access."}
         </p>
-      ) : (
-        <form
-          id={formId}
-          className="content-grid"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          <TextField
-            label="Name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            required
-            maxLength={100}
-            disabled={pending}
-            className="max-md:text-base!"
-          />
-          <Choice
-            label="Access"
-            value={scope}
-            onChange={(value) => setScope(value as "personal" | "team")}
-            disabled={pending || !!agent}
-            items={[
-              { id: "personal", name: "Personal" },
-              ...(session.user.role === "admin"
-                ? [{ id: "team", name: "Team" }]
-                : []),
-            ]}
-          />
-          <p className="text-xs font-normal text-muted">
-            {scope === "personal"
-              ? "Only you can use this agent."
-              : "Choose the people who can use this agent. Administrators manage its access."}
-          </p>
-          {scope === "team" && (
-            <div className="content-grid" aria-busy={membersPending}>
-              <ErrorMessage>{membersError}</ErrorMessage>
-              {membersError && (
-                <Button variant="secondary" onPress={() => void loadMembers()}>
-                  Retry people
-                </Button>
-              )}
-              {!membersPending && !membersError && (
-                <>
-                  <Checkbox
-                    variant="secondary"
-                    className="min-h-11"
-                    isSelected={allMembers}
-                    isDisabled={pending}
-                    onChange={setAllMembers}
-                    aria-label="All team members"
-                  >
-                    <Checkbox.Content className="min-h-11 gap-3">
-                      <Checkbox.Control>
-                        <Checkbox.Indicator />
-                      </Checkbox.Control>
-                      <span className="text-sm font-normal">
-                        All team members
-                      </span>
-                    </Checkbox.Content>
-                  </Checkbox>
-                  <p className="text-xs font-normal text-muted">
-                    {allMembers
-                      ? "Current and future team members can use this agent."
-                      : "Choose the people who can use this agent. The creator keeps access."}
-                  </p>
-                  <TextField
-                    label="Search people"
-                    type="search"
-                    value={memberQuery}
-                    onChange={(event) => {
-                      setMemberQuery(event.target.value);
-                      setMemberLimit(25);
-                    }}
-                    disabled={pending || allMembers}
-                    className="max-md:text-base!"
-                  />
+        {scope === "team" && (
+          <div className="content-grid" aria-busy={membersPending}>
+            <ErrorMessage>{membersError}</ErrorMessage>
+            {membersError && (
+              <Button variant="secondary" onPress={() => void loadMembers()}>
+                Retry people
+              </Button>
+            )}
+            {!membersPending && !membersError && (
+              <>
+                <Checkbox
+                  variant="secondary"
+                  className="min-h-11"
+                  isSelected={allMembers}
+                  isDisabled={pending}
+                  onChange={setAllMembers}
+                  aria-label="All team members"
+                >
+                  <Checkbox.Content className="min-h-11 gap-3">
+                    <Checkbox.Control>
+                      <Checkbox.Indicator />
+                    </Checkbox.Control>
+                    <span className="text-sm font-normal">
+                      All team members
+                    </span>
+                  </Checkbox.Content>
+                </Checkbox>
+                <p className="text-xs font-normal text-muted">
+                  {allMembers
+                    ? "Current and future team members can use this agent."
+                    : "Choose the people who can use this agent. The creator keeps access."}
+                </p>
+                <TextField
+                  label="Search people"
+                  type="search"
+                  value={memberQuery}
+                  onChange={(event) => {
+                    setMemberQuery(event.target.value);
+                    setMemberLimit(25);
+                  }}
+                  disabled={pending || allMembers}
+                  className="max-md:text-base!"
+                />
+                <div
+                  role="group"
+                  aria-label="Assigned people"
+                  className="min-w-0 space-y-2"
+                >
+                  {creator && (
+                    <div className="border-b border-separator pb-2">
+                      {personChoice(creator, true)}
+                    </div>
+                  )}
                   <div
-                    role="group"
-                    aria-label="Assigned people"
-                    className="min-w-0 space-y-2"
+                    role="region"
+                    aria-label="People choices"
+                    tabIndex={0}
+                    className="min-w-0 max-h-44 overflow-y-auto overscroll-contain rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus md:max-h-56"
                   >
-                    {creator && (
-                      <div className="border-b border-separator pb-2">
-                        {personChoice(creator, true)}
-                      </div>
-                    )}
-                    <div
-                      role="region"
-                      aria-label="People choices"
-                      tabIndex={0}
-                      className="min-w-0 max-h-44 overflow-y-auto overscroll-contain rounded-md outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus md:max-h-56"
-                    >
-                      <div className="grid gap-2 py-1 pr-2">
-                        {matchingPeople
-                          .slice(0, memberLimit)
-                          .map((member) => personChoice(member))}
-                        {!matchingPeople.length && (
-                          <p className="text-xs font-normal text-muted">
-                            No people match your search.
-                          </p>
-                        )}
-                        {matchingPeople.length > memberLimit && (
-                          <Button
-                            variant="secondary"
-                            isDisabled={pending || allMembers}
-                            onPress={() =>
-                              setMemberLimit((limit) => limit + 25)
-                            }
-                          >
-                            Load more people
-                          </Button>
-                        )}
-                      </div>
+                    <div className="grid gap-2 py-1 pr-2">
+                      {matchingPeople
+                        .slice(0, memberLimit)
+                        .map((member) => personChoice(member))}
+                      {!matchingPeople.length && (
+                        <p className="text-xs font-normal text-muted">
+                          No people match your search.
+                        </p>
+                      )}
+                      {matchingPeople.length > memberLimit && (
+                        <Button
+                          variant="secondary"
+                          isDisabled={pending || allMembers}
+                          onPress={() => setMemberLimit((limit) => limit + 25)}
+                        >
+                          Load more people
+                        </Button>
+                      )}
                     </div>
                   </div>
-                  <p className="text-xs font-normal text-muted">
-                    {allMembers
-                      ? "All team members selected."
-                      : `${memberIds.length} ${memberIds.length === 1 ? "person" : "people"} selected.`}
-                  </p>
-                </>
-              )}
-            </div>
-          )}
-          <ErrorMessage>{error}</ErrorMessage>
-          {conflict && (
-            <Button
-              variant="secondary"
-              isPending={pending}
-              onPress={() => void reload()}
-            >
-              Reload agent
-            </Button>
-          )}
-        </form>
-      )}
+                </div>
+                <p className="text-xs font-normal text-muted">
+                  {allMembers
+                    ? "All team members selected."
+                    : `${memberIds.length} ${memberIds.length === 1 ? "person" : "people"} selected.`}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+        <ErrorMessage>{error}</ErrorMessage>
+        {conflict && (
+          <Button
+            variant="secondary"
+            isPending={pending}
+            onPress={() => void reload()}
+          >
+            Reload agent
+          </Button>
+        )}
+      </form>
     </Dialog>
   );
 }
@@ -493,11 +463,10 @@ function DeleteAgent({
 }: {
   agent: Agent;
   onClose: () => void;
-  onDeleted: () => void;
+  onDeleted: () => Promise<void>;
 }) {
   const [current, setCurrent] = useState(agent);
   const [pending, setPending] = useState(false);
-  const [complete, setComplete] = useState(false);
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
   const [retryKey] = useState(createRetryKey);
@@ -516,8 +485,9 @@ function DeleteAgent({
         },
       });
       retryKey.reset();
-      setComplete(true);
-      onDeleted();
+      await onDeleted();
+      toast.success("Agent deleted.");
+      onClose();
     } catch (cause) {
       setError(errorText(cause));
       setConflict(cause instanceof ApiError && cause.status === 409);
@@ -554,44 +524,29 @@ function DeleteAgent({
       }}
       isDismissDisabled={pending}
       footer={
-        complete ? (
-          <Button onPress={onClose}>Done</Button>
-        ) : (
-          <>
-            <Button variant="secondary" isDisabled={pending} onPress={onClose}>
-              Keep agent
-            </Button>
-            <Button
-              variant="danger"
-              isPending={pending}
-              isDisabled={conflict}
-              onPress={() => void remove()}
-            >
-              {pending ? "Deleting…" : "Delete agent"}
-            </Button>
-          </>
-        )
+        <>
+          <Button variant="secondary" isDisabled={pending} onPress={onClose}>
+            Keep agent
+          </Button>
+          <Button
+            variant="danger"
+            isPending={pending}
+            isDisabled={conflict}
+            onPress={() => void remove()}
+          >
+            {pending ? "Deleting…" : "Delete agent"}
+          </Button>
+        </>
       }
     >
       <div className="content-grid">
         <p className="text-xs font-normal text-muted">
-          {complete ? (
-            <>
-              <strong className="font-normal text-foreground">
-                {current.name}
-              </strong>{" "}
-              has been deleted.
-            </>
-          ) : (
-            <>
-              Delete{" "}
-              <strong className="font-normal text-foreground">
-                {current.name}
-              </strong>
-              ? Its OAuth connections will lose access. Task history stays
-              available.
-            </>
-          )}
+          Delete{" "}
+          <strong className="font-normal text-foreground">
+            {current.name}
+          </strong>
+          ? Its OAuth connections will lose access. Task history stays
+          available.
         </p>
         <ErrorMessage>{error}</ErrorMessage>
         {conflict && (
@@ -602,14 +557,6 @@ function DeleteAgent({
           >
             Reload agent
           </Button>
-        )}
-        {complete && (
-          <p
-            role="status"
-            className="text-xs font-normal text-success-soft-foreground"
-          >
-            Agent deleted.
-          </p>
         )}
       </div>
     </Dialog>
@@ -633,7 +580,14 @@ export function AgentsSettings({ session }: { session: Session }) {
     if (editing || deleting || !activeAction.current) return;
     const trigger = actions.current.get(activeAction.current);
     activeAction.current = null;
-    (trigger?.isConnected ? trigger : createButton.current)?.focus();
+    if (trigger?.isConnected) {
+      trigger.focus();
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (!activeAction.current && document.activeElement === document.body)
+        createButton.current?.focus();
+    });
   }, [editing, deleting]);
   const canCreate = session.user.role !== "viewer";
   const canManage = (agent: Agent) =>
@@ -710,13 +664,39 @@ export function AgentsSettings({ session }: { session: Session }) {
                           </TableCellDescription>
                         </TableCellStack>
                         <span className="md:hidden">
-                          <Chip size="small" variant="secondary">
+                          <Chip
+                            size="small"
+                            variant={
+                              agent.scope === "team" ? "info" : "warning"
+                            }
+                          >
+                            <HugeiconsIcon
+                              icon={
+                                agent.scope === "team"
+                                  ? UserGroupIcon
+                                  : UserIcon
+                              }
+                              size={14}
+                              aria-hidden="true"
+                              className="shrink-0"
+                            />
                             {agent.scope === "personal" ? "Personal" : "Team"}
                           </Chip>
                         </span>
                       </Table.Cell>
                       <Table.Cell className="hidden md:table-cell">
-                        <Chip size="small" variant="secondary">
+                        <Chip
+                          size="small"
+                          variant={agent.scope === "team" ? "info" : "warning"}
+                        >
+                          <HugeiconsIcon
+                            icon={
+                              agent.scope === "team" ? UserGroupIcon : UserIcon
+                            }
+                            size={14}
+                            aria-hidden="true"
+                            className="shrink-0"
+                          />
                           {agent.scope === "personal" ? "Personal" : "Team"}
                         </Chip>
                       </Table.Cell>
@@ -788,7 +768,7 @@ export function AgentsSettings({ session }: { session: Session }) {
         <DeleteAgent
           agent={deleting}
           onClose={() => setDeleting(null)}
-          onDeleted={() => void directory.reload()}
+          onDeleted={() => directory.reload()}
         />
       )}
     </section>

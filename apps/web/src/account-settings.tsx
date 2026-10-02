@@ -25,17 +25,20 @@ import {
   FieldGroup,
   TextField,
   Widget,
+  toast,
 } from "@mill/web-design-system";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Bell,
-  KeyRound,
-  LockKeyhole,
-  Monitor,
-  Shield,
-  UserRound,
-} from "lucide-react";
+  Key01Icon,
+  LockKeyholeIcon,
+  MonitorIcon,
+  Notification02Icon,
+  SecurityCheckIcon,
+  UserAccountIcon,
+} from "@hugeicons/core-free-icons";
 import { Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
+import { RelativeDateTime } from "./relative-date-time.js";
 import { api, errorText, type Session } from "./api.js";
 import {
   ChallengeFields,
@@ -82,18 +85,6 @@ function AccountWidget({
         <div className="content-grid min-w-0">{children}</div>
       </Widget.Content>
     </Widget>
-  );
-}
-function Feedback({ error, notice }: { error: string; notice: string }) {
-  return (
-    <>
-      <ErrorMessage>{error}</ErrorMessage>
-      {notice && (
-        <p role="status" className="text-xs text-success-soft-foreground">
-          {notice}
-        </p>
-      )}
-    </>
   );
 }
 function useAccountList<T>(path: string) {
@@ -187,20 +178,14 @@ function ProfileSettings({
     session.user.notificationPreferences.mentions !== false,
   );
   const [busy, setBusy] = useState(false);
-  const [profileFeedback, setProfileFeedback] = useState({
-    error: "",
-    notice: "",
-  });
-  const [notificationFeedback, setNotificationFeedback] = useState({
-    error: "",
-    notice: "",
-  });
+  const [profileError, setProfileError] = useState("");
+  const [notificationError, setNotificationError] = useState("");
   async function save(part: "profile" | "notifications") {
     if (busy) return;
     setBusy(true);
-    const feedback =
-      part === "profile" ? setProfileFeedback : setNotificationFeedback;
-    feedback({ error: "", notice: "" });
+    const setError =
+      part === "profile" ? setProfileError : setNotificationError;
+    setError("");
     try {
       await api(
         "/auth/profile",
@@ -209,14 +194,12 @@ function ProfileSettings({
           : { notificationPreferences: { assignments, mentions } },
         "PATCH",
       );
-      feedback({
-        error: "",
-        notice:
-          part === "profile" ? "Preferences saved." : "Notifications saved.",
-      });
+      toast.success(
+        part === "profile" ? "Preferences saved." : "Notifications saved.",
+      );
       onRefresh();
     } catch (cause) {
-      feedback({ error: errorText(cause), notice: "" });
+      setError(errorText(cause));
     } finally {
       setBusy(false);
     }
@@ -225,11 +208,14 @@ function ProfileSettings({
     <section className="min-w-0">
       <PageHeading
         title="Profile"
-        icon={<UserRound />}
+        icon={<HugeiconsIcon icon={UserAccountIcon} />}
         description="Manage your name, time zone, and notifications."
       />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
-        <AccountWidget title="Profile details" icon={<UserRound />}>
+        <AccountWidget
+          title="Profile details"
+          icon={<HugeiconsIcon icon={UserAccountIcon} />}
+        >
           <form
             className="content-grid"
             aria-busy={busy}
@@ -275,7 +261,7 @@ function ProfileSettings({
                 ].map((id) => ({ id, name: id }))}
               />
             </FieldGroup>
-            <Feedback {...profileFeedback} />
+            <ErrorMessage>{profileError}</ErrorMessage>
             <div>
               <Button type="submit" isDisabled={busy}>
                 <Save />
@@ -284,7 +270,10 @@ function ProfileSettings({
             </div>
           </form>
         </AccountWidget>
-        <AccountWidget title="Notifications" icon={<Bell />}>
+        <AccountWidget
+          title="Notifications"
+          icon={<HugeiconsIcon icon={Notification02Icon} />}
+        >
           <form
             className="content-grid"
             aria-busy={busy}
@@ -322,7 +311,7 @@ function ProfileSettings({
                 </Checkbox.Content>
               </Checkbox>
             </div>
-            <Feedback {...notificationFeedback} />
+            <ErrorMessage>{notificationError}</ErrorMessage>
             <div>
               <Button type="submit" isDisabled={busy}>
                 <Save />
@@ -347,9 +336,6 @@ function SecuritySettings({
   const [pending, setPending] = useState<(() => Promise<void>) | null>(null);
   const [busy, setBusy] = useState(false);
   const [sessionError, setSessionError] = useState("");
-  const [sessionNotice, setSessionNotice] = useState("");
-  const [keyNotice, setKeyNotice] = useState("");
-  const [totpNotice, setTotpNotice] = useState("");
   const [totp, setTotp] = useState<{ secret: string; uri: string } | null>(
     null,
   );
@@ -370,7 +356,6 @@ function SecuritySettings({
   async function runSession(action: () => Promise<void>) {
     setBusy(true);
     setSessionError("");
-    setSessionNotice("");
     try {
       await action();
       await refresh();
@@ -395,7 +380,7 @@ function SecuritySettings({
       setTotp(null);
       setTotpMode("idle");
       setCode("");
-      setTotpNotice(
+      toast.success(
         totpMode === "disable"
           ? "Authenticator removed."
           : totpMode === "recovery"
@@ -409,22 +394,17 @@ function SecuritySettings({
       setTotpBusy(false);
     }
   }
-  const date = (value: string) =>
-    new Intl.DateTimeFormat(undefined, {
-      timeZone: session.user.timeZone,
-      dateStyle: "medium",
-    }).format(new Date(value));
   return (
     <section className="min-w-0">
       <PageHeading
         title="Account security"
-        icon={<Shield />}
+        icon={<HugeiconsIcon icon={SecurityCheckIcon} />}
         description="Manage your sign-in methods and active devices."
       />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
         <AccountWidget
           title="Passkeys"
-          icon={<KeyRound />}
+          icon={<HugeiconsIcon icon={Key01Icon} />}
           busy={keys.pending}
           status={
             keys.items && !keys.error ? (
@@ -440,7 +420,6 @@ function SecuritySettings({
             Sign in with your device or password manager. Mill prefers a passkey
             when second verification is needed.
           </p>
-          <Feedback error="" notice={keyNotice} />
           <ListState
             loaded={keys.items !== null}
             error={keys.error}
@@ -458,12 +437,14 @@ function SecuritySettings({
                       <p className="text-sm font-medium break-words">
                         {key.name}
                       </p>
-                      <time
-                        className="text-sm text-muted"
-                        dateTime={key.createdAt}
-                      >
-                        Added {date(key.createdAt)}
-                      </time>
+                      <RelativeDateTime
+                        value={key.createdAt}
+                        timeZone={session.user.timeZone}
+                        label="Passkey added"
+                        prefix="Added"
+                        compact
+                        className="text-muted"
+                      />
                     </div>
                     <Button
                       variant="danger"
@@ -471,7 +452,7 @@ function SecuritySettings({
                       onPress={() =>
                         secure(async () => {
                           await api(`/auth/passkeys/${key.id}`, {}, "DELETE");
-                          setKeyNotice("Passkey removed.");
+                          toast.success("Passkey removed.");
                         })
                       }
                     >
@@ -502,7 +483,7 @@ function SecuritySettings({
                     response,
                     name: "My passkey",
                   });
-                  setKeyNotice("Passkey added.");
+                  toast.success("Passkey added.");
                 })
               }
             >
@@ -512,7 +493,7 @@ function SecuritySettings({
         </AccountWidget>
         <AccountWidget
           title="Authenticator"
-          icon={<Shield />}
+          icon={<HugeiconsIcon icon={SecurityCheckIcon} />}
           status={
             <Chip color={session.user.totpEnabled ? "success" : "default"}>
               {session.user.totpEnabled
@@ -521,7 +502,6 @@ function SecuritySettings({
             </Chip>
           }
         >
-          <Feedback error="" notice={totpNotice} />
           <p className="text-xs text-muted">
             An authenticator app adds a one-time code to your password. Keep
             recovery codes in a safe place.
@@ -649,7 +629,10 @@ function SecuritySettings({
             </div>
           )}
         </AccountWidget>
-        <AccountWidget title="Password" icon={<LockKeyhole />}>
+        <AccountWidget
+          title="Password"
+          icon={<HugeiconsIcon icon={LockKeyholeIcon} />}
+        >
           <p className="text-xs text-muted">
             Use a unique password with at least 15 characters.
           </p>
@@ -657,7 +640,7 @@ function SecuritySettings({
         </AccountWidget>
         <AccountWidget
           title="Sessions"
-          icon={<Monitor />}
+          icon={<HugeiconsIcon icon={MonitorIcon} />}
           busy={sessions.pending}
           status={
             sessions.items && !sessions.error ? (
@@ -669,7 +652,7 @@ function SecuritySettings({
             Review devices signed in to your account. Signing out a device
             revokes its session.
           </p>
-          <Feedback error={sessionError} notice={sessionNotice} />
+          <ErrorMessage>{sessionError}</ErrorMessage>
           <ListState
             loaded={sessions.items !== null}
             error={sessions.error}
@@ -689,16 +672,14 @@ function SecuritySettings({
                           ? "This device"
                           : sessionDevice(item.userAgent)}
                       </p>
-                      <p className="text-xs text-muted">
-                        Last active{" "}
-                        <time dateTime={item.lastSeenAt}>
-                          {new Intl.DateTimeFormat(undefined, {
-                            timeZone: session.user.timeZone,
-                            dateStyle: "medium",
-                            timeStyle: "short",
-                          }).format(new Date(item.lastSeenAt))}
-                        </time>
-                      </p>
+                      <RelativeDateTime
+                        value={item.lastSeenAt}
+                        timeZone={session.user.timeZone}
+                        label="Last active"
+                        prefix="Last active"
+                        compact
+                        className="text-muted"
+                      />
                     </div>
                     {item.current ? (
                       <Chip>Current</Chip>
@@ -713,7 +694,7 @@ function SecuritySettings({
                               {},
                               "DELETE",
                             );
-                            setSessionNotice("Session revoked.");
+                            toast.success("Session revoked.");
                           })
                         }
                       >
@@ -747,12 +728,10 @@ function SecuritySettings({
 function PasswordChange({ onChanged }: { onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   async function change(form: HTMLFormElement) {
     if (busy) return;
     const values = new FormData(form);
     setError("");
-    setNotice("");
     if (values.get("next") !== values.get("confirmation")) {
       setError("The passwords do not match.");
       return;
@@ -763,7 +742,7 @@ function PasswordChange({ onChanged }: { onChanged: () => Promise<void> }) {
         currentPassword: values.get("current"),
         password: values.get("next"),
       });
-      setNotice("Password changed.");
+      toast.success("Password changed.");
       form.reset();
       await onChanged();
     } catch (cause) {
@@ -808,7 +787,7 @@ function PasswordChange({ onChanged }: { onChanged: () => Promise<void> }) {
           maxLength={1024}
         />
       </FieldGroup>
-      <Feedback error={error} notice={notice} />
+      <ErrorMessage>{error}</ErrorMessage>
       <div>
         <Button variant="secondary" type="submit" isDisabled={busy}>
           {busy ? "Changing password…" : "Change password"}
@@ -1008,16 +987,14 @@ function RecoveryCodesDialog({
   codes: string[];
   onClose: () => void;
 }) {
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
-    setNotice("");
     setError("");
   }, [codes]);
   async function copyCodes() {
     try {
       await navigator.clipboard.writeText(codes.join("\n"));
-      setNotice("Recovery codes copied.");
+      toast.success("Recovery codes copied.");
     } catch {
       setError(
         "Copy the codes manually. Your browser did not allow clipboard access.",
@@ -1049,14 +1026,13 @@ function RecoveryCodesDialog({
             variant="secondary"
             onPress={() => {
               setError("");
-              setNotice("");
               void copyCodes();
             }}
           >
             Copy codes
           </Button>
         </div>
-        <Feedback error={error} notice={notice} />
+        <ErrorMessage>{error}</ErrorMessage>
       </div>
     </Dialog>
   );

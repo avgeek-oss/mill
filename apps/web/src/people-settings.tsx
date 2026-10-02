@@ -20,6 +20,7 @@ import {
   TableCellDescription,
   Tooltip,
   TextField,
+  toast,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -35,9 +36,10 @@ import {
   UserMultipleIcon,
 } from "@hugeicons/core-free-icons";
 import type { Member, Role } from "../../../packages/contracts/src/index.js";
-import { api, errorText, type Session } from "./api.js";
-import { Check, Trash2 } from "./icons.js";
+import { ApiError, api, errorText, type Session } from "./api.js";
+import { Trash2 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
+import { RelativeDateTime } from "./relative-date-time.js";
 
 type Invitation = {
   id: string;
@@ -81,14 +83,40 @@ function usePeopleList<T>(path: string) {
       attemptedCursor.current = cursor;
       setState((previous) => ({ ...previous, loading: true, error: "" }));
       try {
-        const result = await api<{
+        let activeCursor = cursor;
+        let result: {
           items: T[];
           hasMore?: boolean;
           nextCursor?: string | null;
-        }>(`${path}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+        } | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            result = await api<{
+              items: T[];
+              hasMore?: boolean;
+              nextCursor?: string | null;
+            }>(
+              `${path}${activeCursor ? `?cursor=${encodeURIComponent(activeCursor)}` : ""}`,
+            );
+            break;
+          } catch (cause) {
+            if (
+              !(cause instanceof ApiError && cause.status === 409) ||
+              !activeCursor ||
+              attempt > 0
+            )
+              throw cause;
+            activeCursor = undefined;
+            attemptedCursor.current = undefined;
+          }
+        }
+        if (!result)
+          throw new Error("The people list could not be completed. Try again.");
         if (request !== sequence.current) return;
         setState((previous) => ({
-          items: cursor ? [...previous.items, ...result.items] : result.items,
+          items: activeCursor
+            ? [...previous.items, ...result.items]
+            : result.items,
           loading: false,
           error: "",
           hasMore: result.hasMore ?? false,
@@ -241,7 +269,8 @@ export function PeopleSettings({
   const adminCount = members.items.filter(
     (member) => member.role === "admin",
   ).length;
-  const completeDirectory = members.items.length < 1000;
+  const completeDirectory =
+    !members.loading && !members.error && !members.hasMore;
   useEffect(() => {
     if (!action && actionTrigger.current) {
       const trigger = actionButtons.current.get(actionTrigger.current);
@@ -254,7 +283,10 @@ export function PeopleSettings({
         trigger.focus();
         return;
       }
-      inviteTrigger.current?.focus();
+      requestAnimationFrame(() => {
+        if (!actionTrigger.current && document.activeElement === document.body)
+          inviteTrigger.current?.focus();
+      });
     }
   }, [action]);
   function rememberAction(key: string) {
@@ -272,10 +304,10 @@ export function PeopleSettings({
   useEffect(() => {
     document.title = "People · Mill";
   }, []);
-  function changed() {
-    if (action?.kind === "revoke") void invitations.load();
+  async function changed() {
+    if (action?.kind === "revoke") await invitations.load();
     else {
-      void members.load();
+      await members.load();
       onRefresh();
     }
   }
@@ -388,7 +420,7 @@ export function PeopleSettings({
                                 variant="secondary"
                                 isIconOnly
                                 aria-label={`Edit role for ${member.name}`}
-                                isDisabled={members.loading || lastAdmin}
+                                isDisabled={!completeDirectory || lastAdmin}
                                 onPress={() => {
                                   actionTrigger.current = `role:${member.id}`;
                                   setAction({ kind: "role", member });
@@ -411,7 +443,7 @@ export function PeopleSettings({
                                   variant="danger"
                                   isIconOnly
                                   aria-label={`Remove ${member.name}`}
-                                  isDisabled={members.loading || lastAdmin}
+                                  isDisabled={!completeDirectory || lastAdmin}
                                   onPress={() => {
                                     actionTrigger.current = `remove:${member.id}`;
                                     setAction({ kind: "remove", member });
@@ -430,10 +462,20 @@ export function PeopleSettings({
               </Table.ScrollContainer>
             </Table>
           )}
-          {!completeDirectory && (
-            <p className="text-xs text-muted">
-              This directory shows the first 1,000 people.
-            </p>
+          {!members.error && members.hasMore && members.nextCursor && (
+            <div className="grid justify-items-start gap-2">
+              <p className="text-xs text-muted">
+                Load the full directory before changing roles or removing
+                people.
+              </p>
+              <Button
+                variant="secondary"
+                isDisabled={members.loading}
+                onPress={() => void members.load(members.nextCursor!)}
+              >
+                {members.loading ? "Loading people…" : "Load more people"}
+              </Button>
+            </div>
           )}
         </PeopleSection>
         <PeopleSection label="Invitations" busy={invitations.loading}>
@@ -493,14 +535,14 @@ export function PeopleSettings({
                               <span className="break-all">
                                 {invitation.email}
                               </span>
-                              <TableCellDescription>
-                                Expires{" "}
-                                {new Date(
-                                  invitation.expiresAt,
-                                ).toLocaleDateString(undefined, {
-                                  timeZone: session.user.timeZone,
-                                })}
-                              </TableCellDescription>
+                              <RelativeDateTime
+                                value={invitation.expiresAt}
+                                timeZone={session.user.timeZone}
+                                label="Invitation expires"
+                                prefix="Expires"
+                                compact
+                                className="text-muted"
+                              />
                               <div className="flex flex-wrap gap-1 pt-1 md:hidden">
                                 <RoleChip role={invitation.role} />
                                 <Chip
@@ -605,7 +647,6 @@ function InvitePersonDialog({
     inviteUrl: string;
     emailDelivery: "unavailable" | "sent" | "failed";
   } | null>(null);
-  const [copied, setCopied] = useState(false);
   async function create() {
     if (pending.current) return;
     pending.current = true;
@@ -624,7 +665,7 @@ function InvitePersonDialog({
   async function copy() {
     try {
       await navigator.clipboard.writeText(result!.inviteUrl);
-      setCopied(true);
+      toast.success("Invitation link copied.");
       setError("");
     } catch {
       setError(
@@ -643,12 +684,8 @@ function InvitePersonDialog({
         result ? (
           <>
             <Button variant="secondary" onPress={() => void copy()}>
-              {copied ? (
-                <Check />
-              ) : (
-                <HugeiconsIcon icon={Copy01Icon} size={16} />
-              )}
-              {copied ? "Copied" : "Copy invitation link"}
+              <HugeiconsIcon icon={Copy01Icon} size={16} />
+              Copy invitation link
             </Button>
             <Button onPress={onClose}>Done</Button>
           </>
@@ -684,11 +721,6 @@ function InvitePersonDialog({
                   ? "The invitation email could not be sent. Share the link directly."
                   : "Email delivery is not configured. Copy the link to share it directly."}
             </p>
-            {copied && (
-              <p role="status" className="text-xs text-success-soft-foreground">
-                Invitation link copied.
-              </p>
-            )}
           </>
         ) : (
           <form
@@ -743,7 +775,7 @@ function PeopleActionDialog({
 }: {
   action: PeopleAction;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: () => Promise<void>;
 }) {
   const [role, setRole] = useState(
     action.kind === "revoke" ? action.invitation.role : action.member.role,
@@ -751,7 +783,6 @@ function PeopleActionDialog({
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
   const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
   const title =
     action.kind === "revoke"
       ? `Revoke invitation for ${action.invitation.email}?`
@@ -765,7 +796,7 @@ function PeopleActionDialog({
         ? "Remove access"
         : "Revoke invitation";
   async function save() {
-    if (pending.current || saved) return;
+    if (pending.current) return;
     pending.current = true;
     setBusy(true);
     setError("");
@@ -778,8 +809,15 @@ function PeopleActionDialog({
           action.kind === "role" ? { role } : {},
           action.kind === "role" ? "PATCH" : "DELETE",
         );
-      setSaved(true);
-      onSaved();
+      await onSaved();
+      toast.success(
+        action.kind === "role"
+          ? "Role updated."
+          : action.kind === "remove"
+            ? "Workspace access removed."
+            : "Invitation revoked.",
+      );
+      onClose();
     } catch (error) {
       setError(errorText(error));
     } finally {
@@ -795,37 +833,25 @@ function PeopleActionDialog({
       size="sm"
       isDismissDisabled={busy}
       footer={
-        saved ? (
-          <Button onPress={onClose}>Done</Button>
-        ) : (
-          <>
-            <Button variant="secondary" isDisabled={busy} onPress={onClose}>
-              Cancel
-            </Button>
-            <Button
-              variant={action.kind === "role" ? "primary" : "danger"}
-              isDisabled={
-                busy || (action.kind === "role" && role === action.member.role)
-              }
-              onPress={() => void save()}
-            >
-              {busy ? "Updating…" : label}
-            </Button>
-          </>
-        )
+        <>
+          <Button variant="secondary" isDisabled={busy} onPress={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant={action.kind === "role" ? "primary" : "danger"}
+            isDisabled={
+              busy || (action.kind === "role" && role === action.member.role)
+            }
+            onPress={() => void save()}
+          >
+            {busy ? "Updating…" : label}
+          </Button>
+        </>
       }
     >
       <div className="content-grid">
         <ErrorMessage>{error}</ErrorMessage>
-        {saved ? (
-          <p role="status" className="text-xs text-success-soft-foreground">
-            {action.kind === "role"
-              ? "Role updated."
-              : action.kind === "remove"
-                ? "Workspace access removed."
-                : "Invitation revoked."}
-          </p>
-        ) : action.kind === "role" ? (
+        {action.kind === "role" ? (
           <>
             <p className="break-all text-xs text-muted">
               {action.member.email}

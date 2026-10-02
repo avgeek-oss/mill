@@ -358,7 +358,7 @@ function ConsentRequest({
             </p>
             <p className="text-xs font-normal text-muted">
               {validScope
-                ? `Wants to ${write ? "read and edit" : "read"} your Mill boards, tasks, and comments.`
+                ? `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
                 : "The requested permissions are unavailable."}
             </p>
           </div>

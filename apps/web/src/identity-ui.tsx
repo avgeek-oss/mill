@@ -17,6 +17,7 @@ import {
   TypographyParagraph,
 } from "@mill/web-design-system";
 import { api } from "./api.js";
+import { MillMark } from "./brand.js";
 
 export type IdentityChallenge = {
   requiresSecondFactor: true;
@@ -49,12 +50,7 @@ export function AuthFrame({
               aria-label="Mill sign in"
               className="inline-flex w-fit items-center gap-2 font-medium"
             >
-              <span
-                aria-hidden="true"
-                className="grid size-8 place-items-center rounded-lg bg-accent text-accent-foreground"
-              >
-                M
-              </span>
+              <MillMark />
               Mill
             </a>
             <header data-slot="identity-auth-heading" className="grid gap-3">

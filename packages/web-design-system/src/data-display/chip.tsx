@@ -3,6 +3,7 @@
 import { Chip as HeroChip, Spinner } from "@heroui/react";
 import type { ComponentProps, ReactNode } from "react";
 import { TooltipText } from "../overlays/tooltip.js";
+import { cn } from "../utils.js";
 
 type ChipVariant =
   | "default"
@@ -11,6 +12,7 @@ type ChipVariant =
   | "success"
   | "warning"
   | "info"
+  | "orange"
   | "yellow";
 type ChipSize = "small" | "default" | "large";
 export type ChipProps = Omit<
@@ -33,6 +35,7 @@ const colors = {
   success: "success",
   warning: "warning",
   info: "accent",
+  orange: "warning",
   yellow: "warning",
 } as const;
 const sizes = { small: "sm", default: "md", large: "lg" } as const;
@@ -45,6 +48,7 @@ export function Chip({
   size,
   tooltip,
   variant,
+  className,
   ...props
 }: ChipProps) {
   const numeric =
@@ -57,11 +61,17 @@ export function Chip({
       color={color ?? (variant ? colors[variant] : undefined)}
       size={size ? sizes[size] : undefined}
       variant="soft"
+      className={cn(
+        !color &&
+          (variant === "orange" || variant === "yellow") &&
+          `chip--${variant}`,
+        className,
+      )}
       {...props}
     >
       {loading ? <Spinner color="current" size="sm" /> : null}
       <HeroChip.Label
-        className={`inline-flex items-center gap-1.5 whitespace-nowrap font-normal${numeric ? " font-mono tabular-nums" : ""}`}
+        className={`inline-flex items-center gap-[3px] whitespace-nowrap font-normal${numeric ? " font-mono tabular-nums" : ""}`}
       >
         {!loading && icon ? (
           <span

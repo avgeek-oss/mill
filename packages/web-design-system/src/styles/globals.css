@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@heroui/styles";
+@import "./mill-theme.css";
 
 @theme {
   --font-mono: "Geist Mono Variable", ui-monospace, monospace;
@@ -54,6 +55,69 @@ a {
 }
 
 @layer components {
+  .select__trigger.breadcrumb-board-trigger {
+    height: auto;
+    min-height: 0;
+    width: auto;
+    min-width: 0;
+    gap: 0.25rem;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+    color: var(--foreground);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  .select__trigger.breadcrumb-board-trigger:hover {
+    color: var(--accent);
+  }
+
+  .application-navigation-drawer[data-placement="left"] {
+    width: 18rem;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .application-navigation-drawer[data-placement="left"][data-secondary-navigation="true"] {
+    width: min(28rem, calc(100vw - 1rem));
+    grid-template-columns: calc(50% - 0.75rem) calc(50% + 0.75rem);
+  }
+
+  @media (min-width: 64rem) {
+    .application-layout {
+      display: grid;
+      grid-template-columns: 0rem minmax(0, 1fr);
+      transition: grid-template-columns 240ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .application-layout[data-sidebar-open="true"] {
+      grid-template-columns: 15rem minmax(0, 1fr);
+    }
+
+    .application-sidebar-panel {
+      transform: translateX(-100%);
+      transition: transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .application-layout[data-sidebar-open="true"] .application-sidebar-panel {
+      transform: translateX(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .application-layout,
+    .application-sidebar-panel {
+      transition: none;
+    }
+  }
+
+  .tooltip {
+    word-break: normal;
+    overflow-wrap: anywhere;
+  }
+
   .tooltip [data-slot="tooltip-arrow-edge"] {
     stroke: color-mix(in oklab, var(--overlay) 82%, var(--foreground) 18%);
   }
@@ -246,6 +310,24 @@ a {
     --button-bg-hover: var(--warning-soft-hover);
     --button-bg-pressed: var(--warning-soft-hover);
     --button-fg: var(--warning-soft-foreground);
+  }
+
+  .chip.chip--soft.chip--orange {
+    --chip-bg: color-mix(in oklch, var(--color-orange-500) 15%, transparent);
+    --chip-fg: var(--color-orange-800);
+  }
+
+  .chip.chip--soft.chip--yellow {
+    --chip-bg: color-mix(in oklch, var(--color-yellow-500) 15%, transparent);
+    --chip-fg: var(--color-yellow-800);
+  }
+
+  .dark .chip.chip--soft.chip--orange {
+    --chip-fg: var(--color-orange-300);
+  }
+
+  .dark .chip.chip--soft.chip--yellow {
+    --chip-fg: var(--color-yellow-300);
   }
 
   .sidebar-identity {

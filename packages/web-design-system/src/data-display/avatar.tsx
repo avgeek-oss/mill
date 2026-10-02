@@ -64,7 +64,11 @@ export function Avatar({ email, name, src, className, ...props }: AvatarProps) {
         referrerPolicy="no-referrer"
         src={src ?? (image?.email === normalizedEmail ? image.url : undefined)}
       />
-      <HeroAvatar.Fallback aria-hidden="true" data-slot="avatar-fallback">
+      <HeroAvatar.Fallback
+        aria-hidden="true"
+        data-slot="avatar-fallback"
+        className="text-[10px] font-normal text-muted"
+      >
         {initials}
       </HeroAvatar.Fallback>
     </HeroAvatar>

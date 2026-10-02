@@ -3,15 +3,17 @@ import {
   lazy,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import { flushSync } from "react-dom";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { BotIcon } from "@hugeicons/core-free-icons";
 import {
   Button,
   Avatar,
   Choice,
-  Chip,
   Dialog,
   ErrorMessage,
   TextField,
@@ -25,6 +27,13 @@ import {
   Link,
   TooltipText,
   TypographyParagraph,
+  TypographyHeading,
+  Chip,
+  Pagination,
+  PortalProvider,
+  SuspendedAppProvider,
+  useAppSuspended,
+  toast,
 } from "@mill/web-design-system";
 import {
   List,
@@ -48,15 +57,18 @@ import {
   navigate,
   type User,
 } from "./api.js";
-import type { TaskSelection } from "./task-dialog.js";
+import { boardUrl, parseBoardUrl, type BoardUrlState } from "./board-url.js";
 import { hasOkResponse } from "./responses.js";
-import { TASK_STATUSES } from "../../../packages/contracts/src/index.js";
-import { taskStatusLabel } from "./activity-label.js";
-const TaskDialog = lazy(() =>
-  import("./task-dialog.js").then((m) => ({ default: m.TaskDialog })),
+import { PriorityChip, priorityOptions } from "./task-priority.js";
+import { StatusChip, statusOptions } from "./task-status.js";
+import { useAgentDirectory } from "./agents-settings.js";
+const CreateTaskDialog = lazy(() =>
+  import("./create-task-dialog.js").then((m) => ({
+    default: m.CreateTaskDialog,
+  })),
 );
 import { ErrorPage } from "./error-page.js";
-type Page = { items: Task[]; nextCursor?: string | null };
+type Page = { items: Task[]; total: number; page: number; revision: string };
 export function BoardPage({
   boardId,
   boards,
@@ -65,6 +77,7 @@ export function BoardPage({
   onBoardsChanged,
   onBoardLoaded,
   path,
+  sessionRevision,
 }: {
   boardId: string;
   boards: Board[];
@@ -73,103 +86,153 @@ export function BoardPage({
   onBoardsChanged: (removedBoardId?: string) => void;
   onBoardLoaded: (board: Board) => void;
   path: string;
+  sessionRevision: number;
 }) {
+  const listState = useMemo(() => parseBoardUrl(path), [path]);
+  const q = listState.q;
+  const filters = listState;
+  const pageSize = listState.limit;
   const [board, setBoard] = useState<Board | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [moreLoading, setMoreLoading] = useState(false);
+  const [taskPage, setTaskPage] = useState(listState.page);
+  const [displayedPageSize, setDisplayedPageSize] = useState(pageSize);
+  const [taskTotal, setTaskTotal] = useState<number | null>(null);
+  const [displayedSort, setDisplayedSort] = useState(filters.sort);
   const [errorStatus, setErrorStatus] = useState(0);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [taskListChanged, setTaskListChanged] = useState(false);
   const [mobileFilters, setMobileFilters] = useState(false);
-  const [query, setQuery] = useState("");
-  const [q, setQ] = useState("");
-  const [filters, setFilters] = useState({
-    assigneeId: "",
-    priority: "",
-    status: "",
-    sort: "createdAt",
-  });
-  const [selection, setSelection] = useState<TaskSelection | null>(null);
+  const [query, setQuery] = useState(q);
+  const [creatingTask, setCreatingTask] = useState(false);
   const [confirmBoard, setConfirmBoard] = useState(false);
   const [boardDeleteKey] = useState(createRetryKey);
   const [settings, setSettings] = useState(false);
   const [busy, setBusy] = useState(false);
   const pendingSettingsOpener = useRef<HTMLElement | null>(null);
   const [settingsError, setSettingsError] = useState("");
-  const [settingsNotice, setSettingsNotice] = useState("");
   const latestLoad = useRef(0);
-  const taskOpener = useRef<{
-    taskId?: string;
-    element: HTMLElement | null;
-  } | null>(null);
-  const taskWasOpen = useRef(false);
-  const taskList = useRef<HTMLTableElement | null>(null);
+  const requestedPage = useRef(listState.page);
+  const pageCollection = useRef<{ query: string; revision?: string }>({
+    query: "",
+  });
+  const loadedPage = useRef<{ query: string; page: number } | null>(null);
+  const lastSessionRevision = useRef(sessionRevision);
+  const creationOpener = useRef<HTMLElement | null>(null);
+  const creationWasOpen = useRef(false);
+  const taskList = useRef<HTMLDivElement | null>(null);
+  const paginationFooter = useRef<HTMLDivElement | null>(null);
+  const paginationOpener = useRef<HTMLElement | null>(null);
+  const retryTasksButton = useRef<HTMLButtonElement | null>(null);
+  const agentFilter = useRef<HTMLDivElement | null>(null);
   const newTaskButton = useRef<HTMLButtonElement | null>(null);
   const boardActionsButton = useRef<HTMLButtonElement | null>(null);
   const boardDialogWasOpen = useRef(false);
+  const boardContent = useRef<HTMLDivElement>(null);
+  const appSuspended = useAppSuspended();
   const writable = !!board && user.role !== "viewer";
+  const agentDirectory = useAgentDirectory(`${user.id}:${user.role}`);
+  function changeList(changes: Partial<BoardUrlState>, replace = false) {
+    if (window.location.pathname !== `/boards/${boardId}`) return;
+    const next = boardUrl(
+      boardId,
+      { ...listState, q: query, ...changes },
+      window.location.search,
+    );
+    if (next === `${window.location.pathname}${window.location.search}`) return;
+    if (replace) {
+      window.history.replaceState(window.history.state, "", next);
+      window.dispatchEvent(new Event("mill:navigate"));
+    } else navigate(next);
+  }
+  useLayoutEffect(() => setQuery(q), [q]);
   useEffect(() => {
-    const timer = setTimeout(() => setQ(query), 250);
+    const restoreSearch = () =>
+      setQuery(
+        parseBoardUrl(window.location.pathname + window.location.search).q,
+      );
+    window.addEventListener("popstate", restoreSearch);
+    return () => window.removeEventListener("popstate", restoreSearch);
+  }, []);
+  useEffect(() => {
+    if (window.location.pathname !== `/boards/${boardId}`) return;
+    const next = boardUrl(boardId, listState, window.location.search);
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(window.history.state, "", next);
+      window.dispatchEvent(new Event("mill:navigate"));
+    }
+  }, [boardId, path]);
+  useEffect(() => {
+    if (query === q) return;
+    const timer = setTimeout(
+      () => changeList({ q: query, page: 1 }, true),
+      250,
+    );
     return () => clearTimeout(timer);
-  }, [query]);
-  function taskQuery(cursor?: string) {
-    const params = new URLSearchParams({ limit: "100", sort: filters.sort });
+  }, [query, q, path]);
+  function taskQuery(page?: number, revision?: string) {
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      sort: filters.sort,
+    });
     if (q) params.set("q", q);
-    for (const key of ["assigneeId", "priority", "status"] as const)
+    for (const key of ["assigneeId", "agentId", "priority", "status"] as const)
       if (filters[key]) params.set(key, filters[key]);
-    if (cursor) params.set("cursor", cursor);
+    if (page) params.set("page", String(page));
+    if (revision) params.set("revision", revision);
     return params;
   }
-  async function load(more = false, preserveWindow = false) {
+  async function load(targetPage = 1, refresh = false) {
     const request = ++latestLoad.current;
-    if (!more) setLoading(true);
-    else setMoreLoading(true);
+    requestedPage.current = targetPage;
+    setLoading(true);
     setError("");
-    setErrorStatus(0);
     setTaskListChanged(false);
+    const queryKey = `${boardId}?${taskQuery()}`;
+    if (refresh || pageCollection.current.query !== queryKey) {
+      pageCollection.current = { query: queryKey };
+    }
+    const collection = pageCollection.current;
+    async function readPage() {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await api<Page>(
+            `/boards/${boardId}/tasks?${taskQuery(targetPage, collection.revision)}`,
+          );
+        } catch (e) {
+          if (request !== latestLoad.current) return null;
+          if (!(e instanceof ApiError) || e.status !== 409 || attempt > 0)
+            throw e;
+          collection.revision = undefined;
+        }
+      }
+      return null;
+    }
     try {
       const [info, page] = await Promise.all([
         api<{ board: Board }>(`/boards/${boardId}`),
-        api<Page>(
-          `/boards/${boardId}/tasks?${taskQuery(more ? (nextCursor ?? undefined) : undefined)}`,
-        ),
+        readPage(),
       ]);
-      const collected = [...page.items];
-      let cursor = page.nextCursor ?? null;
-      while (
-        !more &&
-        preserveWindow &&
-        collected.length < tasks.length &&
-        cursor
-      ) {
-        if (request !== latestLoad.current) return;
-        const next = await api<Page>(
-          `/boards/${boardId}/tasks?${taskQuery(cursor)}`,
-        );
-        collected.push(...next.items);
-        cursor = next.nextCursor ?? null;
-      }
-      if (request !== latestLoad.current) return;
+      if (!page || request !== latestLoad.current) return;
       setBoard(info.board);
+      setAccessDenied(false);
+      setErrorStatus(0);
       onBoardLoaded(info.board);
-      setTasks((prev) =>
-        more
-          ? [...prev, ...page.items].filter(
-              (item, index, list) =>
-                list.findIndex((i) => i.id === item.id) === index,
-            )
-          : collected,
-      );
-      setNextCursor(cursor);
+      setTasks(page.items);
+      collection.revision = page.revision;
+      setTaskPage(page.page);
+      loadedPage.current = { query: queryKey, page: page.page };
+      requestedPage.current = page.page;
+      setTaskTotal(page.total);
+      setDisplayedPageSize(pageSize);
+      setDisplayedSort(filters.sort);
+      if (page.page !== targetPage) changeList({ page: page.page, q }, true);
     } catch (e) {
       if (request === latestLoad.current) {
         const changed = e instanceof ApiError && e.status === 409;
-        if (more && changed) {
-          await load(false, true);
-          return;
-        }
+        if (e instanceof ApiError && [403, 404].includes(e.status))
+          setAccessDenied(true);
         setError(errorText(e));
         setErrorStatus(e instanceof ApiError ? e.status : 0);
         setTaskListChanged(changed);
@@ -177,81 +240,118 @@ export function BoardPage({
     } finally {
       if (request === latestLoad.current) {
         setLoading(false);
-        setMoreLoading(false);
       }
     }
   }
   useEffect(() => {
-    if (board && !path.includes("/tasks/"))
-      document.title = `${board.name} · Mill`;
-  }, [board?.name, path]);
+    if (accessDenied) document.title = "Board unavailable · Mill";
+    else if (board) document.title = `${board.name} · Mill`;
+  }, [board?.name, path, accessDenied]);
   useEffect(() => {
-    void load();
+    const queryKey = `${boardId}?${taskQuery()}`;
+    const resumed = lastSessionRevision.current !== sessionRevision;
+    lastSessionRevision.current = sessionRevision;
+    if (
+      !resumed &&
+      loadedPage.current?.query === queryKey &&
+      loadedPage.current.page === listState.page
+    ) {
+      requestedPage.current = listState.page;
+      setLoading(false);
+      setError("");
+      setErrorStatus(0);
+      setTaskListChanged(false);
+      return;
+    }
+    void load(listState.page);
+    return () => {
+      ++latestLoad.current;
+    };
   }, [
     boardId,
     q,
     filters.assigneeId,
+    filters.agentId,
     filters.priority,
     filters.status,
     filters.sort,
+    pageSize,
+    listState.page,
+    sessionRevision,
   ]);
-  useEffect(() => {
-    const taskId = path.match(/\/tasks\/([^/]+)/)?.[1];
-    setSelection((prev) => (taskId ? { id: taskId } : prev?.id ? null : prev));
-  }, [path]);
-  function rememberTaskOpener(
-    taskId: string,
-    target: EventTarget | null,
-    row: HTMLElement,
-  ) {
-    taskOpener.current = {
-      taskId,
-      element:
-        target instanceof Element
-          ? (target.closest<HTMLElement>("a[href]") ?? row)
-          : row,
-    };
+  function rememberPaginationFocus(element = document.activeElement) {
+    const opener =
+      element instanceof HTMLElement &&
+      (paginationFooter.current?.contains(element) ||
+        element === retryTasksButton.current)
+        ? element
+        : paginationFooter.current?.querySelector<HTMLElement>(
+            'button[aria-current="page"]',
+          );
+    if (opener) {
+      paginationOpener.current = opener;
+      paginationFooter.current?.focus({ preventScroll: true });
+    }
+  }
+  useLayoutEffect(() => {
+    const opener = paginationOpener.current;
+    if (loading || !opener) return;
+    paginationOpener.current = null;
+    const active = document.activeElement;
+    if (
+      active !== document.body &&
+      active !== paginationFooter.current &&
+      active !== opener
+    )
+      return;
+    const target =
+      opener.isConnected && !opener.matches(":disabled")
+        ? opener
+        : (retryTasksButton.current ??
+          paginationFooter.current?.querySelector<HTMLElement>(
+            'button[aria-current="page"]',
+          ));
+    target?.focus({ preventScroll: true });
+  }, [loading, taskPage, taskTotal]);
+  function openCreation() {
+    if (!writable) return;
+    creationOpener.current =
+      document.activeElement instanceof HTMLElement &&
+      document.activeElement !== document.body
+        ? document.activeElement
+        : newTaskButton.current;
+    setCreatingTask(true);
   }
   useEffect(() => {
-    if (selection) {
-      taskWasOpen.current = true;
-      taskOpener.current ??= { taskId: selection.id, element: null };
+    if (creatingTask) {
+      creationWasOpen.current = true;
       return;
     }
-    if (!taskWasOpen.current || loading) return;
+    if (!creationWasOpen.current) return;
     let frame = 0;
     const restore = () => {
-      const opener = taskOpener.current;
-      taskWasOpen.current = false;
-      taskOpener.current = null;
+      creationWasOpen.current = false;
+      const opener = creationOpener.current;
+      creationOpener.current = null;
       const active = document.activeElement;
       if (
         active !== document.body &&
-        active !== opener?.element &&
+        active !== opener &&
         !taskList.current?.contains(active)
       )
         return;
-      const currentLink = opener?.taskId
-        ? taskList.current?.querySelector<HTMLAnchorElement>(
-            `a[href="/boards/${boardId}/tasks/${opener.taskId}"]`,
-          )
-        : null;
-      const target = opener?.element?.isConnected
-        ? opener.element
-        : (currentLink ??
-          newTaskButton.current ??
-          document.getElementById("board-search"));
+      const target =
+        opener?.isConnected && !opener.matches(":disabled")
+          ? opener
+          : newTaskButton.current;
       const row = target?.closest<HTMLElement>('[role="row"]');
-      if (row && taskList.current?.contains(row)) {
-        // Synchronize the table's focused row before returning to its nested link.
+      if (row && taskList.current?.contains(row))
         flushSync(() => row.focus({ preventScroll: true }));
-      }
       target?.focus({ preventScroll: true });
     };
     const afterDialogRemoved = () => {
-      if (document.querySelector("[data-task-dialog]")) return;
+      if (document.querySelector("[data-create-task-dialog]")) return;
       observer.disconnect();
-      // The modal's focus scope restores on the first frame after teardown.
       frame = requestAnimationFrame(restore);
     };
     const observer = new MutationObserver(afterDialogRemoved);
@@ -261,22 +361,7 @@ export function BoardPage({
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [selection, loading, tasks, boardId]);
-  function choose(next: TaskSelection | null) {
-    if (next && !selection) {
-      taskOpener.current = {
-        taskId: next.id,
-        element:
-          document.activeElement instanceof HTMLElement &&
-          document.activeElement !== document.body
-            ? document.activeElement
-            : null,
-      };
-    }
-    setSelection(next);
-    if (next?.id) navigate(`/boards/${boardId}/tasks/${next.id}`);
-    else if (path.includes("/tasks/")) navigate(`/boards/${boardId}`);
-  }
+  }, [creatingTask]);
   useEffect(() => {
     function shortcuts(e: KeyboardEvent) {
       if (
@@ -289,13 +374,13 @@ export function BoardPage({
         e.metaKey ||
         e.ctrlKey ||
         e.altKey ||
-        selection ||
+        creatingTask ||
         settings
       )
         return;
       if (e.key.toLowerCase() === "n" && writable) {
         e.preventDefault();
-        choose({});
+        openCreation();
       }
       if (e.key === "/" && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
@@ -304,7 +389,7 @@ export function BoardPage({
     }
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [selection, settings, writable]);
+  }, [creatingTask, settings, writable]);
   useLayoutEffect(() => {
     if (!settings) {
       pendingSettingsOpener.current = null;
@@ -370,12 +455,11 @@ export function BoardPage({
         : null;
     setBusy(true);
     setSettingsError("");
-    setSettingsNotice("");
     try {
       await action();
-      await load(false, true);
+      await load(taskPage, true);
       onBoardsChanged();
-      setSettingsNotice(notice);
+      toast.success(notice);
       return true;
     } catch (e) {
       setSettingsError(errorText(e));
@@ -415,19 +499,40 @@ export function BoardPage({
   const hasFilters = !!(
     q ||
     filters.assigneeId ||
+    filters.agentId ||
     filters.priority ||
     filters.status
   );
   function clearFilters() {
     setQuery("");
-    setFilters({
+    changeList({
+      q: "",
+      page: 1,
       assigneeId: "",
+      agentId: "",
       priority: "",
       status: "",
       sort: "createdAt",
     });
   }
-  const visibleTasks = tasks;
+  const groups =
+    displayedSort === "priority" || displayedSort === "status"
+      ? (displayedSort === "priority" ? priorityOptions : statusOptions)
+          .map((option) => ({
+            ...option,
+            tasks: tasks.filter(
+              (task) =>
+                task[displayedSort === "priority" ? "priority" : "status"] ===
+                option.id,
+            ),
+          }))
+          .filter((group) => group.tasks.length > 0)
+      : [{ id: "all", name: "", startContent: null, tasks }];
+  const paginationDisabled = loading || query !== q;
+  const totalPages = Math.max(
+    1,
+    Math.ceil((taskTotal ?? 0) / displayedPageSize),
+  );
   function emptyTasks() {
     return (
       <EmptyState>
@@ -449,416 +554,546 @@ export function BoardPage({
               Clear filters
             </Button>
           ) : (
-            writable && <Button onPress={() => choose({})}>Create task</Button>
+            writable && <Button onPress={openCreation}>Create task</Button>
           )}
         </EmptyState.Content>
       </EmptyState>
     );
   }
-  if (!loading && errorStatus >= 500)
-    return <ErrorPage onRetry={() => void load()} />;
-  if (!board && !loading)
-    return (
-      <ErrorPage
-        code={[403, 404].includes(errorStatus) ? String(errorStatus) : "500"}
-        title={
-          errorStatus === 403 ? "Board access required" : "Board unavailable"
-        }
-        description={error || "This board could not be found."}
-        onRetry={() => void load()}
-      />
-    );
+  if (!accessDenied && !board && !loading && errorStatus >= 500)
+    return <ErrorPage onRetry={() => void load(requestedPage.current, true)} />;
+  const accessFailure = (
+    <ErrorPage
+      code={[403, 404].includes(errorStatus) ? String(errorStatus) : "500"}
+      title={
+        errorStatus === 403 ? "Board access required" : "Board unavailable"
+      }
+      description={
+        errorStatus === 403
+          ? "You do not have access to this board. Ask an administrator or return to your boards."
+          : errorStatus === 404
+            ? "This board may have been deleted or the link may be outdated."
+            : error || "This board could not be opened. Try again."
+      }
+      onRetry={() => void load(requestedPage.current, true)}
+    />
+  );
+  if (!board && (accessDenied || !loading)) return accessFailure;
   return (
     <>
-      <PageHeading
-        title={
-          board?.name ??
-          boards.find((item) => item.id === boardId)?.name ??
-          "Board"
-        }
-        icon={<List />}
-        actions={
-          <div className="flex flex-wrap items-center gap-3">
-            {writable && (
-              <Button ref={newTaskButton} onPress={() => choose({})}>
-                <Plus />
-                New task
-              </Button>
-            )}
-            {user.role !== "viewer" && (
-              <Dropdown>
-                <Button
-                  ref={boardActionsButton}
-                  variant="secondary"
-                  aria-label="Board actions"
-                  isIconOnly
-                  isDisabled={!board || busy}
-                >
-                  <MoreHorizontal />
-                </Button>
-                <Dropdown.Popover placement="bottom end" className="min-w-44">
-                  <Dropdown.Menu
-                    aria-label="Board actions"
-                    onAction={(key) => {
-                      setSettingsError("");
-                      setSettingsNotice("");
-                      if (key === "settings") setSettings(true);
-                      else if (key === "delete" && user.role === "admin")
-                        setConfirmBoard(true);
-                    }}
-                  >
-                    <Dropdown.Item id="settings" textValue="Board settings">
-                      <Settings2 />
-                      Board settings
-                    </Dropdown.Item>
-                    {user.role === "admin" && (
-                      <Dropdown.Item
-                        id="delete"
-                        textValue="Delete board"
-                        variant="danger"
+      {accessDenied && accessFailure}
+      <div
+        ref={boardContent}
+        hidden={accessDenied}
+        inert={accessDenied}
+        aria-hidden={accessDenied}
+      >
+        <SuspendedAppProvider value={appSuspended || accessDenied}>
+          <PortalProvider getContainer={() => boardContent.current}>
+            <PageHeading
+              title={
+                board?.name ??
+                boards.find((item) => item.id === boardId)?.name ??
+                "Board"
+              }
+              icon={<List />}
+              actions={
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="w-36 min-w-0">
+                    <Choice
+                      variant="secondary"
+                      label="Sort"
+                      hideLabel
+                      value={filters.sort}
+                      onChange={(v) => changeList({ sort: v, page: 1 })}
+                      items={[
+                        { id: "createdAt", name: "Newest first" },
+                        { id: "title", name: "Title" },
+                        { id: "updatedAt", name: "Recently updated" },
+                        { id: "dueDate", name: "Due date" },
+                        { id: "priority", name: "Priority" },
+                        { id: "status", name: "Status" },
+                      ]}
+                    />
+                  </div>
+                  {writable && (
+                    <Button ref={newTaskButton} onPress={openCreation}>
+                      <Plus />
+                      New task
+                    </Button>
+                  )}
+                  {user.role !== "viewer" && (
+                    <Dropdown>
+                      <Button
+                        ref={boardActionsButton}
+                        variant="secondary"
+                        aria-label="Board actions"
+                        isIconOnly
+                        isDisabled={!board || busy}
                       >
-                        <Trash2 />
-                        Delete board
-                      </Dropdown.Item>
-                    )}
-                  </Dropdown.Menu>
-                </Dropdown.Popover>
-              </Dropdown>
-            )}
-          </div>
-        }
-      />
-      <div className={`board-toolbar ${mobileFilters ? "filters-open" : ""}`}>
-        <SearchField
-          aria-label="Search tasks"
-          variant="secondary"
-          className="board-search"
-          value={query}
-          onChange={setQuery}
-        >
-          <SearchField.Group>
-            <SearchField.SearchIcon />
-            <SearchField.Input
-              id="board-search"
-              placeholder="Search tasks…"
-              maxLength={200}
-            />
-            <SearchField.ClearButton aria-label="Clear task search" />
-          </SearchField.Group>
-        </SearchField>
-        <Button
-          className="mobile-filter-trigger"
-          variant="secondary"
-          aria-expanded={mobileFilters}
-          onPress={() => setMobileFilters(!mobileFilters)}
-        >
-          <Settings2 />
-          Filters
-        </Button>
-        <div className="board-filter-slot">
-          <Choice
-            variant="secondary"
-            label="Assignee filter"
-            hideLabel
-            value={filters.assigneeId}
-            onChange={(v) => setFilters({ ...filters, assigneeId: v })}
-            items={[
-              { id: "", name: "All assignees" },
-              { id: "unassigned", name: "Unassigned" },
-              ...members.map((member) => ({
-                id: member.id,
-                name: member.name,
-                description: member.email,
-                startContent: (
-                  <Avatar email={member.email} name={member.name} size="sm" />
-                ),
-              })),
-            ]}
-            search
-          />
-        </div>
-        <div className="board-filter-slot">
-          <Choice
-            variant="secondary"
-            label="Priority filter"
-            hideLabel
-            value={filters.priority}
-            onChange={(v) => setFilters({ ...filters, priority: v })}
-            items={[
-              { id: "", name: "All priorities" },
-              ...["urgent", "high", "medium", "low", "none"].map((id) => ({
-                id,
-                name: id === "none" ? "No priority" : id,
-              })),
-            ]}
-          />
-        </div>
-        <div className="board-filter-slot">
-          <Choice
-            variant="secondary"
-            label="Status filter"
-            hideLabel
-            value={filters.status}
-            onChange={(v) => setFilters({ ...filters, status: v })}
-            items={[
-              { id: "", name: "All statuses" },
-              ...TASK_STATUSES.map((id) => ({ id, name: taskStatusLabel(id) })),
-            ]}
-          />
-        </div>
-        <div className="board-filter-slot">
-          <Choice
-            variant="secondary"
-            label="Sort"
-            hideLabel
-            value={filters.sort}
-            onChange={(v) => setFilters({ ...filters, sort: v })}
-            items={[
-              { id: "createdAt", name: "Newest first" },
-              { id: "title", name: "Title" },
-              { id: "updatedAt", name: "Recently updated" },
-              { id: "dueDate", name: "Due date" },
-              { id: "priority", name: "Priority" },
-            ]}
-          />
-        </div>
-        <div className="board-clear-slot">
-          {hasFilters && (
-            <Button variant="secondary" onPress={clearFilters}>
-              Clear filters
-            </Button>
-          )}
-        </div>
-      </div>
-      <ErrorMessage>{error}</ErrorMessage>
-      {taskListChanged && (
-        <div>
-          <Button
-            variant="secondary"
-            isDisabled={loading || moreLoading}
-            onPress={() => void load(false, true)}
-          >
-            Retry loading tasks
-          </Button>
-        </div>
-      )}
-      {loading && !tasks.length ? null : !visibleTasks.length ? (
-        emptyTasks()
-      ) : (
-        <div
-          onKeyDownCapture={(event) => {
-            if (event.key !== "Enter" || !(event.target instanceof Element))
-              return;
-            const row = event.target.closest<HTMLElement>("[data-task-id]");
-            if (row?.dataset.taskId)
-              rememberTaskOpener(row.dataset.taskId, event.target, row);
-          }}
-        >
-          <Table>
-            <Table.ScrollContainer>
-              <Table.Content
-                ref={taskList}
-                aria-label="Task list"
-                aria-busy={loading || moreLoading}
-              >
-                <Table.Header>
-                  <Table.Column isRowHeader>Task</Table.Column>
-                  <Table.Column>Status</Table.Column>
-                  <Table.Column>Assignee</Table.Column>
-                  <Table.Column>Agent</Table.Column>
-                  <Table.Column>Priority</Table.Column>
-                </Table.Header>
-                <Table.Body>
-                  {visibleTasks.map((task) => (
-                    <Table.Row
-                      key={task.id}
-                      id={task.id}
-                      href={`/boards/${boardId}/tasks/${task.id}`}
-                      data-task-id={task.id}
-                      onClickCapture={(event) =>
-                        rememberTaskOpener(
-                          task.id,
-                          event.target,
-                          event.currentTarget,
-                        )
-                      }
-                    >
-                      <Table.Cell>
-                        <Link
-                          href={`/boards/${boardId}/tasks/${task.id}`}
-                          className="inline-block min-w-0 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                        <MoreHorizontal />
+                      </Button>
+                      <Dropdown.Popover
+                        placement="bottom end"
+                        className="min-w-44"
+                      >
+                        <Dropdown.Menu
+                          aria-label="Board actions"
+                          onAction={(key) => {
+                            setSettingsError("");
+                            if (key === "settings") setSettings(true);
+                            else if (key === "delete" && user.role === "admin")
+                              setConfirmBoard(true);
+                          }}
                         >
-                          <TableCellStack>
-                            <TooltipText
-                              className="inline-block max-w-xs truncate align-middle"
-                              tooltip={task.title}
+                          <Dropdown.Item
+                            id="settings"
+                            textValue="Board settings"
+                          >
+                            <Settings2 />
+                            Board settings
+                          </Dropdown.Item>
+                          {user.role === "admin" && (
+                            <Dropdown.Item
+                              id="delete"
+                              textValue="Delete board"
+                              variant="danger"
                             >
-                              {task.title}
-                            </TooltipText>
-                            <TableCellDescription className="font-mono">
-                              {task.identifier}
-                            </TableCellDescription>
-                          </TableCellStack>
-                        </Link>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Chip variant="secondary" size="small">
-                          {taskStatusLabel(task.status)}
-                        </Chip>
-                      </Table.Cell>
-                      <Table.Cell>
-                        {members.find((m) => m.id === task.assigneeId)?.name ??
-                          "Unassigned"}
-                      </Table.Cell>
-                      <Table.Cell>{task.agentName}</Table.Cell>
-                      <Table.Cell>
-                        <Chip
-                          variant={
-                            task.priority === "urgent" ||
-                            task.priority === "high"
-                              ? "destructive"
-                              : task.priority === "medium"
-                                ? "warning"
-                                : "secondary"
-                          }
-                          size="small"
-                        >
-                          {task.priority === "none"
-                            ? "No priority"
-                            : task.priority}
-                        </Chip>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
-        </div>
-      )}
-      {nextCursor && !taskListChanged && (
-        <div className="load-more">
-          <Button
-            variant="secondary"
-            onPress={() => void load(true)}
-            isDisabled={loading || moreLoading || query !== q}
-          >
-            Load more tasks
-          </Button>
-        </div>
-      )}
-      {selection && (
-        <Suspense fallback={null}>
-          <TaskDialog
-            key={selection.id ?? "new"}
-            selection={selection}
-            boardId={boardId}
-            members={members}
-            user={user}
-            readOnly={!writable}
-            onClose={() => choose(null)}
-            onSaved={() => void load(false, true)}
-            onSelect={choose}
-          />
-        </Suspense>
-      )}
-      {settings && board && (
-        <Dialog
-          data-board-dialog
-          isDismissDisabled={busy}
-          open
-          onClose={() => {
-            pendingSettingsOpener.current = null;
-            setSettings(false);
-          }}
-          title="Board settings"
-          footer={
-            <div className="grid w-full gap-2">
-              <ErrorMessage>{settingsError}</ErrorMessage>
-              <TypographyText textRole="supporting" role="status">
-                {busy ? "Saving…" : settingsNotice}
-              </TypographyText>
-            </div>
-          }
-        >
-          <form
-            className="content-grid min-w-0"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const data = new FormData(e.currentTarget);
-              void settingsRun(async () => {
-                await api(
-                  `/boards/${board.id}`,
-                  {
-                    version: board.version,
-                    name: data.get("name"),
-                    description: data.get("description"),
-                  },
-                  "PATCH",
-                );
-              }, "Board updated.");
-            }}
-          >
-            <TextField
-              label="Board name"
-              name="name"
-              defaultValue={board.name}
-              required
-              maxLength={100}
-              disabled={!writable}
-              className="min-w-0 w-full"
+                              <Trash2 />
+                              Delete board
+                            </Dropdown.Item>
+                          )}
+                        </Dropdown.Menu>
+                      </Dropdown.Popover>
+                    </Dropdown>
+                  )}
+                </div>
+              }
             />
-            <TextField
-              label="Description"
-              name="description"
-              defaultValue={board.description}
-              multiline
-              maxLength={2000}
-              disabled={!writable}
-              className="min-w-0 w-full"
-            />
-            <div>
-              <Button type="submit" isPending={busy} isDisabled={!writable}>
-                <Save />
-                Save board
-              </Button>
-            </div>
-          </form>
-        </Dialog>
-      )}
-      {confirmBoard && board && user.role === "admin" && (
-        <Dialog
-          data-board-dialog
-          isDismissDisabled={busy}
-          open
-          onClose={() => setConfirmBoard(false)}
-          title="Delete board?"
-          footer={
-            <>
-              <Button
+            <div
+              className={`board-toolbar ${mobileFilters ? "filters-open" : ""}`}
+            >
+              <SearchField
+                aria-label="Search tasks"
                 variant="secondary"
-                onPress={() => setConfirmBoard(false)}
-                isDisabled={busy}
+                className="board-search"
+                value={query}
+                onChange={setQuery}
               >
-                Keep board
-              </Button>
+                <SearchField.Group>
+                  <SearchField.SearchIcon />
+                  <SearchField.Input
+                    id="board-search"
+                    placeholder="Search tasks…"
+                    maxLength={200}
+                  />
+                  <SearchField.ClearButton aria-label="Clear task search" />
+                </SearchField.Group>
+              </SearchField>
               <Button
-                variant="danger"
-                isPending={busy}
-                onPress={() => void deleteBoard()}
+                className="mobile-filter-trigger"
+                variant="secondary"
+                aria-expanded={mobileFilters}
+                onPress={() => setMobileFilters(!mobileFilters)}
               >
-                Delete board
+                <Settings2 />
+                Filters
               </Button>
-            </>
-          }
-        >
-          <TypographyParagraph className="text-xs">
-            Permanently delete “{board.name}” and all of its tasks and comments?
-            This cannot be undone. There is no restore.
-          </TypographyParagraph>
-          <ErrorMessage>{settingsError}</ErrorMessage>
-        </Dialog>
-      )}
+              <div className="board-filter-slot">
+                <Choice
+                  variant="secondary"
+                  label="Assignee filter"
+                  hideLabel
+                  value={filters.assigneeId}
+                  onChange={(v) => changeList({ assigneeId: v, page: 1 })}
+                  items={[
+                    { id: "", name: "All assignees" },
+                    { id: "unassigned", name: "Unassigned", muted: true },
+                    ...members.map((member) => ({
+                      id: member.id,
+                      name: member.name,
+                      startContent: (
+                        <Avatar
+                          className="size-5"
+                          email={member.email}
+                          name={member.name}
+                          size="sm"
+                        />
+                      ),
+                    })),
+                  ]}
+                  search
+                />
+              </div>
+              <div className="board-filter-slot" ref={agentFilter}>
+                <Choice
+                  variant="secondary"
+                  label="Agent filter"
+                  hideLabel
+                  value={filters.agentId}
+                  onChange={(value) => changeList({ agentId: value, page: 1 })}
+                  items={[
+                    { id: "", name: "All agents" },
+                    { id: "unassigned", name: "Unassigned", muted: true },
+                    ...agentDirectory.items.map((agent) => ({
+                      id: agent.id,
+                      name: agent.name,
+                      startContent: (
+                        <HugeiconsIcon
+                          icon={BotIcon}
+                          size={16}
+                          aria-hidden="true"
+                          className="shrink-0 text-muted"
+                        />
+                      ),
+                    })),
+                  ]}
+                  search
+                />
+              </div>
+              <div className="board-filter-slot">
+                <Choice
+                  variant="secondary"
+                  label="Priority filter"
+                  hideLabel
+                  value={filters.priority}
+                  onChange={(v) => changeList({ priority: v, page: 1 })}
+                  items={[
+                    { id: "", name: "All priorities" },
+                    ...priorityOptions,
+                  ]}
+                />
+              </div>
+              <div className="board-filter-slot">
+                <Choice
+                  variant="secondary"
+                  label="Status filter"
+                  hideLabel
+                  value={filters.status}
+                  onChange={(v) => changeList({ status: v, page: 1 })}
+                  items={[{ id: "", name: "All statuses" }, ...statusOptions]}
+                />
+              </div>
+              {hasFilters && (
+                <div className="board-clear-slot">
+                  <Button variant="secondary" onPress={clearFilters}>
+                    Clear filters
+                  </Button>
+                </div>
+              )}
+            </div>
+            <ErrorMessage>{agentDirectory.error}</ErrorMessage>
+            {agentDirectory.error && (
+              <div>
+                <Button
+                  variant="secondary"
+                  isDisabled={agentDirectory.pending}
+                  onPress={() => {
+                    agentFilter.current
+                      ?.querySelector<HTMLElement>("button")
+                      ?.focus({ preventScroll: true });
+                    void agentDirectory.reload();
+                  }}
+                >
+                  Retry loading agents
+                </Button>
+              </div>
+            )}
+            <ErrorMessage>{error}</ErrorMessage>
+            {error && board && (
+              <div>
+                <Button
+                  ref={retryTasksButton}
+                  variant="secondary"
+                  isDisabled={loading}
+                  onPress={() => {
+                    rememberPaginationFocus(retryTasksButton.current);
+                    void load(requestedPage.current, true);
+                  }}
+                >
+                  Retry loading tasks
+                </Button>
+              </div>
+            )}
+            {loading && !tasks.length ? null : !tasks.length ? (
+              emptyTasks()
+            ) : (
+              <div ref={taskList} className="space-y-4" aria-busy={loading}>
+                {groups.map((group) => (
+                  <section key={group.id} className="space-y-3">
+                    {group.name && (
+                      <div className="flex items-center gap-2 pt-2">
+                        <TypographyHeading
+                          elementType="h2"
+                          className="flex items-center gap-2 text-sm font-normal tracking-normal"
+                        >
+                          {group.startContent}
+                          {group.name}
+                        </TypographyHeading>
+                        <Chip
+                          variant="secondary"
+                          size="small"
+                          aria-label={`${group.tasks.length} tasks on this page`}
+                        >
+                          {group.tasks.length}
+                        </Chip>
+                      </div>
+                    )}
+                    <Table>
+                      <Table.ScrollContainer>
+                        <Table.Content
+                          className="task-table"
+                          aria-label={
+                            group.name ? `${group.name} tasks` : "Task list"
+                          }
+                        >
+                          <Table.Header>
+                            <Table.Column isRowHeader>Task</Table.Column>
+                            <Table.Column className="w-36">Status</Table.Column>
+                            <Table.Column className="w-40">
+                              Assignee
+                            </Table.Column>
+                            <Table.Column className="w-28">Agent</Table.Column>
+                            <Table.Column className="w-32">
+                              Priority
+                            </Table.Column>
+                          </Table.Header>
+                          <Table.Body>
+                            {group.tasks.map((task) => (
+                              <Table.Row
+                                key={task.id}
+                                id={task.id}
+                                data-task-id={task.id}
+                              >
+                                <Table.Cell>
+                                  <Link
+                                    href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                                    className="block min-w-0 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                                  >
+                                    <TableCellStack>
+                                      <TooltipText
+                                        className="block w-full truncate align-middle"
+                                        tooltip={task.title}
+                                      >
+                                        {task.title}
+                                      </TooltipText>
+                                      <TableCellDescription className="font-mono">
+                                        {task.identifier}
+                                      </TableCellDescription>
+                                    </TableCellStack>
+                                  </Link>
+                                </Table.Cell>
+                                <Table.Cell>
+                                  <StatusChip status={task.status} />
+                                </Table.Cell>
+                                <Table.Cell>
+                                  <TooltipText
+                                    className={`block truncate${task.assigneeId ? "" : " text-muted"}`}
+                                    tooltip={
+                                      members.find(
+                                        (m) => m.id === task.assigneeId,
+                                      )?.name ?? "Unassigned"
+                                    }
+                                  >
+                                    {members.find(
+                                      (m) => m.id === task.assigneeId,
+                                    )?.name ?? "Unassigned"}
+                                  </TooltipText>
+                                </Table.Cell>
+                                <Table.Cell>
+                                  <TooltipText
+                                    className={`block truncate${task.agentName ? "" : " text-muted"}`}
+                                    tooltip={task.agentName || "Unassigned"}
+                                  >
+                                    {task.agentName || "Unassigned"}
+                                  </TooltipText>
+                                </Table.Cell>
+                                <Table.Cell>
+                                  <PriorityChip priority={task.priority} />
+                                </Table.Cell>
+                              </Table.Row>
+                            ))}
+                          </Table.Body>
+                        </Table.Content>
+                      </Table.ScrollContainer>
+                    </Table>
+                  </section>
+                ))}
+              </div>
+            )}
+            {taskTotal !== null && (
+              <div
+                ref={paginationFooter}
+                role="group"
+                aria-label="Task list pagination"
+                aria-busy={loading}
+                tabIndex={-1}
+                className="mt-3 flex flex-wrap items-center justify-end gap-3 outline-none"
+              >
+                <TypographyText textRole="caption" role="status">
+                  {taskTotal === 0
+                    ? "0 tasks"
+                    : `${(taskPage - 1) * displayedPageSize + 1}–${Math.min(taskPage * displayedPageSize, taskTotal)} of ${taskTotal} tasks`}
+                </TypographyText>
+                <Pagination
+                  className="w-auto"
+                  aria-label="Task pages"
+                  page={taskPage}
+                  totalPages={totalPages}
+                  isDisabled={paginationDisabled || taskListChanged}
+                  onPageChange={(page) => {
+                    if (!paginationDisabled && page !== taskPage) {
+                      rememberPaginationFocus();
+                      changeList({ page });
+                    }
+                  }}
+                />
+                <Choice
+                  className="w-36"
+                  label="Tasks per page"
+                  hideLabel
+                  variant="secondary"
+                  value={String(pageSize)}
+                  disabled={paginationDisabled}
+                  onChange={(value) => {
+                    if (Number(value) === pageSize) return;
+                    rememberPaginationFocus(
+                      paginationFooter.current?.querySelector<HTMLElement>(
+                        'button[aria-haspopup="listbox"]',
+                      ) ?? null,
+                    );
+                    changeList({ limit: Number(value), page: 1 });
+                  }}
+                  items={[10, 25, 50, 100].map((size) => ({
+                    id: String(size),
+                    name: `${size} per page`,
+                  }))}
+                />
+              </div>
+            )}
+            {creatingTask && (
+              <Suspense fallback={null}>
+                <CreateTaskDialog
+                  boardId={boardId}
+                  members={members}
+                  user={user}
+                  open={creatingTask}
+                  onClose={() => setCreatingTask(false)}
+                  onCreated={(task) => {
+                    setCreatingTask(false);
+                    navigate(
+                      `/boards/${boardId}/tasks/${task.id}${window.location.search}`,
+                    );
+                  }}
+                />
+              </Suspense>
+            )}
+            {settings && board && (
+              <Dialog
+                data-board-dialog
+                isDismissDisabled={busy}
+                open
+                onClose={() => {
+                  pendingSettingsOpener.current = null;
+                  setSettings(false);
+                }}
+                title="Board settings"
+                footer={
+                  <div className="grid w-full gap-2">
+                    <ErrorMessage>{settingsError}</ErrorMessage>
+                    {busy && (
+                      <TypographyText textRole="supporting" role="status">
+                        Saving…
+                      </TypographyText>
+                    )}
+                  </div>
+                }
+              >
+                <form
+                  className="content-grid min-w-0"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const data = new FormData(e.currentTarget);
+                    void settingsRun(async () => {
+                      await api(
+                        `/boards/${board.id}`,
+                        {
+                          version: board.version,
+                          name: data.get("name"),
+                          description: data.get("description"),
+                        },
+                        "PATCH",
+                      );
+                    }, "Board updated.");
+                  }}
+                >
+                  <TextField
+                    label="Board name"
+                    name="name"
+                    defaultValue={board.name}
+                    required
+                    maxLength={100}
+                    disabled={!writable}
+                    className="min-w-0 w-full"
+                  />
+                  <TextField
+                    label="Description"
+                    name="description"
+                    defaultValue={board.description}
+                    multiline
+                    maxLength={2000}
+                    disabled={!writable}
+                    className="min-w-0 w-full"
+                  />
+                  <div>
+                    <Button
+                      type="submit"
+                      isPending={busy}
+                      isDisabled={!writable}
+                    >
+                      <Save />
+                      Save board
+                    </Button>
+                  </div>
+                </form>
+              </Dialog>
+            )}
+            {confirmBoard && board && user.role === "admin" && (
+              <Dialog
+                data-board-dialog
+                isDismissDisabled={busy}
+                open
+                onClose={() => setConfirmBoard(false)}
+                title="Delete board?"
+                footer={
+                  <>
+                    <Button
+                      variant="secondary"
+                      onPress={() => setConfirmBoard(false)}
+                      isDisabled={busy}
+                    >
+                      Keep board
+                    </Button>
+                    <Button
+                      variant="danger"
+                      isPending={busy}
+                      onPress={() => void deleteBoard()}
+                    >
+                      Delete board
+                    </Button>
+                  </>
+                }
+              >
+                <TypographyParagraph className="text-xs">
+                  Permanently delete “{board.name}” and all of its tasks and
+                  comments? This cannot be undone. There is no restore.
+                </TypographyParagraph>
+                <ErrorMessage>{settingsError}</ErrorMessage>
+              </Dialog>
+            )}
+          </PortalProvider>
+        </SuspendedAppProvider>
+      </div>
     </>
   );
 }

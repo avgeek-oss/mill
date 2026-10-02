@@ -12,6 +12,7 @@ import {
   TableCellStack,
   TableCellDescription,
   TextField,
+  toast,
 } from "@mill/web-design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -28,6 +29,7 @@ import {
   type Session,
 } from "./api.js";
 import { PageHeading } from "./page-heading.js";
+import { RelativeDateTime } from "./relative-date-time.js";
 
 type Credential = {
   id: string;
@@ -94,7 +96,6 @@ function CreateCredential({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [token, setToken] = useState("");
-  const [copied, setCopied] = useState(false);
   function close() {
     if (pending) return;
     setToken("");
@@ -134,7 +135,7 @@ function CreateCredential({
     setError("");
     try {
       await navigator.clipboard.writeText(token);
-      setCopied(true);
+      toast.success("API key copied.");
     } catch {
       setError("Copy failed. Select the key and copy it manually.");
     }
@@ -149,8 +150,7 @@ function CreateCredential({
         token ? (
           <>
             <Button variant="secondary" onPress={() => void copy()}>
-              <HugeiconsIcon icon={Copy01Icon} size={16} />{" "}
-              {copied ? "Copied" : "Copy API key"}
+              <HugeiconsIcon icon={Copy01Icon} size={16} /> Copy API key
             </Button>
             <Button onPress={close}>Done</Button>
           </>
@@ -184,14 +184,6 @@ function CreateCredential({
             autoComplete="off"
           />
           <ErrorMessage>{error}</ErrorMessage>
-          {copied && (
-            <p
-              role="status"
-              className="text-xs font-normal text-success-soft-foreground"
-            >
-              API key copied.
-            </p>
-          )}
         </div>
       ) : (
         <form
@@ -245,7 +237,6 @@ function RevokeCredential({
   const [retryKey] = useState(createRetryKey);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [complete, setComplete] = useState(false);
   function close() {
     if (!pending) onClose();
   }
@@ -264,7 +255,8 @@ function RevokeCredential({
       });
       retryKey.reset();
       onRevoked(credential.id);
-      setComplete(true);
+      toast.success("API key revoked.");
+      onClose();
     } catch (cause) {
       setError(errorText(cause));
     } finally {
@@ -278,53 +270,30 @@ function RevokeCredential({
       onClose={close}
       isDismissDisabled={pending}
       footer={
-        complete ? (
-          <Button onPress={close}>Done</Button>
-        ) : (
-          <>
-            <Button variant="secondary" onPress={close} isDisabled={pending}>
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onPress={() => void revoke()}
-              isDisabled={pending}
-            >
-              {pending ? "Revoking…" : "Revoke API key"}
-            </Button>
-          </>
-        )
+        <>
+          <Button variant="secondary" onPress={close} isDisabled={pending}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onPress={() => void revoke()}
+            isDisabled={pending}
+          >
+            {pending ? "Revoking…" : "Revoke API key"}
+          </Button>
+        </>
       }
     >
       <div className="content-grid">
         <p className="text-xs font-normal text-muted">
-          {complete ? (
-            <>
-              <strong className="font-normal text-foreground">
-                {credential.name}
-              </strong>{" "}
-              has been revoked. Its access has ended.
-            </>
-          ) : (
-            <>
-              Tools using{" "}
-              <strong className="font-normal text-foreground">
-                {credential.name}
-              </strong>{" "}
-              will lose access immediately. You can create a new key if they
-              need access again.
-            </>
-          )}
+          Tools using{" "}
+          <strong className="font-normal text-foreground">
+            {credential.name}
+          </strong>{" "}
+          will lose access immediately. You can create a new key if they need
+          access again.
         </p>
         <ErrorMessage>{error}</ErrorMessage>
-        {complete && (
-          <p
-            role="status"
-            className="text-xs font-normal text-success-soft-foreground"
-          >
-            API key revoked.
-          </p>
-        )}
       </div>
     </Dialog>
   );
@@ -414,15 +383,8 @@ export function AgentSettings({
       if (current === generation.current) setError(errorText(cause));
     }
   }
-  function date(value: string) {
-    return new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      timeZone: session.user.timeZone,
-    }).format(new Date(value));
-  }
   return (
-    <div className="content-grid min-w-0">
+    <section className="settings-page min-w-0">
       <PageHeading
         title="API keys"
         icon={<HugeiconsIcon icon={Key01Icon} size={20} />}
@@ -455,9 +417,12 @@ export function AgentSettings({
                   className="max-md:w-full! max-md:table-fixed!"
                 >
                   <Table.Header>
-                    <Table.Column isRowHeader>API key</Table.Column>
+                    <Table.Column isRowHeader>Name</Table.Column>
                     <Table.Column className="hidden md:table-cell">
                       Status
+                    </Table.Column>
+                    <Table.Column className="hidden md:table-cell">
+                      Created
                     </Table.Column>
                     <Table.Column className="hidden md:table-cell">
                       Expires
@@ -504,20 +469,34 @@ export function AgentSettings({
                               <span className="break-words">
                                 {credential.name}
                               </span>
-                              <Chip size="small" variant="secondary">
-                                {credential.tokenType === "oauth"
-                                  ? "OAuth"
-                                  : "API key"}
-                              </Chip>
                               <div className="grid gap-0.5 md:hidden">
-                                <TableCellDescription>
-                                  Expires {date(credential.expiresAt)}
-                                </TableCellDescription>
-                                <TableCellDescription>
-                                  {credential.lastUsedAt
-                                    ? `Last used ${date(credential.lastUsedAt)}`
-                                    : "Never used"}
-                                </TableCellDescription>
+                                <RelativeDateTime
+                                  value={credential.createdAt}
+                                  timeZone={session.user.timeZone}
+                                  label="Created"
+                                  prefix="Created"
+                                  compact
+                                />
+                                <RelativeDateTime
+                                  value={credential.expiresAt}
+                                  timeZone={session.user.timeZone}
+                                  label="Expires"
+                                  prefix="Expires"
+                                  compact
+                                />
+                                {credential.lastUsedAt ? (
+                                  <RelativeDateTime
+                                    value={credential.lastUsedAt}
+                                    timeZone={session.user.timeZone}
+                                    label="Last used"
+                                    prefix="Last used"
+                                    compact
+                                  />
+                                ) : (
+                                  <TableCellDescription>
+                                    Never used
+                                  </TableCellDescription>
+                                )}
                               </div>
                               <div className="flex items-center justify-between gap-3 pt-1 md:hidden">
                                 {status}
@@ -528,17 +507,32 @@ export function AgentSettings({
                           <Table.Cell className="hidden md:table-cell">
                             {status}
                           </Table.Cell>
-                          <Table.Cell className="hidden md:table-cell">
-                            <span className="text-sm font-normal">
-                              {date(credential.expiresAt)}
-                            </span>
+                          <Table.Cell className="hidden whitespace-normal! md:table-cell">
+                            <RelativeDateTime
+                              value={credential.createdAt}
+                              timeZone={session.user.timeZone}
+                              label="Created"
+                            />
                           </Table.Cell>
-                          <Table.Cell className="hidden md:table-cell">
-                            <span className="text-sm font-normal">
-                              {credential.lastUsedAt
-                                ? date(credential.lastUsedAt)
-                                : "Never used"}
-                            </span>
+                          <Table.Cell className="hidden whitespace-normal! md:table-cell">
+                            <RelativeDateTime
+                              value={credential.expiresAt}
+                              timeZone={session.user.timeZone}
+                              label="Expires"
+                            />
+                          </Table.Cell>
+                          <Table.Cell className="hidden whitespace-normal! md:table-cell">
+                            {credential.lastUsedAt ? (
+                              <RelativeDateTime
+                                value={credential.lastUsedAt}
+                                timeZone={session.user.timeZone}
+                                label="Last used"
+                              />
+                            ) : (
+                              <span className="text-sm font-normal text-muted">
+                                Never used
+                              </span>
+                            )}
                           </Table.Cell>
                           <Table.Cell className="hidden md:table-cell">
                             {revoke ?? (
@@ -619,6 +613,6 @@ export function AgentSettings({
           }}
         />
       )}
-    </div>
+    </section>
   );
 }

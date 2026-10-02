@@ -13,6 +13,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Notification02Icon } from "@hugeicons/core-free-icons";
 import { api, errorText, navigate } from "./api.js";
+import { AbsoluteDateTime } from "./relative-date-time.js";
 
 type Notification = {
   id: string;
@@ -47,11 +48,15 @@ export function NotificationsPopover({
   timeZone,
   unreadCount,
   onRead,
+  suspended,
+  sessionRevision,
 }: {
   userId: string;
   timeZone: string;
   unreadCount: number;
   onRead: () => void;
+  suspended: boolean;
+  sessionRevision: number;
 }) {
   const unreadDescriptionId = useId();
   const dialog = useRef<HTMLDivElement>(null);
@@ -72,8 +77,18 @@ export function NotificationsPopover({
   const attemptedCursor = useRef<string | undefined>(undefined);
   const currentOpen = useRef(isOpen);
   const currentState = useRef(state);
+  const suspendedRef = useRef(suspended);
   currentOpen.current = isOpen;
   currentState.current = state;
+  suspendedRef.current = suspended;
+
+  useEffect(() => {
+    const onExpired = () => {
+      suspendedRef.current = true;
+    };
+    window.addEventListener("mill:expired", onExpired);
+    return () => window.removeEventListener("mill:expired", onExpired);
+  }, []);
 
   const load = useCallback(
     async (cursor?: string) => {
@@ -116,11 +131,11 @@ export function NotificationsPopover({
   const currentLoad = useRef(load);
   currentLoad.current = load;
   useEffect(() => {
-    if (isOpen) void load();
+    if (isOpen && !suspended) void load();
     return () => {
       sequence.current++;
     };
-  }, [isOpen, load]);
+  }, [isOpen, load, suspended, sessionRevision]);
   useEffect(() => {
     setIsOpen(false);
     setState({ ...emptyList });
@@ -149,6 +164,7 @@ export function NotificationsPopover({
   }, [isOpen, marking, state.items, state.unreadCount]);
 
   function changeOpen(open: boolean) {
+    if (!open && suspendedRef.current) return;
     currentOpen.current = open;
     if (!open) openingSequence.current++;
     else setMarkError(null);
@@ -287,7 +303,7 @@ export function NotificationsPopover({
           className="divide-y divide-separator"
         >
           {state.items.map((item) => (
-            <li key={item.id}>
+            <li key={item.id} className="group">
               <Link
                 href={`/boards/${item.boardId}/tasks/${item.taskId}`}
                 onKeyDown={(event) => {
@@ -322,35 +338,23 @@ export function NotificationsPopover({
                       `/boards/${item.boardId}/tasks/${item.taskId}`,
                     );
                 }}
-                className="flex min-h-11 items-start gap-3 rounded-xl px-4 py-3 text-foreground no-underline outline-none transition-colors hover:bg-default/60 focus-visible:bg-default/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
+                className="flex min-h-11 w-full items-start gap-3 rounded-none px-4 py-3 text-foreground group-first:rounded-t-xl group-last:rounded-b-xl no-underline outline-none transition-colors hover:bg-default/60 focus-visible:bg-default/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus"
               >
                 <span
                   aria-hidden="true"
                   className={`mt-1 size-2 shrink-0 rounded-full ${item.readAt ? "bg-muted/40" : "bg-accent"}`}
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                    <TypographyParagraph
-                      size="sm"
-                      weight="medium"
-                      className="min-w-0 flex-1 basis-40 [overflow-wrap:anywhere]"
-                    >
-                      {item.actorName ?? "A teammate"}{" "}
-                      {item.kind === "assignment"
-                        ? "assigned you a task"
-                        : "mentioned you"}
-                    </TypographyParagraph>
-                    <time
-                      className="shrink-0 text-xs text-muted"
-                      dateTime={item.createdAt}
-                    >
-                      {new Date(item.createdAt).toLocaleString(undefined, {
-                        timeZone,
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
-                    </time>
-                  </div>
+                  <TypographyParagraph
+                    size="sm"
+                    weight="medium"
+                    className="[overflow-wrap:anywhere]"
+                  >
+                    {item.actorName ?? "A teammate"}{" "}
+                    {item.kind === "assignment"
+                      ? "assigned you a task"
+                      : "mentioned you"}
+                  </TypographyParagraph>
                   <TypographyParagraph
                     size="sm"
                     color="muted"
@@ -358,7 +362,12 @@ export function NotificationsPopover({
                   >
                     {item.title}
                   </TypographyParagraph>
-                  <p className="mt-1 text-xs text-muted">{item.identifier}</p>
+                  <AbsoluteDateTime
+                    value={item.createdAt}
+                    timeZone={timeZone}
+                    label="Notification date"
+                    className="mt-1 block text-muted"
+                  />
                   <span className="sr-only">
                     {item.readAt ? "Read" : "Unread"}
                   </span>
@@ -410,7 +419,7 @@ export function NotificationsPopover({
     </ScrollShadow>
   );
   return (
-    <Popover isOpen={isOpen} onOpenChange={changeOpen}>
+    <Popover isOpen={isOpen && !suspended} onOpenChange={changeOpen}>
       <Popover.Trigger
         aria-label="Open notifications"
         aria-describedby={unreadCount > 0 ? unreadDescriptionId : undefined}

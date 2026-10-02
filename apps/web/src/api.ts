@@ -127,9 +127,52 @@ export function errorText(error: unknown) {
     ? error.message
     : "Unable to complete this request.";
 }
+export type NavigationRequest = {
+  path: string;
+  resume: () => void;
+  waitUntil: (save: Promise<boolean>) => void;
+};
+export function navigationIndex() {
+  const value = window.history.state?.millNavigationIndex;
+  return Number.isSafeInteger(value) ? (value as number) : null;
+}
+export function initializeNavigation() {
+  if (navigationIndex() === null)
+    window.history.replaceState(
+      { ...window.history.state, millNavigationIndex: 0 },
+      "",
+    );
+}
+let navigationAttempt = 0;
+export function requestNavigation(path: string, resume: () => void) {
+  const attempt = ++navigationAttempt;
+  const saves: Promise<boolean>[] = [];
+  const event = new CustomEvent("mill:before-navigate", {
+    cancelable: true,
+    detail: {
+      path,
+      resume,
+      waitUntil: (save) => saves.push(save),
+    } satisfies NavigationRequest,
+  });
+  const allowed = window.dispatchEvent(event);
+  if (!allowed && saves.length)
+    void Promise.all(saves).then((results) => {
+      if (attempt === navigationAttempt && results.every(Boolean)) resume();
+    });
+  return allowed;
+}
 export function navigate(path: string) {
-  window.history.pushState({}, "", path);
-  window.dispatchEvent(new Event("mill:navigate"));
+  initializeNavigation();
+  const commit = () => {
+    window.history.pushState(
+      { millNavigationIndex: (navigationIndex() ?? 0) + 1 },
+      "",
+      path,
+    );
+    window.dispatchEvent(new Event("mill:navigate"));
+  };
+  if (requestNavigation(path, commit)) commit();
 }
 export type User = {
   id: string;

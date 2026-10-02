@@ -6,8 +6,7 @@ import type { ComponentProps } from "react";
 import { cn } from "./utils.js";
 
 export type ButtonVariant =
-  | Exclude<NonNullable<ComponentProps<typeof HeroButton>["variant"]>, "ghost">
-  | "warning";
+  NonNullable<ComponentProps<typeof HeroButton>["variant"]> | "warning";
 export type ButtonProps = Omit<
   ComponentProps<typeof HeroButton>,
   "size" | "variant"

@@ -6,7 +6,7 @@ import {
   Link01Icon,
   Delete02Icon,
   Add01Icon,
-  ListViewIcon,
+  ClipboardListIcon,
   Settings01Icon,
   MoreHorizontalIcon,
 } from "@hugeicons/core-free-icons";
@@ -20,7 +20,7 @@ function controlIcon(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
 }
 
 export const Plus = controlIcon(Add01Icon);
-export const List = controlIcon(ListViewIcon);
+export const List = controlIcon(ClipboardListIcon);
 export const Settings2 = controlIcon(Settings01Icon);
 export const MoreHorizontal = controlIcon(MoreHorizontalIcon);
 

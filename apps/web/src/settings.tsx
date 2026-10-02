@@ -8,6 +8,7 @@ import {
   FieldGroup,
   FieldLabel,
   Input,
+  toast,
 } from "@mill/web-design-system";
 import { Settings2, Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
@@ -31,7 +32,6 @@ export function SettingsPage({
   onRefresh: () => void;
 }) {
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const title =
     (
@@ -46,15 +46,14 @@ export function SettingsPage({
     )[section] ?? "Settings";
   useEffect(() => {
     document.title = `${title} · Mill`;
-    setNotice("");
   }, [section]);
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError("");
-    setNotice("");
     try {
       await action();
       onRefresh();
+      toast.success("Team settings updated.");
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -108,11 +107,6 @@ export function SettingsPage({
         </header>
       )}
       <ErrorMessage>{error}</ErrorMessage>
-      {notice && (
-        <p role="status" className="success-message">
-          {notice}
-        </p>
-      )}
       {section === "workspace" && (
         <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
           <Widget>
@@ -128,7 +122,6 @@ export function SettingsPage({
                       { name: data.get("name") },
                       "PATCH",
                     );
-                    setNotice("Workspace updated.");
                   });
                 }}
               >

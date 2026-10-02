@@ -4,7 +4,11 @@ import "@mill/web-design-system/styles/globals.css";
 import "./styles.css";
 import { App, ErrorBoundary } from "./app.js";
 import { navigate } from "./api.js";
-createRoot(document.getElementById("root")!).render(
+import { trackFrontendLoadErrors } from "./frontend-load.js";
+trackFrontendLoadErrors();
+const root = document.getElementById("root")!;
+root.dataset.millEntryStarted = "true";
+createRoot(root).render(
   <ErrorBoundary>
     <RouterProvider navigate={navigate}>
       <App />

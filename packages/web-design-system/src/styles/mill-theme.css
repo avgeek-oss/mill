@@ -1,0 +1,44 @@
+@layer base {
+  :root,
+  .light,
+  [data-theme="light"] {
+    --accent: oklch(0.44 0.077 55);
+    --accent-foreground: oklch(0.99 0.005 65);
+    --background: oklch(0.975 0.006 65);
+    --foreground: oklch(0.26 0.024 55);
+    --surface: oklch(0.995 0.003 65);
+    --surface-secondary: oklch(0.958 0.008 65);
+    --surface-tertiary: oklch(0.935 0.011 65);
+    --overlay: var(--surface);
+    --muted: oklch(0.505 0.019 55);
+    --default: oklch(0.942 0.01 65);
+    --default-foreground: var(--foreground);
+    --field-background: var(--surface);
+    --field-foreground: var(--foreground);
+    --segment: var(--surface);
+    --segment-foreground: var(--foreground);
+    --border: oklch(0.87 0.012 65);
+    --separator: oklch(0.91 0.009 65);
+  }
+
+  .dark,
+  [data-theme="dark"] {
+    --accent: oklch(0.76 0.092 60);
+    --accent-foreground: oklch(0.2 0.017 55);
+    --background: oklch(0.165 0.009 55);
+    --foreground: oklch(0.955 0.012 65);
+    --surface: oklch(0.218 0.013 55);
+    --surface-secondary: oklch(0.252 0.015 55);
+    --surface-tertiary: oklch(0.288 0.017 55);
+    --overlay: oklch(0.252 0.015 55);
+    --muted: oklch(0.74 0.02 65);
+    --default: oklch(0.29 0.016 55);
+    --default-foreground: var(--foreground);
+    --field-background: var(--surface);
+    --field-foreground: var(--foreground);
+    --segment: oklch(0.38 0.019 55);
+    --segment-foreground: var(--foreground);
+    --border: oklch(0.34 0.018 55);
+    --separator: oklch(0.29 0.016 55);
+  }
+}

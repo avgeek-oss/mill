@@ -2,6 +2,7 @@ import "@fontsource-variable/inter";
 import "@fontsource-variable/geist-mono/wght.css";
 
 export { RouterProvider } from "react-aria-components";
+export { UNSAFE_PortalProvider as PortalProvider } from "react-aria";
 
 export { Button, ButtonLink, buttonVariants } from "./button.js";
 export type { ButtonProps, ButtonLinkProps, ButtonVariant } from "./button.js";
@@ -35,6 +36,8 @@ export * from "./forms/file-field.js";
 export * from "./forms/password-input.js";
 export * from "./forms/checkbox.js";
 export * from "./navigation/tabs.js";
+export * from "./navigation/breadcrumbs.js";
+export * from "./navigation/pagination.js";
 export * from "./overlays/tooltip.js";
 export * from "./overlays/heading-help.js";
 export * from "./data-display/chip.js";

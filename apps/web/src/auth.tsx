@@ -4,6 +4,7 @@ import {
   ErrorMessage,
   FieldGroup,
   TextField,
+  toast,
 } from "@mill/web-design-system";
 import { api, errorText, type Session } from "./api.js";
 import {
@@ -20,9 +21,11 @@ type Invitation = { email: string; role: string; workspaceName: string };
 export function Auth({
   setup,
   onSession,
+  focusEmail = false,
 }: {
   setup: boolean;
   onSession: (session: Session) => void;
+  focusEmail?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>(
     window.location.pathname.startsWith("/invite")
@@ -50,7 +53,6 @@ export function Auth({
   const [busy, setBusy] = useState(false);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [challenge, setChallenge] = useState<IdentityChallenge | null>(null);
   const [method, setMethod] = useState("");
   const ceremony = useRef<AbortController | null>(null);
@@ -124,6 +126,11 @@ export function Auth({
         onChange={(e) => update(key, e.target.value)}
         required
         disabled={busy}
+        autoFocus={
+          key === "email" &&
+          focusEmail &&
+          !window.matchMedia("(pointer: coarse)").matches
+        }
         type={type}
         autoComplete={
           key === "email"
@@ -179,8 +186,8 @@ export function Auth({
         setMode("login");
         update("password", "");
         update("confirmation", "");
-        window.history.replaceState({}, "", "/");
-        setNotice("Your password has been reset. Sign in to continue.");
+        window.history.replaceState(window.history.state, "", "/");
+        toast.success("Password reset. Sign in to continue.");
       } else if (mode === "invite") {
         if (invitationState !== "ready") return;
         onSession(
@@ -221,8 +228,7 @@ export function Auth({
     setMode("login");
     setChallenge(null);
     setError("");
-    setNotice("");
-    window.history.replaceState({}, "", "/");
+    window.history.replaceState(window.history.state, "", "/");
   }
   const description = challenge
     ? challenge.methods.includes("passkey")
@@ -329,11 +335,6 @@ export function Auth({
             )}
           </FieldGroup>
           <ErrorMessage>{error}</ErrorMessage>
-          {notice && (
-            <p role="status" className="text-xs text-success-soft-foreground">
-              {notice}
-            </p>
-          )}
           {(!challenge ||
             challenge.methods.some(
               (m) => m === "totp" || m === "recovery",
