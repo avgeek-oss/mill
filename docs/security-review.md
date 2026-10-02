@@ -1,19 +1,29 @@
 # B1 security review
 
-## Current explicit-Agent review
+This document records the current security model and keeps earlier review receipts for historical context. The older 146-test source and 76-case browser receipts below predate migration 010 and do not establish release readiness for this working tree.
 
-The independent backend review accepted the explicit-Agent boundaries after rechecking the two final findings below. Personal Agents are available only to their creator; team Agents require explicit grants to active people, without an implicit Admin or creator grant. Personal API keys and OAuth bind an eligible existing Agent. Empty eligibility prevents approval, OAuth creates no Agent, and external credentials cannot manage Agent identities.
+## Current boundaries and focused evidence
 
-Task Agent attribution remains separate from the human assignee and requires an active eligible person. Changes to either effective binding check both actor and assignee access; unchanged valid bindings survive unrelated edits. The reviewed boundary includes role and board scope, personal key ownership, grant removal/deletion, revoked credentials and pending OAuth, current authority during writes, version conflicts, and absence of execution side effects. Migration 008 revokes legacy unbound credentials, creates no Agents and preserves work, human sessions and recorded history while earlier migration checksums remain unchanged.
+People create Agents in Mill. Personal Agents belong to their creator; administrators manage team Agents. Team access comes from selected active people or the all-members policy, and an active team Agent creator retains an individual grant even when all-members access is disabled. An Admin role alone does not grant Agent use. External clients cannot create or manage Agent identities.
+
+Personal REST API keys are human credentials with a name and expiry. They follow their owner's current role across accessible boards and have no Agent, scope or board selections. MCP OAuth selects an eligible existing Agent with approved read/write scopes and optional board restrictions. Grant loss revokes affected OAuth access; a personal REST key is independent of Agent grants.
+
+Task `agentId` is separate from human `assigneeId`. An Agent can be assigned without a human assignee. Setting or changing an Agent binding requires the actor's access, and any selected human assignee must also have access. Unrelated edits preserve an existing valid binding; attribution does not start a job or contact an external client. Migration 010 moves existing nonempty checklist content into the private `retired_task_checklists` table and removes the active field. Comment editing is absent from UI, REST and MCP; comment posting and deletion remain.
+
+The [current feature audit](current-feature-audit.md) maps source and regression coverage for permissions, direct IDs, revocation, conflicts, retries and deletion. Its focused disposable-PostgreSQL run passed **16/16** tests, including a forward 001–010 migration exercise, a 1,006-person REST/MCP directory traversal, and the security-review cases. OAuth credentials still return 403 on direct REST requests; a signed-in person and personal REST key receive 404 from the removed comment PATCH route. These focused checks do not replace final `pnpm verify`, browser, packaged upgrade/restore or hosted CI on the reviewed commit.
+
+## Historical explicit-Agent review before migration 010
+
+The following independent rechecks and source/browser receipts describe the prior candidate. At that point personal API keys were Agent-bound, an Agent required a human assignee on each task, team creators lacked the later pinned grant, and checklists were active. Their passing counts are preserved as historical evidence only.
 
 | Finding                                                                                 | Corrected behavior                                                                                                                  | Independent recheck                                                                                               |
 | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | A completed OAuth approval could remain replayable after its selected Agent was deleted | Agent references are retained in the retry identity; deletion clears encrypted response content and makes the old approval terminal | Exact approval replay returns `410`, its cached response is null, and the real code exchange is denied with `400` |
 | Disabling a granted member changed directory content without changing the Agent version | The eligible directory revision includes current membership/grant state                                                             | Continuation returns `409 agent_list_changed`; a clean restart returns the complete current directory             |
 
-The original independent recheck is retained in `tmp/security-agents-boundary-probes-fixed.log`. It confirms both corrected boundaries and removal of its isolated namespace. Root's complete source verification now passes **146 real PostgreSQL API/security tests, 14 tooling tests and 28 documentation checks**, formatting, lint, type checks, dependency audit and the production build.
+The original independent recheck was retained in `tmp/security-agents-boundary-probes-fixed.log`. At that checkpoint, the complete source verification passed **146 real PostgreSQL API/security tests, 14 tooling tests and 28 documentation checks**, formatting, lint, type checks, dependency audit and the production build.
 
-This is accepted local backend review, not a production or publication claim. The complete nine-installation browser run passed all 76 cases on `index-D0aEy3Kr.js`; independent desktop/phone review in both themes accepted the current Agent/API-key captures. Their exact local receipts are recorded in [B1 verification](b1-verification.md). Exact-commit packaged migration/restore and hosted CI results are tracked separately on the private PR. Physical authenticators and the operator's HTTPS/proxy environment require their own deployment checks. Earlier review receipts below are historical through `7fc132`.
+This was local backend review, not a production or publication claim. The nine-installation browser run passed 76 cases on `index-D0aEy3Kr.js`; independent desktop/phone review in both themes accepted that candidate's Agent/API-key captures. Its local receipts are recorded in [B1 verification](b1-verification.md). Exact-commit packaged migration/restore and hosted CI remained separate. Physical authenticators and the operator's HTTPS/proxy environment required their own deployment checks.
 
 ## Historical fixed-status review through 7fc132
 
@@ -21,7 +31,7 @@ The independent backend review passed 71 focused PostgreSQL/API/security checks 
 
 The reviewer independently reproduced and then rechecked a task-pagination omission when an unseen task moved across a title cursor. Continuation now returns `409 task_list_changed`; a fresh traversal returns every task exactly once. [Task-pagination regressions](../tests/task-pagination.test.ts) cover inserts, deletions, status-filter changes, updated-time changes, unaffected other boards, and invalid cursors.
 
-The complete local source gate passes 115 database/API/security tests, 14 tooling tests, documentation checks, formatting, lint, type checks, dependency audit, and the production build. Browser and packaged installation/upgrade/restore gates are recorded separately in [current B1 verification](b1-verification.md) and the private PR.
+That candidate's local source gate passed 115 database/API/security tests, 14 tooling tests, documentation checks, formatting, lint, type checks, dependency audit, and the production build. Browser and packaged installation/upgrade/restore gates were recorded separately in [B1 verification](b1-verification.md) and the private PR.
 
 ## Historical review
 
@@ -76,7 +86,7 @@ The independent tests verify:
 
 The reviewer inspected the current Towbar auth/OAuth conventions read-only, then reviewed Mill's configuration, setup, sessions, passkeys, authenticator/recovery, membership, REST/MCP permissions, OAuth grant binding and DNS-pinned metadata fetch, task/status locking, notifications, portable data, and encrypted transactional retries. Ordinary workspace operations do not require an LLM runtime. B1 uses in-app notifications and privately shared invitations; email delivery is unavailable.
 
-No material finding remains open in the reviewed working tree. The final bounded source pass checked task-detail preview limits, same-board compact parent/subtask metadata, owning-task authorization for subtask pagination, and cursor membership. MCP retains the 1 MiB serialized response cap and full `structuredContent`; when duplicating the result as text would exceed that cap, the text names the structured result fields instead. The live SDK test covers maximum accepted description/checklist content, long Unicode children and comments, and distinct continuation pages.
+No material finding was reported at that historical checkpoint. Its bounded source pass checked task-detail preview limits, same-board compact parent/subtask metadata, owning-task authorization for subtask pagination, and cursor membership. The MCP implementation had a 1 MiB serialized response cap and full `structuredContent`; when duplicating the result as text would have exceeded that cap, the text named the structured result fields instead. The then-current SDK test covered maximum accepted description/checklist content, long Unicode children and comments, and distinct continuation pages.
 
 The readiness source returns an uncached 503 on database failure or after a three-second wait; PostgreSQL connections have a five-second connect timeout. Real database-outage and recovery evidence belongs to the production verification run.
 

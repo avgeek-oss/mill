@@ -1,6 +1,6 @@
 # Backup and recovery
 
-A full PostgreSQL backup preserves accounts, sessions, authenticators, boards, tasks, checklists, comments, members, explicit Agents and their access grants, task Agent bindings, attributed task history, in-app notifications, and API key/OAuth records. This is the supported recovery method. Mill v1 does not offer portable work export/import.
+A full PostgreSQL backup preserves accounts, sessions, authenticators, boards, tasks, retired checklist data from earlier revisions, comments, members, explicit Agents and their access grants, task Agent bindings, attributed task history, in-app notifications, and API key/OAuth records. This is the supported recovery method. Mill v1 does not offer portable work export/import.
 
 ## Create a full backup
 

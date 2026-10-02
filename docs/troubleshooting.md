@@ -34,7 +34,7 @@ For a personal REST key, check the human owner's current membership and role, th
 
 For MCP OAuth, also check access to the selected Agent, approved scopes, and approved boards. If the selector is empty, create a personal Agent in the human interface or ask an administrator for individual or all-members team access. Disabling All team members leaves the active creator and individual grants; a person who loses access must obtain a new connection after access is restored. Existing eligible OAuth connections are preserved by migration 009. See [the connection guide](agents.md) and [access security](authentication.md#external-credential-boundaries).
 
-When assigning an Agent to a task, choose an active human assignee first. Both the acting person and assignee need access to that Agent when changing the binding. Setting the Agent does not start an external job.
+An Agent can be assigned without a human assignee. The acting person needs access to that Agent when changing the binding; any selected human assignee also needs access. Setting the Agent does not start an external job.
 
 ## A restore is rejected
 
@@ -42,4 +42,4 @@ Use an explicit `--project`, matching `--confirm-project`, a valid custom-format
 
 ## Report a bug
 
-Include the exact commit/version, failed action, HTTP status, and configuration names with values removed. Use a disposable reproduction when possible. Do not attach `.env`, a database dump, account recovery links, cookies, or API tokens. Follow [SECURITY.md](../SECURITY.md) for security reports.
+Include the exact commit/version, failed action, HTTP status, and configuration names with values removed. Use a disposable reproduction when possible. Do not attach `.env`, a database dump, account recovery links, cookies, or API tokens. Follow [security reporting](../SECURITY.md) for security reports.

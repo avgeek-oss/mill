@@ -6,11 +6,11 @@ Install Mill using [the installation guide](installation.md), then open its URL.
 
 Choose the **plus button beside Boards** in the sidebar and give the board a short, recognizable name. Boards appear alphabetically. The **ellipsis button after New task** opens a menu with **Board settings** and, for a human administrator, **Delete board**. Settings let you rename the board or edit its description. Deletion opens a separate confirmation dialog.
 
-Create a task, give it a clear title, and open its detail view. New tasks default to Todo. Add a Markdown description, human assignee, priority, due date, or checklist as needed. An optional Agent requires a human assignee who can access that Agent. Preview the description before saving. Task links keep their stable identifier when the title changes.
+Create a task with a title, optional description, and optional human assignee; its detail page opens when you create it. New tasks default to Todo. Add a Markdown description, human assignee, Agent, priority, or due date as needed. You can assign an Agent without assigning a person. Task links keep their stable identifier when the title changes.
 
 Use the status control to change Todo to In Progress, then In Review or Done. The six fixed choices are Backlog, Todo, In Progress, In Review, Done, and Won't Do. They work with a keyboard and touch. Leave a comment and reload to check the saved result.
 
-Use the task list's search, status/assignee/priority filters, and sort controls to find work. Opening and saving a task preserves your list context. See [everyday workflows](workflows.md) for roles and permanent deletion. There are no Kanban lanes, custom statuses, labels, manual ordering, or task parents/subtasks. Older subtasks become independent tasks when you upgrade. Deleted tasks and boards cannot be restored in Mill.
+Use the task list's search, status/assignee/Agent/priority filters, and sort controls to find work. Opening and saving a task preserves your list context. See [everyday workflows](workflows.md) for roles and permanent deletion. There are no Kanban lanes, custom statuses, labels, manual ordering, or task parents/subtasks. Older subtasks become independent tasks when you upgrade. Deleted tasks and boards cannot be restored in Mill.
 
 ## Invite your team
 
@@ -30,6 +30,6 @@ For REST, open **API keys**, choose **Create API key**, and enter a Name and Exp
 
 For MCP OAuth, first open **Agents** and create a personal Agent, or ask an administrator for access to a team Agent. Team access can cover selected people or all current and future members. Agents are separate from the people invited to Mill. OAuth requires selection of an eligible existing Agent and cannot create one for you. Follow [the REST/MCP connection guide](agents.md).
 
-Setting an Agent on a task records responsibility alongside the human assignee. It does not launch the external client, run a job, or change the task by itself. Revoke an API key when the client no longer needs access.
+Setting an Agent on a task records responsibility separately from an optional human assignee. It does not launch the external client, run a job, or change the task by itself. Revoke an API key when the client no longer needs access.
 
 Before relying on the board, take a [backup](backup.md) and practice restoring it into a separate installation.

@@ -10,11 +10,11 @@ An administrator opens **People** in the sidebar, chooses **Invite a person**, e
 
 The person following the link chooses their name and password. Their account receives the role recorded on the invitation. A removed member loses browser and agent access immediately. Inviting that email again restores the same member identifier so earlier task and comment attribution stays intact, while replacing their password and removing old authentication factors.
 
-| Role   | Access                                                                                                          |
-| ------ | --------------------------------------------------------------------------------------------------------------- |
-| Admin  | Everyday task work, boards, permanent board deletion, Team settings, membership and team Agent management.      |
-| Member | Read boards, create and edit tasks and comments, assign work, and use credentials within their own permissions. |
-| Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                      |
+| Role   | Access                                                                                                                                |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Admin  | Everyday task work, boards, permanent board deletion, Team settings, membership and team Agent management.                            |
+| Member | Read boards, create and edit tasks, add and delete their own comments, assign work, and use credentials within their own permissions. |
+| Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                                            |
 
 Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Personal API keys inherit their human owner's current role and cannot access identity routes, including the team directory. MCP OAuth inherits the owner's role within its granted scopes and boards; unscoped OAuth may read basic member metadata through MCP for assignments and mentions. Membership, sessions, security settings, and other human administration require a browser session.
 
@@ -36,7 +36,7 @@ OAuth requires an eligible existing human-created Agent at consent, rechecks it 
 
 Store one-time tokens in the external client's secret store. Mill stores hashes and returns later metadata without tokens or hashes. Expiry, explicit revocation, account disablement, password changes, and recovery end credential access. Restoring an Agent grant does not reactivate a revoked connection. Migration 009 revokes and unbinds old personal API keys while preserving eligible Agent-bound OAuth; follow [key replacement after upgrade](upgrades.md#personal-api-keys-and-team-access-migration).
 
-See [connection steps](agents.md), [the API reference](api.md), and [the private vulnerability reporting policy](../SECURITY.md). Configuration and database backups remain private. The repository and artifacts stay private during B1 review; merging, deployment, release publication, and visibility changes need the applicable owner authorization.
+See [connection steps](agents.md), [the API reference](api.md), and [private vulnerability reporting](../SECURITY.md). Configuration and database backups remain private. The repository and artifacts stay private during B1 review; merging, deployment, release publication, and visibility changes need the applicable owner authorization.
 
 ## Passkeys and authenticator apps
 

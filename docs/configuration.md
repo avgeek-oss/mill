@@ -1,6 +1,6 @@
 # Configuration
 
-Start with `node tools/init-env.mjs`; [.env.example](../.env.example) documents the same configuration without secrets. Compose reads `.env` explicitly through `--env-file .env`. Development commands read it through Node's `--env-file` option.
+Start with `node tools/init-env.mjs`; the repository’s `.env.example` documents the same configuration without secrets. Compose reads `.env` explicitly through `--env-file .env`. Development commands read it through Node's `--env-file` option.
 
 | Variable                   | Purpose                                                                                                                                                              |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -34,10 +34,23 @@ for (const path of files) {
     if (/^(https?:|mailto:|#)/.test(destination)) continue;
     destination = destination.split("#")[0];
     if (!destination) continue;
-    const target = resolve(dirname(path), decodeURIComponent(destination));
+    const mintlifyRoot = resolve(root, "docs/mintlify");
+    const isMintlifyPage = path.startsWith(`${mintlifyRoot}/`);
+    const target =
+      isMintlifyPage && destination.startsWith("/")
+        ? resolve(mintlifyRoot, decodeURIComponent(destination.slice(1)))
+        : resolve(dirname(path), decodeURIComponent(destination));
     try {
       await stat(target);
     } catch {
+      if (isMintlifyPage && destination.startsWith("/")) {
+        try {
+          await stat(`${target}.md`);
+          continue;
+        } catch {
+          // Report the unresolved site route below.
+        }
+      }
       errors.push(`${path.slice(root.length)}: missing ${destination}`);
     }
   }

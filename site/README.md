@@ -1,0 +1,11 @@
+# Mill product page preview
+
+This is a dependency-free static preview for the proposed `mill.fyi` product page. From the repository root, run `python3 -m http.server 4173 --directory site` and open `http://localhost:4173`. The hero uses current local browser captures of the brown-theme board and phone task page, with disposable example data. Refresh them from the final candidate and obtain owner visual approval before publication; local screenshots alone do not establish release acceptance.
+
+The proposed public layout is `mill.fyi` for this page and `docs.mill.fyi` for the Mintlify project in `docs/mintlify`. This is a domain change, not a vacant-domain setup: on 2026-10-02, `https://mill.fyi/` returned HTTP 200 with the title **Introduction - Mintlify Starter Kit** and description **Welcome to your project**. The apex resolved through Cloudflare A/AAAA records. `docs.mill.fyi` did not resolve. Those observations can change; recheck them immediately before any domain work. No site or DNS switch has been made by this preparation.
+
+Before a switch, identify the existing Mintlify project URL, connected repository and branch, and whether its apex starter is meant to become Mill documentation or should be retired. Confirm the final layout with the owner, choose the static-site host for the apex, connect the approved Mintlify content root, and test both targets on preview URLs. Then configure `docs.mill.fyi` in the chosen Mintlify project using the domain instructions and DNS values shown in that account. Coordinate the apex DNS/host change so the current starter remains available until the replacement is verified. After an authorized cutover, verify HTTPS, apex and `www` redirects, canonical and social metadata, all site/docs links, and a rollback route for the old apex target.
+
+Source and support point to `github.com/avgeek-inc/mill` once the repository is public. There is no managed/hosted Mill app or demo destination in this plan. Installation happens on the operator's own infrastructure. The preview's `docs.mill.fyi` links and `mill.fyi` canonical metadata describe the proposed final layout; they are not live-domain verification.
+
+Keep the repository private and do not publish this preview or change the current domain routing until the release review authorizes those actions.

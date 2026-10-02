@@ -1,0 +1,35 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Mill",
+  "description": "Self-hosted task lists for people and external agents.",
+  "logo": {
+    "light": "/assets/mill-lockup-light.svg",
+    "dark": "/assets/mill-lockup-dark.svg",
+    "href": "/"
+  },
+  "favicon": "/assets/mill-favicon.png",
+  "colors": { "primary": "#704628", "light": "#704628", "dark": "#c89b6d" },
+  "appearance": { "default": "system" },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Start",
+        "pages": ["overview", "installation", "getting-started"]
+      },
+      {
+        "group": "Use Mill",
+        "pages": ["workflows", "authentication", "agents"]
+      },
+      {
+        "group": "Reference",
+        "pages": ["rest-reference", "configuration", "security"]
+      },
+      {
+        "group": "Operate",
+        "pages": ["operations", "backup", "upgrades", "troubleshooting"]
+      },
+      { "group": "Release", "pages": ["release-notes"] }
+    ]
+  }
+}

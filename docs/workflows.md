@@ -1,26 +1,26 @@
 # Everyday work
 
-Mill opens on your task lists. The sidebar's **Boards** section lists every accessible board alphabetically. Choose its **plus button** to create one with a short name and a prefix such as `ENG`.
+Mill opens on your task lists. Choose **Boards** under **Operate** in the primary sidebar to return to the last board you used. The secondary sidebar lists every accessible board alphabetically; choose a board to open its task table. Its **plus button** creates a board with a short name and a prefix such as `ENG`. On smaller screens, both sidebars appear in the navigation drawer. The header breadcrumb shows Boards, the selected board, and the task identifier when a task is open. Use its board dropdown to search and switch boards, or the board link to return to the table with your URL filters intact. Workspace and Account breadcrumbs provide dropdowns for their available settings pages.
 
 A board's prefix is permanent. Its tasks receive identifiers such as `ENG-1`; editing a title or changing a status keeps that identifier. Share the task's link with teammates.
 
 ## Create and update a task
 
-Open a board and choose New task. Enter a title and choose Backlog, Todo, In Progress, In Review, Done, or Won't Do. A new task defaults to Todo. You can add a description, human assignee, Agent, priority, due date, and checklist.
+Open a board and choose New task. Enter a title, optionally add a description and choose a human assignee, then create the task. Its dedicated page opens immediately. A new task defaults to Todo; status, Agent, priority and due date can be added on the page. REST and MCP clients can still provide those fields during creation.
 
-An Agent is optional and separate from the human assignee. Choose the human first; both you and that person must have access to an Agent when you change the binding. A task cannot have an Agent without an active human assignee. Unrelated edits preserve an existing valid binding. Selecting an Agent does not run work or contact an external service.
+An Agent is optional and separate from the human assignee. You can assign an Agent without assigning a person. You must have access to the Agent when you set it; if a person is also assigned, they must have access too. Unrelated edits preserve an existing valid binding. Selecting an Agent does not run work or contact an external service.
 
-Descriptions and comments support Markdown. Preview a description before saving. Links must use a safe web protocol; Mill does not accept file uploads. Checklist items have independent completion states.
+Descriptions and comments support Markdown. Edit descriptions in a plain textarea; the task page renders the saved Markdown. Links must use a safe web protocol; Mill does not accept file uploads.
 
 Due dates are calendar dates such as `2026-10-04`; changing time zones does not shift them. Your profile time zone controls displayed activity times.
 
-Open a task to change its properties or fixed status with keyboard or touch controls. If another person or agent changes it while your form is open, Mill rejects the stale save and preserves your draft for reconciliation. The API checks the task's current `version`.
+Each task field saves independently. Selections save immediately; title and description save after a short typing pause or when you leave the field. There is no whole-task Save button. Failures stay beside the field with Retry and Use saved value. If the same field changed elsewhere, Keep my change explicitly saves your draft against the latest version. Unrelated updates can be reconciled automatically. Navigation waits for pending saves and retains failed drafts.
 
 ## Find work
 
-Use the list's search to match titles, descriptions, and task identifiers. Combine status, assignee, and priority filters. Choose Unassigned for tasks without an owner.
+Use the list's search to match titles, descriptions, and task identifiers. Combine status, assignee, Agent and priority filters. Choose Unassigned for tasks without a human or Agent assignment.
 
-Sort by title, priority, due date, creation time, or latest update. Creation time is the default, newest first. Lists load bounded pages. Changing filters starts a new page sequence; editing retains the current list context. If work changes between pages, Mill asks you to reload the current filtered list rather than combining pages from different revisions. Existing rows stay visible while the replacement list loads.
+Sort by title, priority, status, due date, creation time, or latest update. Priority and status sorting split the current page into named groups. Creation time is the default, newest first. Pagination applies to the entire filtered result, with one footer across the groups. Search, filters, sort, page and page size are stored in the URL, so reload and task return links preserve your view. Changing filters returns to page 1. If work changes between pages, Mill asks you to reload the current filtered list rather than combining pages from different revisions. Existing rows stay visible while the replacement list loads.
 
 Boards are alphabetical and task order comes from the selected sort. There are no drag-and-drop lanes, custom statuses, labels, manual positions, or task parent/subtask controls. Existing subtasks from an older installation remain independent tasks after upgrade.
 
@@ -30,7 +30,7 @@ Keep decisions next to the task in a comment. Mention a teammate using `@their-e
 
 Assignments and mentions create in-app notifications for the affected teammate, subject to their preferences. Your own actions do not notify you. Open the header bell for a single scrolling list with unread indicators. Opening a notification marks it as read; the popover header also offers Mark all read. Task notifications are delivered in the app.
 
-You can edit or delete your own comments. A human administrator can moderate another person's comment. An external agent can edit its credential owner's comments within the approved boards and write scope.
+Comments cannot be edited after posting. You can delete your own comments. A human administrator can remove another person's comment. An external agent can delete its credential owner's comments within the approved boards and write scope.
 
 Task activity shows changes and human/agent attribution. Workspace-wide audit history is excluded from v1.
 

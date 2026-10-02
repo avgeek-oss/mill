@@ -92,26 +92,25 @@ Every board uses these same values; there are no status resources or custom-stat
 
 | Method and path              | Request                                  | Response                                             |
 | ---------------------------- | ---------------------------------------- | ---------------------------------------------------- |
-| `GET /api/boards/:id/tasks`  | Search/filter/sort/pagination query      | `{items,hasMore,nextCursor}`                         |
+| `GET /api/boards/:id/tasks`  | Search/filter/sort/pagination query      | `{items,total,page,revision,hasMore,nextCursor}`     |
 | `POST /api/boards/:id/tasks` | `{title,...task fields}`                 | `201 {task}`                                         |
 | `GET /api/tasks/:id`         | Optional `commentLimit`, `activityLimit` | `{task,comments,activity,commentsPage,activityPage}` |
 | `PATCH /api/tasks/:id`       | `{version,...changed task fields}`       | `{task}`                                             |
 | `DELETE /api/tasks/:id`      | `{version}`; Member                      | `{ok:true}`                                          |
 
-| Field         | Accepted value                                                            |
-| ------------- | ------------------------------------------------------------------------- |
-| `title`       | Nonempty text, at most 300 characters                                     |
-| `status`      | One fixed value above; creation defaults to `todo`                        |
-| `description` | Markdown text, at most 100,000 characters                                 |
-| `assigneeId`  | Active member UUID or `null`                                              |
-| `agentId`     | Eligible existing Agent UUID or `null`; requires an active human assignee |
-| `priority`    | `none`, `low`, `medium`, `high`, `urgent`                                 |
-| `dueDate`     | `YYYY-MM-DD` or `null`                                                    |
-| `checklist`   | At most 100 unique `{id,text,done}` entries; text at most 500 characters  |
+| Field         | Accepted value                                                  |
+| ------------- | --------------------------------------------------------------- |
+| `title`       | Nonempty text, at most 300 characters                           |
+| `status`      | One fixed value above; creation defaults to `todo`              |
+| `description` | Markdown text, at most 100,000 characters                       |
+| `assigneeId`  | Active member UUID or `null`                                    |
+| `agentId`     | Eligible existing Agent UUID or `null`; human assignee optional |
+| `priority`    | `none`, `low`, `medium`, `high`, `urgent`                       |
+| `dueDate`     | `YYYY-MM-DD` or `null`                                          |
 
 PATCH can change status and other fields atomically. It requires the current row version, which increments on mutation. An actual status change records `task.moved` with `{fromStatus,status}`; edited non-status fields record `task.updated`. Existing historical activity details remain intact after migration and may contain earlier field names.
 
-Task responses include nullable `agentId` and derived `agentName`; `agentName` is read-only. Agent attribution is independent of the human `assigneeId`. On creation or when the effective Agent or human assignee changes in PATCH, both the actor and effective human assignee must have access to the selected Agent. Sending identical binding IDs with unrelated edits preserves the existing valid binding. A non-null Agent without an active human assignee returns `400`; inaccessible Agent access returns `403`. To clear the human assignee, also send `agentId:null` when an Agent is attached. Unrelated edits preserve an existing valid binding, even if the actor does not personally have access to that Agent. Selecting an Agent produces no execution, job, or external-call side effects.
+Task responses include nullable `agentId` and derived `agentName`; `agentName` is read-only. Agent attribution is independent of the human `assigneeId`. On creation or when the effective Agent or human assignee changes in PATCH, the actor must have access to the selected Agent. If a human assignee is present, they must also have access. Sending identical binding IDs with unrelated edits preserves the existing valid binding. An Agent may be set while `assigneeId` is `null`; inaccessible Agent access returns `403`. Clearing the human assignee leaves an existing Agent assignment in place. Unrelated edits preserve an existing valid binding, even if the actor does not personally have access to that Agent. Selecting an Agent produces no execution, job, or external-call side effects.
 
 Task deletion removes only that task and its discussion, notifications, and activity. Former subtasks are independent tasks after migration and survive deletion of their former parent. Repeating a delete without its retry key returns `404`. Task numbers are not reused within an existing board.
 
@@ -119,17 +118,18 @@ Task detail returns the complete requested task. `commentLimit` and `activityLim
 
 Task list queries can be combined:
 
-| Parameter         | Value                                                              |
-| ----------------- | ------------------------------------------------------------------ |
-| `q`               | Title, description, or identifier search; at most 300 characters   |
-| `status`          | One fixed status code                                              |
-| `assigneeId`      | Member UUID or `unassigned`                                        |
-| `agentId`         | Agent UUID or `unassigned`                                         |
-| `priority`        | One priority value                                                 |
-| `sort`            | `createdAt` (default), `updatedAt`, `title`, `dueDate`, `priority` |
-| `limit`, `cursor` | Maximum 100 and a cursor from the same filter/sort context         |
+| Parameter          | Value                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------- |
+| `q`                | Title, description, or identifier search; at most 300 characters                      |
+| `status`           | One fixed status code                                                                 |
+| `assigneeId`       | Member UUID or `unassigned`                                                           |
+| `agentId`          | Agent UUID or `unassigned`                                                            |
+| `priority`         | One priority value                                                                    |
+| `sort`             | `createdAt` (default), `updatedAt`, `title`, `dueDate`, `priority`, `status`          |
+| `limit`, `cursor`  | Maximum 100 and a cursor from the same filter/sort context                            |
+| `page`, `revision` | Positive page number and optional returned revision; cannot be combined with `cursor` |
 
-Creation/update sorts are newest first. Title is case-insensitive ascending; due date is ascending with undated tasks last; priority runs urgent through none. UUIDs break ties for stable keyset pagination.
+Creation/update sorts are newest first. Title is case-insensitive ascending; due date is ascending with undated tasks last; priority runs urgent through none; status follows Backlog, Todo, In Progress, In Review, Done, Won't Do. UUIDs break ties. Page requests clamp to the last available page and return the actual `page` with `total` and `revision`. Send that revision on subsequent page requests to reject a changed result with `409 task_list_changed`. Cursor continuation remains available for clients.
 
 ```sh
 curl --fail-with-body "$MILL_URL/api/tasks/TASK_UUID" \
@@ -137,20 +137,19 @@ curl --fail-with-body "$MILL_URL/api/tasks/TASK_UUID" \
   -H "Authorization: Bearer $MILL_TOKEN" \
   -H 'Content-Type: application/json' \
   -H 'Idempotency-Key: release-task-edit-001' \
-  --data '{"version":3,"status":"in_review","priority":"urgent","checklist":[{"id":"review","text":"Review the release notes","done":true}]}'
+  --data '{"version":3,"status":"in_review","priority":"urgent"}'
 ```
 
 ## Comments, mentions, and activity
 
-| Method and path                | Request                      | Response                                   |
-| ------------------------------ | ---------------------------- | ------------------------------------------ |
-| `GET /api/tasks/:id/comments`  | `limit`, `cursor`            | `{items,hasMore,nextCursor}`; oldest first |
-| `POST /api/tasks/:id/comments` | `{body,mentionIds?}`         | `201 {comment}`                            |
-| `PATCH /api/comments/:id`      | `{version,body,mentionIds?}` | `{comment}`                                |
-| `DELETE /api/comments/:id`     | `{version}`                  | `{ok:true}`                                |
-| `GET /api/tasks/:id/activity`  | `limit`, `cursor`            | `{items,hasMore,nextCursor}`; newest first |
+| Method and path                | Request              | Response                                   |
+| ------------------------------ | -------------------- | ------------------------------------------ |
+| `GET /api/tasks/:id/comments`  | `limit`, `cursor`    | `{items,hasMore,nextCursor}`; newest first |
+| `POST /api/tasks/:id/comments` | `{body,mentionIds?}` | `201 {comment}`                            |
+| `DELETE /api/comments/:id`     | `{version}`          | `{ok:true}`                                |
+| `GET /api/tasks/:id/activity`  | `limit`, `cursor`    | `{items,hasMore,nextCursor}`; newest first |
 
-Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Only the author or a human Admin can edit/delete comments. An agent can change its owner's comments within approved boards but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human` or `agent`).
+Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. Only the author or a human Admin can delete a comment. An agent can delete its owner's comments within approved boards but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human` or `agent`).
 
 ## Notifications and settings
 

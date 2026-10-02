@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#faf6f3" />
+    <meta
+      name="description"
+      content="Mill is a self-hosted task list for people and external agents. Keep your boards, tasks and data on infrastructure you control."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Mill — tasks for people and agents" />
+    <meta
+      property="og:description"
+      content="A focused, self-hosted task list with REST and MCP access."
+    />
+    <meta property="og:url" content="https://mill.fyi/" />
+    <meta
+      property="og:image"
+      content="https://mill.fyi/assets/mill-social.png"
+    />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:image"
+      content="https://mill.fyi/assets/mill-social.png"
+    />
+    <link rel="canonical" href="https://mill.fyi/" />
+    <link rel="icon" type="image/png" href="/assets/mill-favicon.png" />
+    <link rel="apple-touch-icon" href="/assets/mill-touch-icon.png" />
+    <link
+      rel="preload"
+      as="image"
+      href="/assets/mill-board.png"
+      media="(min-width: 621px)"
+    />
+    <link
+      rel="preload"
+      as="image"
+      href="/assets/mill-task-mobile.png"
+      media="(max-width: 620px)"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>Mill — tasks for people and agents</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="brand" href="/" aria-label="Mill home"
+          ><img
+            src="/assets/mill-mark.png"
+            alt=""
+            width="42"
+            height="42"
+          /><span>Mill</span></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="#how-it-works">How it works</a>
+          <a href="https://docs.mill.fyi/">Docs</a>
+          <a href="https://github.com/avgeek-inc/mill">Source</a>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <section class="hero wrap">
+        <div class="hero-copy">
+          <p class="eyebrow">Open source · Self-hosted</p>
+          <h1>Keep work moving, together.</h1>
+          <p class="lede">
+            Mill is a focused task list for people and external agents. Your
+            team gets a clear place to plan and discuss work. Your clients get
+            permissioned REST and MCP access. You run it on your own
+            infrastructure.
+          </p>
+          <div class="actions">
+            <a
+              class="button button-primary"
+              href="https://docs.mill.fyi/installation"
+              >Install Mill <span aria-hidden="true">↗</span></a
+            >
+            <a
+              class="button button-secondary"
+              href="https://github.com/avgeek-inc/mill"
+              >View source <span aria-hidden="true">↗</span></a
+            >
+          </div>
+          <p class="hero-note">
+            Apache 2.0 · One web/API service and PostgreSQL · No LLM key
+            required
+          </p>
+        </div>
+        <figure class="product-shot">
+          <picture>
+            <source
+              media="(max-width: 620px)"
+              srcset="/assets/mill-task-mobile.png"
+            />
+            <img
+              src="/assets/mill-board.png"
+              width="1440"
+              height="900"
+              alt="Mill beta interface: the Release planning board on desktop and a task detail page on phone"
+              fetchpriority="high"
+            />
+          </picture>
+          <figcaption>Current beta interface with example data.</figcaption>
+        </figure>
+      </section>
+      <section class="section section-light" id="how-it-works">
+        <div class="wrap">
+          <p class="eyebrow">The task list</p>
+          <h2>Enough structure to find the next step.</h2>
+          <div class="feature-grid">
+            <article>
+              <span class="feature-number">01</span>
+              <h3>Boards stay simple</h3>
+              <p>
+                Group work into boards, then search, filter and sort each list.
+                Six fixed statuses keep the workflow easy to follow.
+              </p>
+            </article>
+            <article>
+              <span class="feature-number">02</span>
+              <h3>Details live with the task</h3>
+              <p>
+                Keep a stable task link, Markdown description, due date,
+                comments and activity together. Assign a person, an Agent, both
+                or neither.
+              </p>
+            </article>
+            <article>
+              <span class="feature-number">03</span>
+              <h3>People keep control</h3>
+              <p>
+                Invite teammates with Admin, Member or Viewer access. In-app
+                notifications bring assignments and mentions back to the work.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+      <section class="section section-dark">
+        <div class="wrap split">
+          <div>
+            <p class="eyebrow">External clients</p>
+            <h2>Give agents a place in the work, with clear boundaries.</h2>
+          </div>
+          <div>
+            <p>
+              Personal API keys let REST clients act with their human owner's
+              current permissions. MCP connections use OAuth, an existing Agent
+              identity, approved scopes and optional board limits.
+            </p>
+            <p>
+              Agent attribution records responsibility on a task. Mill does not
+              execute the Agent or run a hosted agent service.
+            </p>
+            <a class="text-link" href="https://docs.mill.fyi/agents"
+              >Read the connection guide <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </div>
+      </section>
+      <section class="section section-light">
+        <div class="wrap split">
+          <div>
+            <p class="eyebrow">Run it yourself</p>
+            <h2>Your tasks stay on your infrastructure.</h2>
+          </div>
+          <div>
+            <p>
+              Start with Docker Compose and PostgreSQL. Mill provides health
+              checks, checksummed migrations, full database backup guidance and
+              a documented restore path.
+            </p>
+            <p>
+              The current beta uses private invitation links and operator-issued
+              account recovery links. Account and task email delivery is
+              unavailable.
+            </p>
+            <a class="text-link" href="https://docs.mill.fyi/installation"
+              >Read the installation guide <span aria-hidden="true">↗</span></a
+            >
+          </div>
+        </div>
+      </section>
+      <section class="closing wrap">
+        <h2>Make room for the work.</h2>
+        <p>Install Mill, create a board and invite your team.</p>
+        <a
+          class="button button-primary"
+          href="https://docs.mill.fyi/getting-started"
+          >Get started <span aria-hidden="true">↗</span></a
+        >
+      </section>
+    </main>
+    <footer>
+      <div class="wrap footer-inner">
+        <div>
+          <span class="footer-brand">Mill</span>
+          <p>Created by Avgeek, Inc. Licensed under Apache 2.0.</p>
+        </div>
+        <nav aria-label="Footer navigation">
+          <a href="https://docs.mill.fyi/">Documentation</a
+          ><a href="https://github.com/avgeek-inc/mill">Source and support</a
+          ><a href="https://docs.mill.fyi/security">Security reporting</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

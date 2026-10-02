@@ -2,6 +2,10 @@
 
 Read the new version's release notes and verification evidence before changing an installation. Record your current source commit or immutable image digest, then make and test a [full backup](backup.md).
 
+## Task assignment and checklist retirement
+
+Migration `010_task_assignment_without_assignee.sql` allows an Agent to remain on a task when its human assignee is cleared. When a human is assigned, that person still needs access to the Agent. The migration removes checklist entries from the active task table and public task responses. Existing nonempty checklists are copied to the private `retired_task_checklists` table, keyed by task ID, so an operator can recover them from a full database backup if the feature returns. Deleting a task also deletes its retired checklist data. The old application cannot write checklist changes after this migration; upgrade the application and database together.
+
 ## Permanent deletion migration
 
 Migration `005_permanent_deletion.sql` removes archiving and soft deletion for boards and tasks. Existing archived work becomes ordinary work. Previously deleted boards and tasks are permanently removed, together with their subtasks, statuses, comments, notifications, and activity. Deleting a board removes it from agent scopes and revokes credentials whose last permitted board was removed. Completed retry responses from the earlier schema are cleared because they may contain deleted content. Their keys remain until normal expiry: an exact retry returns `410` and cannot repeat the earlier mutation. Reload Mill and check the current work before making a new change.
@@ -24,7 +28,7 @@ Migration `008_agents.sql` adds Agents separate from People, explicit team acces
 
 For MCP OAuth after migration 008, create a personal Agent in the human interface or ask an administrator for access to a team Agent, then reconnect and select it at consent. A person without an eligible Agent cannot approve a connection. Creating an Agent never reactivates a revoked token. Personal REST keys follow migration 009 below.
 
-An Agent on a task is optional, separate from the human assignee, and never executes work automatically. Selecting one requires an active human assignee and access for both actor and assignee. Test that binding and your external connection after upgrade. Keep the pre-upgrade backup and compatible old application if you need to recover the earlier credential model in a separate project.
+An Agent on a task is optional, separate from the human assignee, and never executes work automatically. An Agent may be assigned without a human assignee. Setting or changing that binding requires access for the actor and, if a person is also assigned, for that person. Test that binding and your external connection after upgrade. Keep the pre-upgrade backup and compatible old application if you need to recover the earlier credential model in a separate project.
 
 ## Personal API keys and team access migration
 
@@ -53,7 +57,7 @@ Replace the placeholder with the exact reviewed revision. Keep `.env` and the Po
 
 ## Upgrade a packaged image
 
-Private review artifacts include a saved image, source archive, `release-manifest.json`, and `SHA256SUMS`. Choose the package matching your server's architecture. The packaging gate checks the image's Linux architecture, source revision, non-root user, and config digest against the clean source commit.
+Private review artifacts include a saved image, source archive, `source-manifest.json`, `release-manifest.json`, and `SHA256SUMS`. The source manifest records each tracked source file's path, byte length, and SHA-256 digest. Choose the package matching your server's architecture. The packaging gate checks the image's Linux architecture, source revision, non-root user, and config digest against the clean source commit.
 
 Verify all files before loading them:
 

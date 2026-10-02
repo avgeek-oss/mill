@@ -111,7 +111,7 @@ export async function renderGuides({
       .join("");
     result.set(
       `guides/${entry.output}`,
-      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(title)} · Mill</title>${styles}</head><body><main class="mx-auto min-w-0 max-w-5xl px-4 py-8 sm:px-6"><nav aria-label="Guide navigation" class="mb-6 flex flex-wrap gap-4 text-sm"><a href="/">Open Mill</a><a href="/guides/agents.html">Agent setup</a><a href="/guides/backup.html">Backup and recovery</a></nav><article class="markdown min-w-0">${body}</article></main></body></html>`,
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" type="image/png" href="/brand/mill-favicon.png"><title>${escape(title)} · Mill</title>${styles}</head><body><main class="mx-auto min-w-0 max-w-5xl px-4 py-8 sm:px-6"><nav aria-label="Guide navigation" class="mb-6 flex flex-wrap items-center gap-4 text-sm"><a href="/" class="inline-flex items-center gap-2.5 font-medium"><img src="/brand/mill-mark.png" alt="" width="32" height="32" class="size-8 object-contain">Open Mill</a><a href="/guides/agents.html">Agent setup</a><a href="/guides/backup.html">Backup and recovery</a></nav><article class="markdown min-w-0">${body}</article></main></body></html>`,
     );
   }
   return result;
