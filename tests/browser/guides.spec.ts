@@ -74,6 +74,9 @@ for (const viewport of [
       page.getByRole("heading", { name: "Backup and recovery", exact: true }),
     ).toBeVisible();
     await expect(page.locator("pre").first()).toContainText("tools/backup.sh");
+    await page.waitForLoadState("load");
+    await expect(page.locator("pre").first()).toHaveCSS("overflow-x", "auto");
+    await page.evaluate(() => document.fonts.ready);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
