@@ -10,6 +10,7 @@ import {
   type Locator,
   type Page,
   type Route,
+  type BrowserContext,
 } from "@playwright/test";
 const account = {
   email: "browser-admin@example.test",
@@ -20,6 +21,7 @@ const account = {
 const baseOrigin = process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323";
 let workspaceId = "";
 let adminUserId = "";
+let adminSessionCookies: Awaited<ReturnType<BrowserContext["cookies"]>> = [];
 let boardId = "";
 let taskId = "";
 let releaseAgentId = "";
@@ -45,10 +47,25 @@ async function login(
   page: Page,
   credentials: { email: string; password: string } = account,
 ) {
-  await page.goto("/");
-  await page.getByLabel("Email", { exact: true }).fill(credentials.email);
-  await page.getByLabel("Password", { exact: true }).fill(credentials.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  let reusedSession = false;
+  if (credentials.email === account.email && adminSessionCookies.length) {
+    await page.context().addCookies(adminSessionCookies);
+    const session = await page.request.get("/api/auth/me");
+    if (session.status() === 401) adminSessionCookies = [];
+    else {
+      expect(session.ok()).toBeTruthy();
+      expect((await session.json()).user.email).toBe(account.email);
+      reusedSession = true;
+    }
+  }
+  if (!reusedSession) {
+    await page.goto("/");
+    await page.getByLabel("Email", { exact: true }).fill(credentials.email);
+    await page
+      .getByLabel("Password", { exact: true })
+      .fill(credentials.password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  } else await page.goto("/");
   if ((page.viewportSize()?.width ?? 0) <= 700) {
     await expect(
       page.getByRole("button", { name: "Open navigation" }),
@@ -61,6 +78,13 @@ async function login(
       page.getByRole("navigation", { name: "Workspace navigation" }),
     ).toBeVisible();
   }
+  if (credentials.email === account.email) await rememberAdminSession(page);
+}
+async function rememberAdminSession(page: Page) {
+  adminSessionCookies = (await page.context().cookies(baseOrigin)).filter(
+    (cookie) => cookie.name === "mill_session",
+  );
+  expect(adminSessionCookies).toHaveLength(1);
 }
 async function choose(page: Page, label: string, value: string) {
   await page.getByRole("button", { name: new RegExp(`${label}$`) }).click();
@@ -253,6 +277,7 @@ test("first installation, board lifecycle, Agent-only task and discussion", asyn
   const bootstrap = await rememberBrowserBootstrap(page.request, baseOrigin);
   workspaceId = bootstrap.identity.workspace.id;
   adminUserId = bootstrap.identity.user.id;
+  await rememberAdminSession(page);
   const onlyBoardResponse = await page.request.post("/api/boards", {
     headers: { Origin: baseOrigin },
     data: { name: "Only board before deletion", prefix: "EMPTY" },
@@ -1140,6 +1165,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
     headers: { Origin: baseOrigin },
     data: {},
   });
+  adminSessionCookies = [];
   await title.fill("Expired title draft");
   await expect(
     page.getByRole("heading", { name: "Sign in to Mill" }),
@@ -1160,6 +1186,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
   await page.getByLabel("Password", { exact: true }).fill(account.password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(edit).toBeVisible();
+  await rememberAdminSession(page);
   await expect(title).toHaveValue("Expired title draft");
   await expect(commentDraft).toHaveValue("Unsent through session expiry");
   await edit.getByRole("button", { name: "Retry" }).click();
@@ -1218,6 +1245,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
   await expect(
     page.getByRole("heading", { name: "Sign in to Mill" }),
   ).toBeVisible();
+  adminSessionCookies = [];
   expect(logoutRequests).toBe(1);
   const checkOpenPopoverExpiry = async (target: Page) => {
     await target.clock.install();
@@ -1235,6 +1263,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
       data: {},
     });
     expect(revoked.ok()).toBeTruthy();
+    adminSessionCookies = [];
     await target.clock.fastForward(30_100);
     await expect(
       target.getByRole("heading", { name: "Sign in to Mill" }),
@@ -1261,6 +1290,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
     await target.getByLabel("Password", { exact: true }).fill(account.password);
     await target.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(popover).toBeVisible();
+    await rememberAdminSession(target);
   };
   await checkOpenPopoverExpiry(page);
   const touchBrowser = await chromium.launch({ channel: "chromium" });
@@ -1305,6 +1335,7 @@ test("reauth masks a revoked board and retries only after access returns", async
     data: {},
   });
   expect(revokedSession.ok()).toBeTruthy();
+  adminSessionCookies = [];
   await page.clock.fastForward(30_100);
   await expect(
     page.getByRole("heading", { name: "Sign in to Mill" }),
@@ -1324,6 +1355,7 @@ test("reauth masks a revoked board and retries only after access returns", async
   await expect(
     page.getByRole("heading", { name: "Board access required" }),
   ).toBeVisible();
+  await rememberAdminSession(page);
   await expect(
     page.getByRole("dialog", { name: "Notifications" }),
   ).toBeHidden();
@@ -1374,25 +1406,32 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
       data: {},
     });
     expect(expiredForAccess.ok()).toBeTruthy();
+    adminSessionCookies = [];
     await title.fill("Private title pending on access loss");
     await expect(
       page.getByRole("heading", { name: "Sign in to Mill" }),
     ).toBeVisible();
+    const taskReadRoute = (url: URL) =>
+      url.pathname === `/api/tasks/${disposable.id}`;
+    let deniedTaskReads = 0;
     const denyTask = async (route: Route) => {
       if (route.request().method() !== "GET") return route.continue();
+      deniedTaskReads++;
       await route.fulfill({
         status: 403,
         contentType: "application/json",
         body: JSON.stringify({ error: "Task access was revoked" }),
       });
     };
-    await page.route(`**/api/tasks/${disposable.id}`, denyTask);
+    await page.route(taskReadRoute, denyTask);
     await page.getByLabel("Email", { exact: true }).fill(account.email);
     await page.getByLabel("Password", { exact: true }).fill(account.password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Task access required" }),
     ).toBeVisible();
+    expect(deniedTaskReads).toBeGreaterThan(0);
+    await rememberAdminSession(page);
     await expect(
       page.getByRole("heading", { name: disposable.title }),
     ).toHaveCount(0);
@@ -1401,20 +1440,28 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
     await expect(
       page.getByRole("button", { name: "Task actions" }),
     ).toHaveCount(0);
-    await page.unroute(`**/api/tasks/${disposable.id}`, denyTask);
+    await page.unroute(taskReadRoute, denyTask);
     let releaseRetry!: () => void;
     let retryStarted!: () => void;
+    let retryContinued!: () => void;
     const heldRetry = new Promise<void>((resolve) => (releaseRetry = resolve));
     const retryRequest = new Promise<void>(
       (resolve) => (retryStarted = resolve),
+    );
+    const continuedRetry = new Promise<void>(
+      (resolve) => (retryContinued = resolve),
     );
     const holdRetry = async (route: Route) => {
       if (route.request().method() !== "GET") return route.continue();
       retryStarted();
       await heldRetry;
-      await route.continue();
+      try {
+        await route.continue();
+      } finally {
+        retryContinued();
+      }
     };
-    await page.route(`**/api/tasks/${disposable.id}`, holdRetry);
+    await page.route(taskReadRoute, holdRetry);
     try {
       await page.getByRole("button", { name: "Try again" }).click();
       await retryRequest;
@@ -1429,11 +1476,12 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
       ).toHaveCount(0);
     } finally {
       releaseRetry();
-      await page.unroute(`**/api/tasks/${disposable.id}`, holdRetry);
+      await continuedRetry;
+      await page.unroute(taskReadRoute, holdRetry);
     }
-    await expect(
-      page.getByRole("heading", { name: disposable.title }),
-    ).toBeVisible();
+    await expect(page.locator(".task-page-title")).toHaveText(
+      "Private title pending on access loss",
+    );
     await expect(editor).toBeVisible();
     await expect(title).toHaveValue("Private title pending on access loss");
     await expect(comment).toHaveValue("Private comment pending on access loss");
@@ -1443,6 +1491,7 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
       data: {},
     });
     expect(expiredForDeletion.ok()).toBeTruthy();
+    adminSessionCookies = [];
     await title.fill("Private title pending when task disappears");
     await expect(
       page.getByRole("heading", { name: "Sign in to Mill" }),
@@ -1461,6 +1510,7 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
     await expect(
       page.getByRole("heading", { name: "Task unavailable" }),
     ).toBeVisible();
+    await rememberAdminSession(page);
     await expect(
       page.getByRole("heading", { name: disposable.title }),
     ).toHaveCount(0);
@@ -1853,6 +1903,7 @@ test("a different person cannot inherit an expired task draft", async ({
     headers: { Origin: baseOrigin },
     data: {},
   });
+  adminSessionCookies = [];
   await title.fill("Private title draft from Alex");
   await expect(
     page.getByRole("heading", { name: "Sign in to Mill" }),
@@ -2232,12 +2283,17 @@ test("board settings keep detail failures recoverable and delete boards permanen
     "Delete board?",
   );
   expect(await (await boardDeletion).json()).toEqual({ ok: true });
-  await expect(page).toHaveURL(`/boards/${boardId}`);
+  await expect(page).toHaveURL(/\/boards\/[0-9a-f-]+$/);
+  await expect(
+    page.getByRole("heading", { name: "Alpha route", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  const nav = page.getByRole("navigation", { name: "Workspace navigation" });
+  const nav = page.getByRole("navigation", { name: "Boards navigation" });
   await expect(
     nav.getByRole("link", { name: disposable.name, exact: true }),
   ).toHaveCount(0);
+  await nav.getByRole("link", { name: "Release planning" }).click();
+  await expect(page).toHaveURL(`/boards/${boardId}`);
   expect(
     (await page.request.get(`/api/boards/${disposable.id}`)).status(),
   ).toBe(404);
@@ -2593,6 +2649,9 @@ test("task load failures preserve the deep link and recover without creating a t
     },
   });
   expect(accepted.ok()).toBeTruthy();
+  const savedResponse = await page.request.get(`/api/tasks/${taskId}`);
+  expect(savedResponse.ok()).toBeTruthy();
+  const savedTitle = (await savedResponse.json()).task.title as string;
   let creations = 0;
   page.on("request", (request) => {
     if (
@@ -2622,7 +2681,7 @@ test("task load failures preserve the deep link and recover without creating a t
   ).toBeVisible();
   await expect(
     page.getByRole("heading", {
-      name: "Release plan reviewed by another human",
+      name: savedTitle,
     }),
   ).toBeVisible();
   const inaccessible = (route: Route) =>
@@ -2643,7 +2702,7 @@ test("task load failures preserve the deep link and recover without creating a t
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(
     page.getByRole("heading", {
-      name: "Release plan reviewed by another human",
+      name: savedTitle,
     }),
   ).toBeVisible();
   const delayed = requestGate();
@@ -2667,7 +2726,7 @@ test("task load failures preserve the deep link and recover without creating a t
   }
   await expect(
     page.getByRole("heading", {
-      name: "Release plan reviewed by another human",
+      name: savedTitle,
     }),
   ).toBeVisible();
   await testInfo.attach("held-task-read.json", {
@@ -2821,10 +2880,20 @@ test("sidebar autoloads every board, retries directory failures, and keeps its c
       .click();
     await expect(directoryLinks).toHaveCount(234);
     await expect(nav.getByRole("alert")).toHaveCount(0);
-    await nav.getByRole("button", { name: /^Account menu for / }).click();
+    await page
+      .getByRole("navigation", { name: "Workspace navigation" })
+      .getByRole("button", { name: /^Account menu for / })
+      .click();
     await page
       .getByRole("menu")
       .getByRole("menuitem", { name: "Profile", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Profile", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("navigation", { name: "Workspace navigation" })
+      .getByRole("link", { name: "Boards", exact: true })
       .click();
     await expect(directoryLinks).toHaveCount(234);
     await expect(
@@ -2940,17 +3009,36 @@ test("sidebar autoloads every board, retries directory failures, and keeps its c
         .getByRole("button", { name: "Save board", exact: true })
         .click();
       await refreshFirstRequest;
-      await expect(boardSettings.getByRole("status")).toContainText("Saving…");
+      await expect(boardSettings).toBeVisible();
+      await expect(
+        boardSettings.getByRole("button", { name: "Save board", exact: true }),
+      ).toBeEnabled();
       await boardSettings
         .getByRole("button", { name: "Close dialog", exact: true })
         .click();
+      const savedBoardResponse = await page.request.get(
+        `/api/boards/${created.board.id}`,
+      );
+      expect(savedBoardResponse.ok()).toBeTruthy();
+      expect((await savedBoardResponse.json()).board.name).toBe(
+        "Z Saved beyond the first page",
+      );
+      await expect(
+        page.getByRole("navigation", { name: "Breadcrumb" }),
+      ).toContainText("Z Saved beyond the first page");
       await expect(directoryLinks).toHaveCount(234);
+      await expect(
+        nav.getByRole("link", {
+          name: "Z Saved beyond the first page",
+          exact: true,
+        }),
+      ).toBeVisible();
       await expect(
         nav.getByRole("link", {
           name: "Z Created beyond the first page",
           exact: true,
         }),
-      ).toBeVisible();
+      ).toHaveCount(0);
       await expect(
         section.getByRole("button", { name: "Create board", exact: true }),
       ).toBeVisible();
@@ -2963,10 +3051,13 @@ test("sidebar autoloads every board, retries directory failures, and keeps its c
       await expect(directoryLinks).toHaveCount(234);
       await expect(
         nav.getByRole("link", {
-          name: "Z Created beyond the first page",
+          name: "Z Saved beyond the first page",
           exact: true,
         }),
       ).toBeVisible();
+      await expect(
+        page.getByRole("navigation", { name: "Breadcrumb" }),
+      ).toContainText("Z Saved beyond the first page");
       await expect(
         section.getByRole("button", { name: "Create board", exact: true }),
       ).toBeVisible();
@@ -2986,6 +3077,9 @@ test("sidebar autoloads every board, retries directory failures, and keeps its c
         exact: true,
       }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("navigation", { name: "Breadcrumb" }),
+    ).toContainText("Z Saved beyond the first page");
     const current = await page.request
       .get(`/api/boards/${created.board.id}`)
       .then((response) => response.json());

@@ -2,6 +2,7 @@ import {
   Component,
   Suspense,
   lazy,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -185,10 +186,7 @@ export function App() {
   const [boardsPending, setBoardsPending] = useState(false);
   const [boardsError, setBoardsError] = useState("");
   const [lastUsedBoardId, setLastUsedBoardId] = useState<string | null>(null);
-  const [routeBoard, setRouteBoard] = useState<Pick<
-    Board,
-    "id" | "name"
-  > | null>(null);
+  const [routeBoard, setRouteBoard] = useState<Board | null>(null);
   const [routeTask, setRouteTask] = useState<Pick<
     Task,
     "id" | "identifier"
@@ -211,10 +209,24 @@ export function App() {
   const lastBoardsRequest = useRef(0);
   const lastRefreshRequest = useRef(0);
   const recentlyCreatedBoard = useRef<Board | null>(null);
+  const latestLoadedBoard = useRef<Board | null>(null);
   const appContainer = useRef<HTMLDivElement>(null);
   const suspendedFocus = useRef<HTMLElement | null>(null);
   const suspensionActive = useRef(false);
   const logoutPending = useRef(false);
+  const rememberLoadedBoard = useCallback((board: Board) => {
+    const current = latestLoadedBoard.current;
+    if (current?.id === board.id && current.version > board.version) return;
+    latestLoadedBoard.current = board;
+    setRouteBoard(board);
+    setBoards((previous) => {
+      const current = previous.find((item) => item.id === board.id);
+      if (!current || current.version > board.version) return previous;
+      return previous
+        .map((item) => (item.id === board.id ? board : item))
+        .sort(compareBoardNames);
+    });
+  }, []);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
     document.documentElement.dataset.theme = theme;
@@ -289,7 +301,15 @@ export function App() {
               validateResponse: hasBoardsResponse,
             });
             if (request !== lastBoardsRequest.current) return;
-            for (const board of result.items) directory.set(board.id, board);
+            for (const board of result.items) {
+              const latest = latestLoadedBoard.current;
+              directory.set(
+                board.id,
+                latest?.id === board.id && latest.version > board.version
+                  ? latest
+                  : board,
+              );
+            }
             const created = recentlyCreatedBoard.current;
             if (created && directory.has(created.id))
               recentlyCreatedBoard.current = null;
@@ -429,6 +449,7 @@ export function App() {
       lastBoardsRequest.current++;
       lastRefreshRequest.current++;
       recentlyCreatedBoard.current = null;
+      latestLoadedBoard.current = null;
       suspendedFocus.current = null;
       setBoards([]);
       setMembers([]);
@@ -459,6 +480,7 @@ export function App() {
           lastBoardsRequest.current++;
           lastRefreshRequest.current++;
           recentlyCreatedBoard.current = null;
+          latestLoadedBoard.current = null;
           suspendedFocus.current = null;
           suspensionActive.current = false;
           setSession(null);
@@ -466,6 +488,8 @@ export function App() {
           setBoards([]);
           setMembers([]);
           setNotificationCount(0);
+          setRouteBoard(null);
+          setRouteTask(null);
           window.history.replaceState({ millNavigationIndex: 0 }, "", "/");
           window.dispatchEvent(new Event("mill:navigate"));
         })
@@ -630,8 +654,17 @@ export function App() {
     />
   );
   const navbarTitle = activeBoardId
-    ? (boards.find((board) => board.id === activeBoardId)?.name ??
-      (routeBoard?.id === activeBoardId ? routeBoard.name : "Board"))
+    ? (() => {
+        const directoryBoard = boards.find(
+          (board) => board.id === activeBoardId,
+        );
+        const loadedBoard =
+          routeBoard?.id === activeBoardId ? routeBoard : null;
+        return loadedBoard &&
+          (!directoryBoard || loadedBoard.version >= directoryBoard.version)
+          ? loadedBoard.name
+          : (directoryBoard?.name ?? "Board");
+      })()
     : settingsSection && knownSettings.includes(settingsSection)
       ? settingsTitles[settingsSection]
       : path === "/oauth/consent"
@@ -726,7 +759,7 @@ export function App() {
                         user={session.user}
                         members={members}
                         returnHref={`/boards/${activeBoardId}${window.location.search}`}
-                        onBoardLoaded={setRouteBoard}
+                        onBoardLoaded={rememberLoadedBoard}
                         onTaskLoaded={setRouteTask}
                         sessionRevision={sessionRevision}
                       />
@@ -735,7 +768,7 @@ export function App() {
                         key={activeBoardId}
                         boardId={activeBoardId}
                         onBoardLoaded={(board) => {
-                          setRouteBoard(board);
+                          rememberLoadedBoard(board);
                           if (recentlyCreatedBoard.current?.id === board.id)
                             recentlyCreatedBoard.current = board;
                         }}
@@ -750,6 +783,12 @@ export function App() {
                               removedBoardId
                             )
                               recentlyCreatedBoard.current = null;
+                            if (
+                              latestLoadedBoard.current?.id === removedBoardId
+                            )
+                              latestLoadedBoard.current = null;
+                            if (routeBoard?.id === removedBoardId)
+                              setRouteBoard(null);
                             setBoards((previous) =>
                               previous.filter(
                                 (board) => board.id !== removedBoardId,
