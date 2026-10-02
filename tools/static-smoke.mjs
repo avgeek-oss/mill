@@ -44,7 +44,14 @@ function localTarget(value, source, anchor = false) {
   const path = decodeURIComponent(url.pathname);
   if (anchor && path === "/") return null;
   assert.ok(
-    (path.startsWith("/guides/") || path.startsWith("/assets/")) &&
+    (path.startsWith("/guides/") ||
+      path.startsWith("/assets/") ||
+      [
+        "/brand/mill-favicon.png",
+        "/brand/mill-mark.png",
+        "/brand/mill-touch-icon.png",
+        "/startup-recovery.js",
+      ].includes(path)) &&
       !path.split("/").some((part) => [".", ".."].includes(part)) &&
       !/[\\\p{Cc}]/u.test(path),
     "Guide resources must resolve to the bundled static tree",
@@ -54,7 +61,10 @@ function localTarget(value, source, anchor = false) {
 
 function resourceKind(path) {
   if (path === "/THIRD-PARTY-NOTICES.txt") return "notice";
+  if (path === "/startup-recovery.js") return "startup-script";
   const extension = extname(path).toLowerCase();
+  if (path.startsWith("/assets/") && /-[A-Za-z0-9_-]{8}\.js$/.test(path))
+    return "script";
   if (path.startsWith("/guides/") && extension === ".html") return "guide";
   if (path.startsWith("/guides/") && extension === ".txt") return "text";
   if (extension === ".css") return "style";
@@ -87,6 +97,11 @@ export async function staticManifest(directory) {
     const kind = resourceKind(path);
     const bytes = await readFile(resolve(root, `.${path}`));
     assert.ok(bytes.length > 0, `Bundled static resource is nonempty: ${path}`);
+    if (path.startsWith("/brand/"))
+      assert.ok(
+        bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")),
+        `Brand asset is a PNG: ${path}`,
+      );
     resources.set(path, {
       path,
       kind,
@@ -112,19 +127,35 @@ export async function staticManifest(directory) {
       assert.doesNotMatch(text, /<(?:script|iframe|form|object|embed)\b/i);
       assert.doesNotMatch(text, /\son[a-z]+\s*=/i);
       let styles = 0;
+      let icons = 0;
       for (const match of text.matchAll(/<link\b([^>]+)>/gi)) {
-        assert.equal(
-          attribute(match[1], "rel"),
-          "stylesheet",
-          "Guides require only static stylesheets",
-        );
+        const rel = attribute(match[1], "rel");
         const target = localTarget(attribute(match[1], "href"), path);
-        assert.ok(target, "Guide stylesheets are bundled locally");
-        assert.equal(resourceKind(target.path), "style");
-        styles++;
+        assert.ok(target, "Guide linked resources are bundled locally");
+        if (rel === "stylesheet") {
+          assert.equal(resourceKind(target.path), "style");
+          styles++;
+        } else {
+          assert.equal(
+            rel,
+            "icon",
+            "Guides use only stylesheets and the Mill favicon",
+          );
+          assert.equal(target.path, "/brand/mill-favicon.png");
+          assert.equal(attribute(match[1], "type"), "image/png");
+          icons++;
+        }
         await add(target.path);
       }
       assert.ok(styles > 0, "Guides use the built local stylesheet");
+      assert.equal(icons, 1, "Guides use one local PNG favicon");
+      for (const match of text.matchAll(/<img\b([^>]+)>/gi)) {
+        const target = localTarget(attribute(match[1], "src"), path);
+        assert.equal(target?.path, "/brand/mill-mark.png");
+        assert.equal(resourceKind(target.path), "image");
+        assert.notEqual(attribute(match[1], "alt"), undefined);
+        await add(target.path);
+      }
       for (const match of text.matchAll(/<a\b([^>]+)>/gi)) {
         const target = localTarget(attribute(match[1], "href"), path, true);
         if (!target) continue;
@@ -165,6 +196,63 @@ export async function staticManifest(directory) {
     }
   }
   await guideTree();
+  const index = await readFile(resolve(root, "index.html"), "utf8");
+  const brandLinks = new Map();
+  const appStyles = [];
+  for (const match of index.matchAll(/<link\b([^>]+)>/gi)) {
+    const rel = attribute(match[1], "rel");
+    if (rel === "stylesheet") {
+      const target = localTarget(attribute(match[1], "href"), "/");
+      assert.equal(resourceKind(target?.path), "style");
+      assert.match(target.path, /^\/assets\/[^/]+-[A-Za-z0-9_-]{8}\.css$/);
+      appStyles.push(target.path);
+      await add(target.path);
+      continue;
+    }
+    if (!["icon", "apple-touch-icon"].includes(rel)) continue;
+    assert.equal(brandLinks.has(rel), false, `Only one ${rel} is bundled`);
+    const target = localTarget(attribute(match[1], "href"), "/");
+    assert.equal(
+      target?.path,
+      rel === "icon" ? "/brand/mill-favicon.png" : "/brand/mill-touch-icon.png",
+    );
+    if (rel === "icon") assert.equal(attribute(match[1], "type"), "image/png");
+    brandLinks.set(rel, target.path);
+    await add(target.path);
+  }
+  assert.equal(
+    brandLinks.size,
+    2,
+    "The app bundles favicon and touch icon links",
+  );
+  assert.equal(appStyles.length, 1, "The app loads one hashed stylesheet");
+  const scripts = [
+    ...index.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi),
+  ];
+  const startupScripts = scripts.filter(
+    (match) => attribute(match[1], "src") === "/startup-recovery.js",
+  );
+  assert.equal(
+    startupScripts.length,
+    1,
+    "The app loads one external startup recovery script",
+  );
+  assert.equal(
+    startupScripts[0][2].trim(),
+    "",
+    "Startup recovery has no inline script body",
+  );
+  await add("/startup-recovery.js");
+  const appScripts = scripts.filter(
+    (match) => attribute(match[1], "type") === "module",
+  );
+  assert.equal(appScripts.length, 1, "The app loads one hashed module script");
+  assert.equal(scripts.length, 2, "The app loads only the two bundled scripts");
+  const appScript = localTarget(attribute(appScripts[0][1], "src"), "/");
+  assert.equal(resourceKind(appScript?.path), "script");
+  assert.match(appScript.path, /^\/assets\/[^/]+-[A-Za-z0-9_-]{8}\.js$/);
+  assert.equal(appScripts[0][2].trim(), "", "The module has no inline body");
+  await add(appScript.path);
   assert.ok(resources.has("/guides/backup.html"), "Backup guide is bundled");
   assert.match(
     texts.get("/guides/backup.html"),
@@ -185,16 +273,20 @@ export async function staticManifest(directory) {
   return { format: "mill-static-content-v1", resources: files };
 }
 
-function expectedMime(kind, value) {
+function expectedMime(kind, value, path) {
   const type = value.split(";", 1)[0].trim();
   if (["notice", "text"].includes(kind)) return type === "text/plain";
   if (kind === "guide") return type === "text/html";
+  if (["startup-script", "script"].includes(kind))
+    return ["text/javascript", "application/javascript"].includes(type);
   if (kind === "style") return type === "text/css";
   if (kind === "font")
     return (
       /^font\//.test(type) ||
       /^application\/(?:font-|x-font-|octet-stream)/.test(type)
     );
+  if (kind === "image" && extname(path).toLowerCase() === ".png")
+    return type === "image/png";
   return kind === "image" && /^image\//.test(type);
 }
 
@@ -202,9 +294,9 @@ export async function verifyStaticContent(origin, manifest, timeoutMs = 8000) {
   const url = new URL(origin);
   assert.ok(
     ["127.0.0.1", "localhost"].includes(url.hostname) &&
-      url.protocol === "http:" &&
+      ["http:", "https:"].includes(url.protocol) &&
       url.origin === origin,
-    "Static verification targets disposable loopback HTTP only",
+    "Static verification targets disposable loopback origins only",
   );
   assert.equal(manifest?.format, "mill-static-content-v1");
   assert.ok(Array.isArray(manifest.resources) && manifest.resources.length > 0);
@@ -231,6 +323,7 @@ export async function verifyStaticContent(origin, manifest, timeoutMs = 8000) {
           credentials: "omit",
           redirect: "error",
           signal,
+          headers: { "Accept-Encoding": "identity" },
         });
         assert.equal(
           response.status,
@@ -238,7 +331,11 @@ export async function verifyStaticContent(origin, manifest, timeoutMs = 8000) {
           `Anonymous production static resource responds: ${file.path}`,
         );
         assert.ok(
-          expectedMime(file.kind, response.headers.get("content-type") ?? ""),
+          expectedMime(
+            file.kind,
+            response.headers.get("content-type") ?? "",
+            file.path,
+          ),
           `Static MIME type matches ${file.path}`,
         );
         assert.equal(response.headers.get("x-content-type-options"), "nosniff");
@@ -252,6 +349,7 @@ export async function verifyStaticContent(origin, manifest, timeoutMs = 8000) {
           null,
           "Public static resources do not create authentication sessions",
         );
+        assert.equal(response.headers.get("content-encoding"), null);
         const bytes = Buffer.from(await response.arrayBuffer());
         assert.equal(
           bytes.length,
@@ -266,6 +364,55 @@ export async function verifyStaticContent(origin, manifest, timeoutMs = 8000) {
       }
     }),
   );
+  for (const kind of ["script", "style"]) {
+    const file = manifest.resources.find(
+      (resource) =>
+        resource.kind === kind &&
+        resource.path.startsWith("/assets/") &&
+        resource.bytes >= 1024,
+    );
+    assert.ok(file, `The built app has a compressible ${kind}`);
+    for (const [acceptEncoding, compressed] of [
+      ["gzip", true],
+      ["gzip;q=0, *;q=1", false],
+    ]) {
+      const response = await fetch(`${origin}${file.path}`, {
+        credentials: "omit",
+        redirect: "error",
+        signal,
+        headers: { "Accept-Encoding": acceptEncoding },
+      });
+      assert.equal(response.status, 200);
+      assert.ok(
+        expectedMime(
+          kind,
+          response.headers.get("content-type") ?? "",
+          file.path,
+        ),
+      );
+      assert.match(
+        response.headers.get("vary") ?? "",
+        /(?:^|,)\s*Accept-Encoding(?:,|$)/i,
+      );
+      assert.equal(
+        response.headers.get("cache-control"),
+        "public, max-age=31536000, immutable",
+      );
+      assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+      assert.match(
+        response.headers.get("content-security-policy") ?? "",
+        /frame-ancestors/,
+      );
+      assert.equal(
+        response.headers.get("content-encoding"),
+        compressed ? "gzip" : null,
+      );
+      if (compressed)
+        assert.equal(response.headers.get("content-length"), null);
+      const bytes = Buffer.from(await response.arrayBuffer());
+      assert.equal(digest(bytes), file.sha256);
+    }
+  }
   return {
     resources: manifest.resources.length,
     guides: manifest.resources.filter((file) => file.kind === "guide").length,

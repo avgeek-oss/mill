@@ -1,5 +1,4 @@
 import { serve } from "@hono/node-server";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { resolve } from "node:path";
 import { existsSync } from "node:fs";
 import { Hono } from "hono";
@@ -7,6 +6,7 @@ import { validateConfiguration } from "./config.js";
 import { migrate } from "../../../packages/database/src/migrate.js";
 import { closeDatabase } from "../../../packages/database/src/index.js";
 import { app, httpSecurity } from "./app.js";
+import { registerStaticRoutes } from "./static.js";
 const configuration = validateConfiguration();
 await migrate();
 const serverApp = new Hono<import("./http.js").Env>();
@@ -24,10 +24,8 @@ serverApp.use("*", async (c, next) => {
   await next();
 });
 const root = process.env.MILL_WEB_DIR ?? resolve("apps/web/dist");
-if (existsSync(root)) {
-  serverApp.get("*", serveStatic({ root }));
-  serverApp.get("*", serveStatic({ path: `${root}/index.html` }));
-} else
+if (existsSync(root)) registerStaticRoutes(serverApp, root);
+else
   serverApp.get("*", (c) =>
     c.text("Build the web application with pnpm build.", 503),
   );

@@ -56,6 +56,25 @@ const source = spawnSync(
   { encoding: "utf8" },
 );
 assert.equal(source.status, 0, source.stderr);
+const sourcePaths = spawnSync("git", ["ls-files", "-z"]);
+assert.equal(sourcePaths.status, 0, sourcePaths.stderr.toString());
+const sourceFiles = [];
+for (const path of sourcePaths.stdout.toString().split("\0").filter(Boolean)) {
+  const contents = await readFile(path);
+  sourceFiles.push({
+    path,
+    bytes: contents.length,
+    sha256: createHash("sha256").update(contents).digest("hex"),
+  });
+}
+await writeFile(
+  join(directory, "source-manifest.json"),
+  JSON.stringify(
+    { format: "mill-source-manifest-v1", revision, files: sourceFiles },
+    null,
+    2,
+  ),
+);
 for (const file of [
   "docker-compose.yml",
   ".env.example",
@@ -73,6 +92,7 @@ await writeFile(
       platform,
       imageArchive: imageFile,
       sourceArchive: sourceFile,
+      sourceManifest: "source-manifest.json",
       ...imageMetadata,
       privacy:
         "Private review artifact. No registry publication or production deployment performed.",

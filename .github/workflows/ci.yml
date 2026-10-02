@@ -96,6 +96,8 @@ jobs:
         with:
           node-version: 24.16.0
       - name: Build and exercise a disposable production installation
+        env:
+          MILL_VERIFY_EXPECT_ARCH: amd64
         run: node tools/production-verify.mjs
       - name: Preserve production evidence
         if: always()

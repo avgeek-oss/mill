@@ -60,6 +60,8 @@ jobs:
         with:
           node-version: 24.16.0
       - name: Verify native production installation
+        env:
+          MILL_VERIFY_EXPECT_ARCH: ${{ matrix.architecture }}
         run: node tools/production-verify.mjs
       - name: Build reviewed image archive
         env:

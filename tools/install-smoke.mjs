@@ -14,8 +14,8 @@ assert.ok(
 const target = new URL(origin);
 assert.ok(
   ["127.0.0.1", "localhost"].includes(target.hostname) &&
-    target.protocol === "http:",
-  "Smoke verification only targets loopback HTTP",
+    ["http:", "https:"].includes(target.protocol),
+  "Smoke verification only targets loopback origins",
 );
 const cookies = new Map();
 async function request(
@@ -39,6 +39,12 @@ async function request(
     redirect: "error",
   });
   for (const cookie of response.headers.getSetCookie()) {
+    if (target.protocol === "https:" && cookie.startsWith("mill_session="))
+      assert.match(
+        cookie,
+        /(?:^|;)\s*Secure(?:;|$)/i,
+        "HTTPS sessions require Secure cookies",
+      );
     const [pair] = cookie.split(";", 1);
     const separator = pair.indexOf("=");
     jar.set(pair.slice(0, separator), pair.slice(separator + 1));
@@ -213,13 +219,6 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
       description: "A **real** task in the production container.",
       priority: "high",
       status: "todo",
-      checklist: [
-        {
-          id: "restore-check",
-          text: "Verify restored comment and member",
-          done: false,
-        },
-      ],
     },
     201,
   );
@@ -622,6 +621,14 @@ if (state.agentTaskId) {
   assert.equal(persistedAgentTask.task.agentId, state.agentId);
   assert.equal(persistedAgentTask.task.assigneeId, state.ownerId);
 }
+if (state.agentOnlyTaskId) {
+  const persistedAgentOnlyTask = await request(
+    `/api/tasks/${state.agentOnlyTaskId}`,
+  );
+  assert.equal(persistedAgentOnlyTask.task.agentId, state.agentId);
+  assert.equal(persistedAgentOnlyTask.task.assigneeId, null);
+  assert.equal("checklist" in persistedAgentOnlyTask.task, false);
+}
 if (state.restKeyTaskId) {
   const persistedRestTask = await request(`/api/tasks/${state.restKeyTaskId}`);
   assert.equal(persistedRestTask.task.agentId, null);
@@ -661,14 +668,7 @@ assert.equal(task.boardId, state.boardId);
 assert.equal(task.status, "todo");
 assert.equal(task.description, "A **real** task in the production container.");
 assert.equal(task.priority, "high");
-assert.deepEqual(task.checklist, [
-  {
-    id: "restore-check",
-    text: "Verify restored comment and member",
-    done: false,
-  },
-]);
-for (const name of ["columnId", "labels", "parentId", "position"])
+for (const name of ["columnId", "labels", "parentId", "position", "checklist"])
   assert.equal(name in task, false, `Removed task field ${name} is absent`);
 assert.ok(
   comments.some(
@@ -689,7 +689,7 @@ assert.ok(
   ),
 );
 pass(
-  "Persisted task descriptions/checklists/comments and credential-free membership are readable",
+  "Persisted task descriptions/comments and credential-free membership are readable",
 );
 if (
   process.env.MILL_VERIFY_MODE === "fresh" ||
@@ -699,6 +699,11 @@ if (
   process.env.MILL_VERIFY_UPGRADE_STATE
 ) {
   for (const [path, method, data] of [
+    [
+      `/api/comments/${state.commentId}`,
+      "PATCH",
+      { body: "Removed comment edit" },
+    ],
     [`/api/boards/${state.boardId}/columns`, "GET"],
     [
       `/api/boards/${state.boardId}/columns`,
@@ -721,6 +726,7 @@ if (
     ["labels", ["removed"]],
     ["parentId", state.taskId],
     ["position", 0],
+    ["checklist", [{ id: "removed", text: "Removed", done: false }]],
   ]) {
     await request(
       `/api/boards/${state.boardId}/tasks`,
@@ -988,6 +994,8 @@ if (
       "create_agent",
       "update_agent",
       "delete_agent",
+      "edit_comment",
+      "update_comment",
       "list_columns",
       "create_column",
       "update_column",
@@ -1019,6 +1027,7 @@ if (
         "parentId",
         "position",
         "beforeId",
+        "checklist",
       ])
         assert.equal(field in tool.inputSchema.properties, false);
     }
@@ -1055,6 +1064,24 @@ if (
         state.ownerId,
       );
       state.agentTaskId = createdAgentTask.structuredContent.task.id;
+      await writeFile(stateFile, JSON.stringify(state, null, 2), {
+        mode: 0o600,
+      });
+    }
+    if (process.env.MILL_VERIFY_MODE === "agents" && !state.agentOnlyTaskId) {
+      const agentOnly = await mcpRequest(mcpToken, transport, "tools/call", {
+        name: "create_task",
+        arguments: {
+          boardId: state.boardId,
+          title: "Persist Agent-only MCP assignment",
+          agentId: state.agentId,
+          idempotencyKey: "install-agent-only-task",
+        },
+      });
+      assert.equal(agentOnly.isError, false);
+      assert.equal(agentOnly.structuredContent.task.agentId, state.agentId);
+      assert.equal(agentOnly.structuredContent.task.assigneeId, null);
+      state.agentOnlyTaskId = agentOnly.structuredContent.task.id;
       await writeFile(stateFile, JSON.stringify(state, null, 2), {
         mode: 0o600,
       });
@@ -1213,8 +1240,19 @@ if (process.env.MILL_VERIFY_UPGRADE_STATE) {
       const details = await request(
         `/api/tasks/${expected.id}?commentLimit=100&activityLimit=100`,
       );
-      preservedRecord(details.task, expected);
-      for (const field of ["columnId", "labels", "parentId", "position"])
+      const { checklist: retiredChecklist, ...activeExpected } = expected;
+      assert.ok(
+        Array.isArray(retiredChecklist) && retiredChecklist.length > 0,
+        "Legacy checklist fixture is retained for private migration checks",
+      );
+      preservedRecord(details.task, activeExpected);
+      for (const field of [
+        "columnId",
+        "labels",
+        "parentId",
+        "position",
+        "checklist",
+      ])
         assert.equal(field in details.task, false);
       foundStatuses.add(details.task.status);
       for (const comment of simplified.comments.filter(
@@ -1244,6 +1282,7 @@ if (process.env.MILL_VERIFY_UPGRADE_STATE) {
       "Former subtask is independently listed",
     );
     assert.equal(listed.items.length, 7);
+    assert.ok(listed.items.every((item) => !("checklist" in item)));
     const obsoleteRetry = await request(
       simplified.retry.path,
       "POST",
@@ -1259,7 +1298,7 @@ if (process.env.MILL_VERIFY_UPGRADE_STATE) {
       7,
     );
     pass(
-      "All six statuses, independent former subtasks and exact descriptions/checklists/comments/history survive; legacy task retries return terminal410",
+      "All six statuses, independent former subtasks and exact descriptions/comments/history survive; legacy task retries return terminal410",
     );
   }
 }

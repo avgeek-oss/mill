@@ -7,6 +7,8 @@ import {
 } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -117,7 +119,7 @@ function databaseArguments(configuration, statement) {
   ];
 }
 function packagedMigrationArguments(configuration, through) {
-  assert.ok([5, 6, 7, 8, 9].includes(through));
+  assert.ok([5, 6, 7, 8, 9, 10].includes(through));
   return [
     ...configuration.compose,
     "run",
@@ -163,17 +165,17 @@ function encryptedLegacyResponse(value) {
 function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
-async function configuration(name, targetPort) {
+async function configuration(name, targetPort, publicOrigin) {
   const envFile = join(privateDirectory, `${name}.env`);
   await writeFile(
     envFile,
     [
       `POSTGRES_PASSWORD=${secrets[0]}`,
       `MILL_SECRET=${secrets[1]}`,
-      `MILL_BASE_URL=http://127.0.0.1:${targetPort}`,
+      `MILL_BASE_URL=${publicOrigin ?? `http://127.0.0.1:${targetPort}`}`,
       `MILL_PORT=${targetPort}`,
       "MILL_BIND_ADDRESS=127.0.0.1",
-      "ALLOW_INSECURE_LOCALHOST=true",
+      `ALLOW_INSECURE_LOCALHOST=${publicOrigin ? "false" : "true"}`,
       `MILL_IMAGE=${image}`,
       `SOURCE_COMMIT=${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
       "",
@@ -190,7 +192,11 @@ async function configuration(name, targetPort) {
     "docker-compose.yml",
   ];
   projects.push(compose);
-  return { envFile, compose, url: `http://127.0.0.1:${targetPort}` };
+  return {
+    envFile,
+    compose,
+    url: publicOrigin ?? `http://127.0.0.1:${targetPort}`,
+  };
 }
 const state = join(evidence, "fixture-state.json");
 const backup = join(privateDirectory, "mill.dump");
@@ -204,6 +210,7 @@ const legacyAuthAuditTable = `CREATE TABLE auth_audit (
   created_at timestamptz NOT NULL DEFAULT now()
 )`;
 let primary;
+let secureProxy;
 let sourceRevision;
 let sourceDirty;
 try {
@@ -216,6 +223,21 @@ try {
     "--format",
     "{{.ServerVersion}}",
   ]);
+  const architecture = (value) =>
+    ({ x86_64: "amd64", aarch64: "arm64" })[value] ?? value;
+  const hostArchitecture = architecture(
+    await run("docker-native-architecture", "docker", [
+      "info",
+      "--format",
+      "{{.Architecture}}",
+    ]),
+  );
+  if (process.env.MILL_VERIFY_EXPECT_ARCH)
+    assert.equal(
+      hostArchitecture,
+      process.env.MILL_VERIFY_EXPECT_ARCH,
+      "Production gate must run on the requested native architecture",
+    );
   primary = await configuration(project, await port());
   await run("compose-configuration", "docker", [
     ...primary.compose,
@@ -228,6 +250,19 @@ try {
     [...primary.compose, "build", "--pull", "mill"],
     {},
     1_800_000,
+  );
+  assert.equal(
+    architecture(
+      await run("production-image-architecture", "docker", [
+        "image",
+        "inspect",
+        image,
+        "--format",
+        "{{.Architecture}}",
+      ]),
+    ),
+    hostArchitecture,
+    "The exercised production image must use the Docker host's native architecture",
   );
   await run(
     "fresh-production-start",
@@ -402,6 +437,23 @@ try {
     originalFixture.agentId,
   );
   assert.equal(primaryAgentData.oauthCredential.revoked_at, null);
+  // Recreate the former checklist column before exercising packaged 005–007.
+  // The real forward 009→010 upgrade is exercised in the separate installation below.
+  await run(
+    "earlier-checklist-structure",
+    "docker",
+    databaseArguments(
+      primary,
+      `BEGIN;
+      ALTER TABLE tasks ADD COLUMN checklist jsonb NOT NULL DEFAULT '[]'::jsonb;
+      UPDATE tasks SET checklist=retired_task_checklists.items
+        FROM retired_task_checklists WHERE retired_task_checklists.task_id=tasks.id;
+      DROP TABLE retired_task_checklists;
+      ALTER TABLE tasks ADD CONSTRAINT tasks_agent_assignee CHECK (agent_id IS NULL OR assignee_id IS NOT NULL);
+      DELETE FROM mill_migrations WHERE name='010_task_assignment_without_assignee.sql';
+      COMMIT;`,
+    ),
+  );
   const originalContentQuery = `SELECT json_build_object(
     'task',(SELECT json_build_object('id',id,'boardId',board_id,'identifier',identifier,'title',title,'description',description,'checklist',checklist,'priority',priority,'assigneeId',assignee_id,'dueDate',due_date,'createdBy',created_by,'createdAt',created_at) FROM tasks WHERE id='${originalFixture.taskId}'),
     'comments',(SELECT jsonb_agg(to_jsonb(comments) ORDER BY id) FROM comments WHERE task_id='${originalFixture.taskId}'),
@@ -457,7 +509,7 @@ try {
     ),
   );
   const previousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
-    FROM mill_migrations WHERE name NOT IN ('005_permanent_deletion.sql','006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql')`;
+    FROM mill_migrations WHERE name NOT IN ('005_permanent_deletion.sql','006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql','010_task_assignment_without_assignee.sql')`;
   const previousMigrations = JSON.parse(
     await run(
       "upgrade-existing-migrations",
@@ -715,7 +767,7 @@ try {
     "mill",
   ]);
   const taskHistoryPreviousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
-    FROM mill_migrations WHERE name NOT IN ('006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql')`;
+    FROM mill_migrations WHERE name NOT IN ('006_task_activity_only.sql','007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql','010_task_assignment_without_assignee.sql')`;
   const taskHistoryPreviousMigrations = JSON.parse(
     await run(
       "task-history-existing-migrations",
@@ -934,7 +986,7 @@ try {
     },
   });
   const simplificationPreviousMigrationsQuery = `SELECT json_agg(json_build_object('name',name,'checksum',checksum,'appliedAt',applied_at) ORDER BY name)::text
-    FROM mill_migrations WHERE name NOT IN ('007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql')`;
+    FROM mill_migrations WHERE name NOT IN ('007_fixed_task_statuses.sql','008_agents.sql','009_agents_access.sql','010_task_assignment_without_assignee.sql')`;
   const simplificationPreviousMigrations = JSON.parse(
     await run(
       "simplification-existing-migrations",
@@ -1171,6 +1223,30 @@ try {
       ADD CONSTRAINT api_idempotency_invalidation_reason_check ${primaryAgentData.accessRetryConstraint};`,
     ),
   );
+  const migrationRowsQuery = `SELECT COALESCE(jsonb_agg(to_jsonb(mill_migrations) ORDER BY name),'[]'::jsonb)::text FROM mill_migrations`;
+  const preRetirementMigrations = JSON.parse(
+    await run(
+      "pre-retirement-migration-records",
+      "docker",
+      databaseArguments(primary, migrationRowsQuery),
+    ),
+  );
+  assert.equal(preRetirementMigrations.length, 9);
+  assert.ok(
+    !preRetirementMigrations.some(
+      (row) => row.name === "010_task_assignment_without_assignee.sql",
+    ),
+  );
+  const migration010Checksum = createHash("sha256")
+    .update(
+      await readFile(
+        join(
+          root,
+          "packages/database/migrations/010_task_assignment_without_assignee.sql",
+        ),
+      ),
+    )
+    .digest("hex");
   await run(
     "simplified-production-start",
     "docker",
@@ -1186,6 +1262,20 @@ try {
     {},
     240_000,
   );
+  const currentMigrationRows = JSON.parse(
+    await run(
+      "current-migration-records",
+      "docker",
+      databaseArguments(primary, migrationRowsQuery),
+    ),
+  );
+  assert.equal(currentMigrationRows.length, 10);
+  assert.deepEqual(currentMigrationRows.slice(0, 9), preRetirementMigrations);
+  assert.equal(
+    currentMigrationRows[9].name,
+    "010_task_assignment_without_assignee.sql",
+  );
+  assert.equal(currentMigrationRows[9].checksum, migration010Checksum);
   await run("simplified-upgrade-api", "node", ["tools/install-smoke.mjs"], {
     ...verifyEnv,
     MILL_VERIFY_UPGRADE_STATE: upgradeState,
@@ -1200,6 +1290,50 @@ try {
     ),
     primaryAgentData,
   );
+  const retiredChecklistsQuery = `SELECT COALESCE(jsonb_agg(jsonb_build_object('taskId',task_id,'items',items) ORDER BY task_id),'[]'::jsonb)::text FROM retired_task_checklists`;
+  const expectedRetiredChecklists = expectedSimplificationData.tasks
+    .filter((item) => item.checklist.length > 0)
+    .map((item) => ({ taskId: item.id, items: item.checklist }))
+    .sort((a, b) => a.taskId.localeCompare(b.taskId));
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "retired-checklist-preservation",
+        "docker",
+        databaseArguments(primary, retiredChecklistsQuery),
+      ),
+    ),
+    expectedRetiredChecklists,
+  );
+  const migration010SchemaQuery = `SELECT jsonb_build_object(
+    'checksum',(SELECT checksum FROM mill_migrations WHERE name='010_task_assignment_without_assignee.sql'),
+    'activeChecklistColumns',(SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='tasks' AND column_name='checklist'),
+    'oldAgentConstraint',(SELECT count(*) FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname='tasks_agent_assignee')
+  )::text`;
+  const expectedMigration010Schema = {
+    checksum: migration010Checksum,
+    activeChecklistColumns: 0,
+    oldAgentConstraint: 0,
+  };
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "retired-checklist-schema",
+        "docker",
+        databaseArguments(primary, migration010SchemaQuery),
+      ),
+    ),
+    expectedMigration010Schema,
+  );
+  const expectedPostRetirementState = {
+    ...expectedSimplificationState,
+    data: {
+      ...expectedSimplificationState.data,
+      tasks: expectedSimplificationState.data.tasks.map(
+        ({ checklist: _retired, ...task }) => task,
+      ),
+    },
+  };
   await run("backup-full-database", "bash", [
     "tools/backup.sh",
     "--project",
@@ -1242,6 +1376,16 @@ try {
   assert.deepEqual(
     JSON.parse(
       await run(
+        "restored-migration-records",
+        "docker",
+        databaseArguments(recovery, migrationRowsQuery),
+      ),
+    ),
+    currentMigrationRows,
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await run(
         "restored-permanent-deletion",
         "docker",
         databaseArguments(recovery, finalDeletionQuery),
@@ -1267,7 +1411,27 @@ try {
         databaseArguments(recovery, simplificationQuery),
       ),
     ),
-    expectedSimplificationState,
+    expectedPostRetirementState,
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "restored-retired-checklists",
+        "docker",
+        databaseArguments(recovery, retiredChecklistsQuery),
+      ),
+    ),
+    expectedRetiredChecklists,
+  );
+  assert.deepEqual(
+    JSON.parse(
+      await run(
+        "restored-retired-schema",
+        "docker",
+        databaseArguments(recovery, migration010SchemaQuery),
+      ),
+    ),
+    expectedMigration010Schema,
   );
   assert.deepEqual(
     JSON.parse(
@@ -1645,6 +1809,75 @@ try {
   assert.equal(installedAccessPolicy.migration.checksum, accessPolicyChecksum);
   assert.equal(installedAccessPolicy.allMembersDefault, true);
   assert.equal(installedAccessPolicy.accessConstraint, 1);
+  const beforeRetirement = JSON.parse(
+    await run(
+      "pre-retirement-content",
+      "docker",
+      databaseArguments(
+        agentUpgrade,
+        `SELECT jsonb_build_object(
+        'tasks',(SELECT jsonb_agg(to_jsonb(tasks) ORDER BY id) FROM tasks),
+        'migrations',(SELECT jsonb_agg(to_jsonb(mill_migrations) ORDER BY name) FROM mill_migrations)
+      )::text`,
+      ),
+    ),
+  );
+  assert.equal(beforeRetirement.migrations.length, 9);
+  assert.deepEqual(
+    beforeRetirement.tasks.find((item) => item.id === agentFixture.taskId)
+      ?.checklist,
+    [
+      {
+        id: "restore-check",
+        text: "Verify restored comment and member",
+        done: false,
+      },
+    ],
+  );
+  await run(
+    "packaged-checklist-retirement-upgrade",
+    "docker",
+    packagedMigrationArguments(agentUpgrade, 10),
+    {},
+    240_000,
+  );
+  const retirementStateQuery = `SELECT jsonb_build_object(
+    'tasks',(SELECT jsonb_agg(to_jsonb(tasks) ORDER BY id) FROM tasks),
+    'retired',(SELECT jsonb_agg(jsonb_build_object('taskId',task_id,'items',items) ORDER BY task_id) FROM retired_task_checklists),
+    'migrations',(SELECT jsonb_agg(to_jsonb(mill_migrations) ORDER BY name) FROM mill_migrations),
+    'activeChecklistColumns',(SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='tasks' AND column_name='checklist'),
+    'oldAgentConstraint',(SELECT count(*) FROM pg_constraint WHERE connamespace=current_schema()::regnamespace AND conname='tasks_agent_assignee')
+  )::text`;
+  const afterRetirement = JSON.parse(
+    await run(
+      "retired-checklist-upgrade-preservation",
+      "docker",
+      databaseArguments(agentUpgrade, retirementStateQuery),
+    ),
+  );
+  assert.deepEqual(
+    afterRetirement.tasks,
+    beforeRetirement.tasks.map(({ checklist: _retired, ...task }) => task),
+  );
+  assert.deepEqual(afterRetirement.retired, [
+    {
+      taskId: agentFixture.taskId,
+      items: beforeRetirement.tasks.find(
+        (item) => item.id === agentFixture.taskId,
+      ).checklist,
+    },
+  ]);
+  assert.deepEqual(
+    afterRetirement.migrations.slice(0, 9),
+    beforeRetirement.migrations,
+  );
+  assert.equal(
+    afterRetirement.migrations[9].name,
+    "010_task_assignment_without_assignee.sql",
+  );
+  assert.equal(afterRetirement.migrations[9].checksum, migration010Checksum);
+  assert.equal(afterRetirement.activeChecklistColumns, 0);
+  assert.equal(afterRetirement.oldAgentConstraint, 0);
   const agentState = join(evidence, "agent-fixture-state.json");
   const agentUpgradeState = join(evidence, "agent-upgrade-fixture.json");
   await writeFile(
@@ -1696,6 +1929,7 @@ try {
     assignedAgentFixture.agentId &&
       assignedAgentFixture.teamAgentId &&
       assignedAgentFixture.agentTaskId &&
+      assignedAgentFixture.agentOnlyTaskId &&
       assignedAgentFixture.oauthCredentialId,
   );
   const agentAuthorityStatement = `DO $$ BEGIN
@@ -1705,8 +1939,12 @@ try {
       OR NOT check_agent_access('${assignedAgentFixture.teamAgentId}','${agentFixture.memberId}')
       OR check_agent_access('${assignedAgentFixture.teamAgentId}','${agentFixture.disabledUserId}')
     THEN RAISE EXCEPTION 'Agent ownership and active grants must control access'; END IF;
-    BEGIN UPDATE tasks SET assignee_id=NULL WHERE id='${agentFixture.taskId}';
-      RAISE EXCEPTION 'Agent without human assignee was accepted'; EXCEPTION WHEN check_violation THEN NULL; END;
+    IF NOT EXISTS (SELECT 1 FROM tasks WHERE id='${agentFixture.taskId}' AND agent_id='${assignedAgentFixture.agentId}' AND assignee_id='${agentFixture.ownerId}')
+      THEN RAISE EXCEPTION 'Smoke task must retain its current personal Agent and owner'; END IF;
+    UPDATE tasks SET assignee_id=NULL WHERE id='${agentFixture.taskId}';
+    IF NOT EXISTS (SELECT 1 FROM tasks WHERE id='${agentFixture.taskId}' AND agent_id='${assignedAgentFixture.agentId}' AND assignee_id IS NULL)
+      THEN RAISE EXCEPTION 'Agent-only task assignment was not retained'; END IF;
+    UPDATE tasks SET assignee_id='${agentFixture.ownerId}' WHERE id='${agentFixture.taskId}';
     BEGIN UPDATE tasks SET assignee_id='${agentFixture.memberId}' WHERE id='${agentFixture.taskId}';
       RAISE EXCEPTION 'Someone else personal Agent was accepted'; EXCEPTION WHEN check_violation THEN NULL; END;
     BEGIN INSERT INTO agent_members(agent_id,user_id) VALUES ('${assignedAgentFixture.agentId}','${agentFixture.memberId}');
@@ -1756,7 +1994,8 @@ try {
     'legacySession',(SELECT to_jsonb(sessions)-'token_hash' FROM sessions WHERE id='${agentFixture.sessionId}'),
     'credentials',(SELECT jsonb_agg(to_jsonb(credentials)-'token_hash'-'token_prefix' ORDER BY id) FROM credentials WHERE id IN (${retainedAgentCredentialsSql})),
     'oauthRequests',(SELECT jsonb_agg(to_jsonb(oauth_requests)-'code_hash'-'challenge' ORDER BY id) FROM oauth_requests WHERE id='${agentFixture.legacyOAuthRequestId}' OR credential_id='${assignedAgentFixture.oauthCredentialId}'),
-    'terminalRetry',(SELECT to_jsonb(api_idempotency) FROM api_idempotency WHERE key='${agentFixture.retryKey}')
+    'terminalRetry',(SELECT to_jsonb(api_idempotency) FROM api_idempotency WHERE key='${agentFixture.retryKey}'),
+    'retiredChecklists',(SELECT jsonb_agg(jsonb_build_object('taskId',task_id,'items',items) ORDER BY task_id) FROM retired_task_checklists)
   )::text`;
   const persistedAgentData = JSON.parse(
     await run(
@@ -1765,7 +2004,7 @@ try {
       databaseArguments(agentUpgrade, persistedAgentDataQuery),
     ),
   );
-  assert.equal(persistedAgentData.migrations.length, 9);
+  assert.equal(persistedAgentData.migrations.length, 10);
   assert.deepEqual(
     persistedAgentData.migrations.slice(0, 7),
     legacyAgentContent.previousMigrations,
@@ -1776,7 +2015,16 @@ try {
   );
   assert.equal(persistedAgentData.agents.length, 5);
   assert.equal(persistedAgentData.grants.length, 5);
-  assert.equal(persistedAgentData.tasks.length, 4);
+  assert.equal(persistedAgentData.tasks.length, 5);
+  assert.ok(
+    persistedAgentData.tasks.some(
+      (item) =>
+        item.id === assignedAgentFixture.agentOnlyTaskId &&
+        item.agent_id === assignedAgentFixture.agentId &&
+        item.assignee_id === null,
+    ),
+    "Agent-only task remains bound without a human assignee",
+  );
   assert.equal(persistedAgentData.credentials.length, 6);
   const everyoneAgent = persistedAgentData.agents.find(
     (item) => item.id === assignedAgentFixture.allMembersAgentId,
@@ -1924,6 +2172,92 @@ try {
     "docker",
     databaseArguments(agentRecovery, agentAuthorityStatement),
   );
+  const proxyKey = join(privateDirectory, "localhost.key");
+  const proxyCertificate = join(privateDirectory, "localhost.crt");
+  await run("https-proxy-certificate", "openssl", [
+    "req",
+    "-x509",
+    "-newkey",
+    "rsa:2048",
+    "-nodes",
+    "-sha256",
+    "-days",
+    "1",
+    "-keyout",
+    proxyKey,
+    "-out",
+    proxyCertificate,
+    "-subj",
+    "/CN=localhost",
+    "-addext",
+    "subjectAltName=IP:127.0.0.1",
+  ]);
+  const proxyBackendPort = await port();
+  secureProxy = createHttpsServer(
+    { key: await readFile(proxyKey), cert: await readFile(proxyCertificate) },
+    (request, response) => {
+      const upstream = httpRequest(
+        {
+          hostname: "127.0.0.1",
+          port: proxyBackendPort,
+          path: request.url,
+          method: request.method,
+          headers: { ...request.headers, "x-forwarded-proto": "https" },
+        },
+        (upstreamResponse) => {
+          response.writeHead(
+            upstreamResponse.statusCode,
+            upstreamResponse.headers,
+          );
+          upstreamResponse.pipe(response);
+        },
+      );
+      upstream.on("error", () => {
+        response.writeHead(502);
+        response.end();
+      });
+      request.pipe(upstream);
+    },
+  );
+  await new Promise((resolveListen, reject) => {
+    secureProxy.once("error", reject);
+    secureProxy.listen(0, "127.0.0.1", resolveListen);
+  });
+  const proxyOrigin = `https://127.0.0.1:${secureProxy.address().port}`;
+  const proxyProject = `${project}-https`;
+  const proxyInstall = await configuration(
+    proxyProject,
+    proxyBackendPort,
+    proxyOrigin,
+  );
+  await run(
+    "https-proxy-production-start",
+    "docker",
+    [
+      ...proxyInstall.compose,
+      "up",
+      "--no-build",
+      "--detach",
+      "--wait",
+      "--wait-timeout",
+      "180",
+    ],
+    {},
+    240_000,
+  );
+  await run(
+    "https-proxy-install-journey",
+    "node",
+    ["tools/install-smoke.mjs"],
+    {
+      ...verifyEnv,
+      MILL_VERIFY_URL: proxyOrigin,
+      MILL_VERIFY_STATE: join(evidence, "https-proxy-fixture-state.json"),
+      MILL_VERIFY_MODE: "fresh",
+      NODE_EXTRA_CA_CERTS: proxyCertificate,
+    },
+    240_000,
+  );
   await run(
     "production-image-security",
     "docker",
@@ -1979,7 +2313,7 @@ try {
             "Container-built notices, all guides and their local CSS/font resource closure match anonymous HTTP bytes across installation, database outage/recovery, upgrade and restore",
         },
         schemaUpgrade:
-          "Under the current 009 installation, predecessor domain tables are reconstructed for isolated packaged stages 005, 006 and 007 with the app stopped. These domain reconstructions preserve 008 and 009 metadata and existing personal/team Agents, grants, selected OAuth credential and task assignments; they do not represent a whole pre-008 installation. The stages verify permanent deletion, terminal retries, task ownership, unchanged history, all six fixed statuses plus an unknown-to-Todo mapping, independent former subtasks, removed live structure/email preferences and exact 001–006 records. A separate empty project uses only packaged migrations 001–007 before an actual forward 008 migration; it proves revoked unbound API/OAuth keys, closed old consent, no invented Agents, unchanged legacy task/comment/history/session data and exact 001–007 records. A genuine 008 checkpoint seeds active bound API/OAuth credentials and existing personal/team Agents before the forward 009 policy migration. Personal REST keys, Agent OAuth/MCP and future-member all-members assignments are then verified and separately restored",
+          "Under the current 010 installation, predecessor domain tables are reconstructed for isolated packaged stages 005, 006 and 007 with the app stopped. These domain reconstructions preserve 008 and 009 metadata and existing personal/team Agents, grants, selected OAuth credential and task assignments; they do not represent a whole pre-008 installation. The stages verify permanent deletion, terminal retries, task ownership, unchanged history, all six fixed statuses plus an unknown-to-Todo mapping, independent former subtasks, removed live structure/email preferences and exact 001–006 records. Starting the current image then reapplies 010 and verifies private checklist retention and schema removal through full restore. A separate empty project uses only packaged migrations 001–007 before actual forward 008, 009 and 010 migrations. It proves revoked unbound API/OAuth keys, closed old consent, no invented Agents, unchanged legacy task/comment/history/session data and exact earlier migration records. Genuine 008 and 009 checkpoints seed selected credentials and existing Agents; the 010 checkpoint verifies private checklist retention and Agent-only assignment. Current REST/MCP behavior and future-member all-members assignments are verified and separately restored",
         upgradeFixture: {
           ...upgradeFixture,
           legacyRetry,
@@ -2000,7 +2334,12 @@ try {
           retry: simplificationRetry,
           migrationChecksum: simplificationChecksum,
           previousMigrations: simplificationPreviousMigrations,
+          preRetirementMigrations,
+          currentMigrationRows,
           verifiedDatabaseState: expectedSimplificationState,
+          verifiedPostRetirementState: expectedPostRetirementState,
+          retiredChecklists: expectedRetiredChecklists,
+          retirementSchema: expectedMigration010Schema,
           finalPermanentDeletionState: finalDeletionState,
         },
         currentAgentsAcrossDomainUpgrades: primaryAgentData,
@@ -2016,14 +2355,22 @@ try {
           verifiedBeforeAccessPolicy: beforeAccessPolicy,
           verifiedAfterAccessPolicy: afterAccessPolicy,
           accessPolicySchema: installedAccessPolicy,
+          checklistRetirementMigrationChecksum: migration010Checksum,
+          verifiedBeforeChecklistRetirement: beforeRetirement,
+          verifiedAfterChecklistRetirement: afterRetirement,
           verifiedRestoredData: persistedAgentData,
           verification:
-            "True packaged 001–007→008→009 installation with an actual 008 checkpoint. Existing Agent-bound API keys are revoked and unbound; selected-Agent OAuth, tasks, comments, history and earlier migration records survive. Team creators receive pinned grants. Current personal REST keys use human permissions and Agents use scoped OAuth MCP. An all-members Agent includes a future accepted member without an individual grant. Full restore preserves these records and the MCP resource origin, and rechecks both legacy tokens and existing selected-Agent OAuth against the restored service",
+            "True packaged 001–007→008→009→010 installation with actual 008 and 009 checkpoints. Existing Agent-bound API keys are revoked and unbound; selected-Agent OAuth, tasks, comments, history and earlier migration records survive. Nonempty checklist data moves to private retained storage; the active column and old Agent-assignee constraint are removed. Current personal REST keys use human permissions and Agents use scoped OAuth MCP, including an Agent-only task. Full restore preserves these records and the MCP resource origin, and rechecks both legacy tokens and existing selected-Agent OAuth against the restored service",
         },
         restore:
-          "Two post-009 custom-format pg_dump backups restored transactionally into separate empty projects. The domain-stage restore verifies original and legacy tasks/comments/members, unchanged human/agent task history, statuses, independent former subtasks, absent global audit/removed routes, permanent deletion, terminal stale-create retries and current Agent fixtures. The actual 007→008→009 restore verifies legacy revocations, terminal cache, policy-preserved OAuth through real MCP at the retained resource origin, personal REST permissions, future-member team access, explicit Agent grants, task assignments, historical sessions and unchanged migration records",
+          "Two post-010 custom-format pg_dump backups restored transactionally into separate empty projects. The domain-stage restore verifies original and legacy tasks/comments/members, task history, statuses, independent former subtasks, permanent deletion, terminal stale retries, private retired checklist content and current Agent fixtures. The actual 007→008→009→010 restore verifies legacy revocations, policy-preserved OAuth through MCP at the retained resource origin, personal REST permissions, future-member team access, explicit Agent grants, Agent-only assignment, historical sessions, retired checklist content and unchanged earlier migration records",
         cookieLimit:
-          "Explicitly forwarded disposable cookies on loopback HTTP; this does not prove browser Secure-cookie policy or physical passkeys",
+          "The isolated TLS reverse-proxy journey checks HTTPS origin, secure session cookies, REST/OAuth/MCP and persistent data with a disposable trusted certificate. It does not prove public DNS, a deployed Caddy configuration, or physical passkeys",
+        httpsProxy: {
+          origin: proxyOrigin,
+          project: proxyProject,
+          certificate: "disposable trusted localhost certificate",
+        },
         completedAt: new Date().toISOString(),
       },
       null,
@@ -2046,6 +2393,10 @@ try {
     ).catch(() => {});
   }
 } finally {
+  if (secureProxy?.listening) {
+    secureProxy.closeAllConnections();
+    await new Promise((resolveClose) => secureProxy.close(resolveClose));
+  }
   for (const [index, compose] of projects.entries()) {
     await run(
       `cleanup-project-${index}`,
