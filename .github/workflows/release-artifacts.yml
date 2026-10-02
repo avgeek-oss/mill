@@ -98,6 +98,7 @@ jobs:
         with:
           name: mill-release-${{ matrix.architecture }}
           path: tmp/release/package-${{ matrix.architecture }}/
+          include-hidden-files: true
           retention-days: 30
       - name: Preserve verification evidence
         if: always()
