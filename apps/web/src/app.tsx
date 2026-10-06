@@ -191,6 +191,10 @@ export function App() {
   const [boardPrefix, setBoardPrefix] = useState("");
   const [createError, setCreateError] = useState("");
   const [boardCreateKey] = useState(createRetryKey);
+  const accountActionGeneration = useRef(0);
+  const logoutRequest = useRef<AbortController | null>(null);
+  const boardCreateGeneration = useRef(0);
+  const boardCreateRequest = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const { resolvedTheme: theme } = useTheme();
   const lastBoardsRequest = useRef(0);
@@ -338,6 +342,7 @@ export function App() {
     const listener = () => {
       if (suspensionActive.current) return;
       suspensionActive.current = true;
+      interruptAccountActions();
       lastBoardsRequest.current++;
       lastRefreshRequest.current++;
       const focused = document.activeElement;
@@ -414,6 +419,24 @@ export function App() {
       window.dispatchEvent(new Event("mill:navigate"));
     }
   }, [session?.user.id, path]);
+  function interruptAccountActions(clearDraft = false) {
+    accountActionGeneration.current++;
+    logoutRequest.current?.abort();
+    logoutRequest.current = null;
+    logoutPending.current = false;
+    boardCreateGeneration.current++;
+    boardCreateRequest.current?.abort();
+    boardCreateRequest.current = null;
+    setBusy(false);
+    if (clearDraft) {
+      boardCreateKey.reset();
+      setNewBoard(false);
+      setBoardName("");
+      setBoardDescription("");
+      setBoardPrefix("");
+      setCreateError("");
+    }
+  }
   function acceptSession(next: Session) {
     suspensionActive.current = false;
     const changedPerson =
@@ -421,6 +444,7 @@ export function App() {
       (session.user.id !== next.user.id ||
         session.workspace.id !== next.workspace.id);
     if (changedPerson) {
+      interruptAccountActions(true);
       lastBoardsRequest.current++;
       lastRefreshRequest.current++;
       recentlyCreatedBoard.current = null;
@@ -446,13 +470,28 @@ export function App() {
       navigate("/");
   }
   function signOut() {
-    if (logoutPending.current) return;
+    if (logoutPending.current || suspensionActive.current) return;
+    const generation = accountActionGeneration.current;
     const perform = () => {
-      if (logoutPending.current) return;
+      if (
+        logoutPending.current ||
+        suspensionActive.current ||
+        generation !== accountActionGeneration.current
+      )
+        return;
+      const request = new AbortController();
+      logoutRequest.current = request;
       logoutPending.current = true;
       setError("");
-      void api("/auth/logout", {})
+      void api("/auth/logout", {}, "POST", { signal: request.signal })
         .then(() => {
+          if (
+            request.signal.aborted ||
+            logoutRequest.current !== request ||
+            generation !== accountActionGeneration.current
+          )
+            return;
+          interruptAccountActions(true);
           lastBoardsRequest.current++;
           lastRefreshRequest.current++;
           recentlyCreatedBoard.current = null;
@@ -469,9 +508,19 @@ export function App() {
           window.history.replaceState({ millNavigationIndex: 0 }, "", "/");
           window.dispatchEvent(new Event("mill:navigate"));
         })
-        .catch((cause) => setError(errorText(cause)))
+        .catch((cause) => {
+          if (
+            !request.signal.aborted &&
+            logoutRequest.current === request &&
+            generation === accountActionGeneration.current
+          )
+            setError(errorText(cause));
+        })
         .finally(() => {
-          logoutPending.current = false;
+          if (logoutRequest.current === request) {
+            logoutRequest.current = null;
+            logoutPending.current = false;
+          }
         });
     };
     if (requestNavigation("/", perform)) perform();
@@ -840,7 +889,13 @@ export function App() {
                       className="content-grid min-w-0"
                       onSubmit={(e) => {
                         e.preventDefault();
-                        if (busy) return;
+                        if (boardCreateRequest.current || expired) return;
+                        const generation = ++boardCreateGeneration.current;
+                        const request = new AbortController();
+                        boardCreateRequest.current = request;
+                        const current = () =>
+                          !request.signal.aborted &&
+                          generation === boardCreateGeneration.current;
                         setBusy(true);
                         setCreateError("");
                         const payload = {
@@ -850,6 +905,7 @@ export function App() {
                         };
                         void api<{ board: Board }>("/boards", payload, "POST", {
                           validateResponse: hasBoardResponse,
+                          signal: request.signal,
                           headers: {
                             "Idempotency-Key": boardCreateKey.forRequest(
                               "/boards",
@@ -858,6 +914,7 @@ export function App() {
                           },
                         })
                           .then((result) => {
+                            if (!current()) return;
                             boardCreateKey.reset();
                             recentlyCreatedBoard.current = {
                               ...result.board,
@@ -873,8 +930,15 @@ export function App() {
                             void loadBoards();
                             navigate(`/boards/${result.board.id}`);
                           })
-                          .catch((e) => setCreateError(errorText(e)))
-                          .finally(() => setBusy(false));
+                          .catch((e) => {
+                            if (current()) setCreateError(errorText(e));
+                          })
+                          .finally(() => {
+                            if (boardCreateRequest.current === request) {
+                              boardCreateRequest.current = null;
+                              setBusy(false);
+                            }
+                          });
                       }}
                     >
                       <TextField

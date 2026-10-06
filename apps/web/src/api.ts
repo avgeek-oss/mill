@@ -9,6 +9,7 @@ export class ApiError extends Error {
   }
 }
 export type ApiOptions = {
+  signal?: AbortSignal;
   headers?: Record<string, string>;
   validateResponse?: (data: unknown) => boolean;
   onReauthenticationRequired?: () => Promise<boolean>;
@@ -90,23 +91,27 @@ async function request<T>(
   options: ApiOptions,
   retried: boolean,
 ): Promise<T> {
+  options.signal?.throwIfAborted();
   let response: Response;
   try {
     response = await fetch(path.startsWith("/api") ? path : `/api${path}`, {
       method,
       credentials: "same-origin",
+      signal: options.signal,
       headers: {
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
         ...options.headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  } catch {
+  } catch (cause) {
+    if (options.signal?.aborted) throw cause;
     throw new ApiError(
       0,
       "Mill could not be reached. Check your connection and try again.",
     );
   }
+  options.signal?.throwIfAborted();
   if (response.ok && [204, 205].includes(response.status)) {
     if (options.validateResponse && !options.validateResponse(undefined))
       throw new ApiError(
@@ -126,6 +131,7 @@ async function request<T>(
       );
     data = { error: "The server returned an unexpected response." };
   }
+  options.signal?.throwIfAborted();
   if (response.ok && (data === null || typeof data !== "object"))
     throw new ApiError(
       response.status,
@@ -159,7 +165,9 @@ async function request<T>(
     ) {
       const active = await fetch("/api/auth/me", {
         credentials: "same-origin",
+        signal: options.signal,
       }).catch(() => null);
+      options.signal?.throwIfAborted();
       if (active?.status === 401)
         window.dispatchEvent(new Event("mill:expired"));
     }
