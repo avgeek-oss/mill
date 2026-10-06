@@ -78,7 +78,7 @@ for (const [width, theme] of [
   [1280, "light"],
   [390, "dark"],
 ] as const) {
-  test(`sign-in retains credentials and reports failed attempts once at ${width} ${theme}`, async ({
+  test(`sign-in retains pending credentials, clears completed passwords, and reports each failure once at ${width} ${theme}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -91,27 +91,68 @@ for (const [width, theme] of [
     await expect(
       page.getByRole("heading", { name: "Sign in", exact: true }),
     ).toBeVisible();
+    let loginAttempts = 0;
+    let releaseLogin = () => {};
+    let loginEntered = () => {};
+    const loginPending = new Promise<void>((resolve) => {
+      releaseLogin = resolve;
+    });
+    const loginStarted = new Promise<void>((resolve) => {
+      loginEntered = resolve;
+    });
+    await page.route("**/api/auth/login", async (route) => {
+      loginAttempts++;
+      if (loginAttempts === 1) {
+        loginEntered();
+        await loginPending;
+      }
+      await route.continue();
+    });
     await page
       .getByLabel("Email", { exact: true })
       .fill(browserBootstrap.email);
     await page
       .getByLabel("Password", { exact: true })
       .fill("Incorrect password");
-    await page.getByRole("button", { name: "Sign in", exact: true }).click();
     const failure = page.locator(
       '[data-slot="toast"]:not([data-exiting="true"])',
     );
+    try {
+      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await loginStarted;
+      await expect(page.getByLabel("Email", { exact: true })).toHaveValue(
+        browserBootstrap.email,
+      );
+      await expect(page.getByLabel("Password", { exact: true })).toHaveValue(
+        "Incorrect password",
+      );
+      await expect(page.getByLabel("Password", { exact: true })).toBeDisabled();
+      await expect(
+        page.getByRole("button", { name: "Signing in…", exact: true }),
+      ).toBeDisabled();
+      await expect(failure).toHaveCount(0);
+      expect(loginAttempts).toBe(1);
+    } finally {
+      releaseLogin();
+    }
     await expect(failure).toHaveCount(1);
     await expect(failure).toContainText("incorrect");
     await expect(page.getByLabel("Email", { exact: true })).toHaveValue(
       browserBootstrap.email,
     );
-    await expect(page.getByLabel("Password", { exact: true })).toHaveValue(
-      "Incorrect password",
-    );
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
     await failure.getByRole("button").click();
+    await page
+      .getByLabel("Password", { exact: true })
+      .fill("Incorrect password");
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(failure).toHaveCount(1);
+    await expect(failure).toContainText("incorrect");
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue(
+      browserBootstrap.email,
+    );
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
+    expect(loginAttempts).toBe(2);
     await expect(page.locator('form [role="alert"]')).toHaveCount(0);
     await page
       .getByRole("button", { name: "Forgot password?", exact: true })
@@ -130,5 +171,9 @@ for (const [width, theme] of [
     await expect(
       page.getByRole("heading", { name: "Sign in", exact: true }),
     ).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue(
+      browserBootstrap.email,
+    );
+    await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
   });
 }
