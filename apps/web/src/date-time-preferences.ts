@@ -1,22 +1,16 @@
+import {
+  dateFormatOptions,
+  timeFormatOptions,
+  defaultDateTimePreferences,
+} from "@avgeek-oss/design-system/utilities/date-time-preferences";
 import type {
   DateTimePreferenceOptions,
   DateTimePreferences,
 } from "@avgeek-oss/design-system/patterns/settings/date-time-preference-fields";
 
 export const dateTimePreferenceOptions: DateTimePreferenceOptions = {
-  dateFormats: [
-    { id: "day-short-month-year", label: "16 Sept 2026" },
-    { id: "short-month-day-year", label: "Sept 16, 2026" },
-    { id: "year-month-day", label: "2026-09-16" },
-    { id: "day-month-year", label: "16/09/2026" },
-    { id: "month-day-year", label: "09/16/2026" },
-  ],
-  timeFormats: [
-    { id: "24-hour", label: "14:30" },
-    { id: "12-hour", label: "2:30 PM" },
-    { id: "24-hour-seconds", label: "14:30:45" },
-    { id: "12-hour-seconds", label: "2:30:45 PM" },
-  ],
+  dateFormats: dateFormatOptions,
+  timeFormats: timeFormatOptions,
   timeZones: availableTimeZones(),
 };
 
@@ -112,14 +106,14 @@ function dateLabel(
     "day-month-year": `${parts.day}/${parts.month}/${parts.year}`,
     "month-day-year": `${parts.month}/${parts.day}/${parts.year}`,
   };
-  return dates[dateFormat] ?? dates["day-short-month-year"];
+  return dates[dateFormat] ?? dates[defaultDateTimePreferences.dateFormat];
 }
 
 export function formatDate(
   value: Date | string,
   {
-    timeZone = "UTC",
-    dateFormat = "day-short-month-year",
+    timeZone = defaultDateTimePreferences.timeZone,
+    dateFormat = defaultDateTimePreferences.dateFormat,
   }: Partial<DateTimePreferences> = {},
 ) {
   const display = dateTimeParts(value, timeZone);
@@ -129,9 +123,9 @@ export function formatDate(
 export function formatDateTime(
   value: Date | string,
   {
-    timeZone = "UTC",
-    dateFormat = "day-short-month-year",
-    timeFormat = "24-hour",
+    timeZone = defaultDateTimePreferences.timeZone,
+    dateFormat = defaultDateTimePreferences.dateFormat,
+    timeFormat = defaultDateTimePreferences.timeFormat,
   }: Partial<DateTimePreferences> = {},
 ) {
   const display = dateTimeParts(value, timeZone);
