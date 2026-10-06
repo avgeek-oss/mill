@@ -1,0 +1,2760 @@
+{
+  "migrations": [
+    {
+      "name": "001_initial.sql",
+      "checksum": "5c9a99302e60f0764a63e2f413369f4e129d8f7b81efcd1de3b28a1896ca3080"
+    }
+  ],
+  "tables": {
+    "account_recovery": [
+      {
+        "name": "token_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "reset_mfa",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": false,
+        "default": "false"
+      },
+      {
+        "name": "security_epoch",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "activity": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "task_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "board_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "actor_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "actor_name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "actor_kind",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "action",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "detail",
+        "type": "jsonb",
+        "udt": "jsonb",
+        "nullable": false,
+        "default": "'{}'::jsonb"
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "api_idempotency": [
+      {
+        "name": "actor_key",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "key",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "request_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "response",
+        "type": "jsonb",
+        "udt": "jsonb",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "status",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "board_ids",
+        "type": "ARRAY",
+        "udt": "_uuid",
+        "nullable": false,
+        "default": "'{}'::uuid[]"
+      },
+      {
+        "name": "task_ids",
+        "type": "ARRAY",
+        "udt": "_uuid",
+        "nullable": false,
+        "default": "'{}'::uuid[]"
+      },
+      {
+        "name": "invalidation_reason",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "auth_challenges": [
+      {
+        "name": "token_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "purpose",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "challenge",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "security_epoch",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "session_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "auth_rate_limits": [
+      {
+        "name": "key",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "attempts",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "window_start",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      }
+    ],
+    "boards": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "workspace_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "prefix",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "description",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "''::text"
+      },
+      {
+        "name": "version",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": "1"
+      },
+      {
+        "name": "next_number",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": "1"
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "comments": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "task_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "author_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "body",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "version",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": "1"
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "credentials": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "token_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "token_prefix",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "scopes",
+        "type": "ARRAY",
+        "udt": "_text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "board_ids",
+        "type": "ARRAY",
+        "udt": "_uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "token_type",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'api-key'::text"
+      },
+      {
+        "name": "oauth_client_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "resource",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "last_used_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "revoked_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "email_outbox": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "request_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "invitation_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "recovery_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "payload",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "state",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'pending'::text"
+      },
+      {
+        "name": "attempts",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": "0"
+      },
+      {
+        "name": "available_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "lease_token",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "lease_until",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "last_error",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "delivered_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      }
+    ],
+    "email_requests": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "invitation_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "purpose",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "email",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "previous_email",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "security_epoch",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "token_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "code_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "proof_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "verified_name",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "attempts",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": "0"
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "consumed_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "invitations": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "email",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "role",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "token_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "invited_by",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "verification_required",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": false,
+        "default": "false"
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "accepted_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "revoked_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "mill_migrations": [
+      {
+        "name": "name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "checksum",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "applied_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "notifications": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "task_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "kind",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "actor_name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "read_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "oauth_clients": [
+      {
+        "name": "id",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "redirect_uris",
+        "type": "ARRAY",
+        "udt": "_text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "auth_method",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "secret_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "oauth_requests": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "client_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "client_name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "client_trust",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "redirect_uri",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "resource",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "scope",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "state",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "challenge",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "board_ids",
+        "type": "ARRAY",
+        "udt": "_uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "code_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "credential_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "consumed_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "passkeys": [
+      {
+        "name": "id",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "public_key",
+        "type": "bytea",
+        "udt": "bytea",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "counter",
+        "type": "bigint",
+        "udt": "int8",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "transports",
+        "type": "jsonb",
+        "udt": "jsonb",
+        "nullable": false,
+        "default": "'[]'::jsonb"
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "recovery_codes": [
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "code_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      }
+    ],
+    "request_limits": [
+      {
+        "name": "key",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "count",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "reset_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      }
+    ],
+    "sessions": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "user_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "token_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "security_epoch",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "user_agent",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "authenticated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "passkey_authenticated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "last_seen_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "expires_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": null
+      }
+    ],
+    "tasks": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": "gen_random_uuid()"
+      },
+      {
+        "name": "board_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "type",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'task'::text"
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'todo'::text"
+      },
+      {
+        "name": "identifier",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "description",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "''::text"
+      },
+      {
+        "name": "assignee_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "priority",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'none'::text"
+      },
+      {
+        "name": "start_date",
+        "type": "date",
+        "udt": "date",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "due_date",
+        "type": "date",
+        "udt": "date",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "version",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": "1"
+      },
+      {
+        "name": "created_by",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "status_changed_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "users": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "workspace_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "email",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "password_hash",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "email_verified",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": false,
+        "default": "false"
+      },
+      {
+        "name": "security_epoch",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": false,
+        "default": "0"
+      },
+      {
+        "name": "role",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "time_zone",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'UTC'::text"
+      },
+      {
+        "name": "date_format",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'day-short-month-year'::text"
+      },
+      {
+        "name": "time_format",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": "'24-hour'::text"
+      },
+      {
+        "name": "notification_preferences",
+        "type": "jsonb",
+        "udt": "jsonb",
+        "nullable": false,
+        "default": "'{\"mentions\": true, \"assignments\": true}'::jsonb"
+      },
+      {
+        "name": "disabled_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": true,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      },
+      {
+        "name": "updated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ],
+    "workspace": [
+      {
+        "name": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "name",
+        "type": "text",
+        "udt": "text",
+        "nullable": false,
+        "default": null
+      },
+      {
+        "name": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": false,
+        "default": "now()"
+      }
+    ]
+  },
+  "constraints": [
+    {
+      "table": "account_recovery",
+      "name": "account_recovery_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (token_hash)"
+    },
+    {
+      "table": "account_recovery",
+      "name": "account_recovery_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "table": "activity",
+      "name": "activity_actor_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (actor_id) REFERENCES users(id)"
+    },
+    {
+      "table": "activity",
+      "name": "activity_actor_kind_check",
+      "type": "c",
+      "definition": "CHECK ((actor_kind = ANY (ARRAY['human'::text, 'oauth'::text])))"
+    },
+    {
+      "table": "activity",
+      "name": "activity_board_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "activity",
+      "name": "activity_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "activity",
+      "name": "activity_task_board_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (task_id, board_id) REFERENCES tasks(id, board_id) ON DELETE CASCADE"
+    },
+    {
+      "table": "api_idempotency",
+      "name": "api_idempotency_invalidation_reason_check",
+      "type": "c",
+      "definition": "CHECK ((invalidation_reason = ANY (ARRAY['deleted'::text, 'upgrade'::text, 'access'::text])))"
+    },
+    {
+      "table": "api_idempotency",
+      "name": "api_idempotency_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (actor_key, key)"
+    },
+    {
+      "table": "auth_challenges",
+      "name": "auth_challenges_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (token_hash)"
+    },
+    {
+      "table": "auth_challenges",
+      "name": "auth_challenges_purpose_check",
+      "type": "c",
+      "definition": "CHECK ((purpose = ANY (ARRAY['login'::text, 'reauth'::text, 'registration'::text, 'passkey'::text])))"
+    },
+    {
+      "table": "auth_challenges",
+      "name": "auth_challenges_session_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "auth_challenges",
+      "name": "auth_challenges_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "table": "auth_rate_limits",
+      "name": "auth_rate_limits_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (key)"
+    },
+    {
+      "table": "boards",
+      "name": "boards_name_check",
+      "type": "c",
+      "definition": "CHECK (((length(name) >= 1) AND (length(name) <= 100)))"
+    },
+    {
+      "table": "boards",
+      "name": "boards_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "boards",
+      "name": "boards_prefix_check",
+      "type": "c",
+      "definition": "CHECK ((prefix ~ '^[A-Z][A-Z0-9]{1,9}$'::text))"
+    },
+    {
+      "table": "boards",
+      "name": "boards_prefix_key",
+      "type": "u",
+      "definition": "UNIQUE (prefix)"
+    },
+    {
+      "table": "boards",
+      "name": "boards_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspace(id)"
+    },
+    {
+      "table": "comments",
+      "name": "comments_author_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (author_id) REFERENCES users(id)"
+    },
+    {
+      "table": "comments",
+      "name": "comments_body_check",
+      "type": "c",
+      "definition": "CHECK (((length(body) >= 1) AND (length(body) <= 10000)))"
+    },
+    {
+      "table": "comments",
+      "name": "comments_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "comments",
+      "name": "comments_task_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_access_shape",
+      "type": "c",
+      "definition": "CHECK ((((token_type = 'api-key'::text) AND (board_ids IS NULL) AND (scopes = '{}'::text[]) AND (oauth_client_id IS NULL) AND (resource IS NULL)) OR ((token_type = 'oauth'::text) AND (scopes <@ ARRAY['read'::text, 'write'::text]) AND ('read'::text = ANY (scopes)))))"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_name_check",
+      "type": "c",
+      "definition": "CHECK (((length(name) >= 1) AND (length(name) <= 120)))"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_token_hash_key",
+      "type": "u",
+      "definition": "UNIQUE (token_hash)"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_token_type_check",
+      "type": "c",
+      "definition": "CHECK ((token_type = ANY (ARRAY['api-key'::text, 'oauth'::text])))"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_attempts_check",
+      "type": "c",
+      "definition": "CHECK (((attempts >= 0) AND (attempts <= 5)))"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_check",
+      "type": "c",
+      "definition": "CHECK ((num_nonnulls(request_id, invitation_id, recovery_hash) = 1))"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_check1",
+      "type": "c",
+      "definition": "CHECK (((lease_token IS NULL) = (lease_until IS NULL)))"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_invitation_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (invitation_id) REFERENCES invitations(id)"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_request_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (request_id) REFERENCES email_requests(id)"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_state_check",
+      "type": "c",
+      "definition": "CHECK ((state = ANY (ARRAY['pending'::text, 'delivered'::text, 'cancelled'::text, 'failed'::text])))"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_attempts_check",
+      "type": "c",
+      "definition": "CHECK (((attempts >= 0) AND (attempts <= 5)))"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_check",
+      "type": "c",
+      "definition": "CHECK ((((purpose = 'invitation'::text) AND (invitation_id IS NOT NULL) AND (user_id IS NULL)) OR ((purpose <> 'invitation'::text) AND (user_id IS NOT NULL) AND (invitation_id IS NULL))))"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_invitation_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (invitation_id) REFERENCES invitations(id)"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_purpose_check",
+      "type": "c",
+      "definition": "CHECK ((purpose = ANY (ARRAY['verification'::text, 'change'::text, 'invitation'::text])))"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "table": "invitations",
+      "name": "invitations_invited_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (invited_by) REFERENCES users(id)"
+    },
+    {
+      "table": "invitations",
+      "name": "invitations_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "invitations",
+      "name": "invitations_role_check",
+      "type": "c",
+      "definition": "CHECK ((role = ANY (ARRAY['admin'::text, 'member'::text, 'viewer'::text])))"
+    },
+    {
+      "table": "invitations",
+      "name": "invitations_token_hash_key",
+      "type": "u",
+      "definition": "UNIQUE (token_hash)"
+    },
+    {
+      "table": "mill_migrations",
+      "name": "mill_migrations_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (name)"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_kind_check",
+      "type": "c",
+      "definition": "CHECK ((kind = ANY (ARRAY['assignment'::text, 'mention'::text])))"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_task_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "table": "oauth_clients",
+      "name": "oauth_clients_auth_method_check",
+      "type": "c",
+      "definition": "CHECK ((auth_method = ANY (ARRAY['none'::text, 'client_secret_basic'::text, 'client_secret_post'::text])))"
+    },
+    {
+      "table": "oauth_clients",
+      "name": "oauth_clients_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_owner_required",
+      "type": "c",
+      "definition": "CHECK (((code_hash IS NULL) OR (consumed_at IS NOT NULL) OR (user_id IS NOT NULL)))"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_requests_code_hash_key",
+      "type": "u",
+      "definition": "UNIQUE (code_hash)"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_requests_credential_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (credential_id) REFERENCES credentials(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_requests_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_requests_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "passkeys",
+      "name": "passkeys_name_check",
+      "type": "c",
+      "definition": "CHECK (((length(name) >= 1) AND (length(name) <= 120)))"
+    },
+    {
+      "table": "passkeys",
+      "name": "passkeys_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "passkeys",
+      "name": "passkeys_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "table": "recovery_codes",
+      "name": "recovery_codes_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (user_id, code_hash)"
+    },
+    {
+      "table": "recovery_codes",
+      "name": "recovery_codes_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "table": "request_limits",
+      "name": "request_limits_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (key)"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_token_hash_key",
+      "type": "u",
+      "definition": "UNIQUE (token_hash)"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_user_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_assignee_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (assignee_id) REFERENCES users(id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_board_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (board_id) REFERENCES boards(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_created_by_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (created_by) REFERENCES users(id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_description_check",
+      "type": "c",
+      "definition": "CHECK ((length(description) <= 100000))"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_id_board_id_key",
+      "type": "u",
+      "definition": "UNIQUE (id, board_id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_identifier_key",
+      "type": "u",
+      "definition": "UNIQUE (identifier)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_priority_check",
+      "type": "c",
+      "definition": "CHECK ((priority = ANY (ARRAY['none'::text, 'low'::text, 'medium'::text, 'high'::text, 'urgent'::text])))"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_status_check",
+      "type": "c",
+      "definition": "CHECK ((status = ANY (ARRAY['backlog'::text, 'todo'::text, 'in_progress'::text, 'in_review'::text, 'done'::text, 'wont_do'::text])))"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_title_check",
+      "type": "c",
+      "definition": "CHECK (((length(title) >= 1) AND (length(title) <= 300)))"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_type_check",
+      "type": "c",
+      "definition": "CHECK ((type = ANY (ARRAY['task'::text, 'bug'::text])))"
+    },
+    {
+      "table": "users",
+      "name": "users_date_format_check",
+      "type": "c",
+      "definition": "CHECK ((date_format = ANY (ARRAY['day-short-month-year'::text, 'day-month-year'::text, 'month-day-year'::text, 'year-month-day'::text])))"
+    },
+    {
+      "table": "users",
+      "name": "users_email_check",
+      "type": "c",
+      "definition": "CHECK ((email = lower(email)))"
+    },
+    {
+      "table": "users",
+      "name": "users_email_key",
+      "type": "u",
+      "definition": "UNIQUE (email)"
+    },
+    {
+      "table": "users",
+      "name": "users_name_check",
+      "type": "c",
+      "definition": "CHECK (((length(name) >= 1) AND (length(name) <= 120)))"
+    },
+    {
+      "table": "users",
+      "name": "users_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "users",
+      "name": "users_role_check",
+      "type": "c",
+      "definition": "CHECK ((role = ANY (ARRAY['admin'::text, 'member'::text, 'viewer'::text])))"
+    },
+    {
+      "table": "users",
+      "name": "users_time_format_check",
+      "type": "c",
+      "definition": "CHECK ((time_format = ANY (ARRAY['24-hour'::text, '12-hour'::text])))"
+    },
+    {
+      "table": "users",
+      "name": "users_workspace_id_fkey",
+      "type": "f",
+      "definition": "FOREIGN KEY (workspace_id) REFERENCES workspace(id)"
+    },
+    {
+      "table": "workspace",
+      "name": "workspace_name_check",
+      "type": "c",
+      "definition": "CHECK (((length(name) >= 1) AND (length(name) <= 120)))"
+    },
+    {
+      "table": "workspace",
+      "name": "workspace_pkey",
+      "type": "p",
+      "definition": "PRIMARY KEY (id)"
+    }
+  ],
+  "functions": [
+    {
+      "name": "clean_deleted_board",
+      "arguments": "",
+      "body": "a84b8dc40e43ad229e99715b7697938678b212762805b15c2e98d1f3a5eb6d94",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    },
+    {
+      "name": "clean_deleted_task",
+      "arguments": "",
+      "body": "2f9728977bba4670f079bb340974c79f34adf1022d076607aa5703ac64ced962",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    },
+    {
+      "name": "clean_disabled_user",
+      "arguments": "",
+      "body": "609e92abd88803993b732d69e832102729110aeec5372426bd4123acc17d7c92",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    },
+    {
+      "name": "enforce_credential_owner",
+      "arguments": "",
+      "body": "7abf2ee01a3c2c8d3af564b4f8e324c3d1660d247a6857cd33a8266656d88a50",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    },
+    {
+      "name": "enforce_oauth_owner",
+      "arguments": "",
+      "body": "b90ce9361c886fb91f011f4a5c6a312d7ed097997fe0fe065e9e3c403ceb509c",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    },
+    {
+      "name": "enforce_task_assignee",
+      "arguments": "",
+      "body": "ac074cf5d73bf839cd5cf84f67ce89417a28ed37aac17432f87453a5ec7ca9f4",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    },
+    {
+      "name": "lock_workspace_authority",
+      "arguments": "",
+      "body": "2e2bd6ae8b341c663a15660e7b9994376bffe3ff7b9250ca2415274fd3a4ad21",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    },
+    {
+      "name": "track_task_status_change",
+      "arguments": "",
+      "body": "abeb7c68c9c5598914ba14d0f9e0ea843efa9205db03801268e386b5d4c69503",
+      "language": "plpgsql",
+      "config": ["search_path=pg_catalog, <schema>, pg_temp"],
+      "security_definer": false,
+      "volatility": "v",
+      "kind": "f"
+    }
+  ],
+  "triggers": [
+    {
+      "table": "boards",
+      "name": "boards_authority",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER boards_authority BEFORE INSERT OR DELETE OR UPDATE ON boards FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_authority()"
+    },
+    {
+      "table": "boards",
+      "name": "clean_deleted_board",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER clean_deleted_board AFTER DELETE ON boards FOR EACH ROW EXECUTE FUNCTION clean_deleted_board()"
+    },
+    {
+      "table": "credentials",
+      "name": "credential_owner_access",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER credential_owner_access BEFORE INSERT OR UPDATE ON credentials FOR EACH ROW EXECUTE FUNCTION enforce_credential_owner()"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_authority",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER credentials_authority BEFORE INSERT OR DELETE OR UPDATE ON credentials FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_authority()"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_authority",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER oauth_authority BEFORE INSERT OR DELETE OR UPDATE ON oauth_requests FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_authority()"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_owner_access",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER oauth_owner_access BEFORE INSERT OR UPDATE ON oauth_requests FOR EACH ROW EXECUTE FUNCTION enforce_oauth_owner()"
+    },
+    {
+      "table": "tasks",
+      "name": "clean_deleted_task",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER clean_deleted_task AFTER DELETE ON tasks FOR EACH ROW EXECUTE FUNCTION clean_deleted_task()"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_assignee_access",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER tasks_assignee_access BEFORE INSERT OR UPDATE ON tasks FOR EACH ROW EXECUTE FUNCTION enforce_task_assignee()"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_authority",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER tasks_authority BEFORE INSERT OR DELETE OR UPDATE ON tasks FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_authority()"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_status_change",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER tasks_status_change BEFORE UPDATE OF status ON tasks FOR EACH ROW EXECUTE FUNCTION track_task_status_change()"
+    },
+    {
+      "table": "users",
+      "name": "disabled_user",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER disabled_user AFTER UPDATE OF disabled_at ON users FOR EACH ROW EXECUTE FUNCTION clean_disabled_user()"
+    },
+    {
+      "table": "users",
+      "name": "users_authority",
+      "enabled": "O",
+      "definition": "CREATE TRIGGER users_authority BEFORE INSERT OR DELETE OR UPDATE ON users FOR EACH STATEMENT EXECUTE FUNCTION lock_workspace_authority()"
+    }
+  ],
+  "indexes": [
+    {
+      "table": "account_recovery",
+      "name": "account_recovery_pkey",
+      "definition": "CREATE UNIQUE INDEX account_recovery_pkey ON account_recovery USING btree (token_hash)"
+    },
+    {
+      "table": "activity",
+      "name": "activity_board",
+      "definition": "CREATE INDEX activity_board ON activity USING btree (board_id, created_at, id)"
+    },
+    {
+      "table": "activity",
+      "name": "activity_pkey",
+      "definition": "CREATE UNIQUE INDEX activity_pkey ON activity USING btree (id)"
+    },
+    {
+      "table": "activity",
+      "name": "activity_task",
+      "definition": "CREATE INDEX activity_task ON activity USING btree (task_id, created_at, id)"
+    },
+    {
+      "table": "api_idempotency",
+      "name": "api_idempotency_boards",
+      "definition": "CREATE INDEX api_idempotency_boards ON api_idempotency USING gin (board_ids)"
+    },
+    {
+      "table": "api_idempotency",
+      "name": "api_idempotency_pkey",
+      "definition": "CREATE UNIQUE INDEX api_idempotency_pkey ON api_idempotency USING btree (actor_key, key)"
+    },
+    {
+      "table": "api_idempotency",
+      "name": "api_idempotency_tasks",
+      "definition": "CREATE INDEX api_idempotency_tasks ON api_idempotency USING gin (task_ids)"
+    },
+    {
+      "table": "auth_challenges",
+      "name": "auth_challenges_pkey",
+      "definition": "CREATE UNIQUE INDEX auth_challenges_pkey ON auth_challenges USING btree (token_hash)"
+    },
+    {
+      "table": "auth_rate_limits",
+      "name": "auth_rate_limits_pkey",
+      "definition": "CREATE UNIQUE INDEX auth_rate_limits_pkey ON auth_rate_limits USING btree (key)"
+    },
+    {
+      "table": "boards",
+      "name": "boards_name",
+      "definition": "CREATE INDEX boards_name ON boards USING btree (lower(name), name, id)"
+    },
+    {
+      "table": "boards",
+      "name": "boards_pkey",
+      "definition": "CREATE UNIQUE INDEX boards_pkey ON boards USING btree (id)"
+    },
+    {
+      "table": "boards",
+      "name": "boards_prefix_key",
+      "definition": "CREATE UNIQUE INDEX boards_prefix_key ON boards USING btree (prefix)"
+    },
+    {
+      "table": "comments",
+      "name": "comments_pkey",
+      "definition": "CREATE UNIQUE INDEX comments_pkey ON comments USING btree (id)"
+    },
+    {
+      "table": "comments",
+      "name": "comments_task",
+      "definition": "CREATE INDEX comments_task ON comments USING btree (task_id, created_at, id)"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_owner",
+      "definition": "CREATE INDEX credentials_owner ON credentials USING btree (user_id, created_at DESC)"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_pkey",
+      "definition": "CREATE UNIQUE INDEX credentials_pkey ON credentials USING btree (id)"
+    },
+    {
+      "table": "credentials",
+      "name": "credentials_token_hash_key",
+      "definition": "CREATE UNIQUE INDEX credentials_token_hash_key ON credentials USING btree (token_hash)"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_pending",
+      "definition": "CREATE INDEX email_outbox_pending ON email_outbox USING btree (available_at, created_at) WHERE (state = 'pending'::text)"
+    },
+    {
+      "table": "email_outbox",
+      "name": "email_outbox_pkey",
+      "definition": "CREATE UNIQUE INDEX email_outbox_pkey ON email_outbox USING btree (id)"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_invitation",
+      "definition": "CREATE UNIQUE INDEX email_requests_invitation ON email_requests USING btree (invitation_id) WHERE (consumed_at IS NULL)"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_pkey",
+      "definition": "CREATE UNIQUE INDEX email_requests_pkey ON email_requests USING btree (id)"
+    },
+    {
+      "table": "email_requests",
+      "name": "email_requests_user_purpose",
+      "definition": "CREATE UNIQUE INDEX email_requests_user_purpose ON email_requests USING btree (user_id, purpose) WHERE (consumed_at IS NULL)"
+    },
+    {
+      "table": "invitations",
+      "name": "invitations_pkey",
+      "definition": "CREATE UNIQUE INDEX invitations_pkey ON invitations USING btree (id)"
+    },
+    {
+      "table": "invitations",
+      "name": "invitations_token_hash_key",
+      "definition": "CREATE UNIQUE INDEX invitations_token_hash_key ON invitations USING btree (token_hash)"
+    },
+    {
+      "table": "mill_migrations",
+      "name": "mill_migrations_pkey",
+      "definition": "CREATE UNIQUE INDEX mill_migrations_pkey ON mill_migrations USING btree (name)"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_pkey",
+      "definition": "CREATE UNIQUE INDEX notifications_pkey ON notifications USING btree (id)"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_user",
+      "definition": "CREATE INDEX notifications_user ON notifications USING btree (user_id, created_at DESC)"
+    },
+    {
+      "table": "oauth_clients",
+      "name": "oauth_clients_pkey",
+      "definition": "CREATE UNIQUE INDEX oauth_clients_pkey ON oauth_clients USING btree (id)"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_request_expiry",
+      "definition": "CREATE INDEX oauth_request_expiry ON oauth_requests USING btree (expires_at)"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_requests_code_hash_key",
+      "definition": "CREATE UNIQUE INDEX oauth_requests_code_hash_key ON oauth_requests USING btree (code_hash)"
+    },
+    {
+      "table": "oauth_requests",
+      "name": "oauth_requests_pkey",
+      "definition": "CREATE UNIQUE INDEX oauth_requests_pkey ON oauth_requests USING btree (id)"
+    },
+    {
+      "table": "passkeys",
+      "name": "passkeys_pkey",
+      "definition": "CREATE UNIQUE INDEX passkeys_pkey ON passkeys USING btree (id)"
+    },
+    {
+      "table": "passkeys",
+      "name": "passkeys_user",
+      "definition": "CREATE INDEX passkeys_user ON passkeys USING btree (user_id)"
+    },
+    {
+      "table": "recovery_codes",
+      "name": "recovery_codes_pkey",
+      "definition": "CREATE UNIQUE INDEX recovery_codes_pkey ON recovery_codes USING btree (user_id, code_hash)"
+    },
+    {
+      "table": "request_limits",
+      "name": "request_limits_pkey",
+      "definition": "CREATE UNIQUE INDEX request_limits_pkey ON request_limits USING btree (key)"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_pkey",
+      "definition": "CREATE UNIQUE INDEX sessions_pkey ON sessions USING btree (id)"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_token_hash_key",
+      "definition": "CREATE UNIQUE INDEX sessions_token_hash_key ON sessions USING btree (token_hash)"
+    },
+    {
+      "table": "sessions",
+      "name": "sessions_user",
+      "definition": "CREATE INDEX sessions_user ON sessions USING btree (user_id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_board_created",
+      "definition": "CREATE INDEX tasks_board_created ON tasks USING btree (board_id, created_at DESC, id DESC)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_board_status_created",
+      "definition": "CREATE INDEX tasks_board_status_created ON tasks USING btree (board_id, status, created_at DESC, id DESC)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_board_updated",
+      "definition": "CREATE INDEX tasks_board_updated ON tasks USING btree (board_id, updated_at, id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_id_board_id_key",
+      "definition": "CREATE UNIQUE INDEX tasks_id_board_id_key ON tasks USING btree (id, board_id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_identifier_key",
+      "definition": "CREATE UNIQUE INDEX tasks_identifier_key ON tasks USING btree (identifier)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_pkey",
+      "definition": "CREATE UNIQUE INDEX tasks_pkey ON tasks USING btree (id)"
+    },
+    {
+      "table": "tasks",
+      "name": "tasks_search",
+      "definition": "CREATE INDEX tasks_search ON tasks USING gin (to_tsvector('simple'::regconfig, ((title || ' '::text) || description)))"
+    },
+    {
+      "table": "users",
+      "name": "users_email_key",
+      "definition": "CREATE UNIQUE INDEX users_email_key ON users USING btree (email)"
+    },
+    {
+      "table": "users",
+      "name": "users_pkey",
+      "definition": "CREATE UNIQUE INDEX users_pkey ON users USING btree (id)"
+    },
+    {
+      "table": "workspace",
+      "name": "workspace_pkey",
+      "definition": "CREATE UNIQUE INDEX workspace_pkey ON workspace USING btree (id)"
+    },
+    {
+      "table": "workspace",
+      "name": "workspace_singleton",
+      "definition": "CREATE UNIQUE INDEX workspace_singleton ON workspace USING btree ((true))"
+    }
+  ],
+  "relations": [
+    {
+      "name": "account_recovery",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "account_recovery_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "activity",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "activity_board",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "activity_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "activity_task",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "api_idempotency",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "api_idempotency_boards",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "api_idempotency_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "api_idempotency_tasks",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "auth_challenges",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "auth_challenges_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "auth_rate_limits",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "auth_rate_limits_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "boards",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "boards_name",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "boards_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "boards_prefix_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "comments",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "comments_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "comments_task",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "credentials",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "credentials_owner",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "credentials_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "credentials_token_hash_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "email_outbox",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "email_outbox_pending",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "email_outbox_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "email_requests",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "email_requests_invitation",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "email_requests_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "email_requests_user_purpose",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "invitations",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "invitations_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "invitations_token_hash_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "mill_migrations",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "mill_migrations_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "notifications",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "notifications_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "notifications_user",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "oauth_clients",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "oauth_clients_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "oauth_request_expiry",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "oauth_requests",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "oauth_requests_code_hash_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "oauth_requests_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "passkeys",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "passkeys_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "passkeys_user",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "recovery_codes",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "recovery_codes_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "request_limits",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "request_limits_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "sessions",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "sessions_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "sessions_token_hash_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "sessions_user",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks_board_created",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks_board_status_created",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks_board_updated",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks_id_board_id_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks_identifier_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "tasks_search",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "users",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "users_email_key",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "users_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "workspace",
+      "kind": "r",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "workspace_pkey",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    },
+    {
+      "name": "workspace_singleton",
+      "kind": "i",
+      "row_security": false,
+      "force_row_security": false
+    }
+  ],
+  "types": []
+}

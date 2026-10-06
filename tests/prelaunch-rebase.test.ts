@@ -35,7 +35,16 @@ const baseline = await readFile(
   new URL("../packages/database/migrations/001_initial.sql", import.meta.url),
   "utf8",
 );
-const emailBaseline = baseline
+const previousBaseline = baseline
+  .replace(
+    "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
+    "CHECK (date_format IN ('day-short-month-year','day-month-year','month-day-year','year-month-day'))",
+  )
+  .replace(
+    "CHECK (time_format IN ('24-hour','12-hour','24-hour-seconds','12-hour-seconds'))",
+    "CHECK (time_format IN ('24-hour','12-hour'))",
+  );
+const emailBaseline = previousBaseline
   .replace(
     /(CREATE TABLE (?:workspace|users) \([\s\S]*? {2}name text NOT NULL CHECK \(length\(name\) BETWEEN 1 AND )120(\),)/g,
     (_match, prefix, suffix) => prefix + "100" + suffix,

@@ -329,7 +329,21 @@ function PreferenceSettings({
           formatPreview={dateTimePreview}
           onSave={async (preferences) => {
             const isCurrent = suspension.capture();
-            await api("/auth/profile", preferences, "PATCH");
+            await api(
+              "/auth/profile",
+              {
+                ...(preferences.dateFormat !== session.user.dateFormat && {
+                  dateFormat: preferences.dateFormat,
+                }),
+                ...(preferences.timeFormat !== session.user.timeFormat && {
+                  timeFormat: preferences.timeFormat,
+                }),
+                ...(preferences.timeZone !== session.user.timeZone && {
+                  timeZone: preferences.timeZone,
+                }),
+              },
+              "PATCH",
+            );
             if (isCurrent()) onRefresh();
           }}
         />
@@ -852,6 +866,8 @@ function PasskeysSettings({
               formatDate={(value) => (
                 <RelativeDateTime
                   value={value}
+                  dateFormat={session.user.dateFormat}
+                  timeFormat={session.user.timeFormat}
                   timeZone={session.user.timeZone}
                 />
               )}
@@ -983,7 +999,12 @@ function SessionSettings({
               current: item.current,
             }))}
           formatDate={(value) => (
-            <RelativeDateTime value={value} timeZone={session.user.timeZone} />
+            <RelativeDateTime
+              value={value}
+              dateFormat={session.user.dateFormat}
+              timeFormat={session.user.timeFormat}
+              timeZone={session.user.timeZone}
+            />
           )}
           onRevoke={revoke}
         />

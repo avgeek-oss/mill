@@ -86,11 +86,14 @@ export function hasSessionResponse(value: unknown): value is Session {
     !!user.timeZone &&
     [
       "day-short-month-year",
+      "short-month-day-year",
       "day-month-year",
       "month-day-year",
       "year-month-day",
     ].includes(String(user.dateFormat)) &&
-    ["24-hour", "12-hour"].includes(String(user.timeFormat)) &&
+    ["24-hour", "12-hour", "24-hour-seconds", "12-hour-seconds"].includes(
+      String(user.timeFormat),
+    ) &&
     Number.isSafeInteger(user.passkeyCount) &&
     Number(user.passkeyCount) >= 0 &&
     isResponseObject(user.notificationPreferences) &&
@@ -302,10 +305,11 @@ export type User = {
   timeZone: string;
   dateFormat:
     | "day-short-month-year"
+    | "short-month-day-year"
     | "day-month-year"
     | "month-day-year"
     | "year-month-day";
-  timeFormat: "24-hour" | "12-hour";
+  timeFormat: "24-hour" | "12-hour" | "24-hour-seconds" | "12-hour-seconds";
   notificationPreferences: {
     assignments?: boolean;
     mentions?: boolean;
