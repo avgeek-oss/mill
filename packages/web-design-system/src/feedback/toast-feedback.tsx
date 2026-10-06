@@ -2,6 +2,7 @@
 
 import { isValidElement, useEffect, useRef, type ReactNode } from "react";
 import { toast } from "@avgeek-oss/design-system/overlays/toast";
+import { useOverlaySuspension } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 
 function feedbackText(content: ReactNode): string {
   if (typeof content === "string" || typeof content === "number")
@@ -13,11 +14,12 @@ function feedbackText(content: ReactNode): string {
 }
 
 export function useErrorToast(message: ReactNode) {
+  const { isSuspended } = useOverlaySuspension();
   const text = feedbackText(message).replace(/\s+/g, " ").trim();
   const previous = useRef("");
   useEffect(() => {
     if (previous.current === text) return;
     previous.current = text;
-    if (text) toast.danger(message);
-  }, [message, text]);
+    if (text && !isSuspended) toast.danger(message);
+  }, [isSuspended, message, text]);
 }

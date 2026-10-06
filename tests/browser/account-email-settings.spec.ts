@@ -161,6 +161,7 @@ for (const width of [1280, 390]) {
       await expect(alerts(page)).toContainText(
         "Email settings could not load.",
       );
+      expect(service.lookups).toBe(1);
       await expect(
         page.getByLabel("New email address", { exact: true }),
       ).toHaveCount(0);

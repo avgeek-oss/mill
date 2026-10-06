@@ -1,6 +1,6 @@
 # Mill v1 release candidate
 
-The proposed tag is `v1.0.0`. The repository and build artifacts remain private while this candidate is reviewed. These notes describe the proposed product and migration behavior. Release acceptance depends on current-revision source, browser, packaging, upgrade/restore, and hosted CI evidence recorded in the private v1 verification matrix.
+The proposed tag is `v1.0.0`. The repository and build artifacts remain private while this candidate is reviewed. These notes describe the proposed product and migration behavior. Release acceptance depends on current-revision source, browser, packaging, upgrade/restore, and hosted CI evidence recorded in the release pull request and CI artifacts.
 
 ## Task lists
 

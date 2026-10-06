@@ -18,7 +18,10 @@ for (const width of [1280, 390])
           role: "member",
         },
       });
-      expect(invitation.ok()).toBe(true);
+      expect(
+        invitation.ok(),
+        `Fixture invitation returned HTTP ${invitation.status()}`,
+      ).toBe(true);
       const account = await request.newContext({ baseURL: fixture.origin });
       const accepted = await account.post("/api/auth/accept-invitation", {
         headers: { Origin: fixture.origin },
@@ -28,7 +31,10 @@ for (const width of [1280, 390])
           password,
         },
       });
-      expect(accepted.ok()).toBe(true);
+      expect(
+        accepted.ok(),
+        `Fixture invitation acceptance returned HTTP ${accepted.status()}`,
+      ).toBe(true);
       const context = await browser.newContext({
         baseURL: fixture.origin,
         storageState: await account.storageState(),

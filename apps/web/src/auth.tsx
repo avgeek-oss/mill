@@ -6,6 +6,8 @@ import {
   InvitationVerification,
   ForgotPassword,
   ResetLinkSent,
+  VerificationEmail,
+  EmailConfirmation,
   AuthScreen,
   Button,
   PasskeyVerification,
@@ -39,6 +41,9 @@ type Mode =
   | "forgot"
   | "reset-sent"
   | "reset"
+  | "verification-email"
+  | "verify-email"
+  | "email-change"
   | "invite"
   | "invite-code"
   | "invite-password"
@@ -81,8 +86,24 @@ export function Auth({
       ? "invite"
       : window.location.pathname.startsWith("/recover")
         ? "reset"
-        : "login",
+        : window.location.pathname === "/verify-email"
+          ? "verify-email"
+          : window.location.pathname === "/confirm-email-change"
+            ? "email-change"
+            : window.location.pathname === "/verification-email" &&
+                emailDeliveryConfigured
+              ? "verification-email"
+              : "login",
   );
+  const [emailProof] = useState(() => {
+    const match = window.location.hash.match(
+      /^#([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{43})$/i,
+    );
+    return match ? { id: match[1]!, token: match[2]! } : null;
+  });
+  const [confirmationStatus, setConfirmationStatus] = useState<
+    "ready" | "checking" | "confirmed" | "unavailable"
+  >(() => (emailProof ? "ready" : "unavailable"));
   const [token] = useState(() =>
     window.location.pathname.startsWith("/recover") && window.location.hash
       ? window.location.hash.slice(1)
@@ -109,7 +130,9 @@ export function Auth({
   const active = useRef(true);
   useEffect(() => {
     if (
-      window.location.pathname.startsWith("/recover") &&
+      ["/recover", "/verify-email", "/confirm-email-change"].includes(
+        window.location.pathname,
+      ) &&
       window.location.hash
     ) {
       window.history.replaceState(
@@ -166,6 +189,9 @@ export function Auth({
       forgot: "Reset your password",
       "reset-sent": "Reset your password",
       reset: "Choose a new password",
+      "verification-email": "Verify your email",
+      "verify-email": "Verify your email",
+      "email-change": "Confirm email change",
       invite: "Join your workspace",
       "invite-code": "Join your workspace",
       "invite-password": "Choose your password",
@@ -208,7 +234,7 @@ export function Auth({
       if (active.current) setCredentialsBusy(false);
     }
   }
-  async function requestInvitationCode() {
+  async function requestInvitationCode(announce = true) {
     if (pending.current) return;
     pending.current = true;
     setCredentialsBusy(true);
@@ -227,11 +253,52 @@ export function Auth({
       });
       if (!active.current) return;
       setInvitationRequest(result);
-      toast.success("Verification code requested.");
+      if (announce) toast.success("Verification code requested.");
       setMode("invite-code");
     } finally {
       pending.current = false;
       if (active.current) setCredentialsBusy(false);
+    }
+  }
+  async function confirmEmail() {
+    if (!emailProof || (mode !== "verify-email" && mode !== "email-change"))
+      throw new Error(
+        "This confirmation link is incomplete. Request a new link.",
+      );
+    setConfirmationStatus("checking");
+    try {
+      await credentialsRequest(() =>
+        api(
+          mode === "verify-email"
+            ? "/auth/email-verification/confirm"
+            : "/auth/email-change/confirm",
+          emailProof,
+          "POST",
+          { validateResponse: hasOkAcknowledgement },
+        ),
+      );
+    } catch (cause) {
+      if (active.current) {
+        setConfirmationStatus("unavailable");
+        if (mode === "email-change") {
+          try {
+            await onIdentityChanged();
+          } catch (identityFailure) {
+            if (active.current) toast.danger(errorText(identityFailure));
+          }
+        }
+      }
+      throw cause;
+    }
+    if (!active.current) return;
+    setConfirmationStatus("confirmed");
+    toast.success(
+      mode === "verify-email" ? "Email verified." : "Email address changed.",
+    );
+    try {
+      await onIdentityChanged();
+    } catch (cause) {
+      if (active.current) toast.danger(errorText(cause));
     }
   }
   async function passkey(challengeId?: string) {
@@ -322,9 +389,56 @@ export function Auth({
         isPending={credentialsBusy}
         onSubmit={({ identifier, password }) => signIn(identifier, password)}
         onForgotPassword={() => setMode("forgot")}
+        onResendVerification={
+          emailDeliveryConfigured
+            ? () => setMode("verification-email")
+            : undefined
+        }
         onPasskeySignIn={() => void passkey()}
       />
     );
+  if (mode === "verification-email")
+    return (
+      <VerificationEmail
+        brand={brand}
+        defaultEmail={email}
+        onBackToSignIn={backToSignIn}
+        onSubmit={async ({ email: address }) => {
+          await credentialsRequest(() =>
+            api("/auth/verification-email", { email: address }, "POST", {
+              validateResponse: hasStatusAcknowledgement,
+            }),
+          );
+          if (!active.current) return;
+          setEmail(address);
+          toast.success("Verification request received.");
+        }}
+      />
+    );
+  if (mode === "verify-email" || mode === "email-change") {
+    const confirmationProps =
+      confirmationStatus === "ready"
+        ? { status: "ready" as const, onConfirm: confirmEmail }
+        : confirmationStatus === "unavailable"
+          ? {
+              status: "unavailable" as const,
+              onRetry: emailProof ? confirmEmail : undefined,
+            }
+          : { status: confirmationStatus };
+    return (
+      <>
+        {!emailProof && (
+          <QueryFeedback message="This confirmation link is incomplete. Request a new link." />
+        )}
+        <EmailConfirmation
+          brand={brand}
+          purpose={mode}
+          onBackToSignIn={backToSignIn}
+          {...confirmationProps}
+        />
+      </>
+    );
+  }
   if (mode === "forgot" && emailDeliveryConfigured)
     return (
       <ForgotPassword
@@ -473,6 +587,8 @@ export function Auth({
         brand={brand}
         teamName={invitation.workspaceName}
         maxNameLength={120}
+        resendAvailableAt={invitationRequest.resendAvailableAt}
+        onResendCode={() => requestInvitationCode(false)}
         onSubmit={async ({ name, code }) => {
           const result = await credentialsRequest(() =>
             api<{ verificationToken: string }>(

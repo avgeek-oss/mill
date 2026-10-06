@@ -64,7 +64,7 @@ async function login(page: Page, path = "/settings/members") {
   await page.getByLabel("Password", { exact: true }).fill(bootstrap.password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "Open notifications", exact: true }),
+    page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
   ).toBeVisible();
   await page.goto(path);
   await expect(

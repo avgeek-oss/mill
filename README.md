@@ -6,7 +6,7 @@ Create boards and work in a task list with six fixed statuses: Backlog, Todo, In
 
 Personal API keys use their owner's current permissions for REST. MCP clients connect through OAuth, with approved read/write scopes and optional board limits. Actions remain attributed to the signed-in person who authorized the connection.
 
-The repository and release artifacts remain private during v1 review, and `v1.0.0` is the proposed tag. [v1 verification](docs/b1-verification.md) records source, browser, installation/restore, security and release requirements with their executed receipts. The private release PR records hosted checks and architecture packages for its exact head. Public publication, merge and deployment require separate approval.
+The proposed release is `v1.0.0`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Release results belong to the reviewed pull request and its CI artifacts; publication and deployment require their applicable authorization.
 
 ## Install locally
 

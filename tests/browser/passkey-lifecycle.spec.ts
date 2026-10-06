@@ -46,7 +46,10 @@ async function account(page: Page) {
     headers: { Origin: origin },
     data: { email, role: "member" },
   });
-  expect(invitation.ok()).toBe(true);
+  expect(
+    invitation.ok(),
+    `Fixture invitation returned HTTP ${invitation.status()}`,
+  ).toBe(true);
   const api = await request.newContext({ baseURL: origin });
   try {
     const accepted = await api.post("/api/auth/accept-invitation", {
@@ -57,7 +60,10 @@ async function account(page: Page) {
         password,
       },
     });
-    expect(accepted.ok()).toBe(true);
+    expect(
+      accepted.ok(),
+      `Fixture invitation acceptance returned HTTP ${accepted.status()}`,
+    ).toBe(true);
     await page.context().addCookies((await api.storageState()).cookies);
   } finally {
     await api.dispose();

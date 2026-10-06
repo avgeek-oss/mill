@@ -42,7 +42,7 @@ export function useCurrentTime() {
   );
 }
 
-function relativeDate(value: number, current: number) {
+export function relativeDate(value: number, current: number) {
   const difference = value - current;
   const seconds = Math.abs(difference) / 1000;
   if (seconds < 30) return difference < 0 ? "Just now" : "In a moment";

@@ -50,7 +50,10 @@ for (const width of [1280, 390])
           role: "member",
         },
       });
-      expect(invitation.ok()).toBe(true);
+      expect(
+        invitation.ok(),
+        `Fixture invitation returned HTTP ${invitation.status()}`,
+      ).toBe(true);
       const account = await request.newContext({ baseURL: origin });
       const accepted = await account.post("/api/auth/accept-invitation", {
         headers: { Origin: origin },
@@ -60,7 +63,10 @@ for (const width of [1280, 390])
           password,
         },
       });
-      expect(accepted.ok()).toBe(true);
+      expect(
+        accepted.ok(),
+        `Fixture invitation acceptance returned HTTP ${accepted.status()}`,
+      ).toBe(true);
       const context = await browser.newContext({
         baseURL: origin,
         storageState: await account.storageState(),
@@ -300,7 +306,10 @@ for (const width of [1280, 390])
           headers: { Origin: origin },
           data: { email, role: "member" },
         });
-        expect(invitation.ok()).toBe(true);
+        expect(
+          invitation.ok(),
+          `Fixture invitation returned HTTP ${invitation.status()}`,
+        ).toBe(true);
         const account = await request.newContext({ baseURL: origin });
         const accepted = await account.post("/api/auth/accept-invitation", {
           headers: { Origin: origin },
@@ -310,7 +319,10 @@ for (const width of [1280, 390])
             password,
           },
         });
-        expect(accepted.ok()).toBe(true);
+        expect(
+          accepted.ok(),
+          `Fixture invitation acceptance returned HTTP ${accepted.status()}`,
+        ).toBe(true);
         const context = await browser.newContext({
           baseURL: origin,
           storageState: await account.storageState(),
@@ -489,7 +501,11 @@ for (const width of [1280, 390])
             .toBe(1);
           await expect(
             alerts(page).filter({ hasText: callerFailure }),
-          ).toHaveCount(1);
+          ).toHaveCount(0);
+          await expect(alerts(page)).toHaveCount(1);
+          await expect(alerts(page)).toContainText(
+            "Your session expired. Sign in again to continue.",
+          );
           await clearAlerts(page);
           await page.getByLabel("Email", { exact: true }).fill(email);
           await page.getByLabel("Password", { exact: true }).fill(password);

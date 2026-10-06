@@ -28,6 +28,7 @@ import {
   toast,
 } from "@mill/web-design-system";
 import {
+  useOverlaySuspension,
   ProfileSettings as SharedProfileSettings,
   PreferencesSettings,
   PasswordChangeSettings,
@@ -233,6 +234,7 @@ function ProfileSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   return (
     <section className="min-w-0">
       <PageHeading
@@ -248,8 +250,9 @@ function ProfileSettings({
           value={session.user.name}
           maxLength={120}
           onSave={async (name) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", { name }, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
       </div>
@@ -263,6 +266,7 @@ function PreferenceSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const preferenceOptions = useMemo(
     () => ({
       ...dateTimePreferenceOptions,
@@ -286,7 +290,8 @@ function PreferenceSettings({
   const notificationPending = useRef(false);
   const [notificationError, setNotificationError] = useState("");
   async function saveNotifications() {
-    if (notificationPending.current) return;
+    if (notificationPending.current || suspension.isSuspended) return;
+    const isCurrent = suspension.capture();
     notificationPending.current = true;
     setBusy(true);
     setNotificationError("");
@@ -296,10 +301,12 @@ function PreferenceSettings({
         { notificationPreferences: { assignments, mentions } },
         "PATCH",
       );
-      toast.success("Notifications saved.");
-      onRefresh();
+      if (isCurrent()) {
+        toast.success("Notifications saved.");
+        onRefresh();
+      }
     } catch (cause) {
-      setNotificationError(errorText(cause));
+      if (isCurrent()) setNotificationError(errorText(cause));
     } finally {
       notificationPending.current = false;
       setBusy(false);
@@ -321,8 +328,9 @@ function PreferenceSettings({
           options={preferenceOptions}
           formatPreview={dateTimePreview}
           onSave={async (preferences) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", preferences, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
         <AccountWidget title="Notifications">
@@ -406,8 +414,13 @@ function EmailPasswordSettings({
   emailDeliveryConfigured: boolean;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const identity = useIdentityConfirmation();
   const appSuspended = useAppSuspended();
+  const captureSuspension = useRef(suspension.capture);
+  useEffect(() => {
+    captureSuspension.current = suspension.capture;
+  }, [suspension.capture]);
   const emailIdentityHeaders = useMemo(
     () => ({ "X-Mill-User-Id": session.user.id }),
     [session.user.id],
@@ -447,6 +460,7 @@ function EmailPasswordSettings({
     };
   }, [appSuspended]);
   const loadEmailChange = useCallback(async () => {
+    const isCurrent = captureSuspension.current();
     const request = ++generation.current;
     setEmailChange((old) => ({ ...old, error: "" }));
     try {
@@ -459,10 +473,10 @@ function EmailPasswordSettings({
           validateResponse: isEmailChangeResponse,
         },
       );
-      if (active.current && request === generation.current)
+      if (isCurrent() && active.current && request === generation.current)
         setEmailChange({ value, error: "" });
     } catch (cause) {
-      if (active.current && request === generation.current)
+      if (isCurrent() && active.current && request === generation.current)
         setEmailChange((old) => ({ ...old, error: errorText(cause) }));
     }
   }, [emailIdentityHeaders]);
@@ -533,6 +547,7 @@ function EmailPasswordSettings({
     setPending(null);
   }
   async function requestEmailChange(email: string, signal: AbortSignal) {
+    const isCurrent = suspension.capture();
     const normalized = email.trim().toLowerCase();
     let result: EmailChangeResponse;
     try {
@@ -569,6 +584,7 @@ function EmailPasswordSettings({
       )
         throw cause;
     }
+    if (!isCurrent() || signal.aborted) return;
     updateEmailChange(result);
     if (active.current)
       toast.success("Confirmation email queued. Check your new address.");
@@ -625,6 +641,7 @@ function EmailPasswordSettings({
               }
               onCancelChange={() =>
                 emailMutation(async (signal) => {
+                  const isCurrent = suspension.capture();
                   try {
                     await api("/auth/email-change", {}, "DELETE", {
                       signal,
@@ -652,12 +669,14 @@ function EmailPasswordSettings({
                     }
                     if (result.pending !== null) throw cause;
                   }
+                  if (!isCurrent() || signal.aborted) return;
                   updateEmailChange({ pending: null });
                   if (active.current) toast.success("Email change canceled.");
                 })
               }
               onResendVerification={() =>
                 emailMutation(async (signal) => {
+                  const isCurrent = suspension.capture();
                   const result = await api<{
                     status: true;
                     resendAvailableAt: number;
@@ -670,6 +689,7 @@ function EmailPasswordSettings({
                       typeof value.resendAvailableAt === "number" &&
                       Number.isFinite(value.resendAvailableAt),
                   });
+                  if (!isCurrent() || signal.aborted) return;
                   if (active.current)
                     setResendAvailableAt(result.resendAvailableAt);
                   if (active.current)
@@ -694,12 +714,15 @@ function EmailPasswordSettings({
           minLength={15}
           maxLength={1024}
           onChangePassword={async ({ currentPassword, newPassword }) => {
+            const isCurrent = suspension.capture();
             await api(
               "/auth/password",
               { currentPassword, password: newPassword },
               "POST",
               { onReauthenticationRequired: identity.confirmIdentity },
             );
+            if (!isCurrent())
+              throw new DOMException("Account action canceled.", "AbortError");
             toast.success("Password changed.");
             onRefresh();
           }}
