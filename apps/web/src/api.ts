@@ -1,3 +1,7 @@
+import type {
+  DateFormatId,
+  TimeFormatId,
+} from "@avgeek-oss/design-system/utilities/date-time-preferences";
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -238,13 +242,8 @@ export type User = {
   email: string;
   role: "admin" | "member" | "viewer";
   timeZone: string;
-  dateFormat:
-    | "day-short-month-year"
-    | "short-month-day-year"
-    | "day-month-year"
-    | "month-day-year"
-    | "year-month-day";
-  timeFormat: "24-hour" | "12-hour" | "24-hour-seconds" | "12-hour-seconds";
+  dateFormat: DateFormatId;
+  timeFormat: TimeFormatId;
   notificationPreferences: {
     assignments?: boolean;
     mentions?: boolean;
