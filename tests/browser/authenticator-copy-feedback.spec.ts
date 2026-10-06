@@ -53,7 +53,7 @@ for (const [width, theme] of [
       exact: true,
     });
     const failure =
-      "Could not copy the setup key. Select it and copy it manually.";
+      "Could not copy to the clipboard. Select and copy the text instead.";
     for (let attempt = 0; attempt < 2; attempt++) {
       await copy.click();
       const toast = page
@@ -71,7 +71,7 @@ for (const [width, theme] of [
     await expect(copy).toBeDisabled();
     const success = page
       .locator('[data-slot="toast"]:not([data-exiting="true"])')
-      .filter({ hasText: "Setup key copied to clipboard." });
+      .filter({ hasText: "Copied to clipboard." });
     await expect(success).toHaveCount(0);
     await page.evaluate(() => {
       const state = (
@@ -87,9 +87,7 @@ for (const [width, theme] of [
     await expect(copy).toBeEnabled();
     await expect(copy).toHaveText("Copy");
     await expect(
-      page
-        .getByRole("main")
-        .getByText("Setup key copied to clipboard.", { exact: true }),
+      page.getByRole("main").getByText("Copied to clipboard.", { exact: true }),
     ).toHaveCount(0);
     await expect(
       page.getByLabel("Six-digit code", { exact: true }),

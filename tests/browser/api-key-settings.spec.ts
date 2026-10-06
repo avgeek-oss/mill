@@ -821,7 +821,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       exact: true,
     });
     await expect(lastUsed).toBeVisible();
-    await expect(lastUsed).toHaveText("Never");
+    await expect(lastUsed).toHaveAccessibleName("Never");
     await expect(lastUsed.locator("time")).toHaveCount(0);
     await expect(lastUsed).toHaveCSS(
       "color",
@@ -928,8 +928,11 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       await expect(
         mobile
           .getByRole("row", { name: new RegExp(longCredentialName) })
-          .getByText("Your current REST permissions", { exact: true }),
-      ).toBeAttached();
+          .getByRole("gridcell", {
+            name: "Your current REST permissions",
+            exact: true,
+          }),
+      ).toBeVisible();
       await writeFile(
         testInfo.outputPath(`api-keys-phone-${theme}-cells.json`),
         JSON.stringify(cells, null, 2),

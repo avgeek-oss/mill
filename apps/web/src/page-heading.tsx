@@ -41,7 +41,7 @@ export function PageHeading({
       }
       badge={actionsPlacement === "inline" ? actions : undefined}
       actions={actionsPlacement === "inline" ? undefined : actions}
-      className={truncateTitle ? "min-w-0" : undefined}
+      titleOverflow={truncateTitle ? "truncate" : "wrap"}
     />
   );
 }
