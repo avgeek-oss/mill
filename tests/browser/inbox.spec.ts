@@ -177,6 +177,14 @@ for (const [width, theme] of [
     await expect(rows(page)).toHaveCount(120);
     let mutations = 0;
     let arrivalId = "";
+    let releaseRefresh!: () => void;
+    let refreshStarted!: () => void;
+    const pendingRefresh = new Promise<void>((resolve) => {
+      releaseRefresh = resolve;
+    });
+    const requestedRefresh = new Promise<void>((resolve) => {
+      refreshStarted = resolve;
+    });
     await page.route("**/api/notifications", async (route) => {
       if (route.request().method() !== "PATCH") return route.continue();
       mutations++;
@@ -187,9 +195,35 @@ for (const [width, theme] of [
       arrivalId = arrival.id;
       await route.fulfill({ response });
     });
-    await inbox(page)
-      .getByRole("button", { name: "Mark all read", exact: true })
-      .click();
+    await page.route("**/api/notifications?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        mutations !== 1 ||
+        url.searchParams.get("limit") !== "100" ||
+        url.searchParams.has("cursor")
+      )
+        return route.continue();
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      refreshStarted();
+      await pendingRefresh;
+      await route.fulfill({ response });
+    });
+    try {
+      await inbox(page)
+        .getByRole("button", { name: "Mark all read", exact: true })
+        .click();
+      await requestedRefresh;
+      await expect(
+        inbox(page).getByRole("button", {
+          name: "Marking all read…",
+          exact: true,
+        }),
+      ).toBeDisabled();
+      await expect(inbox(page)).toBeFocused();
+    } finally {
+      releaseRefresh();
+    }
     await expect(rows(page)).toHaveCount(121);
     await expect(
       row(page, "Arrived after snapshot").getByText("Unread", { exact: true }),
@@ -218,6 +252,87 @@ for (const [width, theme] of [
     expect(mutations).toBe(1);
   });
 }
+
+test("mark-all refresh preserves focus deliberately moved during the update", async ({
+  page,
+}) => {
+  const who = await account("Focus ownership", "member", true);
+  await seed(who, 2);
+  await authenticateBrowserFixture(page, who.fixture!);
+  await page.goto(`/boards/${boardId}`);
+  await openNotifications(page);
+  await expect(rows(page)).toHaveCount(2);
+  const chosenLink = row(page, "Focus ownership teammate 1").getByRole("link");
+  let mutations = 0;
+  let releasePatch!: () => void;
+  let patchStarted!: () => void;
+  const pendingPatch = new Promise<void>((resolve) => {
+    releasePatch = resolve;
+  });
+  const requestedPatch = new Promise<void>((resolve) => {
+    patchStarted = resolve;
+  });
+  let releaseRefresh!: () => void;
+  let refreshStarted!: () => void;
+  const pendingRefresh = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  const requestedRefresh = new Promise<void>((resolve) => {
+    refreshStarted = resolve;
+  });
+  await page.route("**/api/notifications", async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    mutations++;
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    patchStarted();
+    await pendingPatch;
+    await route.fulfill({ response });
+  });
+  await page.route("**/api/notifications?**", async (route) => {
+    if (new URL(route.request().url()).searchParams.get("limit") !== "100")
+      return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    refreshStarted();
+    await pendingRefresh;
+    await route.fulfill({ response });
+  });
+  try {
+    await inbox(page)
+      .getByRole("button", { name: "Mark all read", exact: true })
+      .click();
+    await requestedPatch;
+    await chosenLink.focus();
+    await expect(chosenLink).toBeFocused();
+    releasePatch();
+    await requestedRefresh;
+    await expect(
+      inbox(page).getByRole("button", {
+        name: "Marking all read…",
+        exact: true,
+      }),
+    ).toBeDisabled();
+    await expect(chosenLink).toBeFocused();
+  } finally {
+    releasePatch();
+    releaseRefresh();
+  }
+  await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(2);
+  await expect(
+    inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeDisabled();
+  await expect(chosenLink).toBeFocused();
+  await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
+  await expect(
+    page.getByRole("button", { name: "Open notifications", exact: true }),
+  ).toHaveAccessibleDescription("");
+  await expect(
+    page.locator('[data-slot="toast"]:not([data-exiting="true"])'),
+  ).toHaveCount(0);
+  expect((await json(who.api, "/notifications")).unreadCount).toBe(0);
+  expect(mutations).toBe(1);
+});
 
 test.beforeAll(async ({ baseURL }) => {
   const bootstrap = await getBrowserBootstrap(baseURL!);

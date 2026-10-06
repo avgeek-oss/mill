@@ -222,8 +222,11 @@ export function NotificationsPopover({
       if (request !== markSequence.current) return;
       sequence.current++;
       // Receipts and concurrent arrivals are authoritative on the server.
-      if (currentOpen.current && !suspendedRef.current)
+      if (currentOpen.current && !suspendedRef.current) {
+        if (markFocus.current && document.activeElement === markFocus.current)
+          dialog.current?.focus({ preventScroll: true });
         await currentLoad.current(undefined, true);
+      }
       if (request !== markSequence.current) return;
       onRead();
       if (
