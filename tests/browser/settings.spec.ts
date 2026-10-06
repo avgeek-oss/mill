@@ -226,9 +226,7 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   ).toContainText("+00:00");
   await page.getByRole("option", { name: "UTC +00:00", exact: true }).click();
   await page.getByRole("button", { name: /Time format/ }).click();
-  await page
-    .getByRole("option", { name: "12-hour (2:30 PM)", exact: true })
-    .click();
+  await page.getByRole("option", { name: "2:30 PM", exact: true }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(feedbackToast(page, "Preferences updated")).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /email/i })).toHaveCount(0);

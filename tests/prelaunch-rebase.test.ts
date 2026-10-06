@@ -35,7 +35,16 @@ const baseline = await readFile(
   new URL("../packages/database/migrations/001_initial.sql", import.meta.url),
   "utf8",
 );
-const legacyBaseline = baseline
+const previousBaseline = baseline
+  .replace(
+    "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
+    "CHECK (date_format IN ('day-short-month-year','day-month-year','month-day-year','year-month-day'))",
+  )
+  .replace(
+    "CHECK (time_format IN ('24-hour','12-hour','24-hour-seconds','12-hour-seconds'))",
+    "CHECK (time_format IN ('24-hour','12-hour'))",
+  );
+const legacyBaseline = previousBaseline
   .replace("  passkey_authenticated_at timestamptz,\n", "")
   .replace(
     "CREATE TABLE recovery_codes",

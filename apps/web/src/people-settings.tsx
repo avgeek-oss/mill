@@ -462,6 +462,8 @@ export function PeopleSettings({
                 formatDate={(value) => (
                   <RelativeDateTime
                     value={value}
+                    dateFormat={session.user.dateFormat}
+                    timeFormat={session.user.timeFormat}
                     timeZone={session.user.timeZone}
                     label="Invitation expires"
                     prefix="Expires"
