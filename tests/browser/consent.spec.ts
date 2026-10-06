@@ -441,10 +441,18 @@ test("a delayed old decision cannot redirect a new request and scoped consent gr
       });
       expect(outside.isError).toBe(true);
       for (const path of [`/api/boards/${selected.id}`, "/api/auth/me"]) {
-        const rest = await client.get(path);
+        const requestId = `consent-rest-${randomUUID()}`;
+        const rest = await client.get(path, {
+          headers: { "X-Request-ID": requestId },
+        });
         expect(rest.status()).toBe(403);
+        expect(rest.headers()["x-request-id"]).toBe(requestId);
         expect(await rest.json()).toEqual({
-          error: "OAuth credentials use MCP",
+          error: {
+            code: "FORBIDDEN",
+            message: "OAuth credentials use MCP",
+            requestId,
+          },
         });
       }
     } finally {
@@ -508,9 +516,19 @@ test("consent completes a coherent large directory after rename, deletion and cr
           prefix: "CCL",
         })
       ).board;
-      const response = await route.fetch();
+      const requestId = `consent-directory-${randomUUID()}`;
+      const response = await route.fetch({
+        headers: { ...route.request().headers(), "X-Request-ID": requestId },
+      });
       expect(response.status()).toBe(409);
-      expect((await response.json()).code).toBe("board_list_changed");
+      expect(response.headers()["x-request-id"]).toBe(requestId);
+      expect(await response.json()).toEqual({
+        error: {
+          code: "board_list_changed",
+          message: "Board list changed. Reload boards to continue.",
+          requestId,
+        },
+      });
       await route.fulfill({ response });
     });
     await clientCallback(page);
@@ -713,7 +731,7 @@ test("phone consent in both themes keeps long context readable and supports keyb
           );
         expect(await coarseInput(), "Phone uses coarse touch input").toBe(true);
         const bounds = await deny.boundingBox();
-        expect(bounds?.height ?? 0).toBe(34);
+        expect(bounds?.height ?? 0).toBe(40);
         // A full-page resize clears Chromium touch emulation on tall pages.
         await mobile.screenshot({
           path: testInfo.outputPath(`consent-phone-${theme}.png`),

@@ -55,7 +55,7 @@ async function createPage(
     reducedMotion,
   });
   await context.addInitScript(
-    (value) => localStorage.setItem("mill:theme", value),
+    (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
     theme,
   );
   const page = await context.newPage();
@@ -63,11 +63,12 @@ async function createPage(
   return { context, page };
 }
 
-const drawer = (page: Page) => page.locator(".application-navigation-drawer");
+const drawer = (page: Page) =>
+  page.getByRole("dialog", { name: "Navigation", exact: true });
 
 async function openNavigation(page: Page) {
   await page
-    .getByRole("button", { name: "Open navigation", exact: true })
+    .getByRole("button", { name: "Toggle navigation", exact: true })
     .click();
   await expect(drawer(page)).toBeVisible();
   await expect
@@ -90,9 +91,9 @@ async function navigationSnapshot(page: Page) {
     navigation: [...element.querySelectorAll("nav")].map((nav) => ({
       label: nav.getAttribute("aria-label"),
       text: nav.textContent,
-      current: [...nav.querySelectorAll('[aria-current="page"]')].map(
-        (link) => link.textContent,
-      ),
+      current: [
+        ...nav.querySelectorAll('[aria-current="page"], a.bg-default'),
+      ].map((link) => link.textContent),
     })),
   }));
 }
@@ -100,7 +101,7 @@ async function navigationSnapshot(page: Page) {
 async function slowExit(page: Page) {
   // Extend native transitions so early, middle and late frames can be inspected deterministically.
   await page.addStyleTag({
-    content: `.application-navigation-drawer { --drawer-exit-duration: 10s; }
+    content: `[role="dialog"][aria-label="Navigation"] { --drawer-exit-duration: 10s !important; }
       .drawer__backdrop[data-exiting="true"] { transition-duration: 10s; }`,
   });
 }
@@ -154,8 +155,16 @@ async function inspectExit(
     }
   });
   await expect(drawer(page)).toHaveCount(0);
+  const focusState = await page.evaluate(() => ({
+    tag: document.activeElement?.tagName,
+    id: document.activeElement?.id,
+    role: document.activeElement?.getAttribute("role"),
+    text: document.activeElement?.textContent?.slice(0, 160),
+    connected: document.activeElement?.isConnected,
+  }));
   await expect(
-    page.getByRole("button", { name: "Open navigation", exact: true }),
+    page.getByRole("button", { name: "Toggle navigation", exact: true }),
+    JSON.stringify(focusState),
   ).toBeFocused();
 }
 
@@ -175,7 +184,7 @@ for (const width of [390, 768])
         const account = await navigationSnapshot(page);
         expect(account.secondary).toBe("true");
         await expect(
-          drawer(page).getByRole("link", { name: "Profile", exact: true }),
+          drawer(page).getByRole("button", { name: "Profile", exact: true }),
         ).toHaveAttribute("aria-current", "page");
         await drawer(page)
           .getByRole("link", { name: "Boards", exact: true })
@@ -193,9 +202,7 @@ for (const width of [390, 768])
         const plain = await navigationSnapshot(page);
         expect(plain.secondary).toBe("false");
         await expect(
-          drawer(page).getByRole("navigation", {
-            name: "Account settings navigation",
-          }),
+          drawer(page).getByRole("button", { name: "Profile", exact: true }),
         ).toHaveCount(0);
         await drawer(page)
           .getByRole("link", { name: "Account settings", exact: true })
@@ -220,16 +227,14 @@ for (const width of [390, 768])
         await openNavigation(page);
         await expect(
           drawer(page).getByRole("navigation", {
-            name: "Team settings navigation",
+            name: "Page navigation",
           }),
         ).toBeVisible();
         await expect(
-          drawer(page).getByRole("link", { name: "General", exact: true }),
+          drawer(page).getByRole("button", { name: "General", exact: true }),
         ).toHaveAttribute("aria-current", "page");
         await expect(
-          drawer(page).getByRole("navigation", {
-            name: "Account settings navigation",
-          }),
+          drawer(page).getByRole("button", { name: "Profile", exact: true }),
         ).toHaveCount(0);
       } finally {
         await context.close();
@@ -255,7 +260,7 @@ for (const theme of ["light", "dark"] as const)
       await slowExit(page);
       await openNavigation(page);
       const filters = drawer(page).getByRole("navigation", {
-        name: "Filters navigation",
+        name: "Page navigation",
       });
       await expect(
         filters.getByRole("button", { name: /Newest first/ }),
@@ -283,7 +288,7 @@ for (const theme of ["light", "dark"] as const)
         "false",
       );
       await expect(
-        drawer(page).getByRole("navigation", { name: "Filters navigation" }),
+        drawer(page).getByRole("button", { name: /All status/ }),
       ).toHaveCount(0);
     } finally {
       await context.close();
@@ -316,7 +321,7 @@ test("Escape and close keep same-route navigation and restore focus", async ({
     }
     await openNavigation(page);
     await expect(
-      drawer(page).getByRole("link", { name: "Preferences", exact: true }),
+      drawer(page).getByRole("button", { name: "Preferences", exact: true }),
     ).toHaveAttribute("aria-current", "page");
   } finally {
     await context.close();
@@ -362,16 +367,23 @@ test("desktop navigation updates immediately without a mobile exit snapshot", as
   const { context, page } = await createPage(browser, 1280, "dark");
   try {
     await page.goto("/settings/profile");
-    const primary = page.locator(".application-sidebar");
+    const primary = page.getByRole("navigation", {
+      name: "Workspace navigation",
+      exact: true,
+    });
     await expect(
-      page.getByRole("navigation", { name: "Account settings navigation" }),
+      page
+        .getByRole("navigation", { name: "Page navigation" })
+        .getByRole("button", { name: "Profile", exact: true }),
     ).toBeVisible();
     await primary.getByRole("link", { name: "Boards", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Boards", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("navigation", { name: "Account settings navigation" }),
+      page
+        .getByRole("navigation", { name: "Page navigation" })
+        .getByRole("button", { name: "Profile", exact: true }),
     ).toHaveCount(0);
     await expect(drawer(page)).toHaveCount(0);
     await primary
@@ -381,7 +393,9 @@ test("desktop navigation updates immediately without a mobile exit snapshot", as
       page.getByRole("heading", { name: "General", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("navigation", { name: "Team settings navigation" }),
+      page
+        .getByRole("navigation", { name: "Page navigation" })
+        .getByRole("button", { name: "General", exact: true }),
     ).toBeVisible();
   } finally {
     await context.close();
@@ -426,13 +440,11 @@ test("reopening during an interrupted exit releases destination navigation", asy
       "false",
     );
     await expect(
-      drawer(page).getByRole("navigation", {
-        name: "Account settings navigation",
-      }),
+      drawer(page).getByRole("button", { name: "Profile", exact: true }),
     ).toHaveCount(0);
     await expect(
       drawer(page).getByRole("link", { name: "Boards", exact: true }),
-    ).toHaveAttribute("aria-current", "page");
+    ).toHaveClass(/\bbg-default\b/);
     await expect(
       page.getByRole("heading", { name: "Boards", exact: true }),
     ).toBeVisible();

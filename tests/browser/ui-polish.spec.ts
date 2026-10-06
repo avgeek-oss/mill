@@ -17,16 +17,17 @@ let fixture: BrowserFixtureSession;
 let api: APIRequestContext;
 let boardId: string;
 let taskId: string;
+let taskIdentifier: string;
 let memberName: string;
 const assigneeName =
   "Release coordinator responsible for the complete product launch and documentation review";
 
-async function expectCompactButton(
+async function expectNativeButton(
   button: Locator,
   height: number,
   {
     iconOnly = false,
-    iconSize = 14,
+    iconSize = 16,
   }: { iconOnly?: boolean; iconSize?: number } = {},
 ) {
   const metrics = await button.evaluate((element) => {
@@ -45,8 +46,8 @@ async function expectCompactButton(
   });
   expect(metrics.height).toBe(height);
   if (iconOnly) expect(metrics.width).toBe(height);
-  expect(metrics.fontSize).toBe("11.52px");
-  expect(metrics.lineHeight).toBe("16px");
+  expect(metrics.fontSize).toBe("14px");
+  expect(metrics.lineHeight).toBe("20px");
   if (metrics.iconWidth !== undefined) {
     expect(metrics.iconWidth).toBe(iconSize);
     expect(metrics.iconHeight).toBe(iconSize);
@@ -100,7 +101,9 @@ test.beforeAll(async ({ baseURL }) => {
     },
   });
   expect(taskResponse.status()).toBe(201);
-  taskId = (await taskResponse.json()).task.id;
+  const createdTask = (await taskResponse.json()).task;
+  taskId = createdTask.id;
+  taskIdentifier = createdTask.identifier;
   expect(
     (
       await api.post(`/api/tasks/${taskId}/comments`, {
@@ -115,7 +118,7 @@ test.afterAll(async () => {
 
 for (const width of [1280, 390])
   for (const theme of ["light", "dark"] as const) {
-    test(`compact controls, bounded selects and caret mentions at ${width}px in ${theme}`, async ({
+    test(`native controls, bounded selects and caret mentions at ${width}px in ${theme}`, async ({
       browser,
     }, testInfo) => {
       const context = await browser.newContext({
@@ -126,7 +129,7 @@ for (const width of [1280, 390])
       });
       try {
         await context.addInitScript(
-          (value) => localStorage.setItem("mill:theme", value),
+          (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
           theme,
         );
         const page = await context.newPage();
@@ -137,39 +140,50 @@ for (const width of [1280, 390])
           exact: true,
         });
         await expect(edit).toBeVisible();
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         const compactHeight = width === 390 ? 34 : 32;
-        await expectCompactButton(edit, compactHeight, { iconOnly: true });
-        await expectCompactButton(
+        const buttonHeight = width === 390 ? 40 : 36;
+        const buttonIconSize = width === 390 ? 20 : 16;
+        await expectNativeButton(edit, buttonHeight, {
+          iconOnly: true,
+          iconSize: buttonIconSize,
+        });
+        await expectNativeButton(
           page.getByRole("button", {
             name: `Delete comment by ${fixture.identity.user.name}`,
             exact: true,
           }),
           compactHeight,
-          { iconOnly: true },
+          { iconOnly: true, iconSize: buttonIconSize },
         );
         for (const headerButton of [
           page.locator(".navigation-toggle"),
           page.getByRole("button", { name: "Open notifications", exact: true }),
-          page.getByRole("button", { name: /^Appearance:/ }),
         ]) {
           await expect(headerButton).toHaveCount(1);
           const dimensions = await headerButton.boundingBox();
           expect(dimensions!.height).toBe(32);
           expect(dimensions!.width).toBe(32);
         }
+        const appearance = page.getByRole("button", { name: /^Appearance:/ });
+        await expect(appearance).toHaveCount(1);
+        const appearanceDimensions = await appearance.boundingBox();
+        expect(appearanceDimensions!.height).toBe(buttonHeight);
+        expect(appearanceDimensions!.width).toBe(buttonHeight);
         await edit.click();
         const editModal = page.getByRole("dialog", {
           name: "Edit task",
           exact: true,
         });
         await expect(editModal).toBeVisible();
-        await expectCompactButton(
-          editModal.getByRole("button", { name: "Close", exact: true }),
-          compactHeight,
-        );
-        await editModal
-          .getByRole("button", { name: "Close", exact: true })
-          .click();
+        const close = editModal.getByRole("button", {
+          name: "Close dialog",
+          exact: true,
+        });
+        const closeDimensions = await close.boundingBox();
+        expect(closeDimensions!.width).toBe(24);
+        expect(closeDimensions!.height).toBe(24);
+        await close.click();
         const assignee = page.getByRole("button", { name: /Assignee$/ });
         await expect(assignee).toContainText(assigneeName);
         const bounds = await assignee.evaluate((e) => {
@@ -214,9 +228,19 @@ for (const width of [1280, 390])
           name: "Send comment",
           exact: true,
         });
+        const composerMetrics = await composer.evaluate((element) => ({
+          height: element.getBoundingClientRect().height,
+          fontSize: parseFloat(getComputedStyle(element).fontSize),
+        }));
+        expect(composerMetrics.height).toBeGreaterThanOrEqual(64);
+        if (width === 390)
+          expect(composerMetrics.fontSize).toBeGreaterThanOrEqual(16);
         await expect(send).toBeDisabled();
         await expect(send).toHaveClass(/button--secondary/);
-        await expectCompactButton(send, compactHeight, { iconOnly: true });
+        await expectNativeButton(send, buttonHeight, {
+          iconOnly: true,
+          iconSize: buttonIconSize,
+        });
         await composer.fill(
           "Hello @al\n\nAnother line\nAnother line\nAnother line",
         );
@@ -230,6 +254,20 @@ for (const width of [1280, 390])
           name: "Mention a person",
         });
         await expect(mentions).toBeVisible();
+        const activeMention = await composer.evaluate((element) => {
+          const id = element.getAttribute("aria-activedescendant");
+          const option = id ? document.getElementById(id) : null;
+          return {
+            id,
+            role: option?.getAttribute("role"),
+            insideList:
+              option?.closest('[role="listbox"]')?.id ===
+              element.getAttribute("aria-controls"),
+          };
+        });
+        expect(activeMention.id).toBeTruthy();
+        expect(activeMention.role).toBe("option");
+        expect(activeMention.insideList).toBe(true);
         const caretDropdown = await mentions.boundingBox();
         const textarea = await composer.boundingBox();
         expect(caretDropdown!.x).toBeGreaterThanOrEqual(0);
@@ -244,7 +282,10 @@ for (const width of [1280, 390])
         await expect(composer).toHaveValue(/Hello @Alex Morgan/);
         await expect(send).toBeEnabled();
         await expect(send).toHaveClass(/button--primary/);
-        await expectCompactButton(send, compactHeight, { iconOnly: true });
+        await expectNativeButton(send, buttonHeight, {
+          iconOnly: true,
+          iconSize: buttonIconSize,
+        });
         await expect(mentions).toBeHidden();
         await expect
           .poll(() =>
@@ -256,6 +297,22 @@ for (const width of [1280, 390])
           .toEqual({
             start: "Hello @Alex Morgan".length,
             end: "Hello @Alex Morgan".length,
+          });
+        await composer.fill("Hello @al");
+        await expect(mentions).toBeVisible();
+        await composer.press("ArrowDown");
+        await composer.press("Enter");
+        await expect(composer).toHaveValue("Hello @Alex Morgan ");
+        await expect
+          .poll(() =>
+            composer.evaluate((element) => {
+              const input = element as HTMLTextAreaElement;
+              return { start: input.selectionStart, end: input.selectionEnd };
+            }),
+          )
+          .toEqual({
+            start: "Hello @Alex Morgan ".length,
+            end: "Hello @Alex Morgan ".length,
           });
         await composer.press("ControlOrMeta+A");
         await expect
@@ -326,6 +383,40 @@ for (const width of [1280, 390])
         await expect(
           page.getByRole("grid", { name: "Task list", exact: true }),
         ).toBeVisible();
+        const taskRow = page.locator(`.task-table [data-key="${taskId}"]`);
+        const identifier = taskRow
+          .getByText(taskIdentifier, { exact: true })
+          .filter({ visible: true });
+        await expect(identifier).toHaveCount(1);
+        const identifierMetrics = await identifier.evaluate((element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element);
+          const text = range.getBoundingClientRect();
+          const bounds = element.getBoundingClientRect();
+          const icon = element
+            .parentElement!.querySelector('[role="img"]')!
+            .getBoundingClientRect();
+          return {
+            clipped: element.scrollWidth > element.clientWidth,
+            overflow: getComputedStyle(element).textOverflow,
+            glyphLeft: text.left,
+            glyphRight: text.right,
+            left: bounds.left,
+            right: bounds.right,
+            iconRight: icon.right,
+          };
+        });
+        expect(identifierMetrics.clipped).toBe(false);
+        expect(identifierMetrics.overflow).not.toBe("ellipsis");
+        expect(identifierMetrics.glyphLeft).toBeGreaterThanOrEqual(
+          identifierMetrics.left - 1,
+        );
+        expect(identifierMetrics.glyphRight).toBeLessThanOrEqual(
+          identifierMetrics.right + 1,
+        );
+        expect(
+          identifierMetrics.left - identifierMetrics.iconRight,
+        ).toBeCloseTo(8, 0);
         const identities = page.locator(
           `.task-table [data-key="${taskId}"] [data-slot=avatar]`,
         );
@@ -343,14 +434,16 @@ for (const width of [1280, 390])
           name: "New task",
           exact: true,
         });
-        await expectCompactButton(newTask, compactHeight);
+        await expectNativeButton(newTask, buttonHeight, {
+          iconSize: buttonIconSize,
+        });
         const pagination = page.getByRole("group", {
           name: "Task list pagination",
         });
-        for (const name of ["Previous page", "Next page"]) {
-          await expectCompactButton(
+        for (const name of ["Previous", "Next"]) {
+          await expectNativeButton(
             pagination.getByRole("button", { name, exact: true }),
-            compactHeight,
+            width === 390 ? 36 : 32,
           );
         }
         await newTask.click();
@@ -361,10 +454,39 @@ for (const width of [1280, 390])
         await expect(
           modal.getByRole("button", { name: /Assignee$/ }),
         ).toBeVisible();
+        const modalSpacing = await modal.evaluate((element) => {
+          const style = getComputedStyle(element);
+          const bounds = element.getBoundingClientRect();
+          const footer = element
+            .querySelector('[data-slot="modal-footer"]')!
+            .getBoundingClientRect();
+          return {
+            padding: [
+              style.paddingTop,
+              style.paddingRight,
+              style.paddingBottom,
+              style.paddingLeft,
+            ],
+            footerBottomGap: bounds.bottom - footer.bottom,
+          };
+        });
+        expect(modalSpacing.padding).toEqual(["20px", "20px", "20px", "20px"]);
+        expect(modalSpacing.footerBottomGap).toBeCloseTo(20, 0);
+        if (width === 390) {
+          for (const name of ["Title", "Description"]) {
+            const fieldFontSize = await modal
+              .getByLabel(name, { exact: true })
+              .evaluate((element) =>
+                parseFloat(getComputedStyle(element).fontSize),
+              );
+            expect(fieldFontSize).toBeGreaterThanOrEqual(16);
+          }
+        }
         for (const name of ["Cancel", "Create task"]) {
-          await expectCompactButton(
+          await expectNativeButton(
             modal.getByRole("button", { name, exact: true }),
-            compactHeight,
+            buttonHeight,
+            { iconSize: buttonIconSize },
           );
         }
         await expect(modal.getByRole("button", { name: /Agent$/ })).toHaveCount(
@@ -457,12 +579,13 @@ test("long task details scroll with the page instead of separate task panes", as
       });
       try {
         await context.addInitScript(
-          (value) => localStorage.setItem("mill:theme", value),
+          (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
           theme,
         );
         const page = await context.newPage();
         await authenticateBrowserFixture(page, fixture);
         await page.goto(`/boards/${boardId}/tasks/${longTaskId}`);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         const properties = page.getByRole("complementary", {
           name: "Task properties",
         });

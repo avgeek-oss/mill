@@ -161,7 +161,7 @@ async function createDialog(
   });
   await dialog.getByLabel("Name", { exact: true }).fill(name);
   await expect(
-    dialog.getByRole("button", { name: "Create API key", exact: true }),
+    dialog.getByRole("button", { name: "Create key", exact: true }),
   ).toBeEnabled();
   return dialog;
 }
@@ -171,7 +171,9 @@ async function choose(
   name: string,
   activation: "pointer" | "touch" | "keyboard" = "pointer",
 ) {
-  const trigger = page.getByRole("button", { name: new RegExp(`${label}$`) });
+  const trigger = page.getByRole("button", {
+    name: new RegExp(`${label}\\*$`),
+  });
   await expect(trigger).toBeEnabled();
   if (activation === "touch") await trigger.tap();
   else if (activation === "keyboard") {
@@ -262,9 +264,13 @@ test("initial loading, failed loading, empty list and the personal key form rema
   const region = page.getByRole("region", { name: "API keys", exact: true });
   try {
     await expect(region).toHaveAttribute("aria-busy", "true");
-    await expect(
-      region.getByText("Loading API keys…", { exact: true }),
-    ).toHaveCount(0);
+    const loading = region
+      .getByRole("status")
+      .filter({ hasText: "Loading API keys" });
+    await expect(loading).toBeAttached();
+    await expect(loading).toHaveClass(/sr-only/);
+    await expect(loading).toHaveCSS("width", "1px");
+    await expect(loading).toHaveCSS("height", "1px");
     await expect(region.getByText("No API keys", { exact: true })).toHaveCount(
       0,
     );
@@ -291,10 +297,10 @@ test("initial loading, failed loading, empty list and the personal key form rema
   await expect(
     dialog.getByRole("button", { name: /Board access$/ }),
   ).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: /Expiry$/ })).toContainText(
-    "30 days",
-  );
-  await dialog.getByRole("button", { name: /Expiry$/ }).click();
+  await expect(
+    dialog.getByRole("button", { name: /Expires after\*$/ }),
+  ).toContainText("30 days");
+  await dialog.getByRole("button", { name: /Expires after\*$/ }).click();
   await expect(page.getByRole("option")).toHaveText([
     "30 days",
     "60 days",
@@ -302,13 +308,11 @@ test("initial loading, failed loading, empty list and the personal key form rema
     "365 days",
   ]);
   await page.getByRole("option", { name: "365 days", exact: true }).click();
-  await expect(dialog.getByRole("button", { name: /Expiry$/ })).toContainText(
-    "365 days",
-  );
+  await expect(
+    dialog.getByRole("button", { name: /Expires after\*$/ }),
+  ).toContainText("365 days");
   expect(boardLookups).toBe(directoryBaseline);
-  await dialog
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Create key", exact: true }).click();
   const reveal = page.getByRole("dialog", {
     name: "Copy your API key",
     exact: true,
@@ -353,18 +357,16 @@ test("response loss retries the same creation, reveals the original token locall
     } else await route.continue();
   });
   const dialog = await createDialog(page, "Response recovery assistant");
-  await expect(dialog.getByRole("button", { name: /Expiry$/ })).toContainText(
-    "30 days",
-  );
-  await dialog
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
+  await expect(
+    dialog.getByRole("button", { name: /Expires after\*$/ }),
+  ).toContainText("30 days");
+  await dialog.getByRole("button", { name: "Create key", exact: true }).click();
   try {
     await expect(
       dialog.getByRole("button", { name: "Creating…", exact: true }),
     ).toBeDisabled();
     await expect(
-      dialog.getByRole("button", { name: "Close dialog", exact: true }),
+      dialog.getByRole("button", { name: "Close", exact: true }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeVisible();
@@ -372,15 +374,13 @@ test("response loss retries the same creation, reveals the original token locall
     release();
   }
   await expect(feedbackToast(page, "Mill could not be reached")).toBeVisible();
-  await dialog
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Create key", exact: true }).click();
   const reveal = page.getByRole("dialog", { name: "Copy your API key" });
   await expect(reveal).toBeVisible();
   expect(keys.length).toBe(2);
   expect(keys[0] === keys[1]).toBe(true);
   expect(
-    (await reveal.getByLabel("API key", { exact: true }).inputValue()) ===
+    (await reveal.locator('[data-slot="code-block-code"] code').innerText()) ===
       original,
     "The retried creation reveals the original credential",
   ).toBe(true);
@@ -395,18 +395,16 @@ test("response loss retries the same creation, reveals the original token locall
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
     origin,
   });
-  await reveal
-    .getByRole("button", { name: "Copy API key", exact: true })
-    .click();
-  await expect(
-    page.getByText("API key copied.", { exact: true }),
-  ).toBeVisible();
+  await reveal.getByRole("button", { name: "Copy code", exact: true }).click();
+  await expect(feedbackToast(page, "Copied to clipboard.")).toBeVisible();
   expect(
     (await page.evaluate(() => navigator.clipboard.readText())) === original,
     "Copy places the original credential on the clipboard",
   ).toBe(true);
   await reveal.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-slot="code-block-code"] code')).toHaveCount(
+    0,
+  );
   const list = await json(page.request, "/credentials");
   const created = list.items.filter(
     (item: { name: string }) => item.name === "Response recovery assistant",
@@ -423,10 +421,8 @@ test("response loss retries the same creation, reveals the original token locall
     ),
   ).toBe(30);
   const next = await createDialog(page, "Response recovery assistant");
-  await choose(page, "Expiry", "60 days");
-  await next
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
+  await choose(page, "Expires after", "60 days");
+  await next.getByRole("button", { name: "Create key", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Copy your API key" }),
   ).toBeVisible();
@@ -558,7 +554,7 @@ test("a list response started before revocation cannot restore the removed key",
   try {
     const create = await createDialog(page, "Created during pending list");
     await create
-      .getByRole("button", { name: "Create API key", exact: true })
+      .getByRole("button", { name: "Create key", exact: true })
       .click();
     await snapshot;
     await page
@@ -647,11 +643,11 @@ test("older active credentials remain reachable and revocable after the default 
   await page.getByRole("button", { name: "Retry" }).click();
   try {
     await expect(
-      page.getByRole("button", { name: "Load more credentials" }),
+      page.getByRole("button", { name: "Loading…", exact: true }),
     ).toBeDisabled();
     const creation = await createDialog(page, "Created during continuation");
     await creation
-      .getByRole("button", { name: "Create API key", exact: true })
+      .getByRole("button", { name: "Create key", exact: true })
       .click();
     await expect(
       page.getByRole("dialog", { name: "Copy your API key" }),
@@ -750,7 +746,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
   expect((await mutation()).status()).toBe(403);
   await openKeys(page);
   const dialog = await createDialog(page, "Viewer personal key", "keyboard");
-  await choose(page, "Expiry", "60 days", "keyboard");
+  await choose(page, "Expires after", "60 days", "keyboard");
   await expect(dialog.getByRole("button", { name: /Access$/ })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(
@@ -820,9 +816,17 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       0,
     );
     await expect(unusedRow.locator("td").nth(2)).not.toBeEmpty();
-    await expect(
-      unusedRow.getByText("Never", { exact: true }).filter({ visible: true }),
-    ).toHaveClass(/text-muted/);
+    const lastUsed = unusedRow.getByRole("gridcell").nth(4);
+    await expect(lastUsed).toBeVisible();
+    await expect(lastUsed).toHaveText("Never");
+    await expect(lastUsed.locator("time")).toHaveCount(0);
+    await expect(lastUsed).toHaveCSS(
+      "color",
+      await unusedRow
+        .getByRole("gridcell")
+        .nth(1)
+        .evaluate((element) => getComputedStyle(element).color),
+    );
     await expect
       .poll(() =>
         page
@@ -944,7 +948,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
         "Phone viewer personal key",
         "touch",
       );
-      await choose(mobile, "Expiry", "90 days", "touch");
+      await choose(mobile, "Expires after", "90 days", "touch");
       expect(
         await form
           .getByLabel("Name", { exact: true })
@@ -980,26 +984,30 @@ test("incomplete creation responses preserve unresolved keys when a draft is cha
   const dialog = await createDialog(page, names[0]);
   for (const name of names) {
     await dialog.getByLabel("Name", { exact: true }).fill(name);
-    await choose(page, "Expiry", name === names[0] ? "30 days" : "90 days");
+    await choose(
+      page,
+      "Expires after",
+      name === names[0] ? "30 days" : "90 days",
+    );
     await dialog
-      .getByRole("button", { name: "Create API key", exact: true })
+      .getByRole("button", { name: "Create key", exact: true })
       .click();
     await expect(
       feedbackToast(page, "The server response was incomplete"),
     ).toBeVisible();
-    await expect(page.getByLabel("API key", { exact: true })).toHaveCount(0);
+    await expect(
+      page.locator('[data-slot="code-block-code"] code'),
+    ).toHaveCount(0);
   }
   await dialog.getByLabel("Name", { exact: true }).fill(names[0]);
-  await choose(page, "Expiry", "30 days");
-  await dialog
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
+  await choose(page, "Expires after", "30 days");
+  await dialog.getByRole("button", { name: "Create key", exact: true }).click();
   const reveal = page.getByRole("dialog", { name: "Copy your API key" });
   await expect(reveal).toBeVisible();
   expect(keys[0] !== keys[1]).toBe(true);
   expect(keys[0] === keys[2]).toBe(true);
   expect(
-    (await reveal.getByLabel("API key", { exact: true }).inputValue()) ===
+    (await reveal.locator('[data-slot="code-block-code"] code').innerText()) ===
       original,
     "Reverting an unresolved draft reveals its original credential",
   ).toBe(true);

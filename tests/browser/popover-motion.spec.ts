@@ -109,9 +109,193 @@ async function clickWhileOpening(page: Page, popover: Locator, item: Locator) {
   await expect(page.locator('[data-testid="underlay"]')).toHaveCount(0);
 }
 
+async function mobileNavigationMotion(page: Page, theme: "light" | "dark") {
+  const toggle = page.getByRole("button", {
+    name: "Toggle navigation",
+    exact: true,
+    includeHidden: true,
+  });
+  const drawer = page.getByRole("dialog", { name: "Navigation", exact: true });
+  const pageNavigation = drawer.getByRole("navigation", {
+    name: "Page navigation",
+    exact: true,
+  });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await toggle.tap();
+    await expect(
+      pageNavigation.getByRole("button", { name: "API Keys", exact: true }),
+    ).toBeVisible();
+    const frames = await drawer.evaluate(async (element) => {
+      const frames: {
+        width: number;
+        height: number;
+        columns: string;
+        current: string[];
+      }[] = [];
+      for (let frame = 0; frame < 12; frame++) {
+        const bounds = element.getBoundingClientRect();
+        frames.push({
+          width: bounds.width,
+          height: bounds.height,
+          columns: getComputedStyle(element).gridTemplateColumns,
+          current: [...element.querySelectorAll('[aria-current="page"]')].map(
+            (item) => item.textContent ?? "",
+          ),
+        });
+        await new Promise(requestAnimationFrame);
+      }
+      return frames;
+    });
+    for (const frame of frames) expect(frame).toEqual(frames[0]);
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0, { timeout: 1000 });
+    await expect(toggle).toBeFocused();
+  }
+  await page.addStyleTag({
+    content:
+      '[role="dialog"][aria-label="Navigation"] { --drawer-enter-duration: 10s !important; }',
+  });
+  await toggle.click();
+  await expect(drawer).toBeVisible();
+  expect(
+    await drawer.evaluate((element) => {
+      const animation = element
+        .getAnimations()
+        .find((animation) => animation.playState === "running");
+      if (!animation) return false;
+      animation.pause();
+      animation.currentTime =
+        Number(animation.effect!.getComputedTiming().duration) * 0.45;
+      return true;
+    }),
+  ).toBe(true);
+  const preferences = pageNavigation.getByRole("button", {
+    name: "Preferences",
+    exact: true,
+  });
+  const bounds = (await preferences.boundingBox())!;
+  await page.mouse.move(
+    bounds.x + bounds.width / 2,
+    bounds.y + bounds.height / 2,
+  );
+  const layoutBefore = await preferences.evaluate((element) => ({
+    width: (element as HTMLElement).offsetWidth,
+    height: (element as HTMLElement).offsetHeight,
+  }));
+  await page.mouse.down();
+  await page.waitForTimeout(50);
+  expect(
+    await preferences.evaluate(
+      (element) =>
+        element.matches(":active") ||
+        element.getAttribute("data-pressed") === "true",
+    ),
+  ).toBe(true);
+  const pressed = (await preferences.boundingBox())!;
+  expect(pressed.width / bounds.width).toBeGreaterThanOrEqual(0.97);
+  expect(pressed.width).toBeLessThanOrEqual(bounds.width);
+  expect(pressed.height / bounds.height).toBeGreaterThanOrEqual(0.97);
+  expect(pressed.height).toBeLessThanOrEqual(bounds.height);
+  expect(pressed.x + pressed.width / 2).toBeCloseTo(
+    bounds.x + bounds.width / 2,
+    1,
+  );
+  expect(pressed.y + pressed.height / 2).toBeCloseTo(
+    bounds.y + bounds.height / 2,
+    1,
+  );
+  expect(
+    await preferences.evaluate((element) => ({
+      width: (element as HTMLElement).offsetWidth,
+      height: (element as HTMLElement).offsetHeight,
+    })),
+  ).toEqual(layoutBefore);
+  await expect(page).toHaveURL(/\/settings\/api-keys$/);
+  await page.mouse.up();
+  await expect(page).toHaveURL(/\/settings\/preferences$/);
+  await expect(drawer).toHaveCount(0, { timeout: 1000 });
+  await expect(toggle).toBeFocused();
+
+  await page.addStyleTag({
+    content:
+      '[role="dialog"][aria-label="Navigation"] { --drawer-enter-duration: 220ms !important; --drawer-exit-duration: 10s !important; } .drawer__backdrop[data-exiting="true"] { transition-duration: 10s !important; }',
+  });
+  const finishDrawer = () =>
+    page.evaluate(() => {
+      for (const animation of document.getAnimations()) {
+        const target = (animation.effect as KeyframeEffect | null)?.target;
+        if (
+          target instanceof Element &&
+          target.closest(".drawer__content, .drawer__backdrop")
+        )
+          animation.finish();
+      }
+    });
+  await toggle.click();
+  await expect(drawer).toBeVisible();
+  await finishDrawer();
+  await page.keyboard.press("Escape");
+  expect(await pauseFade(drawer)).toBe(true);
+  await page.keyboard.press("Control+b");
+  await expect(drawer).toBeVisible();
+  await expect(
+    page.locator('.drawer__content[data-exiting="true"]'),
+  ).toHaveCount(0);
+  await expect(
+    pageNavigation.getByRole("button", { name: "Preferences", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  await finishDrawer();
+  await page.keyboard.press("Escape");
+  await finishDrawer();
+  await expect(drawer).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  await page.addStyleTag({
+    content:
+      '[role="dialog"][aria-label="Navigation"] { --drawer-exit-duration: 180ms !important; } .drawer__backdrop[data-exiting="true"] { transition-duration: 180ms !important; }',
+  });
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await toggle.click();
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Control+b");
+    await expect(drawer).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(drawer).toHaveCount(0, { timeout: 1000 });
+    await expect(toggle).toBeFocused();
+  }
+  await page.goto("/settings/workspace");
+  await toggle.click();
+  await pageNavigation
+    .getByRole("button", { name: "Members", exact: true })
+    .tap();
+  await expect(page).toHaveURL(/\/settings\/members$/);
+  await expect(drawer).toHaveCount(0, { timeout: 1000 });
+  await expect(toggle).toBeFocused();
+  await page.goto(taskPath);
+  await toggle.click();
+  await drawer.getByRole("link", { name: "Boards", exact: true }).tap();
+  await expect(page).toHaveURL(/\/boards$/);
+  await expect(drawer).toHaveCount(0, { timeout: 1000 });
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: /Popover second board/ })
+    .tap();
+  await expect(page).toHaveURL(new RegExp(`${secondBoardPath}$`));
+  await expect(
+    page.getByRole("heading", {
+      name: "Popover second board",
+      exact: true,
+      level: 1,
+    }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: `tmp/popover-motion/mobile-navigation-${theme}.png`,
+    animations: "disabled",
+  });
+}
+
 for (const width of [1280, 390])
   for (const theme of ["light", "dark"] as const)
-    test(`breadcrumb popovers stay steady and recover from interrupted motion at ${width}px in ${theme}`, async ({
+    test(`${width === 390 ? "Mobile page navigation" : "Breadcrumb popovers"} stay steady and recover from interrupted motion at ${width}px in ${theme}`, async ({
       browser,
     }) => {
       const context = await browser.newContext({
@@ -122,7 +306,7 @@ for (const width of [1280, 390])
       });
       try {
         await context.addInitScript(
-          (value) => localStorage.setItem("mill:theme", value),
+          (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
           theme,
         );
         const page = await context.newPage();
@@ -135,6 +319,10 @@ for (const width of [1280, 390])
             level: 1,
           }),
         ).toBeVisible();
+        if (width === 390) {
+          await mobileNavigationMotion(page, theme);
+          return;
+        }
         const trigger = page.getByRole("button", {
           name: "Navigate account pages",
           exact: true,
@@ -145,8 +333,7 @@ for (const width of [1280, 390])
           exact: true,
         });
         for (let attempt = 0; attempt < 3; attempt++) {
-          if (width === 390) await trigger.tap();
-          else await trigger.click();
+          await trigger.click();
           await expect(menu).toBeVisible();
           await stableFrames(popover);
           await page.keyboard.press("Escape");
@@ -220,8 +407,7 @@ for (const width of [1280, 390])
           name: "Members",
           exact: true,
         });
-        if (width === 390) await membersItem.tap();
-        else await membersItem.click();
+        await membersItem.click();
         await expect(page).toHaveURL(/\/settings\/members$/);
         await expect(popover).toHaveCount(0, { timeout: 1000 });
 
@@ -281,7 +467,7 @@ for (const width of [1280, 390])
       }
     });
 
-test("reduced motion dismisses breadcrumb menus without waiting for a fade", async ({
+test("reduced motion dismisses mobile page navigation without waiting for a fade", async ({
   browser,
 }) => {
   const context = await browser.newContext({
@@ -293,11 +479,15 @@ test("reduced motion dismisses breadcrumb menus without waiting for a fade", asy
     await authenticateBrowserFixture(page, fixture);
     await page.goto("/settings/api-keys");
     const trigger = page.getByRole("button", {
-      name: "Navigate account pages",
+      name: "Toggle navigation",
       exact: true,
+      includeHidden: true,
     });
     await trigger.press("Space");
-    const popover = page.locator(".breadcrumb-popover");
+    const popover = page.getByRole("dialog", {
+      name: "Navigation",
+      exact: true,
+    });
     await expect(popover).toBeVisible();
     expect(await popover.evaluate((el) => el.getAnimations().length)).toBe(0);
     await page.keyboard.press("Escape");

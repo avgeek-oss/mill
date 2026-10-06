@@ -14,12 +14,24 @@ test.beforeAll(async ({ baseURL }) => {
 });
 
 async function openNavigation(page: Page) {
-  const toggle = page.getByRole("banner").getByRole("button", {
-    name: /^(Open|Close) navigation$/,
+  const toggle = page.getByRole("button", {
+    name: "Toggle navigation",
+    exact: true,
+    includeHidden: true,
   });
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute("aria-expanded")) !== "true")
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") {
+    await expect(toggle).toBeVisible();
     await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toHaveAttribute(
+    "aria-controls",
+    "application-navigation",
+  );
+  if ((page.viewportSize()?.width ?? 0) < 1024)
+    await expect(
+      page.getByRole("dialog", { name: "Navigation", exact: true }),
+    ).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation", exact: true }),
   ).toBeVisible();
@@ -48,7 +60,7 @@ for (const width of [1280, 390])
       });
       try {
         await context.addInitScript(
-          (value) => localStorage.setItem("mill:theme", value),
+          (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
           theme,
         );
         await context.grantPermissions(["clipboard-read", "clipboard-write"], {
@@ -57,12 +69,13 @@ for (const width of [1280, 390])
         const page = await context.newPage();
         await authenticateBrowserFixture(page, fixture);
         await page.goto("/settings/profile");
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         const primary = page.getByRole("navigation", {
           name: "Workspace navigation",
           exact: true,
         });
         const accountNavigation = page.getByRole("navigation", {
-          name: "Account settings navigation",
+          name: "Page navigation",
           exact: true,
         });
         for (const [section, label, title] of accountPages) {
@@ -84,20 +97,29 @@ for (const width of [1280, 390])
               name: "Account settings",
               exact: true,
             }),
-          ).toHaveAttribute("aria-current", "page");
+          ).toHaveClass(/\bbg-default\b/);
+          await expect(
+            primary.getByRole("link", { name: "Team settings", exact: true }),
+          ).not.toHaveClass(/\bbg-default\b/);
+          await expect(accountNavigation.getByRole("button")).toHaveText(
+            accountPages.map(([, pageLabel]) => pageLabel),
+          );
           await accountNavigation
-            .getByRole("link", { name: label, exact: true })
+            .getByRole("button", { name: label, exact: true })
             .click();
           await expect(page).toHaveURL(`/settings/${section}`);
           await expect(
             page.getByRole("heading", { name: title, exact: true, level: 1 }),
           ).toBeVisible();
-          await expect(
-            page.getByRole("navigation", { name: "Breadcrumb", exact: true }),
-          ).toContainText("Account");
-          await expect(
-            page.getByRole("navigation", { name: "Breadcrumb", exact: true }),
-          ).toContainText(title);
+          const breadcrumb = page.getByRole("navigation", {
+            name: "Breadcrumb",
+            exact: true,
+            includeHidden: true,
+          });
+          if (width >= 1024) {
+            await expect(breadcrumb).toContainText("Account");
+            await expect(breadcrumb).toContainText(title);
+          } else await expect(breadcrumb).toBeHidden();
           if (section === "mcp") {
             const guide = page.getByRole("region", {
               name: "Connect your MCP client",
@@ -155,9 +177,12 @@ for (const width of [1280, 390])
               await expect(
                 page
                   .locator('[data-slot="toast"]:not([data-exiting="true"])')
-                  .filter({ hasText: "Copied to clipboard." })
+                  .filter({ hasText: "Code copied to clipboard." })
                   .last(),
               ).toBeVisible();
+              await expect(
+                guide.getByText("Code copied to clipboard.", { exact: true }),
+              ).toHaveCount(0);
               expect(
                 await page.evaluate(() => navigator.clipboard.readText()),
               ).toBe(expectedCode);
@@ -192,7 +217,7 @@ for (const width of [1280, 390])
           });
           await openNavigation(page);
           await expect(
-            accountNavigation.getByRole("link", { name: label, exact: true }),
+            accountNavigation.getByRole("button", { name: label, exact: true }),
           ).toHaveAttribute("aria-current", "page");
         }
         await primary
@@ -200,23 +225,30 @@ for (const width of [1280, 390])
           .click();
         await expect(page).toHaveURL("/settings/workspace");
         const teamNavigation = page.getByRole("navigation", {
-          name: "Team settings navigation",
+          name: "Page navigation",
           exact: true,
         });
         await openNavigation(page);
         await expect(
-          teamNavigation.getByRole("link", { name: "General", exact: true }),
+          teamNavigation.getByRole("button", { name: "General", exact: true }),
         ).toHaveAttribute("aria-current", "page");
         await teamNavigation
-          .getByRole("link", { name: "Members", exact: true })
+          .getByRole("button", { name: "Members", exact: true })
           .click();
         await expect(page).toHaveURL("/settings/members");
         await openNavigation(page);
         await expect(
           primary.getByRole("link", { name: "Team settings", exact: true }),
-        ).toHaveAttribute("aria-current", "page");
+        ).toHaveClass(/\bbg-default\b/);
         await expect(
-          teamNavigation.getByRole("link", { name: "Members", exact: true }),
+          primary.getByRole("link", { name: "Account settings", exact: true }),
+        ).not.toHaveClass(/\bbg-default\b/);
+        await expect(teamNavigation.getByRole("button")).toHaveText([
+          "General",
+          "Members",
+        ]);
+        await expect(
+          teamNavigation.getByRole("button", { name: "Members", exact: true }),
         ).toHaveAttribute("aria-current", "page");
         await page.screenshot({
           path: testInfo.outputPath(`team-navigation-${width}-${theme}.png`),
@@ -251,22 +283,41 @@ for (const width of [1280, 390])
           "Repo / Contribute",
           "Sign out",
         ]);
-        await expect(
-          menu.getByRole("menuitem", { name: "Documentation", exact: true }),
-        ).toHaveAttribute("href", "https://mill.fyi");
+        await context.route("https://mill.fyi/", (route) =>
+          route.fulfill({
+            contentType: "text/html",
+            body: "<title>Mill documentation</title>",
+          }),
+        );
+        const documentationOpened = context.waitForEvent("page");
+        await menu
+          .getByRole("menuitem", { name: "Documentation", exact: true })
+          .click();
+        const documentation = await documentationOpened;
+        await expect(documentation).toHaveURL("https://mill.fyi/");
+        await documentation.close();
+        await openNavigation(page);
+        await page.getByRole("button", { name: /^Account menu for / }).click();
         await menu
           .getByRole("menuitem", { name: "Auth & Security", exact: true })
           .click();
         await expect(page).toHaveURL("/settings/email-password");
         await page.goBack();
         await expect(page).toHaveURL("/settings/members");
-        await page
-          .getByRole("button", { name: "Navigate team pages", exact: true })
-          .click();
-        await page
-          .getByRole("menu")
-          .getByRole("menuitem", { name: "General", exact: true })
-          .click();
+        if (width >= 1024) {
+          await page
+            .getByRole("button", { name: "Navigate team pages", exact: true })
+            .click();
+          await page
+            .getByRole("menu")
+            .getByRole("menuitem", { name: "General", exact: true })
+            .click();
+        } else {
+          await openNavigation(page);
+          await teamNavigation
+            .getByRole("button", { name: "General", exact: true })
+            .click();
+        }
         await expect(page).toHaveURL("/settings/workspace");
         await page.goto("/settings/security");
         await expect(
@@ -278,7 +329,7 @@ for (const width of [1280, 390])
         ).toBeVisible();
         await openNavigation(page);
         await expect(
-          accountNavigation.getByRole("link", {
+          accountNavigation.getByRole("button", {
             name: "Email & Password",
             exact: true,
           }),
@@ -319,9 +370,17 @@ test("MCP configuration remains available when clipboard access fails", async ({
     await expect(
       page.locator('[data-slot="toast"]').filter({
         hasText:
-          "Could not copy the configuration. Select it and copy it manually.",
+          "Could not copy code. Select the configuration and copy it manually.",
       }),
     ).toBeVisible();
+    await expect(
+      guide.getByText(
+        "Could not copy code. Select the configuration and copy it manually.",
+        {
+          exact: true,
+        },
+      ),
+    ).toHaveCount(0);
     await expect(
       guide.getByRole("button", { name: "Copy code", exact: true }),
     ).toBeVisible();
@@ -331,13 +390,25 @@ test("MCP configuration remains available when clipboard access fails", async ({
     const picker = guide.getByRole("button", { name: /Client/ });
     await picker.focus();
     await page.keyboard.press("Enter");
-    await expect(
-      page.getByRole("listbox", { name: "Client", exact: true }),
-    ).toBeVisible();
+    await expect(picker).toHaveAttribute("aria-expanded", "true");
+    const clients = page.getByRole("listbox").filter({
+      has: page.getByRole("option", { name: "Codex", exact: true }),
+    });
+    await expect(clients).toBeVisible();
     await page.keyboard.press("Home");
     await page.keyboard.press("Enter");
     await expect(picker).toContainText("Codex");
+    await expect(picker).toHaveAttribute("aria-expanded", "false");
+    await expect(clients).toBeHidden();
     await expect(picker).toBeFocused();
+    await expect(guide.locator('[data-slot="code-block-filename"]')).toHaveText(
+      "~/.codex/config.toml",
+    );
+    await expect(
+      guide.getByLabel("MCP configuration", { exact: true }),
+    ).toHaveText(
+      `[mcp_servers.mill]\nurl = ${JSON.stringify(`${fixture.origin}/mcp`)}`,
+    );
     await guide.getByRole("link", { name: "API keys", exact: true }).click();
     await expect(page).toHaveURL("/settings/api-keys");
   } finally {

@@ -63,31 +63,38 @@ for (const width of [1280, 390])
       });
       try {
         await context.addInitScript(
-          (value) => localStorage.setItem("mill:theme", value),
+          (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
           theme,
         );
         const page = await context.newPage();
         await authenticateBrowserFixture(page, fixture);
         await page.goto("/");
         await expect(page).toHaveURL(/\/boards$/);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         await expect(
           page.getByRole("heading", { name: "Boards", exact: true }),
         ).toBeVisible();
         await expect(
-          page.getByRole("navigation", { name: "Filters navigation" }),
+          page.getByRole("navigation", {
+            name: "Page navigation",
+            exact: true,
+          }),
         ).toHaveCount(0);
         const wrapperGeometry = [];
         for (const viewportWidth of width === 390 ? [390] : [1920, 768, 1280]) {
           await page.setViewportSize({ width: viewportWidth, height: 844 });
-          await expect(page.locator(".application-sidebar")).toHaveCount(
-            viewportWidth >= 1024 ? 1 : 0,
-          );
+          await expect(
+            page.getByRole("navigation", {
+              name: "Workspace navigation",
+              exact: true,
+            }),
+          ).toHaveCount(viewportWidth >= 1024 ? 1 : 0);
           const readGeometry = () =>
             page
               .getByRole("main")
-              .locator(":scope > div > div")
-              .first()
-              .evaluate((element) => {
+              .getByRole("list", { name: "Boards", exact: true })
+              .evaluate((list) => {
+                const element = list.closest(".max-w-7xl")!;
                 const style = getComputedStyle(element);
                 const bounds = element.getBoundingClientRect();
                 const parent = element.closest("main")!.getBoundingClientRect();
@@ -172,28 +179,45 @@ for (const width of [1280, 390])
           exact: true,
         });
         await expect(newTask).toBeVisible();
-        const headerGeometry = await heading.evaluate((title) => {
-          const header = title.closest("header")!;
-          const action = header.querySelector("button")!;
-          const name = title.querySelector("[data-slot=tooltip-trigger]")!;
-          const titleBounds = title.getBoundingClientRect();
-          const actionBounds = action.getBoundingClientRect();
-          return {
-            sameRow:
-              Math.abs(
-                titleBounds.top +
-                  titleBounds.height / 2 -
-                  actionBounds.top -
-                  actionBounds.height / 2,
-              ) < 1,
-            textOverflow: getComputedStyle(name).textOverflow,
-            clipped: name.scrollWidth > name.clientWidth,
-          };
-        });
-        expect(headerGeometry).toEqual({
-          sameRow: true,
-          textOverflow: "ellipsis",
-          clipped: true,
+        const headerGeometry = [];
+        for (const viewportWidth of width === 390 ? [390] : [390, 1280]) {
+          await page.setViewportSize({ width: viewportWidth, height: 844 });
+          const readHeaderGeometry = () =>
+            heading.evaluate((title) => {
+              const header = title.closest("header")!;
+              const action = header.querySelector("button")!;
+              const name = title.querySelector("[data-slot=tooltip-trigger]")!;
+              const titleBounds = title.getBoundingClientRect();
+              const actionBounds = action.getBoundingClientRect();
+              const nameBounds = name.getBoundingClientRect();
+              return {
+                sameRow:
+                  Math.abs(
+                    titleBounds.top +
+                      titleBounds.height / 2 -
+                      actionBounds.top -
+                      actionBounds.height / 2,
+                  ) < 1,
+                textOverflow: getComputedStyle(name).textOverflow,
+                clipped: name.scrollWidth > name.clientWidth,
+                nameRight: nameBounds.right,
+                actionLeft: actionBounds.left,
+                actionRight: actionBounds.right,
+              };
+            });
+          await expect
+            .poll(async () => (await readHeaderGeometry()).sameRow)
+            .toBe(true);
+          const geometry = await readHeaderGeometry();
+          expect(geometry.textOverflow).toBe("ellipsis");
+          if (viewportWidth === 390) expect(geometry.clipped).toBe(true);
+          expect(geometry.nameRight).toBeLessThanOrEqual(geometry.actionLeft);
+          expect(geometry.actionRight).toBeLessThanOrEqual(viewportWidth);
+          headerGeometry.push({ viewportWidth, ...geometry });
+        }
+        await testInfo.attach("board-header-geometry.json", {
+          body: Buffer.from(JSON.stringify(headerGeometry)),
+          contentType: "application/json",
         });
         const search = page.getByRole("searchbox", { name: "Search tasks" });
         await expect(search).toBeVisible();
@@ -201,7 +225,7 @@ for (const width of [1280, 390])
         await expect(search).toBeFocused();
         await expect(
           page.getByRole("dialog", {
-            name: "Workspace navigation",
+            name: "Navigation",
             exact: true,
           }),
         ).toHaveCount(0);
@@ -249,6 +273,25 @@ for (const width of [1280, 390])
               (await title.boundingBox())!.x,
             );
           }
+          const identifier =
+            viewportWidth < 640
+              ? title.getByText(task.identifier, { exact: true })
+              : id;
+          const identifierGeometry = await identifier.evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const textBounds = range.getBoundingClientRect();
+            return {
+              text: element.textContent,
+              fits:
+                element.scrollWidth <= element.clientWidth &&
+                textBounds.left >= bounds.left - 1 &&
+                textBounds.right <= bounds.right + 1,
+            };
+          });
+          expect(identifierGeometry.text).toBe(task.identifier);
+          expect(identifierGeometry.fits).toBe(true);
         }
         await page.screenshot({
           path: `tmp/boards-layout-evidence/heading-search-${width}-${theme}.png`,
@@ -258,7 +301,8 @@ for (const width of [1280, 390])
             .getByRole("button", { name: "Filters", exact: true })
             .click();
         const filters = page.getByRole("navigation", {
-          name: "Filters navigation",
+          name: "Page navigation",
+          exact: true,
         });
         await expect(
           filters.getByRole("searchbox", { name: "Search tasks" }),
@@ -279,14 +323,16 @@ for (const width of [1280, 390])
           )!;
           const heading = section.querySelector("h2")!;
           const fields = section.querySelector(":scope > div")!;
-          const navRect = nav.getBoundingClientRect();
+          const gutter = nav.closest("aside") ? nav.parentElement! : nav;
+          const gutterRect = gutter.getBoundingClientRect();
           const fieldRect = fields.getBoundingClientRect();
           return {
-            sections: sections.map(
-              (candidate) => candidate.querySelector("h2")?.textContent,
-            ),
-            leftInset: fieldRect.left - navRect.left,
-            rightInset: navRect.right - fieldRect.right,
+            sections: sections.flatMap((candidate) => {
+              const title = candidate.querySelector("h2")?.textContent;
+              return title ? [title] : [];
+            }),
+            leftInset: fieldRect.left - gutterRect.left,
+            rightInset: gutterRect.right - fieldRect.right,
             fieldGap: getComputedStyle(fields).rowGap,
             labels: Array.from(
               section.querySelectorAll("[data-slot=label]"),
@@ -298,6 +344,7 @@ for (const width of [1280, 390])
             })),
             headingFontSize: getComputedStyle(heading).fontSize,
             headingColor: getComputedStyle(heading).color,
+            foregroundColor: getComputedStyle(nav).color,
           };
         });
         expect(filterGeometry.sections).toEqual(["Sort tasks", "Filter tasks"]);
@@ -313,9 +360,9 @@ for (const width of [1280, 390])
           "Status",
         ]);
         for (const label of filterGeometry.labels) {
-          expect(label.paddingLeft).toBe("8px");
-          expect(label.fontSize).toBe(filterGeometry.headingFontSize);
-          expect(label.color).toBe(filterGeometry.headingColor);
+          expect(label.paddingLeft).toBe("0px");
+          expect(label.fontSize).toBe("14px");
+          expect(label.color).toBe(filterGeometry.foregroundColor);
         }
         for (const label of ["Assignee", "Priority", "Status", "Sort order"]) {
           const value = filters.getByRole("button", {
@@ -333,13 +380,19 @@ for (const width of [1280, 390])
         const assigneeSearch = page.getByRole("searchbox", {
           name: "Search assignee",
         });
-        await expect(assigneeSearch).toBeFocused();
+        await expect(assigneeSearch).toBeVisible();
+        if (width === 1280) await expect(assigneeSearch).toBeFocused();
+        else {
+          await expect(assigneeSearch).not.toBeFocused();
+          await assigneeSearch.click();
+          await expect(assigneeSearch).toBeFocused();
+        }
         const popover = page.locator('[data-slot="select-popover"]');
         await expect(popover).not.toHaveAttribute("data-entering", "true");
         const readPopoverGeometry = () =>
           popover.evaluate((menu) => {
             const nav = document.querySelector(
-              'nav[aria-label="Filters navigation"]',
+              'nav[aria-label="Page navigation"]',
             )!;
             const bounds = menu.getBoundingClientRect();
             const search = menu.querySelector("input")!.getBoundingClientRect();
@@ -353,7 +406,7 @@ for (const width of [1280, 390])
               navRight: nav.getBoundingClientRect().right,
               hitInsideMenu: menu.contains(document.elementFromPoint(x, y)),
               insideDrawer: !!menu.closest(
-                '[role="dialog"][aria-label="Workspace navigation"]',
+                '[role="dialog"][aria-label="Navigation"]',
               ),
             };
           });
@@ -422,7 +475,7 @@ for (const width of [1280, 390])
         await expect(page).toHaveURL(/sort=priority/);
         if (width === 390)
           await page
-            .getByRole("dialog", { name: "Workspace navigation", exact: true })
+            .getByRole("dialog", { name: "Navigation", exact: true })
             .getByRole("button", { name: "Close navigation", exact: true })
             .click();
         await search.fill("Release");
@@ -442,7 +495,7 @@ for (const width of [1280, 390])
         });
         if (width === 390)
           await page
-            .getByRole("dialog", { name: "Workspace navigation", exact: true })
+            .getByRole("dialog", { name: "Navigation", exact: true })
             .getByRole("button", { name: "Close navigation", exact: true })
             .click();
         const pageSize = page.getByRole("button", { name: /Tasks per page$/ });
@@ -450,9 +503,7 @@ for (const width of [1280, 390])
         await page
           .getByRole("option", { name: "10 per page", exact: true })
           .click();
-        await page
-          .getByRole("button", { name: "Next page", exact: true })
-          .click();
+        await page.getByRole("button", { name: "Next", exact: true }).click();
         await expect(page).toHaveURL(/page=2/);
         const viewUrl = page.url();
         await page.reload();
@@ -484,16 +535,29 @@ for (const width of [1280, 390])
         );
         await taskLink.click();
         await expect(
-          page.getByRole("navigation", { name: "Filters navigation" }),
+          page.getByRole("navigation", {
+            name: "Page navigation",
+            exact: true,
+          }),
         ).toHaveCount(0);
         await page
           .getByRole("button", { name: "Back to board", exact: true })
           .click();
         await expect(page).toHaveURL(viewUrl);
-        await page
-          .getByRole("navigation", { name: "Breadcrumb" })
-          .getByRole("link", { name: "Boards", exact: true })
-          .click();
+        if (width === 390) {
+          await page
+            .getByRole("button", { name: "Toggle navigation", exact: true })
+            .click();
+          await page
+            .getByRole("dialog", { name: "Navigation", exact: true })
+            .getByRole("link", { name: "Boards", exact: true })
+            .click();
+        } else {
+          await page
+            .getByRole("navigation", { name: "Breadcrumb" })
+            .getByRole("link", { name: "Boards", exact: true })
+            .click();
+        }
         await expect(page).toHaveURL(/\/boards$/);
         await expect(
           page
@@ -521,6 +585,9 @@ test("returning to the overview refreshes counts after task changes", async ({
     .getByRole("link", { name: "Boards", exact: true })
     .click();
   await expect(
-    page.getByRole("main").getByRole("link", { name: boardName }).locator("dd"),
+    page
+      .getByRole("main")
+      .getByRole("link", { name: boardName, exact: true })
+      .locator("dd"),
   ).toHaveText(["13", "0", "1"]);
 });

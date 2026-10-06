@@ -93,7 +93,7 @@ for (const width of [1280, 390]) {
         await expect(
           page.getByText("1–4 of 4 tasks", { exact: true }),
         ).toBeVisible();
-        await expect(table.getByRole("link")).toHaveCount(4);
+        await expect(table.getByRole("link")).toHaveCount(width < 640 ? 4 : 8);
         for (const title of [taskTitles.oldDone, taskTitles.oldWontDo])
           await expect(table.getByRole("link", { name: title })).toHaveCount(0);
         for (const title of [
@@ -107,16 +107,16 @@ for (const width of [1280, 390]) {
       const selectStatus = async (name: string) => {
         if (width === 390)
           await page
-            .getByRole("button", { name: "Filters", exact: true })
+            .getByRole("button", { name: "Toggle navigation", exact: true })
             .click();
         await page
-          .getByRole("navigation", { name: "Filters navigation" })
+          .getByRole("navigation", { name: "Page navigation" })
           .getByRole("button", { name: /Status$/ })
           .click();
         await page.getByRole("option", { name, exact: true }).click();
         if (width === 390)
           await page
-            .getByRole("dialog", { name: "Workspace navigation", exact: true })
+            .getByRole("dialog", { name: "Navigation", exact: true })
             .getByRole("button", { name: "Close navigation", exact: true })
             .click();
       };
@@ -137,13 +137,13 @@ for (const width of [1280, 390]) {
         await expect(
           page.getByText("1–2 of 2 tasks", { exact: true }),
         ).toBeVisible();
-        await expect(table.getByRole("link")).toHaveCount(2);
+        await expect(table.getByRole("link")).toHaveCount(width < 640 ? 2 : 4);
         for (const title of titles)
           await expect(table.getByRole("link", { name: title })).toBeVisible();
         const filteredURL = page.url();
         await page.reload();
         await expect(page).toHaveURL(filteredURL);
-        await expect(table.getByRole("link")).toHaveCount(2);
+        await expect(table.getByRole("link")).toHaveCount(width < 640 ? 2 : 4);
         for (const title of titles)
           await expect(table.getByRole("link", { name: title })).toBeVisible();
         await page.screenshot({

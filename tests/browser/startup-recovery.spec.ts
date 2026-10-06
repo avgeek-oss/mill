@@ -405,10 +405,10 @@ test("phone actions remain compact and fields retain readable input text", async
       page.getByRole("textbox", { name: /^Team name/ }),
     ).toBeVisible();
     for (const name of [
-      "Open navigation",
+      "Toggle navigation",
       "Open notifications",
       /^Appearance:/,
-      "Update",
+      "Save",
     ]) {
       const control = page.getByRole("button", {
         name,
@@ -416,8 +416,9 @@ test("phone actions remain compact and fields retain readable input text", async
       });
       const bounds = await control.boundingBox();
       expect(bounds).not.toBeNull();
-      expect(bounds!.height).toBe(name === "Update" ? 34 : 32);
-      expect(bounds!.width).toBeGreaterThanOrEqual(name === "Update" ? 34 : 32);
+      const expectedSize = name === "Save" || name instanceof RegExp ? 40 : 32;
+      expect(bounds!.height).toBe(expectedSize);
+      expect(bounds!.width).toBeGreaterThanOrEqual(expectedSize);
     }
     const inputSize = await page
       .getByRole("textbox", { name: /^Team name/ })
@@ -426,17 +427,17 @@ test("phone actions remain compact and fields retain readable input text", async
       );
     expect(inputSize).toBeGreaterThanOrEqual(16);
     await page
-      .getByRole("button", { name: "Open navigation", exact: true })
+      .getByRole("button", { name: "Toggle navigation", exact: true })
       .click();
     await expect(
-      page.getByRole("dialog", { name: "Workspace navigation" }),
+      page.getByRole("dialog", { name: "Navigation", exact: true }),
     ).toBeVisible();
     const close = page
-      .getByRole("dialog", { name: "Workspace navigation" })
+      .getByRole("dialog", { name: "Navigation", exact: true })
       .getByRole("button", { name: "Close navigation", exact: true });
     const bounds = await close.boundingBox();
-    expect(bounds!.height).toBe(32);
-    expect(bounds!.width).toBe(32);
+    expect(bounds!.height).toBe(44);
+    expect(bounds!.width).toBe(44);
   } finally {
     await context.close();
     await phoneBrowser.close();
@@ -489,7 +490,7 @@ test("missing pages have a primary recovery action in both themes and viewport s
         if (width === 390) {
           await expectTouchContext(page);
           const bounds = await action.boundingBox();
-          expect(bounds!.height).toBe(34);
+          expect(bounds!.height).toBe(40);
         }
         await page.screenshot({
           path: testInfo.outputPath(`missing-${width}-${theme}.png`),
@@ -529,20 +530,20 @@ test("board read failure retries without a transient placeholder or empty state"
   try {
     await page.goto(`/boards/${boardId}`);
     await expect(
-      page.getByRole("heading", {
-        name: "Mill could not load this page",
-        exact: true,
+      page.locator('[data-slot="toast"]').filter({
+        hasText: "Board temporarily unavailable.",
       }),
     ).toBeVisible();
+    await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
     await page.screenshot({
       path: testInfo.outputPath("board-read-failed.png"),
     });
-    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(
       page.getByRole("heading", { name: "Recovery verification", exact: true }),
     ).toBeVisible();
     await expect(page.getByText("Loading tasks…", { exact: true })).toHaveClass(
-      "sr-only",
+      /\bsr-only\b/,
     );
     await expect(page.getByText("No tasks yet", { exact: true })).toHaveCount(
       0,
@@ -554,7 +555,7 @@ test("board read failure retries without a transient placeholder or empty state"
       page.getByRole("button", { name: "Board actions", exact: true }),
     ).toBeDisabled();
     await expect(
-      page.getByRole("button", { name: "Try again", exact: true }),
+      page.getByRole("button", { name: "Retry", exact: true }),
     ).toHaveCount(0);
     await page.screenshot({
       path: testInfo.outputPath("board-read-pending.png"),

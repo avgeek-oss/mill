@@ -150,9 +150,13 @@ test("sessions loading and request failure announce status and retry without a f
   });
   await page.goto("/settings/sessions");
   try {
-    await expect(
-      page.getByText("Loading sessions", { exact: true }),
-    ).toBeAttached();
+    const loading = page
+      .getByRole("status")
+      .filter({ hasText: "Loading sessions" });
+    await expect(loading).toBeAttached();
+    await expect(loading).toHaveClass(/sr-only/);
+    await expect(loading).toHaveCSS("width", "1px");
+    await expect(loading).toHaveCSS("height", "1px");
     await expect(page.getByText("No sessions", { exact: true })).toHaveCount(0);
   } finally {
     release!();
@@ -181,7 +185,9 @@ test("revoking a session requires confirmation, keeps the dialog open after an e
     .first();
   await action.click();
   const dialog = page.getByRole("dialog", { name: "Revoke session?" });
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Keep session", exact: true })
+    .click();
   expect(
     (await (await page.request.get("/api/auth/sessions")).json()).items,
   ).toHaveLength(before.length);
@@ -195,11 +201,15 @@ test("revoking a session requires confirmation, keeps the dialog open after an e
       }),
     }),
   );
-  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Revoke session", exact: true })
+    .click();
   await expect(feedbackToast(page, "Could not revoke")).toBeVisible();
   await expect(dialog).toBeVisible();
   await page.unroute("**/api/auth/sessions/*");
-  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+  await dialog
+    .getByRole("button", { name: "Revoke session", exact: true })
+    .click();
   await expect(dialog).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(() => !!document.activeElement?.closest("main")))
@@ -250,7 +260,9 @@ test("a lost committed revocation response reconciles against the server", async
       await route.abort("failed");
     });
     const dialog = page.getByRole("dialog", { name: "Revoke session?" });
-    await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+    await dialog
+      .getByRole("button", { name: "Revoke session", exact: true })
+      .click();
     await expect(dialog).toHaveCount(0);
     await expect(
       region.getByRole("button", { name: "Revoke", exact: true }),

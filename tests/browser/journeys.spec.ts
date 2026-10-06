@@ -66,9 +66,9 @@ async function login(
       .fill(credentials.password);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
   } else await page.goto("/");
-  if ((page.viewportSize()?.width ?? 0) <= 700) {
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
     await expect(
-      page.getByRole("button", { name: "Open navigation" }),
+      page.getByRole("button", { name: "Toggle navigation", exact: true }),
     ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Sign in", exact: true }),
@@ -867,7 +867,13 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
         );
         const surface = await context.newPage();
         await surface.goto("/boards");
+        const toggle = surface.getByRole("button", {
+          name: "Toggle navigation",
+          exact: true,
+          includeHidden: true,
+        });
         if (width === 390) {
+          await expect(toggle).toHaveAttribute("aria-expanded", "false");
           const touchMedia = await surface.evaluate(() => ({
             coarse: matchMedia("(pointer: coarse)").matches,
             noHover: matchMedia("(hover: none)").matches,
@@ -876,9 +882,15 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
           expect(touchMedia.coarse).toBe(true);
           expect(touchMedia.noHover).toBe(true);
           expect(touchMedia.touchPoints).toBeGreaterThan(0);
-          await surface
-            .getByRole("button", { name: "Open navigation", exact: true })
-            .click();
+          await toggle.click();
+          await expect(toggle).toHaveAttribute("aria-expanded", "true");
+          await expect(toggle).toHaveAttribute(
+            "aria-controls",
+            "application-navigation",
+          );
+          await expect(
+            surface.getByRole("dialog", { name: "Navigation", exact: true }),
+          ).toBeVisible();
         }
         const nav = surface.getByRole("navigation", {
           name: "Workspace navigation",
@@ -911,12 +923,16 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
           });
         const { iconGeometry: referenceIcon, ...referenceStyles } =
           await metrics(reference);
-        if (width === 390) await surface.keyboard.press("Escape");
+        if (width === 390) {
+          await surface.keyboard.press("Escape");
+          await expect(toggle).toHaveAttribute("aria-expanded", "false");
+          await expect(toggle).toBeFocused();
+        }
         await expect(create).toBeVisible();
         const { iconGeometry: createIcon, ...createStyles } =
           await metrics(create);
         expect(createStyles.height).toBe(32);
-        expect(referenceStyles.height).toBe(width === 390 ? 44 : 36);
+        expect(referenceStyles.height).toBe(36);
         expect(referenceStyles.fontSize).toBe("14px");
         expect(referenceStyles.gap).toBe("12px");
         expect(referenceStyles.fontWeight).toBe("400");
@@ -993,8 +1009,17 @@ test("keyboard controls, URL filters, task returns, themes and mobile navigation
   );
   await page.reload();
   await expect(page.getByLabel("Search tasks")).toHaveValue("recovery");
-  await taskLink.focus();
-  await page.keyboard.press("Enter");
+  const taskCell = page
+    .getByRole("grid", { name: "Task list" })
+    .getByRole("rowheader", {
+      name: "Prepare the release and recovery plan",
+      exact: true,
+    });
+  await taskCell.focus();
+  await expect(taskCell).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(taskLink).toBeFocused();
+  await taskLink.press("Enter");
   await expect(
     page.getByRole("heading", {
       name: "Prepare the release and recovery plan",
@@ -1038,14 +1063,33 @@ test("keyboard controls, URL filters, task returns, themes and mobile navigation
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth))
       .toBeLessThanOrEqual(width);
     if (width === 390) {
-      await page.getByRole("button", { name: "Open navigation" }).click();
+      const toggle = page.getByRole("button", {
+        name: "Toggle navigation",
+        exact: true,
+        includeHidden: true,
+      });
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await toggle.click();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await expect(toggle).toHaveAttribute(
+        "aria-controls",
+        "application-navigation",
+      );
+      const navigation = page.getByRole("dialog", {
+        name: "Navigation",
+        exact: true,
+      });
+      await expect(navigation).toBeVisible();
       await expect(
-        page.getByRole("dialog", { name: "Workspace navigation" }),
+        navigation.getByRole("navigation", {
+          name: "Page navigation",
+          exact: true,
+        }),
       ).toBeVisible();
       await page.keyboard.press("Escape");
-      await expect(
-        page.getByRole("button", { name: "Open navigation" }),
-      ).toBeFocused();
+      await expect(navigation).toBeHidden();
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(toggle).toBeFocused();
     }
   }
   await page.setViewportSize({ width: 1280, height: 800 });

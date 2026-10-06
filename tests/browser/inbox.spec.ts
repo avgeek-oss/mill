@@ -1055,7 +1055,7 @@ test("notification popover full-row links fit desktop and phone in both themes",
     for (const theme of ["light", "dark"]) {
       await page.setViewportSize({ width, height: width < 600 ? 844 : 1000 });
       await page.evaluate(
-        (value) => localStorage.setItem("mill:theme", value),
+        (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
         theme,
       );
       await page.reload();
@@ -1154,7 +1154,9 @@ test("notification popover full-row links fit desktop and phone in both themes",
       await expect(inbox(page)).toBeVisible();
     }
   await page.setViewportSize({ width: 375, height: 844 });
-  await page.evaluate(() => localStorage.setItem("mill:theme", "light"));
+  await page.evaluate(() =>
+    localStorage.setItem("avgeek-oss-ui-theme", "light"),
+  );
   const listResponse = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname === "/api/notifications" &&
@@ -1229,7 +1231,7 @@ test.describe("touch notifications", () => {
       page.getByRole("heading", { name: "Inbox verification", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Open navigation", exact: true }),
+      page.getByRole("button", { name: "Toggle navigation", exact: true }),
     ).toBeVisible();
     const touchMedia = await page.evaluate(() => ({
       coarse: matchMedia("(pointer: coarse)").matches,
@@ -1245,7 +1247,7 @@ test.describe("touch notifications", () => {
     });
     for (const theme of ["light", "dark"]) {
       await page.evaluate(
-        (value) => localStorage.setItem("mill:theme", value),
+        (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
         theme,
       );
       await page.reload();
