@@ -195,9 +195,17 @@ async function submitSettingsWhilePending(
       name: dialogTitle,
       exact: true,
     });
-    await expect(submit).toBeDisabled();
+    const nativeConfirmation = dialogTitle === "Delete board?";
     await expect(
-      dialog.getByRole("button", { name: "Close dialog", exact: true }),
+      nativeConfirmation
+        ? dialog.getByRole("button", { name: "Please wait…", exact: true })
+        : submit,
+    ).toBeDisabled();
+    await expect(
+      dialog.getByRole("button", {
+        name: nativeConfirmation ? "Close" : "Close dialog",
+        exact: true,
+      }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeVisible();
@@ -2134,7 +2142,7 @@ test("task deletion removes discussion permanently, retains other tasks, and ret
         confirmation.getByRole("button", { name: "Cancel", exact: true }),
       ).toBeDisabled();
       await expect(
-        confirmation.getByRole("button", { name: "Close dialog", exact: true }),
+        confirmation.getByRole("button", { name: "Close", exact: true }),
       ).toBeDisabled();
       await expect(
         page.getByRole("button", { name: "Task actions" }),
@@ -2332,7 +2340,7 @@ test("board settings keep detail failures recoverable and delete boards permanen
         deletion.getByRole("button", { name: "Cancel", exact: true }),
       ).toBeDisabled();
       await expect(
-        deletion.getByRole("button", { name: "Close dialog", exact: true }),
+        deletion.getByRole("button", { name: "Close", exact: true }),
       ).toBeDisabled();
       await expect(deletion).toBeVisible();
     },
