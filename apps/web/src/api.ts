@@ -91,6 +91,7 @@ async function request<T>(
   options: ApiOptions,
   retried: boolean,
 ): Promise<T> {
+  options.signal?.throwIfAborted();
   let response: Response;
   try {
     response = await fetch(path.startsWith("/api") ? path : `/api${path}`, {
@@ -110,6 +111,7 @@ async function request<T>(
       "Mill could not be reached. Check your connection and try again.",
     );
   }
+  options.signal?.throwIfAborted();
   if (response.ok && [204, 205].includes(response.status)) {
     if (options.validateResponse && !options.validateResponse(undefined))
       throw new ApiError(
@@ -129,6 +131,7 @@ async function request<T>(
       );
     data = { error: "The server returned an unexpected response." };
   }
+  options.signal?.throwIfAborted();
   if (response.ok && (data === null || typeof data !== "object"))
     throw new ApiError(
       response.status,
@@ -162,7 +165,9 @@ async function request<T>(
     ) {
       const active = await fetch("/api/auth/me", {
         credentials: "same-origin",
+        signal: options.signal,
       }).catch(() => null);
+      options.signal?.throwIfAborted();
       if (active?.status === 401)
         window.dispatchEvent(new Event("mill:expired"));
     }

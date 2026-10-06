@@ -1,8 +1,10 @@
 import { QueryFeedback } from "./query-feedback.js";
 import { AppShellBreadcrumb } from "@avgeek-oss/design-system/layouts/app-shell-breadcrumb";
+import { useMobileNavigation } from "@avgeek-oss/design-system/hooks/app-navigation";
+import { useOverlaySuspension } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import { usePageBreadcrumbs } from "./app-breadcrumbs.js";
 import { ChoiceField, ActionConfirmation } from "@avgeek-oss/design-system";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Avatar,
   Button,
@@ -120,12 +122,23 @@ export function TaskPage({
   const [deleteKey] = useState(createRetryKey);
   const deleteAttempt = useRef<{ version: number } | null>(null);
   const deletePending = useRef(false);
+  const deleteRequest = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const navigationPending = useRef(false);
   const focusedTask = useRef<string | null>(null);
   const taskContent = useRef<HTMLDivElement>(null);
   const appSuspended = useAppSuspended();
+  const { capture } = useOverlaySuspension();
+  const { isRestoringFocus } = useMobileNavigation();
   const lastSessionRevision = useRef(sessionRevision);
+  useLayoutEffect(() => {
+    deletePending.current = false;
+    setDeleting(false);
+    return () => {
+      deleteRequest.current?.abort();
+      deleteRequest.current = null;
+    };
+  }, [appSuspended, taskId]);
 
   useEffect(() => {
     if (lastSessionRevision.current === sessionRevision) return;
@@ -166,7 +179,7 @@ export function TaskPage({
       document.title = `${task.identifier} · Mill`;
       onTaskLoaded(task);
     }
-    if (task && focusedTask.current !== task.id) {
+    if (task && !isRestoringFocus && focusedTask.current !== task.id) {
       focusedTask.current = task.id;
       if (
         document.activeElement === document.body ||
@@ -174,7 +187,7 @@ export function TaskPage({
       )
         heading.current?.focus({ preventScroll: true });
     }
-  }, [task, onTaskLoaded, editor.accessDenied]);
+  }, [task, onTaskLoaded, editor.accessDenied, isRestoringFocus]);
 
   useEffect(() => {
     const beforeNavigate = (event: Event) => {
@@ -221,27 +234,35 @@ export function TaskPage({
     }
   }
   async function removeTask() {
-    if (!task || deletePending.current) return;
+    if (!task || appSuspended || deletePending.current) return;
+    const request = new AbortController();
+    deleteRequest.current = request;
+    const current = () =>
+      deleteRequest.current === request && !request.signal.aborted;
     deletePending.current = true;
     setDeleting(true);
     try {
       if (!deleteAttempt.current) {
         if (!(await editor.flushAll())) {
+          if (!current()) return;
           throw new Error(
             "Resolve the unsaved changes before deleting this task.",
           );
         }
+        if (!current()) return;
         const latest = await api<{ task: Task }>(
           `/tasks/${taskId}?commentLimit=0&activityLimit=0`,
           undefined,
           "GET",
-          { validateResponse: hasTaskResponse },
+          { validateResponse: hasTaskResponse, signal: request.signal },
         );
+        if (!current()) return;
         deleteAttempt.current = { version: latest.task.version };
       }
       const payload = deleteAttempt.current;
       await api(`/tasks/${taskId}`, payload, "DELETE", {
         validateResponse: hasOkResponse,
+        signal: request.signal,
         headers: {
           "Idempotency-Key": deleteKey.forRequest(
             `/tasks/${taskId}`,
@@ -250,6 +271,7 @@ export function TaskPage({
           ),
         },
       });
+      if (!current()) return;
       deleteKey.reset();
       toast.success("Task deleted.");
       window.history.replaceState(
@@ -259,6 +281,7 @@ export function TaskPage({
       );
       window.dispatchEvent(new Event("mill:navigate"));
     } catch (error) {
+      if (!current()) return;
       if (
         error instanceof ApiError &&
         error.status >= 400 &&
@@ -269,8 +292,11 @@ export function TaskPage({
       }
       throw error;
     } finally {
-      deletePending.current = false;
-      setDeleting(false);
+      if (deleteRequest.current === request) {
+        deleteRequest.current = null;
+        deletePending.current = false;
+        setDeleting(false);
+      }
     }
   }
 
@@ -425,16 +451,19 @@ export function TaskPage({
                                 aria-label="Task actions"
                                 onAction={(key) => {
                                   if (key === "copy") {
+                                    const current = capture();
                                     void (async () => {
                                       try {
                                         await navigator.clipboard.writeText(
                                           `${window.location.origin}/boards/${boardId}/tasks/${taskId}`,
                                         );
-                                        toast.success("Link copied.");
+                                        if (current())
+                                          toast.success("Link copied.");
                                       } catch {
-                                        toast.danger(
-                                          "Copy the task link from your address bar.",
-                                        );
+                                        if (current())
+                                          toast.danger(
+                                            "Copy the task link from your address bar.",
+                                          );
                                       }
                                     })();
                                   }

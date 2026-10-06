@@ -15,6 +15,7 @@ import {
 } from "react";
 import {
   startRegistration,
+  WebAuthnAbortService,
   type PublicKeyCredentialCreationOptionsJSON,
 } from "@simplewebauthn/browser";
 import {
@@ -22,10 +23,12 @@ import {
   Checkbox,
   ErrorMessage,
   QueryLoading,
+  useAppSuspended,
   Widget,
   toast,
 } from "@mill/web-design-system";
 import {
+  useOverlaySuspension,
   ProfileSettings as SharedProfileSettings,
   PreferencesSettings,
   PasswordChangeSettings,
@@ -48,7 +51,7 @@ import {
 import { Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import { RelativeDateTime } from "./relative-date-time.js";
-import { api, errorText, type Session } from "./api.js";
+import { api, errorText, isResponseObject, type Session } from "./api.js";
 
 type SessionRow = {
   id: string;
@@ -91,34 +94,59 @@ function AccountWidget({
   );
 }
 function useAccountList<T>(path: string) {
+  const appSuspended = useAppSuspended();
   const [state, setState] = useState<{
     items: T[] | null;
     pending: boolean;
     error: string;
   }>({ items: null, pending: true, error: "" });
   const generation = useRef(0);
+  const active = useRef(!appSuspended);
+  const controller = useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
+    if (!active.current) return;
     const current = ++generation.current;
+    controller.current?.abort();
+    const request = new AbortController();
+    controller.current = request;
     setState((old) => ({ ...old, pending: true, error: "" }));
     try {
-      const result = await api<{ items: T[] }>(path);
-      if (current === generation.current)
+      const result = await api<{ items: T[] }>(path, undefined, "GET", {
+        signal: request.signal,
+      });
+      if (
+        active.current &&
+        !request.signal.aborted &&
+        current === generation.current
+      )
         setState({ items: result.items, pending: false, error: "" });
     } catch (cause) {
-      if (current === generation.current)
+      if (
+        active.current &&
+        !request.signal.aborted &&
+        current === generation.current
+      )
         setState((old) => ({
           ...old,
           pending: false,
           error: errorText(cause),
         }));
+    } finally {
+      if (controller.current === request) controller.current = null;
     }
   }, [path]);
   useEffect(() => {
-    void refresh();
+    active.current = !appSuspended;
+    if (appSuspended)
+      setState((old) => ({ ...old, pending: false, error: "" }));
+    else void refresh();
     return () => {
+      active.current = false;
       generation.current++;
+      controller.current?.abort();
+      controller.current = null;
     };
-  }, [refresh]);
+  }, [appSuspended, refresh]);
   return { ...state, refresh };
 }
 function ListState({
@@ -190,6 +218,7 @@ function ProfileSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   return (
     <section className="min-w-0">
       <PageHeading
@@ -205,8 +234,9 @@ function ProfileSettings({
           value={session.user.name}
           maxLength={100}
           onSave={async (name) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", { name }, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
       </div>
@@ -220,6 +250,7 @@ function PreferenceSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const preferenceOptions = useMemo(
     () => ({
       ...dateTimePreferenceOptions,
@@ -243,7 +274,8 @@ function PreferenceSettings({
   const notificationPending = useRef(false);
   const [notificationError, setNotificationError] = useState("");
   async function saveNotifications() {
-    if (notificationPending.current) return;
+    if (notificationPending.current || suspension.isSuspended) return;
+    const isCurrent = suspension.capture();
     notificationPending.current = true;
     setBusy(true);
     setNotificationError("");
@@ -253,10 +285,12 @@ function PreferenceSettings({
         { notificationPreferences: { assignments, mentions } },
         "PATCH",
       );
-      toast.success("Notifications saved.");
-      onRefresh();
+      if (isCurrent()) {
+        toast.success("Notifications saved.");
+        onRefresh();
+      }
     } catch (cause) {
-      setNotificationError(errorText(cause));
+      if (isCurrent()) setNotificationError(errorText(cause));
     } finally {
       notificationPending.current = false;
       setBusy(false);
@@ -278,8 +312,9 @@ function PreferenceSettings({
           options={preferenceOptions}
           formatPreview={dateTimePreview}
           onSave={async (preferences) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", preferences, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
         <AccountWidget title="Notifications">
@@ -342,6 +377,7 @@ function EmailPasswordSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const identity = useIdentityConfirmation();
   return (
     <section className="min-w-0">
@@ -360,12 +396,15 @@ function EmailPasswordSettings({
           minLength={15}
           maxLength={1024}
           onChangePassword={async ({ currentPassword, newPassword }) => {
+            const isCurrent = suspension.capture();
             await api(
               "/auth/password",
               { currentPassword, password: newPassword },
               "POST",
               { onReauthenticationRequired: identity.confirmIdentity },
             );
+            if (!isCurrent())
+              throw new DOMException("Account action canceled.", "AbortError");
             toast.success("Password changed.");
             onRefresh();
           }}
@@ -381,6 +420,7 @@ function PasskeysSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const appSuspended = useAppSuspended();
   const keys = useAccountList<Passkey>("/auth/passkeys");
   const [pending, setPending] = useState<{
     action: () => Promise<void>;
@@ -388,23 +428,78 @@ function PasskeysSettings({
     onCancel?: () => void;
   } | null>(null);
   const securityPending = useRef(false);
+  const pendingRef = useRef(pending);
+  const active = useRef(true);
+  const controller = useRef<AbortController | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  useEffect(() => {
+    active.current = !appSuspended;
+    if (appSuspended) {
+      controller.current?.abort();
+      pendingRef.current?.onCancel?.();
+      pendingRef.current = null;
+      controller.current = null;
+      securityPending.current = false;
+      setPending(null);
+    }
+    return () => {
+      active.current = false;
+      controller.current?.abort();
+      pendingRef.current?.onCancel?.();
+      pendingRef.current = null;
+    };
+  }, [appSuspended]);
   async function refresh() {
     onRefresh();
     await keys.refresh();
   }
-  function securePasskey(action: () => Promise<void>) {
+  function securePasskey(action: (signal: AbortSignal) => Promise<void>) {
+    if (!active.current)
+      return Promise.reject(
+        new Error("Sign in again to change your passkeys."),
+      );
     if (securityPending.current)
       return Promise.reject(
         new Error("Complete the current security change first."),
       );
     securityPending.current = true;
+    const request = new AbortController();
+    controller.current = request;
     return new Promise<void>((resolve, reject) => {
-      setPending({
-        action,
+      const confirmation = {
+        action: async () => {
+          if (!active.current || request.signal.aborted) return;
+          try {
+            const current = await api<{
+              user: { id: string };
+              workspace: { id: string };
+            }>("/auth/me", undefined, "GET", {
+              signal: request.signal,
+              validateResponse: (value) =>
+                isResponseObject(value) &&
+                isResponseObject(value.user) &&
+                typeof value.user.id === "string" &&
+                isResponseObject(value.workspace) &&
+                typeof value.workspace.id === "string",
+            });
+            if (
+              current.user.id !== session.user.id ||
+              current.workspace.id !== session.workspace.id
+            )
+              throw new Error(
+                "Your account changed. Sign in again before changing passkeys.",
+              );
+            request.signal.throwIfAborted();
+            await action(request.signal);
+          } catch (cause) {
+            if (active.current && !request.signal.aborted) throw cause;
+          }
+        },
         onComplete: resolve,
         onCancel: () => reject(new Error("Identity confirmation canceled.")),
-      });
+      };
+      pendingRef.current = confirmation;
+      setPending(confirmation);
     });
   }
   return (
@@ -425,12 +520,15 @@ function PasskeysSettings({
               recoveryCodesFilename="mill-recovery-codes.txt"
               onDismissRecoveryCodes={() => setRecoveryCodes([])}
               onReplaceRecoveryCodes={() =>
-                securePasskey(async () => {
+                securePasskey(async (signal) => {
                   const result = await api<{ recoveryCodes: string[] }>(
                     "/auth/passkeys/recovery-codes",
                     {},
+                    "POST",
+                    { signal },
                   );
-                  setRecoveryCodes(result.recoveryCodes);
+                  if (active.current && !signal.aborted)
+                    setRecoveryCodes(result.recoveryCodes);
                 })
               }
               formatDate={(value) => (
@@ -440,14 +538,28 @@ function PasskeysSettings({
                 />
               )}
               onAdd={(name) =>
-                securePasskey(async () => {
+                securePasskey(async (signal) => {
                   const options = await api<{
                     challengeId: string;
                     options: PublicKeyCredentialCreationOptionsJSON;
-                  }>("/auth/passkeys/register/options", { name });
-                  const response = await startRegistration({
-                    optionsJSON: options.options,
+                  }>("/auth/passkeys/register/options", { name }, "POST", {
+                    signal,
                   });
+                  signal.throwIfAborted();
+                  const cancelRegistration = () =>
+                    WebAuthnAbortService.cancelCeremony();
+                  signal.addEventListener("abort", cancelRegistration, {
+                    once: true,
+                  });
+                  let response;
+                  try {
+                    response = await startRegistration({
+                      optionsJSON: options.options,
+                    });
+                  } finally {
+                    signal.removeEventListener("abort", cancelRegistration);
+                  }
+                  signal.throwIfAborted();
                   const result = await api<{ recoveryCodes?: string[] }>(
                     "/auth/passkeys/register/verify",
                     {
@@ -455,31 +567,41 @@ function PasskeysSettings({
                       response,
                       name,
                     },
+                    "POST",
+                    { signal },
                   );
-                  if (result.recoveryCodes)
+                  if (active.current && !signal.aborted && result.recoveryCodes)
                     setRecoveryCodes(result.recoveryCodes);
                 })
               }
               onRemove={(id) =>
-                securePasskey(async () => {
-                  await api(`/auth/passkeys/${id}`, {}, "DELETE");
+                securePasskey(async (signal) => {
+                  await api(`/auth/passkeys/${id}`, {}, "DELETE", { signal });
                 })
               }
             />
           </ListState>
         </div>
       </div>
-      {pending && (
+      {!appSuspended && pending && (
         <ReauthenticationDialog
           onClose={() => {
-            pending.onCancel?.();
+            controller.current?.abort();
+            pendingRef.current?.onCancel?.();
+            pendingRef.current = null;
+            controller.current = null;
             securityPending.current = false;
             setPending(null);
           }}
           onConfirmed={async () => {
+            if (!active.current || pendingRef.current !== pending) return;
             await pending.action();
+            if (!active.current || pendingRef.current !== pending) return;
             await refresh();
+            if (!active.current || pendingRef.current !== pending) return;
             pending.onComplete?.();
+            pendingRef.current = null;
+            controller.current = null;
             securityPending.current = false;
             setPending(null);
           }}

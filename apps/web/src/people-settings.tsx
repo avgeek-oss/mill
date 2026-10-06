@@ -1,3 +1,4 @@
+import { useOverlaySuspension } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import { QueryFeedback } from "./query-feedback.js";
 import {
   useCallback,
@@ -527,6 +528,7 @@ function InvitePersonDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const overlay = useOverlaySuspension();
   return (
     <InviteMemberDialog
       isOpen
@@ -542,10 +544,13 @@ function InvitePersonDialog({
         </p>
       }
       onInvite={async (values) => {
+        const isCurrent = overlay.capture();
         const invitation = await api<{
           inviteUrl: string;
           emailDelivery: "unavailable" | "sent" | "failed";
         }>("/auth/invitations", values);
+        if (!isCurrent())
+          throw new DOMException("The operation was canceled.", "AbortError");
         toast.success(
           invitation.emailDelivery === "sent"
             ? "Invitation created and email sent."
@@ -575,6 +580,7 @@ function PeopleActionDialog({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const overlay = useOverlaySuspension();
   if (action.kind === "role")
     return (
       <MemberEditDialog
@@ -586,8 +592,13 @@ function PeopleActionDialog({
           if (!open) onClose();
         }}
         onSave={async ({ role }) => {
+          const isCurrent = overlay.capture();
           await api(`/auth/members/${action.member.id}`, { role }, "PATCH");
+          if (!isCurrent())
+            throw new DOMException("The operation was canceled.", "AbortError");
           await onSaved();
+          if (!isCurrent())
+            throw new DOMException("The operation was canceled.", "AbortError");
           toast.success("Role updated.");
         }}
       />
@@ -615,14 +626,20 @@ function PeopleRemovalDialog({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const overlay = useOverlaySuspension();
   const changeOpen = (open: boolean) => {
     if (!open) onClose();
   };
   async function save() {
+    const isCurrent = overlay.capture();
     if (action.kind === "revoke")
       await api(`/auth/invitations/${action.invitation.id}`, {}, "DELETE");
     else await api(`/auth/members/${action.member.id}`, {}, "DELETE");
+    if (!isCurrent())
+      throw new DOMException("The operation was canceled.", "AbortError");
     await onSaved();
+    if (!isCurrent())
+      throw new DOMException("The operation was canceled.", "AbortError");
     toast.success(
       action.kind === "remove"
         ? "Workspace access removed."

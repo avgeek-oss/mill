@@ -189,11 +189,11 @@ for (const width of [1280, 390])
               await expect(
                 page
                   .locator('[data-slot="toast"]:not([data-exiting="true"])')
-                  .filter({ hasText: "Code copied to clipboard." })
+                  .filter({ hasText: "Copied to clipboard." })
                   .last(),
               ).toBeVisible();
               await expect(
-                guide.getByText("Code copied to clipboard.", { exact: true }),
+                guide.getByText("Copied to clipboard.", { exact: true }),
               ).toHaveCount(0);
               expect(
                 await page.evaluate(() => navigator.clipboard.readText()),
@@ -382,12 +382,12 @@ test("MCP configuration remains available when clipboard access fails", async ({
     await expect(
       page.locator('[data-slot="toast"]').filter({
         hasText:
-          "Could not copy code. Select the configuration and copy it manually.",
+          "Could not copy to the clipboard. Select and copy the text instead.",
       }),
     ).toBeVisible();
     await expect(
       guide.getByText(
-        "Could not copy code. Select the configuration and copy it manually.",
+        "Could not copy to the clipboard. Select and copy the text instead.",
         {
           exact: true,
         },
