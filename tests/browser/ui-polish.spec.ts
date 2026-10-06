@@ -380,10 +380,17 @@ for (const width of [1280, 390])
           animations: "disabled",
         });
         await back.click();
-        await expect(
-          page.getByRole("grid", { name: "Task list", exact: true }),
-        ).toBeVisible();
-        const taskRow = page.locator(`.task-table [data-key="${taskId}"]`);
+        const taskList = page.getByRole("grid", {
+          name: "Task list",
+          exact: true,
+        });
+        await expect(taskList).toBeVisible();
+        const taskRow = taskList.getByRole("row").filter({
+          has: page.getByRole("link", {
+            name: /^Review compact controls and long assignee names/,
+          }),
+        });
+        await expect(taskRow).toHaveCount(1);
         const identifier = taskRow
           .getByText(taskIdentifier, { exact: true })
           .filter({ visible: true });
@@ -417,9 +424,10 @@ for (const width of [1280, 390])
         expect(
           identifierMetrics.left - identifierMetrics.iconRight,
         ).toBeCloseTo(8, 0);
-        const identities = page.locator(
-          `.task-table [data-key="${taskId}"] [data-slot=avatar]`,
-        );
+        const identities = taskRow.getByRole("img", {
+          name: assigneeName,
+          exact: true,
+        });
         await expect(identities).toHaveCount(1);
         const avatarShape = await identities.first().evaluate((e) => ({
           radius: parseFloat(getComputedStyle(e).borderTopLeftRadius),

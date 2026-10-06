@@ -1320,6 +1320,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
       .locator('[data-slot="checkbox-content"]')
       .evaluateAll((elements) =>
         elements.map((element) => ({
+          name: element.textContent?.trim(),
           height: element.getBoundingClientRect().height,
           tick: element
             .querySelector('[data-slot="checkbox-control"]')
@@ -1327,9 +1328,15 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
         })),
       );
     expect(labels).toHaveLength(2);
-    expect(
-      labels.every((label) => label.height >= 44 && label.tick === 16),
-    ).toBe(true);
+    for (const label of labels) {
+      expect(
+        label.height,
+        `${label.name} has a touch target at least 44px high`,
+      ).toBeGreaterThanOrEqual(44);
+      expect(label.tick, `${label.name} keeps the native 16px control`).toBe(
+        16,
+      );
+    }
     await mobile.screenshot({
       path: testInfo.outputPath("preferences-phone-dark.png"),
       fullPage: true,

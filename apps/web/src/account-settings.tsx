@@ -330,7 +330,7 @@ function PreferenceSettings({
                 onChange={setAssignments}
                 isDisabled={busy}
               >
-                <Checkbox.Content>
+                <Checkbox.Content className="min-h-11">
                   <Checkbox.Control>
                     <Checkbox.Indicator />
                   </Checkbox.Control>
@@ -343,7 +343,7 @@ function PreferenceSettings({
                 onChange={setMentions}
                 isDisabled={busy}
               >
-                <Checkbox.Content>
+                <Checkbox.Content className="min-h-11">
                   <Checkbox.Control>
                     <Checkbox.Indicator />
                   </Checkbox.Control>
