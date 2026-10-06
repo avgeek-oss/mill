@@ -1,3 +1,4 @@
+import { useSettingsMutation } from "./use-settings-mutation.js";
 import {
   ReauthenticationDialog,
   useIdentityConfirmation,
@@ -235,6 +236,9 @@ function ProfileSettings({
   onRefresh: () => void;
 }) {
   const suspension = useOverlaySuspension();
+  const mutate = useSettingsMutation(
+    `${session.user.id}:${session.workspace.id}`,
+  );
   return (
     <section className="min-w-0">
       <PageHeading
@@ -251,7 +255,9 @@ function ProfileSettings({
           maxLength={120}
           onSave={async (name) => {
             const isCurrent = suspension.capture();
-            await api("/auth/profile", { name }, "PATCH");
+            await mutate((signal) =>
+              api("/auth/profile", { name }, "PATCH", { signal }),
+            );
             if (isCurrent()) onRefresh();
           }}
         />
@@ -267,6 +273,9 @@ function PreferenceSettings({
   onRefresh: () => void;
 }) {
   const suspension = useOverlaySuspension();
+  const mutate = useSettingsMutation(
+    `${session.user.id}:${session.workspace.id}`,
+  );
   const preferenceOptions = useMemo(
     () => ({
       ...dateTimePreferenceOptions,
@@ -296,10 +305,13 @@ function PreferenceSettings({
     setBusy(true);
     setNotificationError("");
     try {
-      await api(
-        "/auth/profile",
-        { notificationPreferences: { assignments, mentions } },
-        "PATCH",
+      await mutate((signal) =>
+        api(
+          "/auth/profile",
+          { notificationPreferences: { assignments, mentions } },
+          "PATCH",
+          { signal },
+        ),
       );
       if (isCurrent()) {
         toast.success("Notifications saved.");
@@ -329,20 +341,23 @@ function PreferenceSettings({
           formatPreview={dateTimePreview}
           onSave={async (preferences) => {
             const isCurrent = suspension.capture();
-            await api(
-              "/auth/profile",
-              {
-                ...(preferences.dateFormat !== session.user.dateFormat && {
-                  dateFormat: preferences.dateFormat,
-                }),
-                ...(preferences.timeFormat !== session.user.timeFormat && {
-                  timeFormat: preferences.timeFormat,
-                }),
-                ...(preferences.timeZone !== session.user.timeZone && {
-                  timeZone: preferences.timeZone,
-                }),
-              },
-              "PATCH",
+            await mutate((signal) =>
+              api(
+                "/auth/profile",
+                {
+                  ...(preferences.dateFormat !== session.user.dateFormat && {
+                    dateFormat: preferences.dateFormat,
+                  }),
+                  ...(preferences.timeFormat !== session.user.timeFormat && {
+                    timeFormat: preferences.timeFormat,
+                  }),
+                  ...(preferences.timeZone !== session.user.timeZone && {
+                    timeZone: preferences.timeZone,
+                  }),
+                },
+                "PATCH",
+                { signal },
+              ),
             );
             if (isCurrent()) onRefresh();
           }}
