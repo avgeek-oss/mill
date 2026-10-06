@@ -1,3 +1,9 @@
+import {
+  dateFormatOptions,
+  timeFormatOptions,
+  type DateFormatId,
+  type TimeFormatId,
+} from "@avgeek-oss/design-system/utilities/date-time-preferences";
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -84,16 +90,8 @@ export function hasSessionResponse(value: unknown): value is Session {
     ["admin", "member", "viewer"].includes(String(user.role)) &&
     typeof user.timeZone === "string" &&
     !!user.timeZone &&
-    [
-      "day-short-month-year",
-      "short-month-day-year",
-      "day-month-year",
-      "month-day-year",
-      "year-month-day",
-    ].includes(String(user.dateFormat)) &&
-    ["24-hour", "12-hour", "24-hour-seconds", "12-hour-seconds"].includes(
-      String(user.timeFormat),
-    ) &&
+    dateFormatOptions.some((option) => option.id === user.dateFormat) &&
+    timeFormatOptions.some((option) => option.id === user.timeFormat) &&
     Number.isSafeInteger(user.passkeyCount) &&
     Number(user.passkeyCount) >= 0 &&
     isResponseObject(user.notificationPreferences) &&
@@ -303,13 +301,8 @@ export type User = {
   emailVerified: boolean;
   role: "admin" | "member" | "viewer";
   timeZone: string;
-  dateFormat:
-    | "day-short-month-year"
-    | "short-month-day-year"
-    | "day-month-year"
-    | "month-day-year"
-    | "year-month-day";
-  timeFormat: "24-hour" | "12-hour" | "24-hour-seconds" | "12-hour-seconds";
+  dateFormat: DateFormatId;
+  timeFormat: TimeFormatId;
   notificationPreferences: {
     assignments?: boolean;
     mentions?: boolean;

@@ -18,6 +18,8 @@ import {
   timeFormatSchema,
 } from "../apps/api/src/auth/model.js";
 
+import { dateTimePreferenceOptions } from "../apps/web/src/date-time-preferences.js";
+
 beforeEach(resetDatabase);
 after(cleanupDatabase);
 const dates = [
@@ -36,6 +38,14 @@ const times = [
 
 test("setup and identity-bound profile persistence accept every common display choice without resetting omitted preferences", async () => {
   assert.deepEqual(dateFormatSchema.options, dates);
+  assert.deepEqual(
+    dateFormatSchema.options,
+    dateTimePreferenceOptions.dateFormats.map(({ id }) => id),
+  );
+  assert.deepEqual(
+    timeFormatSchema.options,
+    dateTimePreferenceOptions.timeFormats.map(({ id }) => id),
+  );
   assert.deepEqual(timeFormatSchema.options, times);
   const account = await setupUser({
     dateFormat: "short-month-day-year",
