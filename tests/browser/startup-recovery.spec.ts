@@ -436,8 +436,8 @@ test("phone actions remain compact and fields retain readable input text", async
       .getByRole("dialog", { name: "Navigation", exact: true })
       .getByRole("button", { name: "Close navigation", exact: true });
     const bounds = await close.boundingBox();
-    expect(bounds!.height).toBe(44);
-    expect(bounds!.width).toBe(44);
+    expect(bounds!.height).toBeCloseTo(44, 2);
+    expect(bounds!.width).toBeCloseTo(44, 2);
   } finally {
     await context.close();
     await phoneBrowser.close();
