@@ -195,7 +195,12 @@ export function Choice({
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>
-      <Select.Popover>
+      <Select.Popover
+        style={{
+          minWidth: "min(var(--trigger-width), 20rem, calc(100vw - 32px))",
+          maxWidth: "min(20rem, calc(100vw - 32px))",
+        }}
+      >
         {search ? (
           <Autocomplete.Filter
             filter={(text, query) =>

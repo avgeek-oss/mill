@@ -511,12 +511,15 @@ for (const width of [1280, 390])
           name: assigneeName,
           exact: true,
         });
-        const optionText = await option
-          .locator("span.truncate")
-          .evaluate((text) => ({
-            clipped: text.scrollWidth > text.clientWidth,
-            overflow: getComputedStyle(text).textOverflow,
-          }));
+        const optionLabel = option
+          .locator(":scope > span.grid > span.truncate")
+          .filter({ visible: true });
+        await expect(optionLabel).toHaveCount(1);
+        await expect(optionLabel).toHaveText(assigneeName);
+        const optionText = await optionLabel.evaluate((text) => ({
+          clipped: text.scrollWidth > text.clientWidth,
+          overflow: getComputedStyle(text).textOverflow,
+        }));
         expect(optionText).toEqual({ clipped: true, overflow: "ellipsis" });
         await option.click();
         const dimensions = await modal

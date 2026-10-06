@@ -358,6 +358,7 @@ function TaskDiscussionContent({
   const [createKey] = useState(createRetryKey);
   const [deleteKey] = useState(createRetryKey);
   const commentInput = useRef<HTMLTextAreaElement>(null);
+  const pendingMentionCaret = useRef<number | null>(null);
   const mentionContainer = useRef<HTMLDivElement>(null);
   const mentionPopup = useRef<HTMLDivElement>(null);
   const [mentionPosition, setMentionPosition] = useState<ReturnType<
@@ -413,6 +414,7 @@ function TaskDiscussionContent({
     const separator = /^\s/.test(after) ? "" : " ";
     const next = `${before}${token}${separator}${after}`;
     const caret = before.length + token.length + separator.length;
+    pendingMentionCaret.current = caret;
     changeDraft(next);
     selectedMentions.current = [
       ...selectedMentions.current.filter((item) => item.id !== member.id),
@@ -420,12 +422,16 @@ function TaskDiscussionContent({
     ];
     setMention(null);
     setCommentError("");
-    requestAnimationFrame(() => {
-      const input = commentInput.current;
-      input?.focus();
-      input?.setSelectionRange(caret, caret);
-    });
   }
+
+  useLayoutEffect(() => {
+    const caret = pendingMentionCaret.current;
+    if (caret === null) return;
+    pendingMentionCaret.current = null;
+    const input = commentInput.current;
+    input?.focus({ preventScroll: true });
+    input?.setSelectionRange(caret, caret);
+  }, [draft]);
 
   function humanAvatar(id: string, name: string, className: string) {
     const member = members?.find((item) => item.id === id);

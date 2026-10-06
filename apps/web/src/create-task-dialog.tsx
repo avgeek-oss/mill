@@ -151,7 +151,7 @@ export function CreateTaskDialog({
     >
       <form
         id={formId}
-        className="content-grid min-w-0"
+        className="content-grid min-w-0 grid-cols-1"
         onSubmit={(event) => {
           event.preventDefault();
           void create();
@@ -226,6 +226,7 @@ export function CreateTaskDialog({
           </>
         )}
         <Choice
+          className="min-w-0"
           label="Assignee"
           value={assigneeId}
           onChange={setAssigneeId}

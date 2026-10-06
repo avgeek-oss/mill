@@ -1795,7 +1795,11 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
     exact: true,
   });
   await keyForm.getByLabel("Name", { exact: true }).fill("Review automation");
-  await choose(page, "Expiry", "60 days");
+  const expiry = keyForm.getByRole("button", { name: /Expires after\*$/ });
+  await expiry.click();
+  await page.getByRole("option", { name: "60 days", exact: true }).click();
+  await expect(expiry).toContainText("60 days");
+  await expect(page.getByRole("listbox")).toBeHidden();
   for (const removedLabel of ["Agent", "Access", "Board access"])
     await expect(
       keyForm.getByRole("button", { name: new RegExp(`${removedLabel}$`) }),
@@ -1806,7 +1810,7 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
       response.request().method() === "POST",
   );
   await keyForm
-    .getByRole("button", { name: "Create API key", exact: true })
+    .getByRole("button", { name: "Create key", exact: true })
     .click();
   const keyCreation = await keyCreationResponse;
   expect(keyCreation.status()).toBe(201);
@@ -1824,12 +1828,13 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
     name: "Copy your API key",
     exact: true,
   });
-  await expect(copyKey.getByLabel("API key", { exact: true })).not.toHaveValue(
-    "",
-  );
-  const token = await copyKey
-    .getByLabel("API key", { exact: true })
-    .inputValue();
+  const revealedKey = copyKey.locator('[data-slot="code-block-code"] code');
+  await expect(revealedKey).toBeVisible();
+  const token = (await revealedKey.innerText()).trim();
+  expect(token.length, "A new credential is revealed once").toBeGreaterThan(0);
+  await expect(
+    copyKey.getByRole("button", { name: "Done", exact: true }),
+  ).toBeFocused();
   await copyKey.getByRole("button", { name: "Done", exact: true }).click();
   await expect(copyKey).toBeHidden();
   const personalKey = await request.newContext({
@@ -1880,28 +1885,30 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
       data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
     });
     expect(forbiddenMcp.status()).toBe(403);
-    await page
-      .getByRole("button", { name: "Revoke Review automation", exact: true })
-      .click();
-    const revokedDialog = page.getByRole("dialog", {
-      name: "Revoke API key?",
-      exact: true,
-    });
-    await revokedDialog
-      .getByRole("button", { name: "Revoke API key", exact: true })
-      .click();
-    await expect(revokedDialog).toHaveCount(0);
-    await expect(
-      page.getByText("API key revoked.", { exact: true }),
-    ).toBeVisible();
     const credentialRow = page
       .getByRole("grid", { name: "API keys", exact: true })
       .getByRole("row")
       .filter({ has: page.getByText("Review automation", { exact: true }) });
+    await credentialRow
+      .getByRole("button", { name: "Revoke", exact: true })
+      .click();
+    const revokedDialog = page.getByRole("dialog", {
+      name: "Revoke Review automation?",
+      exact: true,
+    });
+    await revokedDialog
+      .getByRole("button", { name: "Revoke key", exact: true })
+      .click();
+    await expect(revokedDialog).toHaveCount(0);
+    await expect(
+      page
+        .locator('[data-slot="toast"]:not([data-exiting="true"])')
+        .getByText("Access revoked.", { exact: true }),
+    ).toBeVisible();
     await expect(credentialRow).toHaveCount(0);
     await expect(
       credentialRow.getByRole("button", {
-        name: "Revoke Review automation",
+        name: "Revoke",
         exact: true,
       }),
     ).toHaveCount(0);

@@ -816,15 +816,20 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       0,
     );
     await expect(unusedRow.locator("td").nth(2)).not.toBeEmpty();
-    const lastUsed = unusedRow.getByRole("gridcell").nth(4);
+    const lastUsed = unusedRow.getByRole("gridcell", {
+      name: "Never",
+      exact: true,
+    });
     await expect(lastUsed).toBeVisible();
     await expect(lastUsed).toHaveText("Never");
     await expect(lastUsed.locator("time")).toHaveCount(0);
     await expect(lastUsed).toHaveCSS(
       "color",
       await unusedRow
-        .getByRole("gridcell")
-        .nth(1)
+        .getByRole("gridcell", {
+          name: "Your current REST permissions",
+          exact: true,
+        })
         .evaluate((element) => getComputedStyle(element).color),
     );
     await expect
