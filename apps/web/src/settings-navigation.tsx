@@ -3,7 +3,7 @@ import {
   Key01Icon,
   Mail01Icon,
   MonitorIcon,
-  SecurityCheckIcon,
+  FingerPrintIcon,
   Settings01Icon,
   UserAccountIcon,
   UserGroupIcon,
@@ -24,7 +24,7 @@ export const accountSections = [
     title: "Security",
     items: [
       { id: "email-password", label: "Email & Password", icon: Mail01Icon },
-      { id: "two-factor", label: "Two-factor Auth", icon: SecurityCheckIcon },
+      { id: "passkeys", label: "Passkeys", icon: FingerPrintIcon },
       { id: "sessions", label: "Sessions", icon: MonitorIcon },
     ],
   },
@@ -56,10 +56,15 @@ export const settingsTitles: Record<string, string> = {
   "api-keys": "API keys",
   members: "People",
   security: "Email & Password",
+  "two-factor": "Passkeys",
 };
 
 export const canonicalSettingsSection = (section: string) =>
-  section === "security" ? "email-password" : section;
+  section === "security"
+    ? "email-password"
+    : section === "two-factor"
+      ? "passkeys"
+      : section;
 
 export function isAccountSection(section?: string) {
   return (

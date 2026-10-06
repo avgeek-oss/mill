@@ -3,7 +3,7 @@ title: "Backup and recovery"
 description: "Back up PostgreSQL and test a full restore."
 ---
 
-A full PostgreSQL backup preserves accounts, sessions, authenticators, boards, tasks, comments, members, attributed task history, in-app notifications, and API key/OAuth records. A retained prelaunch archive is also included in a full-database backup when present. This is the supported recovery method. Mill v1 does not offer portable work export/import.
+A full PostgreSQL backup preserves accounts, sessions, passkeys and their recovery-code digests, boards, tasks, comments, members, attributed task history, in-app notifications, and API key/OAuth records. A retained prelaunch archive is also included in a full-database backup when present. This is the supported recovery method. Mill v1 does not offer portable work export/import.
 
 ## Create a full backup
 

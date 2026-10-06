@@ -30,6 +30,7 @@ CREATE TABLE sessions (
   user_agent text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   authenticated_at timestamptz NOT NULL DEFAULT now(),
+  passkey_authenticated_at timestamptz,
   last_seen_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL
 );
@@ -57,13 +58,6 @@ CREATE TABLE passkeys (
 );
 CREATE INDEX passkeys_user ON passkeys(user_id);
 
-CREATE TABLE authenticators (
-  user_id uuid PRIMARY KEY REFERENCES users(id),
-  encrypted_secret text NOT NULL,
-  verified boolean NOT NULL DEFAULT false,
-  last_used_step bigint NOT NULL DEFAULT -1,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
 CREATE TABLE recovery_codes (
   user_id uuid NOT NULL REFERENCES users(id),
   code_hash text NOT NULL,

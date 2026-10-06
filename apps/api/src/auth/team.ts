@@ -87,16 +87,16 @@ teamRoutes.get("/members", async (c) => {
     async (tx) => {
       const [collection] = await tx<
         { revision: string }[]
-      >`SELECT md5(COALESCE(string_agg(id::text||':'||name||':'||email||':'||role||':'||time_zone,',' ORDER BY id),'')) AS revision FROM users WHERE disabled_at IS NULL`;
+      >`SELECT md5(COALESCE(string_agg(id::text||':'||name||':'||email||':'||role||':'||time_zone||':'||EXISTS(SELECT 1 FROM passkeys p WHERE p.user_id=users.id)::text,',' ORDER BY id),'')) AS revision FROM users WHERE disabled_at IS NULL AND workspace_id=(SELECT workspace_id FROM users WHERE id=${who.userId})`;
       if (cursor && cursor.revision !== collection.revision)
         return { stale: true as const };
       const [anchor] = cursor
-        ? await tx`SELECT name FROM users WHERE id=${cursor.id} AND disabled_at IS NULL`
+        ? await tx`SELECT name FROM users WHERE id=${cursor.id} AND disabled_at IS NULL AND workspace_id=(SELECT workspace_id FROM users WHERE id=${who.userId})`
         : [];
       if (cursor && (!anchor || anchor.name !== cursor.name))
         badRequest("This member cursor is no longer active");
       const rows =
-        await tx`SELECT id,name,email,role,time_zone FROM users WHERE disabled_at IS NULL ${cursor ? tx`AND (name,id)>(${cursor.name},${cursor.id}::uuid)` : tx``} ORDER BY name,id LIMIT ${limit + 1}`;
+        await tx`SELECT id,name,email,role,time_zone,EXISTS(SELECT 1 FROM passkeys p WHERE p.user_id=users.id) AS passkey_enabled FROM users WHERE disabled_at IS NULL AND workspace_id=(SELECT workspace_id FROM users WHERE id=${who.userId}) ${cursor ? tx`AND (name,id)>(${cursor.name},${cursor.id}::uuid)` : tx``} ORDER BY name,id LIMIT ${limit + 1}`;
       const items = rows.slice(0, limit);
       const hasMore = rows.length > limit;
       const last = items.at(-1);
@@ -230,7 +230,6 @@ teamRoutes.post("/accept-invitation", async (c) => {
         UserRow[]
       >`UPDATE users SET name=${input.name},password_hash=${passwordHash},security_epoch=security_epoch+1,role=${invitation.role},disabled_at=null,updated_at=now() WHERE id=${existing.id} RETURNING *`;
       await tx`DELETE FROM passkeys WHERE user_id=${user.id}`;
-      await tx`DELETE FROM authenticators WHERE user_id=${user.id}`;
       await tx`DELETE FROM recovery_codes WHERE user_id=${user.id}`;
       await tx`DELETE FROM sessions WHERE user_id=${user.id}`;
     } else

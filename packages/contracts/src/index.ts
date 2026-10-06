@@ -56,6 +56,7 @@ export type Member = {
   email: string;
   role: Role;
   timeZone: string;
+  passkeyEnabled: boolean;
 };
 export type Activity = {
   id: string;

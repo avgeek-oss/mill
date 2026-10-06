@@ -17,7 +17,7 @@
     {
       "name": "setup",
       "route": "/",
-      "heading": "Create your workspace",
+      "heading": "Set up your team",
       "anonymous": true,
       "beforeSetup": true,
       "guides": ["installation", "getting-started"]
@@ -111,8 +111,8 @@
     },
     {
       "name": "security",
-      "route": "/settings/two-factor",
-      "heading": "Two-factor Auth",
+      "route": "/settings/passkeys",
+      "heading": "Passkeys",
       "guides": ["authentication", "security"]
     },
     {
@@ -131,7 +131,7 @@
     {
       "name": "sign-in",
       "route": "/",
-      "heading": "Sign in to Mill",
+      "heading": "Sign in",
       "anonymous": true,
       "guides": ["authentication"]
     },

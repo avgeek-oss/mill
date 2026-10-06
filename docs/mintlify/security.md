@@ -3,7 +3,7 @@ title: "Security"
 description: "Protect an installation and report a vulnerability privately."
 ---
 
-Use HTTPS for every remote installation and keep the Mill HTTP service and PostgreSQL private behind the reverse proxy. Protect `.env`, the Docker host, and full database backups. A backup contains account data and credentials; keep the original `MILL_SECRET` with your recovery plan because encrypted authenticator values need it after restore.
+Use HTTPS for every remote installation and keep the Mill HTTP service and PostgreSQL private behind the reverse proxy. Protect `.env`, the Docker host, and full database backups. A backup contains account data and credentials; keep the original `MILL_SECRET` with your recovery plan alongside the restored configuration.
 
 Grant people and external clients only the access they need. Review active sessions, API keys, OAuth connections when access changes. Mill does not execute external code or connect to an LLM provider. The server checks authorization for UI, REST, and MCP requests; a hidden control is not an access boundary.
 
@@ -13,7 +13,7 @@ For detailed controls, see [accounts and team access](/authentication), [configu
 
 ## In the app
 
-### Two-factor Auth
+### Passkeys
 
 <Tabs>
   <Tab title="Desktop">
@@ -22,7 +22,7 @@ For detailed controls, see [accounts and team access](/authentication), [configu
         <div className="mill-product-light">
           <img
             src="/assets/screenshots/release-v1/security-light.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="1280"
             height="900"
             loading="lazy"
@@ -31,7 +31,7 @@ For detailed controls, see [accounts and team access](/authentication), [configu
         <div className="mill-product-dark">
           <img
             src="/assets/screenshots/release-v1/security-dark.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="1280"
             height="900"
             loading="lazy"
@@ -46,7 +46,7 @@ For detailed controls, see [accounts and team access](/authentication), [configu
         <div className="mill-product-light">
           <img
             src="/assets/screenshots/release-v1/security-mobile-light.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="390"
             height="844"
             loading="lazy"
@@ -55,7 +55,7 @@ For detailed controls, see [accounts and team access](/authentication), [configu
         <div className="mill-product-dark">
           <img
             src="/assets/screenshots/release-v1/security-mobile-dark.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="390"
             height="844"
             loading="lazy"

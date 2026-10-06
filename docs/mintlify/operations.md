@@ -24,7 +24,7 @@ Do not edit an applied migration or remove migration records to get a service ru
 
 ## Account recovery
 
-Recovery codes let a person satisfy a second-factor challenge after losing an authenticator. When a person cannot sign in at all, the server operator can run the recovery command against the intended installation. It prints a private, one-time link valid for 30 minutes. After the person uses it to choose a new password, Mill revokes their existing sessions and client credentials.
+Passkey recovery codes let a person regain ordinary account access after password verification when their passkey is unavailable. Recovery access cannot approve security changes; those require fresh passkey verification. When a person cannot sign in at all, the server operator can run the recovery command against the intended installation. It prints a private, one-time link valid for 30 minutes. After the person uses it to choose a new password, Mill revokes their existing sessions and client credentials.
 
 This command requires shell and database access to the installation; it is an operator action, not an unauthenticated web endpoint. Save the database first, then run:
 

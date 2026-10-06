@@ -21,7 +21,7 @@ Check PostgreSQL health, the application's migration error, and disk space. If t
 
 `MILL_BASE_URL` must exactly match the browser's scheme, hostname, and port. Use HTTPS for remote access. Confirm the proxy preserves the host and does not cache authentication responses. Browser mutations from another origin are rejected.
 
-Passkeys are bound to the registration origin. If you changed domains, use your password and authenticator/recovery fallback, then register a new passkey at the final origin. Keep one administrator with a verified recovery path before changing the URL.
+Passkeys are bound to the registration origin. If you changed domains and cannot use a passkey, use your password and a passkey recovery code for ordinary account access. Ask the operator to recover the account with `--reset-mfa` before adding passkeys at the final origin; recovery-code access cannot approve security changes. Keep one administrator with a verified recovery path before changing the URL.
 
 ## Send an invitation or recover an account
 

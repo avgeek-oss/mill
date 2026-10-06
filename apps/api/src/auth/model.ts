@@ -106,8 +106,7 @@ export function inAppPreferences(
 }
 export async function userMetadata(user: UserRow, db: Db = sql) {
   const [state] =
-    await db`SELECT EXISTS(SELECT 1 FROM authenticators WHERE user_id=${user.id} AND verified) AS totp_enabled,
-    (SELECT count(*)::int FROM passkeys WHERE user_id=${user.id}) AS passkey_count`;
+    await db`SELECT (SELECT count(*)::int FROM passkeys WHERE user_id=${user.id}) AS passkey_count`;
   return {
     id: user.id,
     name: user.name,
@@ -117,7 +116,6 @@ export async function userMetadata(user: UserRow, db: Db = sql) {
     dateFormat: user.dateFormat,
     timeFormat: user.timeFormat,
     notificationPreferences: inAppPreferences(user.notificationPreferences),
-    totpEnabled: state.totpEnabled,
     passkeyCount: state.passkeyCount,
   };
 }
@@ -144,9 +142,17 @@ export async function currentSession(c: Context<Env>, db: Db = sql) {
     });
   return session;
 }
-export async function recentSession(c: Context<Env>) {
-  const session = await currentSession(c);
-  if (new Date(session.authenticatedAt).getTime() < Date.now() - 600_000)
+export async function recentSession(c: Context<Env>, db: Db = sql) {
+  const session = await currentSession(c, db);
+  const [factor] =
+    await db`SELECT EXISTS(SELECT 1 FROM passkeys WHERE user_id=${session.userId}) AS configured`;
+  const cutoff = Date.now() - 600_000;
+  if (
+    new Date(session.authenticatedAt).getTime() < cutoff ||
+    (factor.configured &&
+      (!session.passkeyAuthenticatedAt ||
+        new Date(session.passkeyAuthenticatedAt).getTime() < cutoff))
+  )
     throw new HttpError(
       403,
       "REAUTHENTICATION_REQUIRED",
@@ -167,6 +173,7 @@ export async function newSession(
   userId: string,
   db: Db = sql,
   expectedEpoch?: number,
+  proof: "password" | "passkey" | "recovery" = "password",
 ) {
   const token = secretToken();
   const user = await activeUser(userId, db);
@@ -174,8 +181,8 @@ export async function newSession(
     throw new HTTPException(401, {
       message: "Your account security changed. Sign in again.",
     });
-  await db`INSERT INTO sessions(id,user_id,token_hash,user_agent,expires_at,security_epoch)
-    VALUES (${randomUUID()},${userId},${hashToken(token)},${(c.req.header("user-agent") ?? "Unknown device").slice(0, 300)},now()+interval '7 days',${expectedEpoch ?? user.securityEpoch})`;
+  await db`INSERT INTO sessions(id,user_id,token_hash,user_agent,expires_at,security_epoch,authenticated_at,passkey_authenticated_at)
+    VALUES (${randomUUID()},${userId},${hashToken(token)},${(c.req.header("user-agent") ?? "Unknown device").slice(0, 300)},now()+interval '7 days',${expectedEpoch ?? user.securityEpoch},${proof === "recovery" ? new Date(0) : new Date()},${proof === "passkey" ? new Date() : null})`;
   setCookie(c, "mill_session", token, { ...cookieOptions(), maxAge: 604800 });
 }
 export function clearSession(c: Context<Env>) {

@@ -28,7 +28,7 @@ const screenshotTitles = {
   "email-password": "Email & Password",
   sessions: "Sessions",
   "mcp-guide": "MCP Guide",
-  security: "Two-factor Auth",
+  security: "Passkeys",
   team: "Team settings: General",
   notifications: "Notifications",
   "sign-in": "Sign in",

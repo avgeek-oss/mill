@@ -241,6 +241,70 @@ test("a member connects directly as themselves without an Agent and can revoke t
   }
 });
 
+test("expired identity proof retains the selected consent draft through cancellation and fresh confirmation", async ({
+  page,
+}) => {
+  const operator = await account(page);
+  const state = await database();
+  try {
+    await state.sql.unsafe(
+      `UPDATE "${state.schema}".sessions SET authenticated_at='epoch',passkey_authenticated_at=NULL WHERE user_id=$1`,
+      [operator.id],
+    );
+    await clientCallback(page);
+    const connection = await grant(
+      operator.api,
+      "Fresh proof connection",
+      "read write",
+    );
+    await page.goto(connection.url);
+    await page.getByRole("button", { name: /Approved boards$/ }).click();
+    await page
+      .getByRole("option", { name: selected.name, exact: true })
+      .click();
+    const attempts: unknown[] = [];
+    await page.route(`**/api/oauth/consent/${connection.id}`, async (route) => {
+      if (route.request().method() === "POST")
+        attempts.push(route.request().postDataJSON());
+      await route.continue();
+    });
+    await page
+      .getByRole("button", { name: "Allow access", exact: true })
+      .click();
+    const confirmation = page.getByRole("dialog", {
+      name: "Confirm it’s you",
+      exact: true,
+    });
+    await expect(confirmation).toBeVisible();
+    await confirmation
+      .getByRole("button", { name: "Cancel", exact: true })
+      .click();
+    await expect(confirmation).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: "Allow access", exact: true }),
+    ).toBeEnabled();
+    expect(new URL(page.url()).searchParams.get("request")).toBe(connection.id);
+    await page
+      .getByRole("button", { name: "Allow access", exact: true })
+      .click();
+    await confirmation.getByLabel("Password", { exact: true }).fill(password);
+    await confirmation.getByLabel("Password", { exact: true }).press("Enter");
+    await page.waitForURL(/\/consent-return\?/);
+    expect(attempts).toEqual(
+      Array.from({ length: 3 }, () => ({
+        allow: true,
+        boardIds: [selected.id],
+      })),
+    );
+    const returned = new URL(page.url());
+    expect(returned.searchParams.get("state") === connection.state).toBe(true);
+    expect(returned.searchParams.has("code")).toBe(true);
+  } finally {
+    await state.sql.end();
+    await operator.api.dispose();
+  }
+});
+
 test("denial needs no identity selection and returns only an access-denied decision", async ({
   page,
 }) => {

@@ -94,7 +94,6 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         "api_idempotency",
         "auth_challenges",
         "auth_rate_limits",
-        "authenticators",
         "boards",
         "comments",
         "credentials",

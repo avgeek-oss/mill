@@ -12,7 +12,6 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
-import { Secret, TOTP } from "otpauth";
 import { getBrowserBootstrap } from "../browser-fixture.js";
 
 function feedbackToast(page: Page, message: string) {
@@ -85,7 +84,9 @@ async function choose(
   value: string,
   scope: Page | Locator = page,
 ) {
-  await scope.getByRole("button", { name: new RegExp(`${label}$`) }).click();
+  await scope
+    .getByRole("button", { name: new RegExp(`${label}\\*?$`) })
+    .click();
   await page.getByRole("option", { name: value, exact: true }).click();
 }
 async function accountAction(
@@ -176,7 +177,6 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   await login(page, admin);
   await accountAction(page, "Profile");
   const avatar = page
-    .getByRole("region", { name: "Profile image", exact: true })
     .getByRole("link", {
       name: "Edit Gravatar image (opens in a new tab)",
       exact: true,
@@ -354,7 +354,71 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   });
 });
 
-test("real browser passkey enrollment and sign-in prefer the passkey with working authenticator fallback", async ({
+test("password changes preserve their draft across expired identity proof and require fresh confirmation", async ({
+  page,
+}) => {
+  const account = await createAccount(
+    "password-proof@example.test",
+    "Password proof Casey",
+  );
+  await login(page, account);
+  await page.goto("/settings/email-password");
+  const nextPassword = "Fresh password change after confirmation 42!";
+  await page.getByLabel("Current password", { exact: true }).fill(password);
+  await page.getByLabel("New password", { exact: true }).fill(nextPassword);
+  await page
+    .getByLabel("Confirm new password", { exact: true })
+    .fill(nextPassword);
+  if (!process.env.DATABASE_URL) process.loadEnvFile(".env");
+  const metadata = JSON.parse(
+    await readFile(`tmp/browser-${new URL(origin).port}-schema.json`, "utf8"),
+  ) as { schema: string };
+  expect(metadata.schema).toMatch(/^browser_[a-f0-9]{16}$/);
+  const database = postgres(process.env.DATABASE_URL!, { max: 1 });
+  try {
+    await database.unsafe(
+      `UPDATE "${metadata.schema}".sessions SET authenticated_at='epoch',passkey_authenticated_at=NULL WHERE user_id=$1`,
+      [account.id],
+    );
+  } finally {
+    await database.end();
+  }
+  const attempts: unknown[] = [];
+  await page.route("**/api/auth/password", async (route) => {
+    attempts.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await page
+    .getByRole("button", { name: "Change password", exact: true })
+    .click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Confirm it’s you",
+    exact: true,
+  });
+  await expect(confirmation).toBeVisible();
+  await confirmation
+    .getByRole("button", { name: "Cancel", exact: true })
+    .click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByLabel("New password", { exact: true })).toHaveValue(
+    nextPassword,
+  );
+  await page
+    .getByRole("button", { name: "Change password", exact: true })
+    .click();
+  await confirmPassword(page);
+  await expect(feedbackToast(page, "Password changed")).toBeVisible();
+  expect(attempts).toEqual(
+    Array.from({ length: 3 }, () => ({
+      currentPassword: password,
+      password: nextPassword,
+    })),
+  );
+  await signOut(page);
+  await login(page, { ...account, password: nextPassword });
+});
+
+test("real browser passkey enrollment issues recovery codes and verifies passkey-only sign-in or explicit recovery", async ({
   page,
   context,
 }) => {
@@ -387,38 +451,8 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     authenticatorId,
   });
   expect(credentials.credentials.length).toBe(1);
-  await page
-    .getByRole("button", { name: "Set up authenticator", exact: true })
-    .click();
-  await confirmPassword(page);
-  const authenticator = page.getByRole("region", {
-    name: "Authenticator",
-    exact: true,
-  });
-  const secret = (
-    await authenticator
-      .locator('[data-slot="code-block-code"] code')
-      .innerText()
-  ).trim();
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
-  await authenticator
-    .getByRole("button", { name: "Copy setup key", exact: true })
-    .click();
-  const copiedKey = await page.evaluate(() => navigator.clipboard.readText());
-  expect(
-    copiedKey === secret,
-    "The copied setup key matches the authenticator key",
-  ).toBe(true);
-  await page.context().clearPermissions();
-  const totp = new TOTP({ issuer: "Mill", secret: Secret.fromBase32(secret) });
-  await page
-    .getByLabel("Six-digit code", { exact: true })
-    .fill(totp.generate());
-  await page
-    .getByRole("button", { name: "Verify authenticator", exact: true })
-    .click();
   await expect(
-    page.getByRole("dialog", { name: "Save your recovery codes" }),
+    page.getByRole("dialog", { name: "Save recovery codes" }),
   ).toBeVisible();
   const recoveryText = (
     await page
@@ -427,7 +461,7 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
   ).trim();
   expect(recoveryText.split("\n").length).toBe(10);
   const recoveryDialog = page.getByRole("dialog", {
-    name: "Save your recovery codes",
+    name: "Save recovery codes",
     exact: true,
   });
   const target = await cdp.send("Target.getTargetInfo");
@@ -465,8 +499,8 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
   await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(recoveryDialog).toHaveCount(0);
   await expect(
-    page.getByText("Authenticator enabled", { exact: true }),
-  ).toBeVisible();
+    page.getByRole("button", { name: "Set up authenticator", exact: true }),
+  ).toHaveCount(0);
   await signOut(page);
   await page
     .getByRole("button", { name: "Sign in with Passkey", exact: true })
@@ -493,23 +527,65 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
   await expect(
     feedbackToast(page, "passkey could not be verified"),
   ).toBeVisible();
-  const authenticatorFallback = page.getByRole("button", {
-    name: "Use an authenticator code",
-    exact: true,
-  });
-  await expect(authenticatorFallback).toBeEnabled();
-  await authenticatorFallback.click();
+  await expect(
+    page.getByRole("button", {
+      name: "Use an authenticator code",
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await page
-    .getByLabel("Six-digit code", { exact: true })
-    .fill(totp.generate({ timestamp: Date.now() + 30000 }));
-  await page.getByRole("button", { name: "Verify", exact: true }).click();
+    .getByRole("button", { name: "Use a recovery code", exact: true })
+    .click();
+  await page
+    .getByLabel("Recovery code", { exact: true })
+    .fill(recoveryText.split("\n")[0]!);
+  await page.getByLabel("Recovery code", { exact: true }).press("Enter");
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),
   ).toBeVisible();
   const user = await json(page.request, "/auth/me");
-  expect(user.user.totpEnabled).toBe(true);
   expect(user.user.passkeyCount).toBe(1);
+  expect(user.user).not.toHaveProperty("totpEnabled");
   await cdp.send("WebAuthn.setResponseOverrideBits", { authenticatorId });
+  await page.goto("/settings/api-keys");
+  await page
+    .getByRole("button", { name: "Create API key", exact: true })
+    .click();
+  const keyDialog = page.getByRole("dialog", {
+    name: "Create API key",
+    exact: true,
+  });
+  await keyDialog
+    .getByLabel("Name", { exact: true })
+    .fill("Recovery proof gate");
+  const issuanceAttempts: { body: unknown; retryKey: string | null }[] = [];
+  await page.route("**/api/credentials", async (route) => {
+    if (route.request().method() === "POST")
+      issuanceAttempts.push({
+        body: route.request().postDataJSON(),
+        retryKey: route.request().headers()["idempotency-key"] ?? null,
+      });
+    await route.continue();
+  });
+  const deniedIssuance = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/api/credentials") && r.request().method() === "POST",
+  );
+  await keyDialog
+    .getByRole("button", { name: "Create key", exact: true })
+    .click();
+  expect((await deniedIssuance).status()).toBe(403);
+  await confirmPassword(page);
+  const keyReveal = page.getByRole("dialog", {
+    name: "Copy your API key",
+    exact: true,
+  });
+  await expect(
+    keyReveal.getByRole("button", { name: "Done", exact: true }),
+  ).toBeVisible();
+  expect(issuanceAttempts).toHaveLength(2);
+  expect(issuanceAttempts[1]).toEqual(issuanceAttempts[0]);
+  await keyReveal.getByRole("button", { name: "Done", exact: true }).click();
   await page.goto("/settings/two-factor");
   const passkeys = page.getByRole("grid", { name: "Passkeys", exact: true });
   await passkeys.getByRole("button", { name: "Remove", exact: true }).click();
@@ -532,7 +608,9 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     page.getByText("No passkeys added", { exact: true }),
   ).toBeVisible();
   expect((await json(page.request, "/auth/me")).user.passkeyCount).toBe(0);
-  expect((await json(page.request, "/auth/me")).user.totpEnabled).toBe(true);
+  expect((await json(page.request, "/auth/me")).user).not.toHaveProperty(
+    "totpEnabled",
+  );
   await cdp.detach();
 });
 
@@ -552,7 +630,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
       .getByRole("button", { name: "Invite a person", exact: true })
       .click();
     const dialog = page.getByRole("dialog", {
-      name: "Invite a person",
+      name: "Create invitation",
       exact: true,
     });
     await dialog.getByLabel("Email", { exact: true }).fill(email);
@@ -566,8 +644,8 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
     });
     await expect(created).toBeVisible();
     const url = await created
-      .getByLabel("Invitation link", { exact: true })
-      .inputValue();
+      .locator('[data-slot="code-block-code"] code')
+      .innerText();
     await created.getByRole("button", { name: "Done", exact: true }).click();
     return url;
   }
@@ -593,7 +671,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
         .getByLabel("Confirm password", { exact: true })
         .fill(password);
       await person
-        .getByRole("button", { name: "Accept invitation", exact: true })
+        .getByRole("button", { name: "Create account and join", exact: true })
         .click();
       await expect(
         person.getByRole("navigation", { name: "Workspace navigation" }),
@@ -686,7 +764,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
     })
     .click();
   const revoke = page.getByRole("dialog", {
-    name: "Revoke invitation for settings-pending@example.test?",
+    name: "Revoke invitation?",
     exact: true,
   });
   await revoke
@@ -1061,12 +1139,24 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
     (await cdp.send("WebAuthn.getCredentials", { authenticatorId })).credentials
       .length,
   ).toBe(1);
+  await page
+    .getByRole("dialog", { name: "Save recovery codes", exact: true })
+    .getByRole("button", { name: "Continue", exact: true })
+    .click();
   await cdp.send("WebAuthn.setAutomaticPresenceSimulation", {
     authenticatorId,
     enabled: false,
   });
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
   await page
-    .getByRole("button", { name: "Set up authenticator", exact: true })
+    .getByRole("menuitem", { name: "Replace recovery codes", exact: true })
+    .click();
+  const replacement = page.getByRole("dialog", {
+    name: "Replace recovery codes?",
+    exact: true,
+  });
+  await replacement
+    .getByRole("button", { name: "Confirm", exact: true })
     .click();
   dialog = page.getByRole("dialog", { name: "Confirm it’s you", exact: true });
   await dialog.getByLabel("Password", { exact: true }).fill(password);
@@ -1082,31 +1172,26 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
   expect(challenge.methods).toEqual(["passkey"]);
   expect(challenge.preferredMethod).toBe("passkey");
   const initialCeremony = await (await firstOptions).json();
-  await dialog.getByRole("button", { name: "Cancel passkey request" }).click();
-  await expect(feedbackToast(page, "cancelled")).toBeVisible();
-  await expect(
-    dialog.getByRole("button", { name: /Verification method$/ }),
-  ).toHaveCount(0);
-  await expect(dialog.getByLabel("Recovery code", { exact: true })).toHaveCount(
-    0,
-  );
-  await expect(
-    dialog.getByRole("button", { name: "Confirm", exact: true }),
-  ).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(replacement).toBeVisible();
   await cdp.send("WebAuthn.setAutomaticPresenceSimulation", {
     authenticatorId,
     enabled: true,
   });
+  await replacement
+    .getByRole("button", { name: "Confirm", exact: true })
+    .click();
+  dialog = page.getByRole("dialog", { name: "Confirm it’s you", exact: true });
+  await dialog.getByLabel("Password", { exact: true }).fill(password);
   const nextOptions = page.waitForResponse((r) =>
     r.url().endsWith("/api/auth/passkeys/authenticate/options"),
   );
-  await dialog
-    .getByRole("button", { name: "Try passkey again", exact: true })
-    .click();
+  await dialog.getByLabel("Password", { exact: true }).press("Enter");
   const retried = await (await nextOptions).json();
   expect(
-    retried.challengeId === initialCeremony.challengeId,
-    "Retry retains the same authentication request",
+    retried.challengeId !== initialCeremony.challengeId,
+    "Dismissed identity confirmation restarts with a fresh bound request",
   ).toBe(true);
   expect(
     retried.options.challenge !== initialCeremony.options.challenge,
@@ -1114,13 +1199,11 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
   ).toBe(true);
   await expect(dialog).toHaveCount(0);
   await expect(
-    page
-      .getByRole("region", { name: "Authenticator", exact: true })
-      .locator('[data-slot="code-block-code"] code'),
+    page.getByRole("list", { name: "Recovery codes", exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("region", { name: "Authenticator", exact: true })
-    .getByRole("button", { name: "Cancel", exact: true })
+    .getByRole("dialog", { name: "Save recovery codes", exact: true })
+    .getByRole("button", { name: "Continue", exact: true })
     .click();
   await signOut(page);
   await cdp.send("WebAuthn.setAutomaticPresenceSimulation", {
@@ -1129,14 +1212,46 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
   });
   await page.getByLabel("Email", { exact: true }).fill(account.email);
   await page.getByLabel("Password", { exact: true }).fill(password);
+  let releaseOptions!: () => void;
+  let optionsReceived!: () => void;
+  let optionsFinished!: () => void;
+  const heldOptions = new Promise<void>((resolve) => {
+    releaseOptions = resolve;
+  });
+  const receivedOptions = new Promise<void>((resolve) => {
+    optionsReceived = resolve;
+  });
+  const finishedOptions = new Promise<void>((resolve) => {
+    optionsFinished = resolve;
+  });
+  await page.route(
+    "**/api/auth/passkeys/authenticate/options",
+    async (route) => {
+      try {
+        const response = await route.fetch();
+        optionsReceived();
+        await heldOptions;
+        await route.fulfill({ response }).catch(() => undefined);
+      } finally {
+        optionsFinished();
+      }
+    },
+  );
   const loginResponse = page.waitForResponse(
     (r) =>
       r.url().endsWith("/api/auth/login") && r.request().method() === "POST",
   );
   await page.getByLabel("Password", { exact: true }).press("Enter");
   expect((await (await loginResponse).json()).methods).toEqual(["passkey"]);
+  await receivedOptions;
   await page.getByRole("button", { name: "Cancel passkey request" }).click();
   await expect(feedbackToast(page, "cancelled")).toContainText("cancelled");
+  await expect(
+    page.getByRole("button", { name: "Try passkey again", exact: true }),
+  ).toBeEnabled();
+  releaseOptions();
+  await finishedOptions;
+  await page.unroute("**/api/auth/passkeys/authenticate/options");
   await expect(page.getByLabel("Recovery code", { exact: true })).toHaveCount(
     0,
   );
@@ -1147,9 +1262,40 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
     authenticatorId,
     enabled: true,
   });
+  let releaseVerification!: () => void;
+  let verificationReceived!: () => void;
+  const heldVerification = new Promise<void>((resolve) => {
+    releaseVerification = resolve;
+  });
+  const receivedVerification = new Promise<void>((resolve) => {
+    verificationReceived = resolve;
+  });
+  await page.route(
+    "**/api/auth/passkeys/authenticate/verify",
+    async (route) => {
+      const response = await route.fetch();
+      verificationReceived();
+      await heldVerification;
+      await route.fulfill({ response });
+    },
+  );
   await page
     .getByRole("button", { name: "Try passkey again", exact: true })
     .click();
+  await receivedVerification;
+  await expect(
+    page.getByRole("button", { name: "Cancel passkey request" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", {
+      name: "Waiting for your passkey…",
+      exact: true,
+    }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "← Back to Sign In", exact: true }),
+  ).toBeDisabled();
+  releaseVerification();
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),
   ).toBeVisible();
@@ -1177,7 +1323,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
   await expect(page.getByLabel("Your Name", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Accept invitation", exact: true }),
+    page.getByRole("button", { name: "Create account and join", exact: true }),
   ).toHaveCount(0);
   await expect(page.getByLabel("Invitation code", { exact: true })).toHaveCount(
     0,
@@ -1197,7 +1343,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
     .getByLabel("Confirm password", { exact: true })
     .fill("A different password");
   await page.getByLabel("Confirm password", { exact: true }).press("Enter");
-  await expect(feedbackToast(page, "passwords do not match")).toBeVisible();
+  await expect(feedbackToast(page, "Passwords do not match")).toBeVisible();
   await page
     .getByRole("button", { name: "Show password", exact: true })
     .first()
@@ -1398,7 +1544,7 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
         name: "Page navigation",
         exact: true,
       })
-      .getByRole("button", { name: "Two-factor Auth", exact: true })
+      .getByRole("button", { name: "Passkeys", exact: true })
       .click();
     const keys = page.getByRole("grid", { name: "Passkeys", exact: true });
     const sessions = page.getByRole("region", {
@@ -1419,7 +1565,7 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
     await expect(sessions).toHaveCount(0);
     await expect(
       page.getByRole("region", { name: "Authenticator", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     releaseLock!();
     await lockTransaction;
     lockTransaction = undefined;
@@ -1436,7 +1582,7 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
         name: "Page navigation",
         exact: true,
       })
-      .getByRole("button", { name: "Two-factor Auth", exact: true })
+      .getByRole("button", { name: "Passkeys", exact: true })
       .click();
     await expect(
       feedbackToast(page, "Mill could not complete this request"),
@@ -1449,7 +1595,7 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
     await expect(sessions).toHaveCount(0);
     await expect(
       page.getByRole("region", { name: "Authenticator", exact: true }),
-    ).toBeVisible();
+    ).toHaveCount(0);
     await database.unsafe(
       `ALTER TABLE "${schema}".passkeys_list_fault RENAME TO passkeys`,
     );

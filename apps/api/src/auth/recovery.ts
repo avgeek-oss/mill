@@ -43,7 +43,6 @@ recoveryRoutes.post("/recovery/reset", async (c) => {
     await tx`UPDATE credentials SET revoked_at=COALESCE(revoked_at,now()) WHERE user_id=${user.id}`;
     await tx`UPDATE oauth_requests SET consumed_at=COALESCE(consumed_at,now()),expires_at=now() WHERE user_id=${user.id}`;
     if (recovery.resetMfa) {
-      await tx`DELETE FROM authenticators WHERE user_id=${user.id}`;
       await tx`DELETE FROM recovery_codes WHERE user_id=${user.id}`;
       await tx`DELETE FROM passkeys WHERE user_id=${user.id}`;
     }

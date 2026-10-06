@@ -9,6 +9,7 @@ export class ApiError extends Error {
   }
 }
 export type ApiOptions = {
+  signal?: AbortSignal;
   headers?: Record<string, string>;
   validateResponse?: (data: unknown) => boolean;
   onReauthenticationRequired?: () => Promise<boolean>;
@@ -95,13 +96,15 @@ async function request<T>(
     response = await fetch(path.startsWith("/api") ? path : `/api${path}`, {
       method,
       credentials: "same-origin",
+      signal: options.signal,
       headers: {
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
         ...options.headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-  } catch {
+  } catch (cause) {
+    if (options.signal?.aborted) throw cause;
     throw new ApiError(
       0,
       "Mill could not be reached. Check your connection and try again.",
@@ -150,7 +153,7 @@ async function request<T>(
       path !== "/auth/me" &&
       ![
         "/auth/login",
-        "/auth/second-factor",
+        "/auth/passkeys/recovery/verify",
         "/auth/passkeys/authenticate/options",
         "/auth/passkeys/authenticate/verify",
         "/auth/recovery/reset",
@@ -240,7 +243,6 @@ export type User = {
     assignments?: boolean;
     mentions?: boolean;
   };
-  totpEnabled: boolean;
   passkeyCount: number;
 };
 export type Workspace = { id: string; name: string };

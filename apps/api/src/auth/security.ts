@@ -1,6 +1,4 @@
 import {
-  createCipheriv,
-  createDecipheriv,
   createHash,
   randomBytes,
   scrypt as scryptCallback,
@@ -62,31 +60,6 @@ export async function verifyPassword(password: string, stored: string) {
   const actual = await derivePassword(password, salt, legacy);
   const expected = Buffer.from(encoded, "hex");
   return actual.length === expected.length && timingSafeEqual(actual, expected);
-}
-function encryptionKey() {
-  const secret = config().MILL_SECRET;
-  return createHash("sha256").update(secret).digest();
-}
-export function encrypt(value: string) {
-  const nonce = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), nonce);
-  const encrypted = Buffer.concat([
-    cipher.update(value, "utf8"),
-    cipher.final(),
-  ]);
-  return [nonce, cipher.getAuthTag(), encrypted]
-    .map((v) => v.toString("base64url"))
-    .join(".");
-}
-export function decrypt(value: string) {
-  const [nonce, tag, encrypted] = value
-    .split(".")
-    .map((v) => Buffer.from(v, "base64url"));
-  const cipher = createDecipheriv("aes-256-gcm", encryptionKey(), nonce);
-  cipher.setAuthTag(tag);
-  return Buffer.concat([cipher.update(encrypted), cipher.final()]).toString(
-    "utf8",
-  );
 }
 export async function rateLimit(
   key: string,

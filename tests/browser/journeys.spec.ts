@@ -92,7 +92,9 @@ async function choose(
   value: string,
   scope: Page | Locator = page,
 ) {
-  await scope.getByRole("button", { name: new RegExp(`${label}$`) }).click();
+  await scope
+    .getByRole("button", { name: new RegExp(`${label}\\*?$`) })
+    .click();
   await page.getByRole("option", { name: value, exact: true }).click();
   await expect(page.getByRole("listbox")).toBeHidden();
 }
@@ -846,7 +848,7 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
     .getByLabel("Confirm password", { exact: true })
     .fill(sidebarSizingAccount.password);
   await page
-    .getByRole("button", { name: "Accept invitation", exact: true })
+    .getByRole("button", { name: "Create account and join", exact: true })
     .click();
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),
@@ -1620,7 +1622,7 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
     .getByLabel("Confirm password", { exact: true })
     .fill(permissionsAccount.password);
   await page
-    .getByRole("button", { name: "Accept invitation", exact: true })
+    .getByRole("button", { name: "Create account and join", exact: true })
     .click();
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),
@@ -1707,7 +1709,7 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
   await viewer
     .getByLabel("Confirm password", { exact: true })
     .fill("Viewer-only-password-42");
-  await viewer.getByRole("button", { name: "Accept invitation" }).click();
+  await viewer.getByRole("button", { name: "Create account and join" }).click();
   await expect(viewer).toHaveURL("/boards");
   await viewer.goto(`/boards/${boardId}`);
   await expect(
@@ -1998,7 +2000,7 @@ test("task deletion removes discussion permanently, retains other tasks, and ret
     .getByLabel("Confirm password", { exact: true })
     .fill(lifecycleAccount.password);
   await page
-    .getByRole("button", { name: "Accept invitation", exact: true })
+    .getByRole("button", { name: "Create account and join", exact: true })
     .click();
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),

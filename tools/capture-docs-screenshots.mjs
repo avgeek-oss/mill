@@ -335,16 +335,15 @@ async function readyContent(page, entry) {
     await expect(
       page.getByRole("button", { name: "Add passkey", exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Set up authenticator", exact: true }),
-    ).toBeVisible();
   }
   if (entry.name === "account")
-    await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+    await expect(page.getByLabel("Your Name", { exact: true })).toHaveValue(
       "Maya Chen",
     );
   if (entry.name === "team")
-    await expect(page.locator("input#workspace-name")).toHaveValue("Mill");
+    await expect(page.getByLabel("Team name", { exact: true })).toHaveValue(
+      "Mill",
+    );
   if (entry.name === "task")
     await expect(
       page.getByText(

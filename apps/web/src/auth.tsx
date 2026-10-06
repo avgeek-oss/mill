@@ -1,13 +1,14 @@
 import { QueryFeedback } from "./query-feedback.js";
 import { useEffect, useRef, useState } from "react";
 import {
-  AuthForm,
+  InvitationPasswordSetup,
+  InvitationUnavailable,
   AuthScreen,
   Button,
   PasskeyVerification,
+  PasskeyRecoveryVerification,
   PasswordSetup,
   QueryLoading,
-  RecoverySignIn,
   SignIn,
   TeamSetup,
 } from "@avgeek-oss/design-system";
@@ -21,8 +22,7 @@ import {
   type IdentityChallenge,
 } from "./identity-ui.js";
 
-type Mode =
-  "login" | "forgot" | "reset" | "invite" | "passkey" | "recovery" | "factor";
+type Mode = "login" | "forgot" | "reset" | "invite" | "passkey" | "recovery";
 type Invitation = { email: string; role: string; workspaceName: string };
 export function AuthBrand() {
   return (
@@ -62,6 +62,7 @@ export function Auth({
   const [lookupAttempt, setLookupAttempt] = useState(0);
   const [challenge, setChallenge] = useState<IdentityChallenge | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyCancellable, setPasskeyCancellable] = useState(false);
   const [credentialsBusy, setCredentialsBusy] = useState(false);
   const ceremony = useRef<AbortController | null>(null);
   const pending = useRef(false);
@@ -106,6 +107,7 @@ export function Auth({
     document.querySelector<HTMLInputElement>('input[type="email"]')?.focus();
   }, [focusEmail, mode, setup]);
   function backToSignIn() {
+    if (passkeyBusy && !passkeyCancellable) return;
     ceremony.current?.abort();
     setChallenge(null);
     setMode("login");
@@ -116,12 +118,14 @@ export function Auth({
     pending.current = true;
     setMode("passkey");
     setPasskeyBusy(true);
+    setPasskeyCancellable(true);
     const controller = new AbortController();
     ceremony.current = controller;
     try {
       const result = await verifyPasskey<Session>(
         challengeId,
         controller.signal,
+        () => setPasskeyCancellable(false),
       );
       if (active.current && !controller.signal.aborted) onSession(result);
     } catch (cause) {
@@ -129,7 +133,10 @@ export function Auth({
         toast.danger(passkeyError(cause));
     } finally {
       pending.current = false;
-      if (active.current) setPasskeyBusy(false);
+      if (active.current) {
+        setPasskeyBusy(false);
+        setPasskeyCancellable(false);
+      }
     }
   }
   async function signIn(identifier: string, password: string) {
@@ -145,10 +152,12 @@ export function Auth({
       if (!active.current) return;
       if ("requiresSecondFactor" in result) {
         setChallenge(result);
-        if (result.preferredMethod === "passkey") {
-          pending.current = false;
-          await passkey(result.challengeId);
-        } else setMode("factor");
+        if (!result.methods.includes("passkey"))
+          throw new Error(
+            "Passkey verification is unavailable. Contact the person who runs your Mill installation to recover access.",
+          );
+        pending.current = false;
+        await passkey(result.challengeId);
       } else onSession(result);
     } finally {
       pending.current = false;
@@ -216,12 +225,7 @@ export function Auth({
   if (mode === "invite") {
     if (!token)
       return (
-        <AuthScreen brand={brand} title="Invitation unavailable">
-          <QueryFeedback message="This invitation link is incomplete. Ask your administrator for a new link." />
-          <Button variant="secondary" onPress={backToSignIn}>
-            ← Back to Sign In
-          </Button>
-        </AuthScreen>
+        <InvitationUnavailable brand={brand} onBackToSignIn={backToSignIn} />
       );
     if (invitationError)
       return (
@@ -244,176 +248,65 @@ export function Auth({
         </AuthScreen>
       );
     return (
-      <AuthScreen
+      <InvitationPasswordSetup
         brand={brand}
-        title={`Join ${invitation.workspaceName}`}
-        description={`Join as ${invitation.email} (${invitation.role}).`}
-      >
-        <AuthForm
-          fields={[
-            {
-              name: "name",
-              label: "Your Name",
-              required: true,
-              maxLength: 100,
-              autoComplete: "name",
-            },
-            {
-              name: "password",
-              label: "Password",
-              type: "password",
-              required: true,
-              minLength: 15,
-              maxLength: 1024,
-              autoComplete: "new-password",
-              description: "Use at least 15 characters.",
-            },
-            {
-              name: "confirmation",
-              label: "Confirm password",
-              type: "password",
-              required: true,
-              maxLength: 1024,
-              autoComplete: "new-password",
-            },
-          ]}
-          submitLabel="Accept invitation"
-          onSubmit={async ({ name, password, confirmation }) => {
-            if (password !== confirmation)
-              throw new Error("The passwords do not match.");
-            onSession(
-              await api<Session>("/auth/accept-invitation", {
-                token,
-                name,
-                password,
-              }),
-            );
-          }}
-        />
-        <Button variant="secondary" onPress={backToSignIn}>
-          ← Back to Sign In
-        </Button>
-      </AuthScreen>
-    );
-  }
-  if (mode === "recovery")
-    return (
-      <RecoverySignIn
-        brand={brand}
-        defaultEmail={email}
+        teamName={invitation.workspaceName}
+        email={invitation.email}
+        role={invitation.role}
+        maxNameLength={100}
+        minPasswordLength={15}
+        maxPasswordLength={1024}
         onBackToSignIn={backToSignIn}
-        onSubmit={async ({ email: identifier, password, recoveryCode }) => {
-          const result = await api<Session | IdentityChallenge>("/auth/login", {
-            email: identifier,
-            password,
-          });
-          if (
-            !("requiresSecondFactor" in result) ||
-            !result.methods.includes("recovery")
-          )
-            throw new Error(
-              "Recovery-code verification is not available for this account. Sign in with an available method.",
-            );
+        onSubmit={async ({ name, password }) => {
           onSession(
-            await api<Session>("/auth/second-factor", {
-              challengeId: result.challengeId,
-              method: "recovery",
-              code: recoveryCode,
+            await api<Session>("/auth/accept-invitation", {
+              token,
+              name,
+              password,
             }),
           );
         }}
       />
     );
-  if (mode === "passkey")
+  }
+
+  if (mode === "recovery")
     return (
-      <PasskeyVerification
+      <PasskeyRecoveryVerification
         brand={brand}
-        isPending={passkeyBusy}
-        onRetry={() => void passkey(challenge?.challengeId)}
-        onCancelRequest={() => ceremony.current?.abort()}
+        onSubmit={async ({ code }) => {
+          if (!challenge?.recoveryAvailable)
+            throw new Error("Start again from sign in.");
+          onSession(
+            await api<Session>("/auth/passkeys/recovery/verify", {
+              challengeId: challenge.challengeId,
+              code,
+            }),
+          );
+        }}
+        onPasskeyVerification={() => setMode("passkey")}
         onBackToSignIn={backToSignIn}
-        onRecoverySignIn={
-          challenge?.methods.includes("recovery")
-            ? () => setMode("recovery")
-            : undefined
-        }
-        onAuthenticatorSignIn={
-          challenge?.methods.includes("totp")
-            ? () => setMode("factor")
-            : undefined
-        }
       />
     );
   return (
-    <AuthScreen
+    <PasskeyVerification
       brand={brand}
-      title="Verify your sign-in"
-      description={
-        challenge?.methods.includes("totp")
-          ? "Enter the six-digit code from your authenticator app."
-          : "Enter an unused recovery code."
+      isPending={passkeyBusy}
+      onRetry={() => void passkey(challenge?.challengeId)}
+      onCancelRequest={
+        passkeyCancellable
+          ? () => {
+              ceremony.current?.abort();
+              toast.danger(
+                "Passkey verification was cancelled. Try your passkey again.",
+              );
+            }
+          : undefined
       }
-    >
-      <AuthForm
-        fields={[
-          {
-            name: "code",
-            label: challenge?.methods.includes("totp")
-              ? "Six-digit code"
-              : "Recovery code",
-            required: true,
-            autoComplete: "one-time-code",
-            maxLength: challenge?.methods.includes("totp") ? 6 : 30,
-            pattern: challenge?.methods.includes("totp")
-              ? "[0-9]{6}"
-              : undefined,
-            inputMode: challenge?.methods.includes("totp") ? "numeric" : "text",
-          },
-        ]}
-        submitLabel="Verify"
-        onSubmit={async ({ code }) => {
-          if (!challenge) throw new Error("Start again from sign in.");
-          if (pending.current) return;
-          pending.current = true;
-          setCredentialsBusy(true);
-          try {
-            const result = await api<Session>("/auth/second-factor", {
-              challengeId: challenge.challengeId,
-              method: challenge.methods.includes("totp") ? "totp" : "recovery",
-              code,
-            });
-            if (active.current) onSession(result);
-          } finally {
-            pending.current = false;
-            if (active.current) setCredentialsBusy(false);
-          }
-        }}
-      />
-      {challenge?.methods.includes("passkey") && (
-        <Button
-          variant="secondary"
-          isDisabled={credentialsBusy}
-          onPress={() => void passkey(challenge.challengeId)}
-        >
-          Use passkey
-        </Button>
-      )}
-      {challenge?.methods.includes("recovery") && (
-        <Button
-          variant="secondary"
-          isDisabled={credentialsBusy}
-          onPress={() => setMode("recovery")}
-        >
-          Use a recovery code
-        </Button>
-      )}
-      <Button
-        variant="secondary"
-        isDisabled={credentialsBusy}
-        onPress={backToSignIn}
-      >
-        ← Back to Sign In
-      </Button>
-    </AuthScreen>
+      onBackToSignIn={backToSignIn}
+      onRecoverySignIn={
+        challenge?.recoveryAvailable ? () => setMode("recovery") : undefined
+      }
+    />
   );
 }

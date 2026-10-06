@@ -390,7 +390,11 @@ for (const width of [1280, 390])
           body: Buffer.from(JSON.stringify(filterGeometry)),
           contentType: "application/json",
         });
-        await filters.getByRole("button", { name: /Assignee$/ }).click();
+        const assigneeTrigger = filters.getByRole("button", {
+          name: /Assignee$/,
+        });
+        if (width === 390) await assigneeTrigger.tap();
+        else await assigneeTrigger.click();
         const assigneeSearch = page.getByRole("searchbox", {
           name: "Search assignee",
         });
@@ -398,7 +402,7 @@ for (const width of [1280, 390])
         if (width === 1280) await expect(assigneeSearch).toBeFocused();
         else {
           await expect(assigneeSearch).not.toBeFocused();
-          await assigneeSearch.click();
+          await assigneeSearch.tap();
           await expect(assigneeSearch).toBeFocused();
         }
         const popover = page.locator('[data-slot="select-popover"]');

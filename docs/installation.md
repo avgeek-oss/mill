@@ -48,6 +48,6 @@ If your reverse proxy runs in a separate container, connect it to the Mill Compo
 
 ## First checks
 
-Sign in, create a board and task, and reload. Check [readiness](operations.md), then take your first [backup](backup.md). Save an encrypted copy of `.env` alongside your recovery plan. The same `MILL_SECRET` is needed to decrypt authenticators and other protected values after a full restore.
+Sign in, create a board and task, and reload. Check [readiness](operations.md), then take your first [backup](backup.md). Save an encrypted copy of `.env` alongside your recovery plan. Preserve the same `MILL_SECRET` to restore protected values and retry records.
 
 Before upgrades, read [upgrades](upgrades.md). For configuration options see [configuration](configuration.md), and for common installation errors see [troubleshooting](troubleshooting.md).

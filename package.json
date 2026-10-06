@@ -38,7 +38,6 @@
     "@simplewebauthn/server": "13.3.2",
     "hono": "4.13.8",
     "jose": "6.2.12",
-    "otpauth": "9.4.1",
     "postgres": "3.4.9",
     "zod": "4.5.4"
   },

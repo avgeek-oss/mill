@@ -1,6 +1,6 @@
 # Security
 
-Use HTTPS for every remote installation and keep the Mill HTTP service and PostgreSQL private behind the reverse proxy. Protect `.env`, the Docker host, and full database backups. A backup contains account data and credentials; keep the original `MILL_SECRET` with your recovery plan because encrypted authenticator values need it after restore.
+Use HTTPS for every remote installation and keep the Mill HTTP service and PostgreSQL private behind the reverse proxy. Protect `.env`, the Docker host, and full database backups. A backup contains account data and credentials; keep the original `MILL_SECRET` with your recovery plan alongside the restored configuration.
 
 Grant people and external clients only the access they need. Review active sessions, API keys, OAuth connections when access changes. Mill does not execute external code or connect to an LLM provider. The server checks authorization for UI, REST, and MCP requests; a hidden control is not an access boundary.
 

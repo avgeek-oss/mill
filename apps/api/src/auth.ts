@@ -90,18 +90,15 @@ export async function secondFactorChallenge(
   db: Db = sql,
 ) {
   const [state] =
-    await db`SELECT EXISTS(SELECT 1 FROM authenticators WHERE user_id=${user.id} AND verified) AS totp,
-    EXISTS(SELECT 1 FROM passkeys WHERE user_id=${user.id}) AS passkey`;
-  if (!state.totp && !state.passkey) return null;
-  const methods = [
-    ...(state.passkey ? ["passkey"] : []),
-    ...(state.totp ? ["totp", "recovery"] : []),
-  ];
+    await db`SELECT EXISTS(SELECT 1 FROM passkeys WHERE user_id=${user.id}) AS passkey,
+    EXISTS(SELECT 1 FROM recovery_codes WHERE user_id=${user.id}) AS recovery_available`;
+  if (!state.passkey) return null;
   return {
     requiresSecondFactor: true,
     challengeId: await createChallenge(user.id, purpose, sessionId, null, db),
-    methods,
-    preferredMethod: state.passkey ? "passkey" : "totp",
+    methods: ["passkey"],
+    preferredMethod: "passkey",
+    recoveryAvailable: purpose === "login" && state.recoveryAvailable,
   };
 }
 authRoutes.post("/login", async (c) => {

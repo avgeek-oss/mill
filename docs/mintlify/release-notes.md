@@ -21,7 +21,7 @@ Task properties include an optional Start date before Due date. Both are calenda
 
 ## People and client connections
 
-First setup creates the administrator once. Teams use roles, invitations, profiles, time zones, sessions, passkeys, authenticator verification, and recovery. Assignments and mentions produce in-app notifications in the compact header bell. The account/invitation email provider is currently unavailable; administrators share private invitation links and operators can issue recovery links.
+First setup creates the administrator once. Teams use roles, invitations, profiles, time zones, sessions, passkeys as the only second factor, and single-use passkey recovery codes. Assignments and mentions produce in-app notifications in the compact header bell. The account/invitation email provider is currently unavailable; administrators share private invitation links and operators can issue recovery links.
 
 Personal API keys use the human owner's current permissions for REST across all accessible boards; creation accepts only Name and Expiry of 30, 60, 90, or 365 days. MCP OAuth creates a human-owned connection with approved read or read/write scopes and optional board restrictions. Clients do not need a separate identity to connect. There is no Agent directory, management, task assignment or filter in the application, REST or MCP.
 

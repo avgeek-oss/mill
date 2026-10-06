@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import postgres from "postgres";
 import {
   expect,
@@ -278,7 +278,7 @@ test("invitation creation keeps the draft modal open after a failure toast, reve
     await route.continue();
   });
   const dialog = page.getByRole("dialog", {
-    name: "Invite a person",
+    name: "Create invitation",
     exact: true,
   });
   await dialog.getByLabel("Email", { exact: true }).fill(teammate.email);
@@ -300,13 +300,13 @@ test("invitation creation keeps the draft modal open after a failure toast, reve
     .click();
   try {
     await expect(
-      dialog.getByRole("button", { name: "Creating invitation…", exact: true }),
+      dialog.getByRole("button", { name: "Please wait…", exact: true }),
     ).toBeDisabled();
     await expect(
       dialog.getByRole("button", { name: "Cancel", exact: true }),
     ).toBeDisabled();
     await expect(
-      dialog.getByRole("button", { name: "Close dialog", exact: true }),
+      dialog.getByRole("button", { name: "Close", exact: true }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeVisible();
@@ -321,12 +321,12 @@ test("invitation creation keeps the draft modal open after a failure toast, reve
       exact: true,
     });
     const inviteUrl = await reveal
-      .getByLabel("Invitation link", { exact: true })
-      .inputValue();
+      .locator('[data-slot="code-block-code"] code')
+      .innerText();
     await reveal
       .getByRole("button", { name: "Copy invitation link", exact: true })
       .click();
-    await expect(feedbackToast(page, "Invitation link copied.")).toBeVisible();
+    await expect(feedbackToast(page, "Copied to clipboard.")).toBeVisible();
     expect(
       (await page.evaluate(() => navigator.clipboard.readText())) === inviteUrl,
       "Clipboard contains the exact invitation link",
@@ -368,12 +368,10 @@ test("invitation creation keeps the draft modal open after a failure toast, reve
       name: `Edit role for ${teammate.name}`,
       exact: true,
     });
-    await roleDialog
-      .getByRole("button", { name: new RegExp(`Role for ${teammate.name}$`) })
-      .click();
+    await roleDialog.getByRole("button", { name: /Role\*?$/ }).click();
     await page.getByRole("option", { name: "Viewer", exact: true }).click();
     await roleDialog
-      .getByRole("button", { name: "Update role", exact: true })
+      .getByRole("button", { name: "Update", exact: true })
       .click();
     await expect(roleDialog).toHaveCount(0);
     await expect(feedbackToast(page, "Role updated.")).toBeVisible();
@@ -509,6 +507,39 @@ test("People and team settings layouts remain usable in both themes at desktop a
         ),
       ).toBe(true);
       if (name === "people") {
+        const memberRow = page
+          .getByRole("grid", { name: "Members", exact: true })
+          .getByRole("row")
+          .filter({ hasText: teammate.name });
+        const identity = memberRow.getByRole("rowheader");
+        const geometry = await memberRow.evaluate((row) =>
+          [...row.children].map((cell) => {
+            const bounds = cell.getBoundingClientRect();
+            return {
+              role: cell.getAttribute("role"),
+              width: bounds.width,
+              x: bounds.x,
+              minWidth: getComputedStyle(cell).minWidth,
+              display: getComputedStyle(cell).display,
+              spans: [
+                ...cell.querySelectorAll("[data-slot='tooltip-trigger']"),
+              ].map((span) => ({
+                width: span.getBoundingClientRect().width,
+                display: getComputedStyle(span).display,
+              })),
+            };
+          }),
+        );
+        await writeFile(
+          testInfo.outputPath(`member-identity-${width}-${theme}.json`),
+          JSON.stringify(geometry, null, 2),
+        );
+        await expect(
+          identity.getByText(teammate.name, { exact: true }),
+        ).toBeVisible();
+        await expect(
+          identity.getByText(teammate.email, { exact: true }),
+        ).toBeVisible();
         expect(
           await page.getByRole("grid").evaluateAll((tables) =>
             tables.every((table) =>
@@ -565,7 +596,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
           .getByRole("button", { name: "Invite a person", exact: true })
           .click();
         const dialog = page.getByRole("dialog", {
-          name: "Invite a person",
+          name: "Create invitation",
           exact: true,
         });
         await expect(dialog.getByLabel("Email", { exact: true })).toBeFocused();
@@ -626,7 +657,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
           exact: true,
         });
         await expect(members.getByRole("columnheader")).toHaveCount(5);
-        await expect(invitations.getByRole("columnheader")).toHaveCount(5);
+        await expect(invitations.getByRole("columnheader")).toHaveCount(4);
         for (const table of [members, invitations]) {
           await expect(
             table.getByRole("columnheader", { name: "Actions", exact: true }),
@@ -692,7 +723,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
         await expect(dialog).toBeVisible();
         await dialog
           .getByRole("button", {
-            name: new RegExp(`Role for ${longPerson.name}$`),
+            name: /Role\*?$/,
           })
           .click();
         await touch
@@ -703,7 +734,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
           exact: true,
         });
         const update = dialog.getByRole("button", {
-          name: "Update role",
+          name: "Update",
           exact: true,
         });
         await cancel.focus();
@@ -817,7 +848,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       })
       .click();
     const dialog = page.getByRole("dialog", {
-      name: `Revoke invitation for ${oldEmail}?`,
+      name: "Revoke invitation?",
       exact: true,
     });
     await dialog
@@ -863,14 +894,16 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       await route.continue();
     });
     await removal
-      .getByRole("button", { name: "Remove access", exact: true })
+      .getByRole("button", { name: "Remove member", exact: true })
       .click();
-    await expect(removal.getByRole("status")).toContainText("Removing access");
+    await expect(
+      removal.getByRole("button", { name: "Please wait…", exact: true }),
+    ).toBeDisabled();
     await expect(
       removal.getByRole("button", { name: "Cancel", exact: true }),
     ).toBeDisabled();
     await expect(
-      removal.getByRole("button", { name: "Close dialog", exact: true }),
+      removal.getByRole("button", { name: "Close", exact: true }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(removal).toBeVisible();
@@ -880,7 +913,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       removal.getByRole("button", { name: "Cancel", exact: true }),
     ).toBeEnabled();
     await expect(
-      removal.getByRole("button", { name: "Remove access", exact: true }),
+      removal.getByRole("button", { name: "Remove member", exact: true }),
     ).toBeEnabled();
     await expect(
       removal.getByRole("button", { name: "Done", exact: true }),
@@ -891,7 +924,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
         response.request().method() === "DELETE",
     );
     await removal
-      .getByRole("button", { name: "Remove access", exact: true })
+      .getByRole("button", { name: "Remove member", exact: true })
       .click();
     const removed = await removedResponse;
     const acknowledgement = await removed.json();

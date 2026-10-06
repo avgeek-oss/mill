@@ -1,3 +1,4 @@
+import { useIdentityConfirmation } from "./identity-confirmation.js";
 import { QueryFeedback } from "./query-feedback.js";
 // Adapted from Towbar's public Apache-2.0 API/MCP settings composition.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -77,44 +78,49 @@ function CreateCredential({
   onCreated: (credential: Credential) => void;
 }) {
   const [retryKey] = useState(createRetryKey);
+  const identity = useIdentityConfirmation();
   return (
-    <CreateApiKeyDialog
-      isOpen
-      onOpenChange={(open) => {
-        if (!open) {
-          retryKey.reset();
-          onClose();
-        }
-      }}
-      expiryOptions={[30, 60, 90, 365].map((days) => ({
-        id: String(days),
-        label: `${days} days`,
-      }))}
-      defaultExpiry="30"
-      onCreate={async ({ name, expiry }) => {
-        const payload = { name: name.trim(), expiresInDays: Number(expiry) };
-        const result = await api<{ credential: Credential; token: string }>(
-          "/credentials",
-          payload,
-          "POST",
-          {
-            validateResponse: validCreationResponse,
-            headers: {
-              "Idempotency-Key": retryKey.forRequest("/credentials", payload),
+    <>
+      {identity.confirmation}
+      <CreateApiKeyDialog
+        isOpen
+        onOpenChange={(open) => {
+          if (!open) {
+            retryKey.reset();
+            onClose();
+          }
+        }}
+        expiryOptions={[30, 60, 90, 365].map((days) => ({
+          id: String(days),
+          label: `${days} days`,
+        }))}
+        defaultExpiry="30"
+        onCreate={async ({ name, expiry }) => {
+          const payload = { name: name.trim(), expiresInDays: Number(expiry) };
+          const result = await api<{ credential: Credential; token: string }>(
+            "/credentials",
+            payload,
+            "POST",
+            {
+              validateResponse: validCreationResponse,
+              onReauthenticationRequired: identity.confirmIdentity,
+              headers: {
+                "Idempotency-Key": retryKey.forRequest("/credentials", payload),
+              },
             },
-          },
-        );
-        retryKey.reset();
-        onCreated(result.credential);
-        toast.success("API key created.");
-        return { token: result.token };
-      }}
-    >
-      <p className="text-xs text-muted">
-        This key uses your current permissions. Keep it private; you can revoke
-        it at any time.
-      </p>
-    </CreateApiKeyDialog>
+          );
+          retryKey.reset();
+          onCreated(result.credential);
+          toast.success("API key created.");
+          return { token: result.token };
+        }}
+      >
+        <p className="text-xs text-muted">
+          This key uses your current permissions. Keep it private; you can
+          revoke it at any time.
+        </p>
+      </CreateApiKeyDialog>
+    </>
   );
 }
 

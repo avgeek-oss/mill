@@ -1,6 +1,12 @@
 import { ClipboardListIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { createContext, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import type { AppShellBreadcrumbItems } from "@avgeek-oss/design-system/layouts/application-shell-types";
 import {
   Autocomplete,
@@ -25,6 +31,52 @@ const BreadcrumbContext = createContext<AppShellBreadcrumbItems>([
   { label: "Mill", href: "/boards" },
 ]);
 export const usePageBreadcrumbs = () => useContext(BreadcrumbContext);
+
+function SettingsBreadcrumb({
+  category,
+  sections,
+  section,
+}: {
+  category: string;
+  sections: (typeof accountSections)[number]["items"];
+  section: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  useEffect(() => setIsOpen(false), [section]);
+  return (
+    <BreadcrumbDropdown.Root isOpen={isOpen} onOpenChange={setIsOpen}>
+      <BreadcrumbDropdown.Trigger
+        aria-label={`Navigate ${category.toLowerCase()} pages`}
+        className="transition-colors focus-visible:[box-shadow:none]! focus-visible:outline-none!"
+      >
+        {category}
+      </BreadcrumbDropdown.Trigger>
+      <BreadcrumbDropdown.Popover
+        placement="bottom start"
+        className="breadcrumb-popover w-56 max-w-[calc(100vw-2rem)]"
+      >
+        <BreadcrumbDropdown.Menu aria-label={`${category} pages`}>
+          {sections.map((item) => (
+            <BreadcrumbDropdown.Item
+              key={item.id}
+              id={item.id}
+              href={`/settings/${item.id}`}
+              textValue={item.label}
+            >
+              <HugeiconsIcon
+                aria-hidden
+                icon={item.icon}
+                size={16}
+                className="size-4 shrink-0 text-muted"
+              />
+              {item.label}
+            </BreadcrumbDropdown.Item>
+          ))}
+        </BreadcrumbDropdown.Menu>
+      </BreadcrumbDropdown.Popover>
+    </BreadcrumbDropdown.Root>
+  );
+}
 
 function breadcrumbItems({
   boards,
@@ -166,39 +218,13 @@ function breadcrumbItems({
     return [
       {
         label: category,
-        contentKey: `${settingsSection}:${admin}`,
+        contentKey: `${category}:${admin}`,
         content: (
-          <BreadcrumbDropdown.Root>
-            <BreadcrumbDropdown.Trigger
-              aria-label={`Navigate ${category.toLowerCase()} pages`}
-              className="transition-colors focus-visible:[box-shadow:none]! focus-visible:outline-none!"
-            >
-              {category}
-            </BreadcrumbDropdown.Trigger>
-            <BreadcrumbDropdown.Popover
-              placement="bottom start"
-              className="breadcrumb-popover w-56 max-w-[calc(100vw-2rem)]"
-            >
-              <BreadcrumbDropdown.Menu aria-label={`${category} pages`}>
-                {sections.map((section) => (
-                  <BreadcrumbDropdown.Item
-                    key={section.id}
-                    id={section.id}
-                    href={`/settings/${section.id}`}
-                    textValue={section.label}
-                  >
-                    <HugeiconsIcon
-                      aria-hidden
-                      icon={section.icon}
-                      size={16}
-                      className="size-4 shrink-0 text-muted"
-                    />
-                    {section.label}
-                  </BreadcrumbDropdown.Item>
-                ))}
-              </BreadcrumbDropdown.Menu>
-            </BreadcrumbDropdown.Popover>
-          </BreadcrumbDropdown.Root>
+          <SettingsBreadcrumb
+            category={category}
+            sections={sections}
+            section={settingsSection}
+          />
         ),
       },
       { label: settingsTitles[settingsSection] },

@@ -15,7 +15,7 @@ import {
   clearAuthRateLimit,
 } from "../apps/api/src/auth/security.js";
 import { app } from "../apps/api/src/app.js";
-import { Secret, TOTP } from "otpauth";
+import { registerPasskey } from "./passkey-support.js";
 import { runPasswordOperation } from "../apps/api/src/auth/password.js";
 import { config } from "../apps/api/src/config.js";
 beforeEach(resetDatabase);
@@ -193,19 +193,8 @@ test("successful password authentication clears only its account bucket, with re
 
 test("password proof alone does not clear throttling until a one-time second factor completes", async () => {
   const { cookie, user } = await setupUser();
-  const setup = await (
-    await request("/api/auth/totp/setup", { cookie, body: {} })
-  ).json();
-  const totp = new TOTP({
-    issuer: "Mill",
-    secret: Secret.fromBase32(setup.secret),
-  });
-  const enrolled = await request("/api/auth/totp/verify", {
-    cookie,
-    body: { code: totp.generate() },
-  });
-  assert.equal(enrolled.status, 200);
-  const codes = (await enrolled.json()).recoveryCodes as string[];
+  const passkey = await registerPasskey(cookie, user.id);
+  const codes = passkey.recoveryCodes;
   const key = hashToken(`login-email:${user.email}`);
   await sql`INSERT INTO auth_rate_limits(key,attempts,window_start) VALUES(${key},8,now())`;
   const pending = await (
@@ -217,10 +206,9 @@ test("password proof alone does not clear throttling until a one-time second fac
       .attempts,
     9,
   );
-  const failed = await request("/api/auth/second-factor", {
+  const failed = await request("/api/auth/passkeys/recovery/verify", {
     body: {
       challengeId: pending.challengeId,
-      method: "recovery",
       code: "invalid recovery",
     },
   });
@@ -230,10 +218,9 @@ test("password proof alone does not clear throttling until a one-time second fac
       .attempts,
     9,
   );
-  const complete = await request("/api/auth/second-factor", {
+  const complete = await request("/api/auth/passkeys/recovery/verify", {
     body: {
       challengeId: pending.challengeId,
-      method: "recovery",
       code: codes[0],
     },
   });
@@ -244,10 +231,9 @@ test("password proof alone does not clear throttling until a one-time second fac
   );
   assert.equal(
     (
-      await request("/api/auth/second-factor", {
+      await request("/api/auth/passkeys/recovery/verify", {
         body: {
           challengeId: pending.challengeId,
-          method: "recovery",
           code: codes[0],
         },
       })

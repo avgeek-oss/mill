@@ -7,25 +7,20 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Choice,
-  Dialog,
-  ErrorMessage,
-  TextField,
-} from "@mill/web-design-system";
-import {
   Button,
   QueryLoading,
   MembersTable,
-  ResourceTable,
-  StatusIndicator,
+  InvitationsTable,
+  InviteMemberDialog,
+  MemberEditDialog,
+  RemoveMemberDialog,
+  RevokeInvitationDialog,
 } from "@avgeek-oss/design-system";
 import { Tooltip } from "@avgeek-oss/design-system/overlays/tooltip";
 import { toast } from "@avgeek-oss/design-system/overlays/toast";
-import { UserAvatar } from "@avgeek-oss/design-system/patterns/user-avatar";
 import type { ChoiceOption } from "@avgeek-oss/design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Copy01Icon,
   CrownIcon,
   EyeIcon,
   UserShield01Icon,
@@ -59,17 +54,6 @@ const roleIcons = {
   member: UserShield01Icon,
   viewer: EyeIcon,
 } satisfies Record<Role, typeof CrownIcon>;
-const roleOptions = Object.entries(roleNames).map(([id, name]) => ({
-  id,
-  name,
-  startContent: (
-    <HugeiconsIcon
-      icon={roleIcons[id as Role]}
-      className="size-4 shrink-0"
-      aria-hidden="true"
-    />
-  ),
-}));
 const sharedRoleOptions: ChoiceOption<Role>[] = Object.entries(roleNames).map(
   ([id, label]) => ({
     id: id as Role,
@@ -260,7 +244,8 @@ export function PeopleSettings({
   const peopleSection = useRef<HTMLElement>(null);
   const actionRegion = useRef<string | null>(null);
   const [action, setAction] = useState<
-    | { kind: "role" | "remove"; member: Member }
+    | { kind: "role"; member: Member }
+    | { kind: "remove"; member: Member }
     | { kind: "revoke"; invitation: Invitation }
     | null
   >(null);
@@ -390,9 +375,12 @@ export function PeopleSettings({
           {(!members.loading || members.items.length > 0) &&
             !(!members.items.length && members.error) && (
               <MembersTable
-                items={members.items}
+                items={members.items.map((member) => ({
+                  ...member,
+                  accountStatus: { label: "Active", color: "success" as const },
+                }))}
                 roles={sharedRoleOptions}
-                emptyDescription="Invite a person to join this workspace."
+                currentUserId={session.user.id}
                 actions={(member) => {
                   const lastAdmin =
                     completeDirectory &&
@@ -459,85 +447,42 @@ export function PeopleSettings({
           )}
           {(!invitations.loading || visibleInvitations.length > 0) &&
             !(!visibleInvitations.length && invitations.error) && (
-              <ResourceTable
-                ariaLabel="Pending invitations"
-                items={visibleInvitations}
-                getRowKey={(invitation) => invitation.id}
-                emptyTitle="No pending invitations"
-                emptyDescription="Invite a person to share access to your workspace."
-                columns={[
-                  {
-                    key: "email",
-                    header: "Invitation",
-                    cell: (invitation) => (
-                      <div className="flex min-w-0 items-center gap-2">
-                        <UserAvatar email={invitation.email} aria-hidden />
-                        <span className="break-words">{invitation.email}</span>
-                      </div>
+              <InvitationsTable
+                items={visibleInvitations.map((invitation) => ({
+                  ...invitation,
+                  status: {
+                    ...invitationStatus(invitation),
+                    icon: (
+                      <HugeiconsIcon icon={invitationStatus(invitation).icon} />
                     ),
                   },
-                  {
-                    key: "role",
-                    header: "Role",
-                    cell: (invitation) => (
-                      <StatusIndicator
-                        label={roleNames[invitation.role]}
-                        icon={
-                          <HugeiconsIcon icon={roleIcons[invitation.role]} />
-                        }
-                      />
-                    ),
-                  },
-                  {
-                    key: "expires",
-                    header: "Expires",
-                    cell: (invitation) => (
-                      <RelativeDateTime
-                        value={invitation.expiresAt}
-                        timeZone={session.user.timeZone}
-                        label="Invitation expires"
-                        prefix="Expires"
-                        showAbsolute={false}
-                        compact
-                      />
-                    ),
-                  },
-                  {
-                    key: "status",
-                    header: "Status",
-                    cell: (invitation) => {
-                      const status = invitationStatus(invitation);
-                      return (
-                        <StatusIndicator
-                          label={status.label}
-                          color={status.color}
-                          icon={<HugeiconsIcon icon={status.icon} />}
-                        />
-                      );
-                    },
-                  },
-                  {
-                    key: "actions",
-                    header: "Actions",
-                    headerClassName: "text-right",
-                    cell: (invitation) =>
-                      invitationStatus(invitation).label === "Pending" ? (
-                        <div className="flex justify-end">
-                          <Button
-                            ref={rememberAction(`revoke:${invitation.id}`)}
-                            variant="danger"
-                            aria-label={`Revoke invitation for ${invitation.email}`}
-                            onPress={() => {
-                              actionTrigger.current = `revoke:${invitation.id}`;
-                              setAction({ kind: "revoke", invitation });
-                            }}
-                          >
-                            Revoke
-                          </Button>
-                        </div>
-                      ) : null,
-                  },
-                ]}
+                }))}
+                roles={sharedRoleOptions}
+                formatDate={(value) => (
+                  <RelativeDateTime
+                    value={value}
+                    timeZone={session.user.timeZone}
+                    label="Invitation expires"
+                    prefix="Expires"
+                    showAbsolute={false}
+                    compact
+                  />
+                )}
+                actions={(invitation) =>
+                  invitationStatus(invitation).label === "Pending" ? (
+                    <Button
+                      ref={rememberAction(`revoke:${invitation.id}`)}
+                      variant="danger"
+                      aria-label={`Revoke invitation for ${invitation.email}`}
+                      onPress={() => {
+                        actionTrigger.current = `revoke:${invitation.id}`;
+                        setAction({ kind: "revoke", invitation });
+                      }}
+                    >
+                      Revoke
+                    </Button>
+                  ) : null
+                }
               />
             )}
           {invitations.hasMore && (
@@ -582,148 +527,44 @@ function InvitePersonDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState("member");
-  const [busy, setBusy] = useState(false);
-  const pending = useRef(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<{
-    inviteUrl: string;
-    emailDelivery: "unavailable" | "sent" | "failed";
-  } | null>(null);
-  async function create() {
-    if (pending.current) return;
-    pending.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const invitation = await api<{
-        inviteUrl: string;
-        emailDelivery: "unavailable" | "sent" | "failed";
-      }>("/auth/invitations", { email, role });
-      setResult(invitation);
-      toast.success(
-        invitation.emailDelivery === "sent"
-          ? "Invitation created and email sent."
-          : "Invitation created.",
-      );
-      if (invitation.emailDelivery === "failed")
-        toast.danger(
-          "The invitation email could not be sent. Share the link directly.",
-        );
-      onCreated();
-    } catch (error) {
-      setError(errorText(error));
-    } finally {
-      pending.current = false;
-      setBusy(false);
-    }
-  }
-  async function copy() {
-    setError("");
-    try {
-      await navigator.clipboard.writeText(result!.inviteUrl);
-      toast.success("Invitation link copied.");
-      setError("");
-    } catch {
-      toast.danger(
-        "The link could not be copied. Select the invitation link and copy it manually.",
-      );
-    }
-  }
   return (
-    <Dialog
-      open
-      title={result ? "Invitation link" : "Invite a person"}
-      onClose={onClose}
-      isDismissDisabled={busy}
-      size="sm"
-      footer={
-        result ? (
-          <>
-            <Button variant="secondary" onPress={() => void copy()}>
-              <HugeiconsIcon icon={Copy01Icon} size={16} />
-              Copy invitation link
-            </Button>
-            <Button onPress={onClose}>Done</Button>
-          </>
-        ) : (
-          <>
-            <Button variant="secondary" isDisabled={busy} onPress={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" form="invite-person-form" isDisabled={busy}>
-              {busy ? "Creating invitation…" : "Create invitation"}
-            </Button>
-          </>
-        )
+    <InviteMemberDialog
+      isOpen
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+      roles={sharedRoleOptions}
+      defaultRole="member"
+      resultGuidance={
+        <p className="text-sm text-muted">
+          Email delivery is not configured. Copy the link to share it directly.
+          The invitation expires after seven days.
+        </p>
       }
-    >
-      <div className="content-grid">
-        <ErrorMessage>{error}</ErrorMessage>
-        {result ? (
-          <>
-            <p className="text-sm">
-              Share this private link with {email}. It expires after seven days.
-            </p>
-            <TextField
-              label="Invitation link"
-              value={result.inviteUrl}
-              readOnly
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            {result.emailDelivery === "unavailable" && (
-              <p className="text-sm text-muted">
-                Email delivery is not configured. Copy the link to share it
-                directly.
-              </p>
-            )}
-          </>
-        ) : (
-          <form
-            id="invite-person-form"
-            className="content-grid"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void create();
-            }}
-          >
-            <TextField
-              label="Email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              maxLength={320}
-              required
-              disabled={busy}
-              autoFocus
-            />
-            <Choice
-              label="Role"
-              value={role}
-              onChange={setRole}
-              items={roleOptions}
-              disabled={busy}
-            />
-            <p className="text-xs text-muted">
-              Members can change tasks. Viewers can read boards. Administrators
-              can manage access.
-            </p>
-            {busy && (
-              <p role="status" className="text-sm text-muted">
-                Creating the invitation…
-              </p>
-            )}
-          </form>
-        )}
-      </div>
-    </Dialog>
+      onInvite={async (values) => {
+        const invitation = await api<{
+          inviteUrl: string;
+          emailDelivery: "unavailable" | "sent" | "failed";
+        }>("/auth/invitations", values);
+        toast.success(
+          invitation.emailDelivery === "sent"
+            ? "Invitation created and email sent."
+            : "Invitation created.",
+        );
+        if (invitation.emailDelivery === "failed")
+          toast.danger(
+            "The invitation email could not be sent. Share the link directly.",
+          );
+        onCreated();
+        return invitation;
+      }}
+    />
   );
 }
 
 type PeopleAction =
-  | { kind: "role" | "remove"; member: Member }
+  | { kind: "role"; member: Member }
+  | { kind: "remove"; member: Member }
   | { kind: "revoke"; invitation: Invitation };
 function PeopleActionDialog({
   action,
@@ -734,110 +575,73 @@ function PeopleActionDialog({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const [role, setRole] = useState(
-    action.kind === "revoke" ? action.invitation.role : action.member.role,
-  );
-  const [busy, setBusy] = useState(false);
-  const pending = useRef(false);
-  const [error, setError] = useState("");
-  const title =
-    action.kind === "revoke"
-      ? `Revoke invitation for ${action.invitation.email}?`
-      : action.kind === "role"
-        ? `Edit role for ${action.member.name}`
-        : `Remove ${action.member.name}?`;
-  const label =
-    action.kind === "role"
-      ? "Update role"
-      : action.kind === "remove"
-        ? "Remove access"
-        : "Revoke invitation";
-  async function save() {
-    if (pending.current) return;
-    pending.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      if (action.kind === "revoke")
-        await api(`/auth/invitations/${action.invitation.id}`, {}, "DELETE");
-      else
-        await api(
-          `/auth/members/${action.member.id}`,
-          action.kind === "role" ? { role } : {},
-          action.kind === "role" ? "PATCH" : "DELETE",
-        );
-      await onSaved();
-      toast.success(
-        action.kind === "role"
-          ? "Role updated."
-          : action.kind === "remove"
-            ? "Workspace access removed."
-            : "Invitation revoked.",
-      );
-      onClose();
-    } catch (error) {
-      setError(errorText(error));
-    } finally {
-      pending.current = false;
-      setBusy(false);
-    }
-  }
+  if (action.kind === "role")
+    return (
+      <MemberEditDialog
+        isOpen
+        mode="role-only"
+        member={action.member}
+        roles={sharedRoleOptions}
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        onSave={async ({ role }) => {
+          await api(`/auth/members/${action.member.id}`, { role }, "PATCH");
+          await onSaved();
+          toast.success("Role updated.");
+        }}
+      />
+    );
   return (
-    <Dialog
-      open
-      title={title}
-      onClose={onClose}
-      size="sm"
-      isDismissDisabled={busy}
-      footer={
-        <>
-          <Button variant="secondary" isDisabled={busy} onPress={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant={action.kind === "role" ? "primary" : "danger"}
-            isDisabled={
-              busy || (action.kind === "role" && role === action.member.role)
-            }
-            onPress={() => void save()}
-          >
-            {busy ? "Updating…" : label}
-          </Button>
-        </>
+    <PeopleRemovalDialog
+      action={
+        action.kind === "remove"
+          ? { kind: "remove", member: action.member }
+          : action
       }
-    >
-      <div className="content-grid">
-        <ErrorMessage>{error}</ErrorMessage>
-        {action.kind === "role" ? (
-          <>
-            <p className="break-all text-xs text-muted">
-              {action.member.email}
-            </p>
-            <Choice
-              label={`Role for ${action.member.name}`}
-              value={role}
-              onChange={(value) => setRole(value as Role)}
-              items={roleOptions}
-              disabled={busy}
-            />
-          </>
-        ) : (
-          <p className="text-sm">
-            {action.kind === "remove"
-              ? `${action.member.name} will lose workspace access. Their comments and activity stay in the history.`
-              : "This invitation will no longer grant workspace access."}
-          </p>
-        )}
-        {busy && (
-          <p role="status" className="text-sm text-muted">
-            {action.kind === "role"
-              ? "Updating the role…"
-              : action.kind === "remove"
-                ? "Removing access…"
-                : "Revoking the invitation…"}
-          </p>
-        )}
-      </div>
-    </Dialog>
+      onClose={onClose}
+      onSaved={onSaved}
+    />
+  );
+}
+function PeopleRemovalDialog({
+  action,
+  onClose,
+  onSaved,
+}: {
+  action:
+    | { kind: "remove"; member: Member }
+    | { kind: "revoke"; invitation: Invitation };
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const changeOpen = (open: boolean) => {
+    if (!open) onClose();
+  };
+  async function save() {
+    if (action.kind === "revoke")
+      await api(`/auth/invitations/${action.invitation.id}`, {}, "DELETE");
+    else await api(`/auth/members/${action.member.id}`, {}, "DELETE");
+    await onSaved();
+    toast.success(
+      action.kind === "remove"
+        ? "Workspace access removed."
+        : "Invitation revoked.",
+    );
+  }
+  return action.kind === "remove" ? (
+    <RemoveMemberDialog
+      isOpen
+      member={action.member}
+      onOpenChange={changeOpen}
+      onRemove={save}
+    />
+  ) : (
+    <RevokeInvitationDialog
+      isOpen
+      email={action.invitation.email}
+      onOpenChange={changeOpen}
+      onRevoke={save}
+    />
   );
 }

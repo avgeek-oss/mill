@@ -1,5 +1,7 @@
 # October 5 Towbar and Mill UI pattern review
 
+This dated review is historical. The [October 7 parity changes](b1-verification.md#october-7-shared-authentication-account-and-team-settings) supersede its account, team and authentication recommendations: Mill now consumes published shared patterns, and passkeys are the only second factor. Authenticator setup and QR recommendations below no longer apply.
+
 This review compares the current local source in both checkouts. Towbar is the read-only reference. Mill uses locally adapted Apache-2.0 components; it does not require a sibling checkout to build. The broader findings below are source comparisons, not claims that every Towbar flow was reproduced in a browser.
 
 ## Changes implemented

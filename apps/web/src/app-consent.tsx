@@ -1,3 +1,4 @@
+import { useIdentityConfirmation } from "./identity-confirmation.js";
 import { QueryFeedback } from "./query-feedback.js";
 import { useEffect, useRef, useState } from "react";
 import { Choice, toast } from "@mill/web-design-system";
@@ -190,6 +191,7 @@ function ConsentRequest({
   id: string | null;
   session: Session;
 }) {
+  const identity = useIdentityConfirmation();
   const [connection, setConnection] = useState<ConnectionState>({
     phase: "pending",
   });
@@ -276,10 +278,24 @@ function ConsentRequest({
     const controller = new AbortController();
     decisionController.current = controller;
     try {
-      const response = await consentRequest(id, controller.signal, {
+      const selection = {
         allow,
         ...(allow && boardId ? { boardIds: [boardId] } : {}),
-      });
+      };
+      let response: unknown;
+      try {
+        response = await consentRequest(id, controller.signal, selection);
+      } catch (cause) {
+        if (!(
+          allow &&
+          cause instanceof ApiError &&
+          cause.code === "REAUTHENTICATION_REQUIRED" &&
+          (await identity.confirmIdentity())
+        ))
+          throw cause;
+        if (!active.current || controller.signal.aborted) return;
+        response = await consentRequest(id, controller.signal, selection);
+      }
       if (!active.current || controller.signal.aborted) return;
       const target = decisionRedirect(response, details, allow);
       if (!target) {
@@ -357,69 +373,72 @@ function ConsentRequest({
   if (!details) return null;
   const redirect = new URL(details.redirectUri);
   return (
-    <McpAuthorization
-      brand={<AuthBrand />}
-      productName="Mill"
-      isPending={!!decision || complete}
-      error={decisionError || undefined}
-      approvalBlockedReason={blockedReason}
-      onAllow={() => void decide(true)}
-      onDeny={() => void decide(false)}
-      details={{
-        clientName: details.clientName,
-        clientId: details.clientId,
-        clientTrust: details.clientTrust,
-        identityDescription:
-          details.clientTrust === "metadata-document"
-            ? "The app publishes its details in an HTTPS metadata document. This does not verify the app making this request."
-            : "The app supplied its own name. Mill has not verified its identity.",
-        redirectUri: details.redirectUri,
-        account: {
-          email: session.user.email,
-          name: session.user.name,
-          teamName: session.workspace.name,
-          role: session.user.role,
-        },
-        permissionSummary: validScope
-          ? `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
-          : "Requested permissions are unsupported.",
-        accessDescription: `${write ? "Can view and make changes allowed by your Mill role." : "Can only view data allowed by your Mill role."} Cannot manage accounts or reveal stored credentials.`,
-        accessLifetime:
-          details.expiresIn % 86400 === 0
-            ? `${details.expiresIn / 86400} days`
-            : `${details.expiresIn} seconds`,
-        revocationDescription: "Revoke access anytime in API keys.",
-        restrictions:
-          "Administrative access is excluded. Access remains limited by your current membership, role, and approved boards.",
-        deviceConnectionNotice: ["localhost", "127.0.0.1", "[::1]"].includes(
-          redirect.hostname,
-        )
-          ? "This opens an app on your device. Only continue if you started this connection yourself."
-          : undefined,
-      }}
-    >
-      <div className="content-grid min-w-0" aria-busy={directory.pending}>
-        <Choice
-          label="Approved boards"
-          value={boardId}
-          onChange={setBoardId}
-          items={[
-            { id: "", name: "All allowed boards" },
-            ...displayedBoards.map((board) => ({
-              id: board.id,
-              name: board.name,
-            })),
-          ]}
-          search
-          disabled={!!decision || directory.pending || !!directory.error}
-        />
-        {directory.error && (
-          <QueryFeedback
-            message={directory.error}
-            onRetry={() => void directory.reload()}
+    <>
+      {identity.confirmation}
+      <McpAuthorization
+        brand={<AuthBrand />}
+        productName="Mill"
+        isPending={!!decision || complete}
+        error={decisionError || undefined}
+        approvalBlockedReason={blockedReason}
+        onAllow={() => void decide(true)}
+        onDeny={() => void decide(false)}
+        details={{
+          clientName: details.clientName,
+          clientId: details.clientId,
+          clientTrust: details.clientTrust,
+          identityDescription:
+            details.clientTrust === "metadata-document"
+              ? "The app publishes its details in an HTTPS metadata document. This does not verify the app making this request."
+              : "The app supplied its own name. Mill has not verified its identity.",
+          redirectUri: details.redirectUri,
+          account: {
+            email: session.user.email,
+            name: session.user.name,
+            teamName: session.workspace.name,
+            role: session.user.role,
+          },
+          permissionSummary: validScope
+            ? `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
+            : "Requested permissions are unsupported.",
+          accessDescription: `${write ? "Can view and make changes allowed by your Mill role." : "Can only view data allowed by your Mill role."} Cannot manage accounts or reveal stored credentials.`,
+          accessLifetime:
+            details.expiresIn % 86400 === 0
+              ? `${details.expiresIn / 86400} days`
+              : `${details.expiresIn} seconds`,
+          revocationDescription: "Revoke access anytime in API keys.",
+          restrictions:
+            "Administrative access is excluded. Access remains limited by your current membership, role, and approved boards.",
+          deviceConnectionNotice: ["localhost", "127.0.0.1", "[::1]"].includes(
+            redirect.hostname,
+          )
+            ? "This opens an app on your device. Only continue if you started this connection yourself."
+            : undefined,
+        }}
+      >
+        <div className="content-grid min-w-0" aria-busy={directory.pending}>
+          <Choice
+            label="Approved boards"
+            value={boardId}
+            onChange={setBoardId}
+            items={[
+              { id: "", name: "All allowed boards" },
+              ...displayedBoards.map((board) => ({
+                id: board.id,
+                name: board.name,
+              })),
+            ]}
+            search
+            disabled={!!decision || directory.pending || !!directory.error}
           />
-        )}
-      </div>
-    </McpAuthorization>
+          {directory.error && (
+            <QueryFeedback
+              message={directory.error}
+              onRetry={() => void directory.reload()}
+            />
+          )}
+        </div>
+      </McpAuthorization>
+    </>
   );
 }

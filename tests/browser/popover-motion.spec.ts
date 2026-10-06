@@ -298,10 +298,7 @@ async function mobileNavigationMotion(page: Page, theme: "light" | "dark") {
   await drawer.getByRole("link", { name: "Boards", exact: true }).tap();
   await expect(page).toHaveURL(/\/boards$/);
   await expect(drawer).toHaveCount(0, { timeout: 1000 });
-  await page
-    .getByRole("main")
-    .getByRole("link", { name: /Popover second board/ })
-    .tap();
+  await page.getByRole("main").locator(`a[href="${secondBoardPath}"]`).tap();
   await expect(page).toHaveURL(new RegExp(`${secondBoardPath}$`));
   await expect(
     page.getByRole("heading", {

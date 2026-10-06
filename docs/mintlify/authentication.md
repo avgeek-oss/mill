@@ -50,26 +50,26 @@ Open **Settings → Account settings** in the primary sidebar, or use the accoun
 - **Profile**: your name, account email, and Gravatar preview. Email is read-only.
 - **Preferences**: your time zone and in-app assignment and mention notifications.
 - **Email & Password**: your current email and password changes.
-- **Two-factor Auth**: passkeys, an authenticator app, and recovery codes.
+- **Passkeys**: registered passkeys and their recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
 - **API Keys**: your personal REST keys and authorized OAuth connections.
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 
 The account menu also links to Mill's changelog, documentation, feedback, and contribution guide. Administrators use **Team settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.
 
-## Passkeys and authenticator apps
+## Passkeys and recovery codes
 
-Open **Account settings → Two-factor Auth** to add a passkey or authenticator app. Security changes require a sign-in or identity verification within the previous ten minutes. If verification has expired, enter your password again and complete your configured second factor.
+Open **Account settings → Passkeys** to add a passkey. Security changes require a sign-in or identity verification within the previous ten minutes. If verification has expired, enter your password again and complete your configured second factor.
 
 A passkey requires device verification such as a fingerprint, face recognition or device PIN. Mill verifies the public-key signature, the browser origin, the relying-party identifier and the single-use challenge. Passkey setup is bound to the session that requested it. You can name and remove each registered passkey. Use **Sign in with a passkey** for passwordless sign-in.
 
 Use `localhost` for local browser passkeys and an HTTPS DNS hostname in production. Browsers do not support an IP address as the passkey relying-party domain, even though loopback IPs work for ordinary password sign-in and API tests.
 
-When password sign-in finds both a passkey and an authenticator app, it automatically prefers the passkey. **Use an authenticator code** remains available when the browser or device cannot use that passkey. An authenticator-only account uses a six-digit app code. A code is accepted once in its time window; wait for the next code if you already used it to enable the app or change a setting.
+Passkeys are the only second factor. Password sign-in automatically requests your registered passkey. Mill does not provide authenticator-app setup or TOTP verification.
 
-Authenticator setup shows an `otpauth` URI and a secret to add to your app. Confirm a generated code to enable it. Mill encrypts the stored secret using `MILL_SECRET`. After confirmation, save the ten recovery codes somewhere private. Each code can be used once after password verification. Replacing recovery codes invalidates the previous set. Removing the authenticator requires a fresh app code; use operator recovery if the app is lost.
+Registering your first passkey creates ten recovery codes. Save them somewhere private. When a passkey is unavailable, enter your password first and choose **Use a recovery code** from the passkey verification screen. Each code is accepted once. Recovery access allows ordinary account use, but security changes still require a fresh passkey proof. Replace recovery codes from the Passkeys page after confirming your identity with a passkey; replacement invalidates the previous set.
 
-Adding or removing a factor ends other browser sessions and invalidates pending authentication challenges. The initiating session stays signed in. Password changes also revoke other browser sessions and all owned API keys and OAuth connections. Review devices under **Account settings → Sessions** to revoke a device individually, or use **Sign out** to end the current session.
+Adding or removing a factor ends other browser sessions and invalidates pending authentication challenges. The initiating session stays signed in. Creating an API key or approving an OAuth connection also requires recent identity verification. Recovery-code access cannot grant those credentials until a passkey verifies the session. Credential revocation and OAuth denial remain available. Password changes revoke other browser sessions and all owned API keys and OAuth connections. Review devices under **Account settings → Sessions** to revoke a device individually, or use **Sign out** to end the current session.
 
 ## Recover an account
 
@@ -87,15 +87,17 @@ docker compose --project-name mill --env-file .env exec -T mill node dist/apps/a
 
 The command prints a private, single-use link valid for thirty minutes. Share it privately with the account owner. The link grants password-reset access, so keep it out of tickets, screenshots, shared terminal recordings and ordinary logs. Mill stores only a hash of the link token.
 
-When both the passkeys and authenticator app have been lost, the operator can explicitly remove those factors:
+When passkeys and their recovery codes have been lost, the operator can explicitly remove those factors:
 
 ```sh
 pnpm recover-account --email person@example.com --reset-mfa
 ```
 
-The owner follows the link, chooses a new password and signs in again. Completing recovery ends all browser sessions, invalidates pending challenges and recovery links, and revokes the owner's API keys and OAuth connections. `--reset-mfa` also removes passkeys, authenticator setup and recovery codes. Re-enroll factors and issue new credentials afterward. Issuing a link alone does not change the account.
+The owner follows the link, chooses a new password and signs in again. Completing recovery ends all browser sessions, invalidates pending challenges and recovery links, and revokes the owner's API keys and OAuth connections. `--reset-mfa` also removes passkeys and their recovery codes. Add new passkeys and issue new credentials afterward. Issuing a link alone does not change the account.
 
-Full database backups contain the complete identity state and private credentials. Mill v1 has no portable export/import feature. Keep `MILL_SECRET` with your installation backup; changing it makes encrypted authenticator secrets unreadable. See [backup and restore](/backup) for the full recovery procedure.
+Full database backups contain the complete identity state and private credentials. Mill v1 has no portable export/import feature. Keep `MILL_SECRET` with your installation backup; preserve it when restoring your installation. See [backup and restore](/backup) for the full recovery procedure.
+
+Before converting an older prelaunch schema, members with a verified authenticator must add a passkey through the older installation while they can still verify their identity. The converter refuses accounts whose verified authenticator would otherwise become password-only. If a factor is already lost, use the older installation's explicit operator recovery first. Conversion retains the complete source archive, removes the active authenticator table, retires its recovery codes and requires fresh identity confirmation for retained sessions. Members with passkeys can then generate new passkey recovery codes after verifying with a passkey.
 
 ## Identity API
 
@@ -105,8 +107,7 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /status`                         | `{setupRequired}`.                                                                                                                                                                      |
 | `POST /setup`                         | `{workspaceName,name,email,password}` → `{user,workspace}` and cookie.                                                                                                                  |
-| `POST /login`                         | `{email,password}` → `{user,workspace}` or `{requiresSecondFactor,challengeId,methods,preferredMethod}`.                                                                                |
-| `POST /second-factor`                 | `{challengeId,method:"totp"\|"recovery",code}` → account and cookie, or `{ok:true}` for reauthentication.                                                                               |
+| `POST /login`                         | `{email,password}` → `{user,workspace}` or `{requiresSecondFactor,challengeId,methods:["passkey"],preferredMethod:"passkey",recoveryAvailable}`.                                        |
 | `POST /logout`                        | Ends the current session.                                                                                                                                                               |
 | `GET /me`                             | `{user,workspace}`; no password hashes or authentication secrets.                                                                                                                       |
 | `PATCH /profile`                      | Optional `{name,timeZone,notificationPreferences:{assignments,mentions}}` → `{user,workspace}`.                                                                                         |
@@ -114,17 +115,15 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 | `POST /password`                      | `{currentPassword,password}`; requires recent authentication.                                                                                                                           |
 | `GET /sessions`                       | `{items:[{id,userAgent,createdAt,lastSeenAt,expiresAt,current}]}`.                                                                                                                      |
 | `DELETE /sessions/:id`                | Revokes one of the signed-in person's sessions.                                                                                                                                         |
-| `GET /passkeys`                       | `{items:[{id,name,createdAt}]}`.                                                                                                                                                        |
+| `GET /passkeys`                       | `{items:[{id,name,createdAt}],recoveryCodeCount}`.                                                                                                                                      |
+| `POST /passkeys/recovery/verify`      | `{challengeId,code}` verifies a single-use passkey recovery code after password verification. Recovery access cannot authorize security changes.                                        |
+| `POST /passkeys/recovery-codes`       | `{}` replaces recovery codes after a recent passkey verification.                                                                                                                       |
 | `POST /passkeys/register/options`     | `{}` → `{challengeId,options}`; recent human session required.                                                                                                                          |
-| `POST /passkeys/register/verify`      | `{challengeId,name,response}`; browser WebAuthn registration response.                                                                                                                  |
+| `POST /passkeys/register/verify`      | `{challengeId,name,response}`; browser WebAuthn registration response; returns ten recovery codes for the first passkey.                                                                |
 | `DELETE /passkeys/:id`                | Removes the person's passkey; recent authentication required.                                                                                                                           |
-| `POST /passkeys/authenticate/options` | `{challengeId?}` → `{challengeId,options}`; omit the identifier for discoverable passkey sign-in.                                                                                       |
+| `POST /passkeys/authenticate/options` | `{challengeId?}` → `{challengeId,options}`; omit the identifier for discoverable passkey sign-in or to confirm the current signed-in session.                                           |
 | `POST /passkeys/authenticate/verify`  | `{challengeId,response}` → account and cookie, or reauthentication success.                                                                                                             |
-| `POST /totp/setup`                    | `{}` → `{secret,uri}`; no enabled factor is replaced.                                                                                                                                   |
-| `POST /totp/verify`                   | `{code}` → `{recoveryCodes}` and enables the pending authenticator.                                                                                                                     |
-| `POST /totp/disable`                  | `{code}`; removes the authenticator and recovery codes.                                                                                                                                 |
-| `POST /totp/recovery-codes`           | `{code}` → a new `{recoveryCodes}` set.                                                                                                                                                 |
-| `GET /members`                        | Active team members' basic metadata.                                                                                                                                                    |
+| `GET /members`                        | Active team members' basic metadata and `passkeyEnabled`, derived from their registered passkeys.                                                                                       |
 | `GET /invitations`                    | Admin-only invitation metadata; optional `limit=1..100`, UUID `cursor`; returns `{items,hasMore,nextCursor}`; excludes expired invitations before pagination and never includes tokens. |
 | `POST /invitations`                   | Admin-only `{email,role}` → `{invitation,token,inviteUrl,emailDelivery:"unavailable"}`; save the link at creation.                                                                      |
 | `DELETE /invitations/:id`             | Admin-only revocation.                                                                                                                                                                  |
@@ -134,9 +133,9 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 | `DELETE /members/:id`                 | Admin-only reversible membership removal through a subsequent invitation.                                                                                                               |
 | `POST /recovery/reset`                | `{token,password}`; completes an operator-issued recovery link.                                                                                                                         |
 
-`user` contains `id`, `name`, `email`, `role`, `timeZone`, `notificationPreferences`, `totpEnabled` and `passkeyCount`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
+`user` contains `id`, `name`, `email`, `role`, `timeZone`, `notificationPreferences`, `passkeyCount`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
 
-The PostgreSQL integration tests in `tests/auth.test.ts` verify setup and last-admin races, invitation lifecycle, cross-role and external-client restrictions, session/password/recovery revocation, encrypted authenticator storage, replay protections, real signed passkey ceremonies and origin verification, passkey preference with successful authenticator fallback, and a blocked old-password login racing a security reset.
+The PostgreSQL integration tests in `tests/auth.test.ts` verify setup and last-admin races, invitation lifecycle, cross-role and external-client restrictions, session/password/recovery revocation, real signed passkey ceremonies and origin verification, session-bound identity confirmation, concurrent one-use recovery redemption, refusal to authorize security changes through recovery access, and a blocked old-password login racing a security reset.
 
 Account actions report success and errors through toast alerts. Failed changes retain their drafts and retry controls. Required-field validation also uses a toast and focuses the first invalid field.
 
@@ -407,7 +406,7 @@ Account actions report success and errors through toast alerts. Failed changes r
   </Tab>
 </Tabs>
 
-### Two-factor Auth
+### Passkeys
 
 <Tabs>
   <Tab title="Desktop">
@@ -416,7 +415,7 @@ Account actions report success and errors through toast alerts. Failed changes r
         <div className="mill-product-light">
           <img
             src="/assets/screenshots/release-v1/security-light.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="1280"
             height="900"
             loading="lazy"
@@ -425,7 +424,7 @@ Account actions report success and errors through toast alerts. Failed changes r
         <div className="mill-product-dark">
           <img
             src="/assets/screenshots/release-v1/security-dark.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="1280"
             height="900"
             loading="lazy"
@@ -440,7 +439,7 @@ Account actions report success and errors through toast alerts. Failed changes r
         <div className="mill-product-light">
           <img
             src="/assets/screenshots/release-v1/security-mobile-light.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="390"
             height="844"
             loading="lazy"
@@ -449,7 +448,7 @@ Account actions report success and errors through toast alerts. Failed changes r
         <div className="mill-product-dark">
           <img
             src="/assets/screenshots/release-v1/security-mobile-dark.png"
-            alt="Two-factor Auth in Mill."
+            alt="Passkeys in Mill."
             width="390"
             height="844"
             loading="lazy"

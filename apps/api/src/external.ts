@@ -26,6 +26,7 @@ import {
   uniqueParameters,
 } from "./external/protocol.js";
 import { serveMcp } from "./external/mcp.js";
+import { recentSession } from "./auth/model.js";
 export { credentialActor } from "./external/credentials.js";
 export { setApiDispatcher } from "./external/mcp.js";
 
@@ -99,6 +100,7 @@ externalRoutes.post("/api/credentials", async (c) => {
     .safeParse(await c.req.json());
   if (!parsed.success)
     badRequest("Choose a name and an expiry of 30, 60, 90, or 365 days");
+  await recentSession(c);
   return c.json(await createCredential(a, parsed.data), 201);
 });
 externalRoutes.delete("/api/credentials/:id", async (c) => {
@@ -201,6 +203,7 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
     .safeParse(await c.req.json());
   if (!parsed.success)
     throw new OAuthError("invalid_request", "Choose whether to allow access");
+  if (parsed.data.allow) await recentSession(c);
   try {
     return c.json({
       redirectTo: await decideConsent(

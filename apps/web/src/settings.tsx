@@ -1,7 +1,6 @@
 import { useEffect } from "react";
-import { ButtonLink } from "@avgeek-oss/design-system";
+import { ButtonLink, TeamGeneralSettings } from "@avgeek-oss/design-system";
 import { EmptyState } from "@avgeek-oss/design-system/data-display/empty-state";
-import { NameSettingsForm } from "@avgeek-oss/design-system/patterns/settings/name-form";
 import { Settings2 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import type { Board, Member } from "../../../packages/contracts/src/index.js";
@@ -69,9 +68,7 @@ export function SettingsPage({
       <PageHeading title={title} icon={<Settings2 />} />
       {section === "workspace" && (
         <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
-          <NameSettingsForm
-            title="Team details"
-            label="Team name"
+          <TeamGeneralSettings
             value={session.workspace.name}
             maxLength={120}
             onSave={async (name) => {

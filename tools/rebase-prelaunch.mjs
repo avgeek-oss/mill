@@ -8,7 +8,7 @@ import postgres from "postgres";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const baselineName = "001_initial.sql";
 const reviewedBaselineChecksum =
-  "8247de93dfc38687c5bae1fac7e330b630d60c7e0401b74f8d8a7c05e8fd4c9d";
+  "070ba86deb3dd76c9489b580bf79f1b65e217d80cb3cedc2ca00fc3b8d9e4a22";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 const qualify = (schema, name) => `${quote(schema)}.${quote(name)}`;
@@ -144,13 +144,14 @@ async function verifyCommonColumns(
   table,
   columns,
   projection = {},
+  sourceWhere = "true",
 ) {
   const names = columns.map(quote).join(",");
   const expected = columns
     .map((name) => projection[name] ?? `s.${quote(name)}`)
     .join(",");
   const [row] = await sql.unsafe(
-    `SELECT EXISTS((SELECT ${expected} FROM ${qualify(source, table)} s EXCEPT ALL SELECT ${names} FROM ${qualify(target, table)}) UNION ALL (SELECT ${names} FROM ${qualify(target, table)} EXCEPT ALL SELECT ${expected} FROM ${qualify(source, table)} s)) AS changed`,
+    `SELECT EXISTS((SELECT ${expected} FROM ${qualify(source, table)} s WHERE ${sourceWhere} EXCEPT ALL SELECT ${names} FROM ${qualify(target, table)}) UNION ALL (SELECT ${names} FROM ${qualify(target, table)} EXCEPT ALL SELECT ${expected} FROM ${qualify(source, table)} s WHERE ${sourceWhere})) AS changed`,
   );
   if (row.changed)
     throw new Error(
@@ -196,6 +197,15 @@ export async function rebasePrelaunch(
       `LOCK TABLE ${sourceTables.map((name) => qualify(schema, name)).join(",")} IN ACCESS EXCLUSIVE MODE`,
     );
     requireKnownLegacy(await schemaLayout(tx, schema), expectedLegacy);
+    if (sourceTables.includes("authenticators")) {
+      const [unprotected] = await tx.unsafe(
+        `SELECT EXISTS(SELECT 1 FROM ${qualify(schema, "authenticators")} a WHERE a.verified AND NOT EXISTS(SELECT 1 FROM ${qualify(schema, "passkeys")} p WHERE p.user_id=a.user_id)) AS blocked`,
+      );
+      if (unprotected.blocked)
+        throw new Error(
+          "Add passkeys or explicitly recover authenticator-only accounts before conversion; security factors cannot be silently removed",
+        );
+    }
     await tx.unsafe(`CREATE SCHEMA ${quote(staging)}`);
     await tx.unsafe(`SET LOCAL search_path TO ${quote(staging)}, pg_catalog`);
     await tx.unsafe(baseline);
@@ -208,11 +218,15 @@ export async function rebasePrelaunch(
     );
     const clean = await schemaLayout(tx, staging);
     const removedTables = new Set([
+      "authenticators",
       "agents",
       "agent_members",
       "retired_task_checklists",
       "mill_migrations",
     ]);
+    const sourceHasPasskeyProof = original.tables.sessions.some(
+      (column) => column.name === "passkey_authenticated_at",
+    );
     const sourceHasAgents = sourceTables.includes("agents");
     const sourceHasDateFormat = original.tables.users.some(
       (column) => column.name === "date_format",
@@ -254,6 +268,8 @@ export async function rebasePrelaunch(
         expectedColumns.push("date_format");
       if (table === "users" && !sourceHasTimeFormat)
         expectedColumns.push("time_format");
+      if (table === "sessions" && !sourceHasPasskeyProof)
+        expectedColumns.push("passkey_authenticated_at");
       expectedColumns.sort();
       assert.deepEqual(
         clean.tables[table].map((column) => column.name).sort(),
@@ -273,7 +289,20 @@ export async function rebasePrelaunch(
     const invalidGrant = `NOT (${activeOwner}) OR (s.token_type='oauth' AND NOT (${eligibleLegacyIdentity}))`;
     const invalidApproval = `s.code_hash IS NOT NULL AND (NOT (${activeOwner}) OR NOT (${eligibleLegacyIdentity}))`;
     const notificationOwner = `(SELECT CASE WHEN count(DISTINCT u.id)=1 THEN min(u.name) ELSE 'Workspace member' END FROM ${qualify(schema, "users")} u JOIN ${qualify(schema, "agents")} a ON s.actor_name=a.name || ' via ' || u.name)`;
+    const sourceFilters = {
+      recovery_codes: sourceTables.includes("authenticators")
+        ? "false"
+        : "true",
+    };
     const projections = {
+      sessions: {
+        ...(!sourceHasPasskeyProof
+          ? {
+              passkey_authenticated_at: "NULL::timestamptz",
+              authenticated_at: "to_timestamp(0)",
+            }
+          : {}),
+      },
       users: {
         ...(!sourceHasDateFormat
           ? { date_format: "'day-short-month-year'::text" }
@@ -321,7 +350,7 @@ export async function rebasePrelaunch(
         .map((name) => projections[table]?.[name] ?? `s.${quote(name)}`)
         .join(",");
       await tx.unsafe(
-        `INSERT INTO ${qualify(staging, table)}(${names}) SELECT ${values} FROM ${qualify(schema, table)} s`,
+        `INSERT INTO ${qualify(staging, table)}(${names}) SELECT ${values} FROM ${qualify(schema, table)} s WHERE ${sourceFilters[table] ?? "true"}`,
       );
       await verifyCommonColumns(
         tx,
@@ -330,6 +359,7 @@ export async function rebasePrelaunch(
         table,
         common,
         projections[table],
+        sourceFilters[table],
       );
       const [row] = await tx.unsafe(
         `SELECT count(*)::int AS count FROM ${qualify(staging, table)}`,
@@ -344,6 +374,7 @@ export async function rebasePrelaunch(
         table,
         commonColumns[table],
         projections[table],
+        sourceFilters[table],
       );
     for (const table of activeTables)
       await tx.unsafe(

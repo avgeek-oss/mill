@@ -340,12 +340,12 @@ try {
     ["tools/install-smoke.mjs"],
     verifyEnv,
   );
+  const baselineSource = await readFile(
+    join(root, "packages/database/migrations/001_initial.sql"),
+    "utf8",
+  );
   const baselineChecksum = createHash("sha256")
-    .update(
-      await readFile(
-        join(root, "packages/database/migrations/001_initial.sql"),
-      ),
-    )
+    .update(baselineSource)
     .digest("hex");
   const installedMigrations = JSON.parse(
     await run(
@@ -367,7 +367,7 @@ try {
       databaseArguments(
         primary,
         `SELECT json_build_object(
-    'retiredTables',(SELECT count(*) FROM pg_tables WHERE schemaname=current_schema() AND tablename IN ('columns','agents','agent_boards','agent_members','retired_task_checklists','auth_audit')),
+    'retiredTables',(SELECT count(*) FROM pg_tables WHERE schemaname=current_schema() AND tablename IN ('columns','agents','agent_boards','agent_members','retired_task_checklists','auth_audit','user_totp')),
     'removedTaskColumns',(SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='tasks' AND column_name IN ('agent_id','checklist','parent_id','column_id','position','labels','archived','deleted_at'))
   )::text`,
       ),
@@ -412,7 +412,12 @@ try {
       ),
     ),
   );
-  assert.ok(tables.length > 20);
+  const baselineTables = Array.from(
+    baselineSource.matchAll(/^CREATE TABLE ([a-z_]+) \(/gm),
+    (match) => match[1],
+  );
+  assert.ok(baselineTables.length > 0, "Current baseline must define tables");
+  assert.deepEqual(tables, [...baselineTables, "mill_migrations"].sort());
   for (const table of tables) assert.match(table, /^[a-z_]+$/);
   const contentQuery = `SELECT jsonb_build_object(${tables.map((table) => `'${table}',(SELECT COALESCE(jsonb_agg(content ORDER BY content::text),'[]'::jsonb) FROM (SELECT to_jsonb(record) AS content FROM ${table} record) rows)`).join(",")})::text`;
   const savedData = JSON.parse(

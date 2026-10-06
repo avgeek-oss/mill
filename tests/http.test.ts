@@ -140,4 +140,20 @@ test("retry records encrypt credential issuance secrets", async () => {
   assert.equal(replay.status, 201);
   assert.equal((await replay.json()).token, result.token);
   assert.equal((await sql`SELECT * FROM credentials`).length, 1);
+  await sql`UPDATE sessions SET authenticated_at=now()-interval '11 minutes'`;
+  const gated = await request("/api/credentials", options);
+  assert.equal(gated.status, 403);
+  assert.equal((await gated.json()).error.code, "REAUTHENTICATION_REQUIRED");
+  assert.equal(
+    (
+      await request("/api/auth/reauth", {
+        cookie,
+        body: { password: "Secure test passphrase 42!" },
+      })
+    ).status,
+    200,
+  );
+  const approvedReplay = await request("/api/credentials", options);
+  assert.equal(approvedReplay.status, 201);
+  assert.equal((await approvedReplay.json()).token, result.token);
 });

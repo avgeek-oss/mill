@@ -41,7 +41,7 @@ const accountPages = [
   ["profile", "Profile", "Profile"],
   ["preferences", "Preferences", "Preferences"],
   ["email-password", "Email & Password", "Email & Password"],
-  ["two-factor", "Two-factor Auth", "Two-factor Auth"],
+  ["passkeys", "Passkeys", "Passkeys"],
   ["sessions", "Sessions", "Sessions"],
   ["api-keys", "API Keys", "API keys"],
   ["mcp", "MCP Guide", "MCP Guide"],
@@ -68,6 +68,17 @@ for (const width of [1280, 390])
         });
         const page = await context.newPage();
         await authenticateBrowserFixture(page, fixture);
+        await page.goto("/settings/two-factor");
+        await expect(
+          page.getByRole("heading", {
+            name: "Passkeys",
+            exact: true,
+            level: 1,
+          }),
+        ).toHaveCount(1);
+        await expect(
+          page.getByRole("region", { name: "Authenticator", exact: true }),
+        ).toHaveCount(0);
         await page.goto("/settings/profile");
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
         const primary = page.getByRole("navigation", {
@@ -111,6 +122,7 @@ for (const width of [1280, 390])
           await expect(
             page.getByRole("heading", { name: title, exact: true, level: 1 }),
           ).toBeVisible();
+          await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
           const breadcrumb = page.getByRole("navigation", {
             name: "Breadcrumb",
             exact: true,

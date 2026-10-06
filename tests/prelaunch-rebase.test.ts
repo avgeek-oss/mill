@@ -35,6 +35,19 @@ const baseline = await readFile(
   new URL("../packages/database/migrations/001_initial.sql", import.meta.url),
   "utf8",
 );
+const legacyBaseline = baseline
+  .replace("  passkey_authenticated_at timestamptz,\n", "")
+  .replace(
+    "CREATE TABLE recovery_codes",
+    `CREATE TABLE authenticators (
+  user_id uuid PRIMARY KEY REFERENCES users(id),
+  encrypted_secret text NOT NULL,
+  verified boolean NOT NULL DEFAULT false,
+  last_used_step bigint NOT NULL DEFAULT -1,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE recovery_codes`,
+  );
 const knownLegacy = JSON.parse(
   await readFile(
     new URL("../tools/prelaunch-legacy-layout.json", import.meta.url),
@@ -69,7 +82,7 @@ async function fixture(
   url.pathname = `/${database}`;
   const sql = postgres(url.href, { max: 1, onnotice: () => {} });
   try {
-    await sql.unsafe(baseline);
+    await sql.unsafe(legacyBaseline);
     await sql`ALTER TABLE users DROP COLUMN date_format`;
     await sql`ALTER TABLE users DROP COLUMN time_format`;
     await sql`ALTER TABLE tasks DROP COLUMN type`;
@@ -397,7 +410,7 @@ for (const source of [
           "utf8",
         ),
       );
-      const withoutPreferences = baseline
+      const withoutPreferences = legacyBaseline
         .split("\n")
         .filter(
           (line) =>
@@ -539,3 +552,56 @@ for (const source of [
       await admin.end();
     }
   });
+
+test("prelaunch conversion blocks authenticator-only downgrade and archives legacy recovery while requiring fresh proof", async () => {
+  await fixture(async (sql, layout, ids) => {
+    await sql`INSERT INTO authenticators(user_id,encrypted_secret,verified) VALUES(${ids.admin},'legacy-encrypted-secret',true)`;
+    await sql`INSERT INTO recovery_codes(user_id,code_hash) VALUES(${ids.admin},'legacy-recovery-digest')`;
+    const session = randomUUID();
+    await sql`INSERT INTO sessions(id,user_id,token_hash,security_epoch,user_agent,expires_at) VALUES(${session},${ids.admin},'retained-session-digest',0,'Retained browser',now()+interval '1 day')`;
+    await assert.rejects(
+      rebasePrelaunch(sql, {
+        schema: "public",
+        baseline,
+        expectedLegacy: layout,
+        apply: true,
+      }),
+      /security factors cannot be silently removed/,
+    );
+    assert.deepEqual(await schemaLayout(sql, "public"), layout);
+    assert.equal((await sql`SELECT * FROM authenticators`).length, 1);
+    assert.equal(
+      (
+        await sql`SELECT nspname FROM pg_namespace WHERE nspname LIKE 'mill_prelaunch_%'`
+      ).length,
+      0,
+    );
+    await sql`INSERT INTO passkeys(id,user_id,name,public_key,counter) VALUES('retained-passkey',${ids.admin},'Retained passkey',${Buffer.from("retained-public-key")},0)`;
+    const receipt = await rebasePrelaunch(sql, {
+      schema: "public",
+      baseline,
+      expectedLegacy: layout,
+      apply: true,
+    });
+    assert.equal((await sql`SELECT * FROM recovery_codes`).length, 0);
+    const [retained] =
+      await sql`SELECT authenticated_at,passkey_authenticated_at FROM sessions WHERE id=${session}`;
+    assert.equal(retained.authenticated_at.getTime(), 0);
+    assert.equal(retained.passkey_authenticated_at, null);
+    assert.equal(
+      (await sql`SELECT id FROM passkeys`)[0].id,
+      "retained-passkey",
+    );
+    const archived = receipt.archivedSchema!;
+    assert.equal(
+      (await sql.unsafe(`SELECT * FROM "${archived}".authenticators`)).length,
+      1,
+    );
+    assert.equal(
+      (
+        await sql.unsafe(`SELECT code_hash FROM "${archived}".recovery_codes`)
+      )[0].code_hash,
+      "legacy-recovery-digest",
+    );
+  });
+});

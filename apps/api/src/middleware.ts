@@ -14,6 +14,7 @@ import { clientAddress, requireRole, type Env } from "./http.js";
 import { config } from "./config.js";
 import { lockAuthority } from "./authority.js";
 import { mcpResource } from "./external/protocol.js";
+import { recentSession } from "./auth/model.js";
 class RetryTransactionRollback extends Error {}
 function encryptResponse(value: unknown) {
   const iv = randomBytes(12);
@@ -127,9 +128,10 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
   if (!actor) throw new HTTPException(401, { message: "Sign in to continue" });
   const actorKey = actor.credentialId ?? actor.userId;
   const requestUrl = new URL(c.req.url);
+  const requestBody = await c.req.raw.clone().text();
   const hash = createHash("sha256")
     .update(
-      `${c.req.method}\n${requestUrl.pathname}${requestUrl.search}\n${await c.req.raw.clone().text()}`,
+      `${c.req.method}\n${requestUrl.pathname}${requestUrl.search}\n${requestBody}`,
     )
     .digest("hex");
   return withDatabaseTransaction(async () => {
@@ -182,6 +184,13 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
           },
           410,
         );
+      if (
+        c.req.method === "POST" &&
+        (c.req.path === "/api/credentials" ||
+          (c.req.path.startsWith("/api/oauth/consent/") &&
+            JSON.parse(requestBody).allow === true))
+      )
+        await recentSession(c);
       if ([204, 205, 304].includes(existing.status))
         return c.body(null, existing.status);
       return c.json(decryptResponse(existing.response), existing.status);

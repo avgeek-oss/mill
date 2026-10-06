@@ -220,7 +220,7 @@ test("invitation creation and delivery failure appear only as toasts alongside t
     .getByRole("button", { name: "Invite a person", exact: true })
     .click();
   const form = page.getByRole("dialog", {
-    name: "Invite a person",
+    name: "Create invitation",
     exact: true,
   });
   await form
@@ -231,9 +231,9 @@ test("invitation creation and delivery failure appear only as toasts alongside t
     name: "Invitation link",
     exact: true,
   });
-  await expect(
-    dialog.getByLabel("Invitation link", { exact: true }),
-  ).toHaveValue(`${baseURL}/invite?token=toast-only-disposable-link`);
+  await expect(dialog.locator('[data-slot="code-block-code"] code')).toHaveText(
+    `${baseURL}/invite?token=toast-only-disposable-link`,
+  );
   await expect(notification(page, "Invitation created.")).toBeVisible();
   await expect(
     notification(
@@ -252,7 +252,7 @@ test("invitation creation and delivery failure appear only as toasts alongside t
     ),
   ).toHaveCount(0);
   const copyFailure =
-    "The link could not be copied. Select the invitation link and copy it manually.";
+    "Could not copy to the clipboard. Select and copy the text instead.";
   for (let attempt = 0; attempt < 2; attempt++) {
     await dialog
       .getByRole("button", { name: "Copy invitation link", exact: true })

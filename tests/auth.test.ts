@@ -1,21 +1,15 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import {
-  createHash,
-  generateKeyPairSync,
-  randomBytes,
-  randomUUID,
-  sign,
-} from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import {
   cleanupDatabase,
   request,
   resetDatabase,
   setupUser,
+  setupOAuth,
   sql,
 } from "./support.js";
-import { isoCBOR } from "@simplewebauthn/server/helpers";
-import { Secret, TOTP } from "otpauth";
+import { registerPasskey, virtualPasskey } from "./passkey-support.js";
 import { createOperatorRecovery } from "../apps/api/src/auth/recovery.js";
 import { hashPassword, hashToken } from "../apps/api/src/auth/security.js";
 
@@ -45,148 +39,6 @@ async function invite(
     user: (await accepted.json()).user,
     invitation: data,
   };
-}
-async function totpSetup(adminCookie: string) {
-  const setup = await request("/api/auth/totp/setup", {
-    method: "POST",
-    body: {},
-    cookie: adminCookie,
-  });
-  assert.equal(setup.status, 200);
-  const data = await setup.json();
-  const totp = new TOTP({
-    issuer: "Mill",
-    secret: Secret.fromBase32(data.secret),
-  });
-  const enrollmentCode = totp.generate();
-  const confirmed = await request("/api/auth/totp/verify", {
-    cookie: adminCookie,
-    body: { code: enrollmentCode },
-  });
-  assert.equal(confirmed.status, 200);
-  return {
-    totp,
-    enrollmentCode,
-    secret: data.secret,
-    recoveryCodes: (await confirmed.json()).recoveryCodes as string[],
-  };
-}
-function virtualPasskey(userId: string) {
-  const keyPair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
-  const jwk = keyPair.publicKey.export({ format: "jwk" });
-  const cose = isoCBOR.encode(
-    new Map<number, number | Uint8Array>([
-      [1, 2],
-      [3, -7],
-      [-1, 1],
-      [-2, Buffer.from(jwk.x!, "base64url")],
-      [-3, Buffer.from(jwk.y!, "base64url")],
-    ]),
-  );
-  const id = randomBytes(32);
-  const rpHash = createHash("sha256").update(new URL(origin).hostname).digest();
-  const clientData = (
-    type: string,
-    challenge: string,
-    expectedOrigin = origin,
-  ) =>
-    Buffer.from(
-      JSON.stringify({
-        type,
-        challenge,
-        origin: expectedOrigin,
-        crossOrigin: false,
-      }),
-    );
-  let counter = 0;
-  return {
-    id: id.toString("base64url"),
-    registration(challenge: string, expectedOrigin = origin) {
-      const length = Buffer.alloc(2);
-      length.writeUInt16BE(id.length);
-      const authenticatorData = Buffer.concat([
-        rpHash,
-        Buffer.from([0x45]),
-        Buffer.alloc(4),
-        Buffer.alloc(16),
-        length,
-        id,
-        cose,
-      ]);
-      const attestation = isoCBOR.encode(
-        new Map<string, string | Map<string, string> | Uint8Array>([
-          ["fmt", "none"],
-          ["attStmt", new Map()],
-          ["authData", authenticatorData],
-        ]),
-      );
-      return {
-        id: id.toString("base64url"),
-        rawId: id.toString("base64url"),
-        type: "public-key",
-        clientExtensionResults: {},
-        authenticatorAttachment: "platform",
-        response: {
-          clientDataJSON: clientData(
-            "webauthn.create",
-            challenge,
-            expectedOrigin,
-          ).toString("base64url"),
-          attestationObject: Buffer.from(attestation).toString("base64url"),
-          transports: ["internal"],
-        },
-      };
-    },
-    authentication(challenge: string, expectedOrigin = origin, flags = 0x05) {
-      const count = Buffer.alloc(4);
-      count.writeUInt32BE(++counter);
-      const authenticatorData = Buffer.concat([
-        rpHash,
-        Buffer.from([flags]),
-        count,
-      ]);
-      const client = clientData("webauthn.get", challenge, expectedOrigin);
-      const signature = sign(
-        "sha256",
-        Buffer.concat([
-          authenticatorData,
-          createHash("sha256").update(client).digest(),
-        ]),
-        keyPair.privateKey,
-      );
-      return {
-        id: id.toString("base64url"),
-        rawId: id.toString("base64url"),
-        type: "public-key",
-        clientExtensionResults: {},
-        response: {
-          clientDataJSON: client.toString("base64url"),
-          authenticatorData: authenticatorData.toString("base64url"),
-          signature: signature.toString("base64url"),
-          userHandle: Buffer.from(userId).toString("base64url"),
-        },
-      };
-    },
-  };
-}
-async function registerPasskey(adminCookie: string, userId: string) {
-  const passkey = virtualPasskey(userId);
-  const options = await (
-    await request("/api/auth/passkeys/register/options", {
-      cookie: adminCookie,
-      body: {},
-    })
-  ).json();
-  const registered = await request("/api/auth/passkeys/register/verify", {
-    cookie: adminCookie,
-    body: {
-      challengeId: options.challengeId,
-      name: "Test passkey",
-      response: passkey.registration(options.options.challenge),
-    },
-  });
-  assert.equal(registered.status, 200, JSON.stringify(await registered.json()));
-  return passkey;
 }
 
 test("first setup is atomic, has no default account, and stores only password/session hashes", async () => {
@@ -679,89 +531,190 @@ test("last administrator protection survives concurrent demotion and member remo
   const rejoined = await invite(adminCookie, "disabled@example.test");
   assert.equal(rejoined.user.id, member.user.id);
 });
-test("authenticator enrollment encrypts secrets, verifies codes and prevents code/recovery replay", async () => {
+test("passkey recovery is atomic, single-use, digest-only and cannot approve security changes", async () => {
   const admin = await setupUser();
-  const factor = await totpSetup(admin.cookie);
-  const [stored] = await sql`SELECT encrypted_secret FROM authenticators`;
-  assert.equal(stored.encryptedSecret.includes(factor.secret), false);
-  assert.equal(
-    (await request("/api/auth/totp/setup", { cookie: admin.cookie, body: {} }))
-      .status,
-    409,
+  const passkey = await registerPasskey(admin.cookie, admin.user.id);
+  const stored = await sql`SELECT code_hash FROM recovery_codes`;
+  assert.equal(stored.length, 10);
+  assert.equal(stored[0].codeHash.length, 64);
+  assert.ok(
+    stored.every((row) => !passkey.recoveryCodes.includes(row.codeHash)),
   );
-  const first = await (
-    await request("/api/auth/login", {
-      body: { email: admin.user.email, password },
-    })
-  ).json();
-  assert.equal(first.preferredMethod, "totp");
+  const login = async () =>
+    await (
+      await request("/api/auth/login", {
+        body: { email: admin.user.email, password },
+      })
+    ).json();
+  const first = await login();
+  const second = await login();
+  assert.deepEqual(first.methods, ["passkey"]);
+  assert.equal(first.recoveryAvailable, true);
+  const results = await Promise.all(
+    [first, second].map((challenge) =>
+      request("/api/auth/passkeys/recovery/verify", {
+        body: {
+          challengeId: challenge.challengeId,
+          code: passkey.recoveryCodes[0],
+        },
+      }),
+    ),
+  );
+  assert.deepEqual(results.map((result) => result.status).sort(), [200, 400]);
+  const recovered = results.find((result) => result.status === 200)!;
+  const recoveryCookie = cookie(recovered);
+  assert.equal(
+    (await request("/api/auth/me", { cookie: recoveryCookie })).status,
+    200,
+  );
+  const deniedKey = await request("/api/credentials", {
+    cookie: recoveryCookie,
+    body: { name: "Recovery key" },
+  });
+  assert.equal(deniedKey.status, 403);
+  assert.equal(
+    (await deniedKey.json()).error.code,
+    "REAUTHENTICATION_REQUIRED",
+  );
+  await assert.rejects(
+    setupOAuth(recoveryCookie),
+    /OAuth approval failed: 403/,
+  );
+  assert.equal((await sql`SELECT * FROM credentials`).length, 0);
+  const [pendingConsent] =
+    await sql`SELECT id FROM oauth_requests WHERE consumed_at IS NULL`;
   assert.equal(
     (
-      await request("/api/auth/second-factor", {
+      await request(`/api/oauth/consent/${pendingConsent.id}`, {
+        cookie: recoveryCookie,
+        body: { allow: false },
+      })
+    ).status,
+    200,
+  );
+  for (const path of [
+    "/api/auth/passkeys/register/options",
+    "/api/auth/passkeys/recovery-codes",
+  ])
+    assert.equal(
+      (await request(path, { cookie: recoveryCookie, body: {} })).status,
+      403,
+    );
+  assert.equal(
+    (
+      await request(`/api/auth/passkeys/${passkey.id}`, {
+        cookie: recoveryCookie,
+        method: "DELETE",
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request("/api/auth/password", {
+        cookie: recoveryCookie,
         body: {
-          challengeId: first.challengeId,
-          method: "totp",
-          code: factor.enrollmentCode,
+          currentPassword: password,
+          password: "New secure recovery password 42!",
+        },
+      })
+    ).status,
+    403,
+  );
+  const pending = await login();
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/recovery/verify", {
+        body: {
+          challengeId: pending.challengeId,
+          code: passkey.recoveryCodes[0],
         },
       })
     ).status,
     400,
   );
-  const verified = await request("/api/auth/second-factor", {
-    body: {
-      challengeId: first.challengeId,
-      method: "recovery",
-      code: factor.recoveryCodes[0],
-    },
-  });
-  assert.equal(verified.status, 200);
+  const [count] = await sql`SELECT count(*)::int AS total FROM recovery_codes`;
+  assert.equal(count.total, 9);
+  const reauth = await (
+    await request("/api/auth/reauth", {
+      cookie: recoveryCookie,
+      body: { password },
+    })
+  ).json();
+  assert.equal(reauth.recoveryAvailable, false);
   assert.equal(
-    (await request("/api/auth/me", { cookie: cookie(verified) })).status,
+    (
+      await request("/api/auth/passkeys/recovery/verify", {
+        cookie: recoveryCookie,
+        body: {
+          challengeId: reauth.challengeId,
+          code: passkey.recoveryCodes[1],
+        },
+      })
+    ).status,
+    400,
+  );
+  const proofOptions = await (
+    await request("/api/auth/passkeys/authenticate/options", {
+      cookie: recoveryCookie,
+      body: { challengeId: reauth.challengeId },
+    })
+  ).json();
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/authenticate/verify", {
+        cookie: recoveryCookie,
+        body: {
+          challengeId: proofOptions.challengeId,
+          response: passkey.authentication(proofOptions.options.challenge),
+        },
+      })
+    ).status,
     200,
   );
   assert.equal(
     (
-      await request("/api/auth/second-factor", {
-        body: {
-          challengeId: first.challengeId,
-          method: "recovery",
-          code: factor.recoveryCodes[1],
-        },
+      await request("/api/credentials", {
+        cookie: recoveryCookie,
+        body: { name: "Approved key" },
       })
     ).status,
-    400,
+    201,
   );
-  const second = await (
-    await request("/api/auth/login", {
-      body: { email: admin.user.email, password },
-    })
-  ).json();
-  assert.equal(
+  assert.ok(
     (
-      await request("/api/auth/second-factor", {
-        body: {
-          challengeId: second.challengeId,
-          method: "recovery",
-          code: factor.recoveryCodes[0],
-        },
+      await setupOAuth(recoveryCookie, {
+        idempotencyKey: "passkey-oauth-replay-001",
       })
-    ).status,
-    400,
+    ).token,
   );
-  const [codes] = await sql`SELECT count(*)::int AS total FROM recovery_codes`;
-  assert.equal(codes.total, 9);
+  const [approvedConsent] =
+    await sql`SELECT id FROM oauth_requests WHERE code_hash IS NOT NULL`;
+  await sql`UPDATE sessions SET authenticated_at=now()-interval '11 minutes'`;
+  const deniedReplay = await request(
+    `/api/oauth/consent/${approvedConsent.id}`,
+    {
+      cookie: recoveryCookie,
+      body: { allow: true },
+      headers: { "Idempotency-Key": "passkey-oauth-replay-001" },
+    },
+  );
+  assert.equal(deniedReplay.status, 403);
+  assert.equal(
+    (await deniedReplay.json()).error.code,
+    "REAUTHENTICATION_REQUIRED",
+  );
 });
-test("passkey ceremonies verify real signatures and origin, prefer passkeys and allow authenticator fallback", async () => {
+test("passkey ceremonies verify real signatures and origin and require passkeys after password proof", async () => {
   const admin = await setupUser();
   const passkey = await registerPasskey(admin.cookie, admin.user.id);
-  const factor = await totpSetup(admin.cookie);
   const login = await request("/api/auth/login", {
     body: { email: admin.user.email, password },
   });
   assert.equal(login.headers.get("set-cookie"), null);
   const challenge = await login.json();
   assert.equal(challenge.preferredMethod, "passkey");
-  assert.deepEqual(challenge.methods, ["passkey", "totp", "recovery"]);
+  assert.deepEqual(challenge.methods, ["passkey"]);
   const options = await (
     await request("/api/auth/passkeys/authenticate/options", {
       body: { challengeId: challenge.challengeId },
@@ -799,18 +752,17 @@ test("passkey ceremonies verify real signatures and origin, prefer passkeys and 
       body: { email: admin.user.email, password },
     })
   ).json();
-  const fallbackCode = factor.totp.generate({ timestamp: Date.now() + 30000 });
   assert.equal(
     (
       await request("/api/auth/second-factor", {
         body: {
           challengeId: fallback.challengeId,
           method: "totp",
-          code: fallbackCode,
+          code: "000000",
         },
       })
     ).status,
-    200,
+    404,
   );
   const direct = await (
     await request("/api/auth/passkeys/authenticate/options", { body: {} })
@@ -879,12 +831,16 @@ test("passkey registration cannot cross sessions and expired challenges do not a
     400,
   );
 });
-test("security settings require recent identity verification and reauthentication is session-bound", async () => {
+test("security settings require recent identity verification and passkey reauthentication is session-bound", async () => {
   const admin = await setupUser();
   await sql`UPDATE sessions SET authenticated_at=now()-interval '11 minutes'`;
   assert.equal(
-    (await request("/api/auth/totp/setup", { cookie: admin.cookie, body: {} }))
-      .status,
+    (
+      await request("/api/auth/passkeys/register/options", {
+        cookie: admin.cookie,
+        body: {},
+      })
+    ).status,
     403,
   );
   assert.equal(
@@ -896,35 +852,53 @@ test("security settings require recent identity verification and reauthenticatio
     ).status,
     200,
   );
-  const factor = await totpSetup(admin.cookie);
-  await sql`UPDATE sessions SET authenticated_at=now()-interval '11 minutes'`;
+  const passkey = await registerPasskey(admin.cookie, admin.user.id);
+  const other = await (
+    await request("/api/auth/passkeys/authenticate/options", { body: {} })
+  ).json();
+  const otherLogin = await request("/api/auth/passkeys/authenticate/verify", {
+    body: {
+      challengeId: other.challengeId,
+      response: passkey.authentication(other.options.challenge),
+    },
+  });
+  const otherCookie = cookie(otherLogin);
+  await sql`UPDATE sessions SET authenticated_at=now()-interval '11 minutes',passkey_authenticated_at=null`;
   const challenge = await (
     await request("/api/auth/reauth", {
       cookie: admin.cookie,
       body: { password },
     })
   ).json();
+  const options = await (
+    await request("/api/auth/passkeys/authenticate/options", {
+      cookie: admin.cookie,
+      body: { challengeId: challenge.challengeId },
+    })
+  ).json();
+  const response = passkey.authentication(options.options.challenge);
   assert.equal(
     (
-      await request("/api/auth/second-factor", {
-        body: {
-          challengeId: challenge.challengeId,
-          method: "recovery",
-          code: factor.recoveryCodes[0],
-        },
+      await request("/api/auth/passkeys/authenticate/verify", {
+        body: { challengeId: options.challengeId, response },
       })
     ).status,
     401,
   );
   assert.equal(
     (
-      await request("/api/auth/second-factor", {
+      await request("/api/auth/passkeys/authenticate/verify", {
+        cookie: otherCookie,
+        body: { challengeId: options.challengeId, response },
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/authenticate/verify", {
         cookie: admin.cookie,
-        body: {
-          challengeId: challenge.challengeId,
-          method: "recovery",
-          code: factor.recoveryCodes[0],
-        },
+        body: { challengeId: options.challengeId, response },
       })
     ).status,
     200,
@@ -932,6 +906,15 @@ test("security settings require recent identity verification and reauthenticatio
   assert.equal(
     (
       await request("/api/auth/passkeys/register/options", {
+        cookie: admin.cookie,
+        body: {},
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/recovery-codes", {
         cookie: admin.cookie,
         body: {},
       })
@@ -997,7 +980,6 @@ test("password changes revoke other sessions and API keys, preserving the curren
 test("operator recovery links expire, are single-use, revoke credentials and can recover lost MFA", async () => {
   const admin = await setupUser();
   await registerPasskey(admin.cookie, admin.user.id);
-  await totpSetup(admin.cookie);
   const credential = await (
     await request("/api/credentials", {
       cookie: admin.cookie,
@@ -1148,47 +1130,95 @@ test("passkeys require user verification and a valid signature, and revocation t
     400,
   );
 });
-test("authenticator removal verifies a fresh code and restores password-only sign-in", async () => {
+test("last passkey removal clears recovery codes and restores password-only sign-in", async () => {
   const admin = await setupUser();
-  const factor = await totpSetup(admin.cookie);
+  const passkey = await registerPasskey(admin.cookie, admin.user.id);
   assert.equal(
     (
-      await request("/api/auth/totp/disable", {
+      await request(`/api/auth/passkeys/${passkey.id}`, {
         cookie: admin.cookie,
-        body: { code: "000000" },
-      })
-    ).status,
-    400,
-  );
-  const futureCode = factor.totp.generate({ timestamp: Date.now() + 30000 });
-  assert.equal(
-    (
-      await request("/api/auth/totp/disable", {
-        cookie: admin.cookie,
-        body: { code: futureCode },
+        method: "DELETE",
       })
     ).status,
     200,
   );
-  assert.equal(
-    (await (await request("/api/auth/me", { cookie: admin.cookie })).json())
-      .user.totpEnabled,
-    false,
-  );
   const [count] = await sql`SELECT count(*)::int AS total FROM recovery_codes`;
   assert.equal(count.total, 0);
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/recovery-codes", {
+        cookie: admin.cookie,
+        body: {},
+      })
+    ).status,
+    403,
+  );
   const login = await request("/api/auth/login", {
     body: { email: admin.user.email, password },
   });
-  assert.equal(login.status, 200);
   assert.ok((await login.json()).user);
 });
-test("replacing authenticator recovery codes invalidates previous codes", async () => {
+test("replacing passkey recovery codes requires fresh passkey proof and invalidates previous codes", async () => {
   const admin = await setupUser();
-  const factor = await totpSetup(admin.cookie);
-  const regenerated = await request("/api/auth/totp/recovery-codes", {
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/recovery-codes", {
+        cookie: admin.cookie,
+        body: {},
+      })
+    ).status,
+    403,
+  );
+  const passkey = await registerPasskey(admin.cookie, admin.user.id);
+  await sql`UPDATE sessions SET passkey_authenticated_at=now()-interval '11 minutes'`;
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/recovery-codes", {
+        cookie: admin.cookie,
+        body: {},
+      })
+    ).status,
+    403,
+  );
+  const staleRegistration = await request(
+    "/api/auth/passkeys/register/options",
+    { cookie: admin.cookie, body: {} },
+  );
+  assert.equal(staleRegistration.status, 403);
+  assert.equal(
+    (await staleRegistration.json()).error.code,
+    "REAUTHENTICATION_REQUIRED",
+  );
+  assert.equal(
+    (
+      await request("/api/credentials", {
+        cookie: admin.cookie,
+        body: { name: "Expired passkey proof" },
+      })
+    ).status,
+    403,
+  );
+  const options = await (
+    await request("/api/auth/passkeys/authenticate/options", {
+      cookie: admin.cookie,
+      body: {},
+    })
+  ).json();
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/authenticate/verify", {
+        cookie: admin.cookie,
+        body: {
+          challengeId: options.challengeId,
+          response: passkey.authentication(options.options.challenge),
+        },
+      })
+    ).status,
+    200,
+  );
+  const regenerated = await request("/api/auth/passkeys/recovery-codes", {
     cookie: admin.cookie,
-    body: { code: factor.totp.generate({ timestamp: Date.now() + 30000 }) },
+    body: {},
   });
   assert.equal(regenerated.status, 200);
   const codes = (await regenerated.json()).recoveryCodes;
@@ -1200,11 +1230,10 @@ test("replacing authenticator recovery codes invalidates previous codes", async 
   ).json();
   assert.equal(
     (
-      await request("/api/auth/second-factor", {
+      await request("/api/auth/passkeys/recovery/verify", {
         body: {
           challengeId: challenge.challengeId,
-          method: "recovery",
-          code: factor.recoveryCodes[0],
+          code: passkey.recoveryCodes[0],
         },
       })
     ).status,
@@ -1212,14 +1241,240 @@ test("replacing authenticator recovery codes invalidates previous codes", async 
   );
   assert.equal(
     (
-      await request("/api/auth/second-factor", {
-        body: {
-          challengeId: challenge.challengeId,
-          method: "recovery",
-          code: codes[0],
-        },
+      await request("/api/auth/passkeys/recovery/verify", {
+        body: { challengeId: challenge.challengeId, code: codes[0] },
       })
     ).status,
     200,
+  );
+});
+test("TOTP endpoints are absent and account metadata exposes only passkey security", async () => {
+  const admin = await setupUser();
+  for (const endpoint of ["setup", "verify", "disable", "recovery-codes"])
+    assert.equal(
+      (
+        await request(`/api/auth/totp/${endpoint}`, {
+          cookie: admin.cookie,
+          body: {},
+        })
+      ).status,
+      404,
+    );
+  assert.equal("totpEnabled" in admin.user, false);
+  const [table] =
+    await sql`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema=${process.env.MILL_DB_SCHEMA!} AND table_name='authenticators') AS present`;
+  assert.equal(table.present, false);
+});
+
+test("passkey and recovery proofs cannot cross account ownership or expired password challenges", async () => {
+  const admin = await setupUser();
+  const member = await invite(admin.cookie, "member-passkey@example.test");
+  const adminKey = await registerPasskey(admin.cookie, admin.user.id);
+  const memberKey = await registerPasskey(member.cookie, member.user.id);
+  const login = await (
+    await request("/api/auth/login", {
+      body: { email: admin.user.email, password },
+    })
+  ).json();
+  const options = await (
+    await request("/api/auth/passkeys/authenticate/options", {
+      body: { challengeId: login.challengeId },
+    })
+  ).json();
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/authenticate/verify", {
+        body: {
+          challengeId: options.challengeId,
+          response: memberKey.authentication(options.options.challenge),
+        },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/recovery/verify", {
+        body: {
+          challengeId: login.challengeId,
+          code: memberKey.recoveryCodes[0],
+        },
+      })
+    ).status,
+    400,
+  );
+  assert.equal((await sql`SELECT * FROM recovery_codes`).length, 20);
+  await sql`UPDATE auth_challenges SET expires_at=now()-interval '1 minute' WHERE token_hash=${hashToken(login.challengeId)}`;
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/recovery/verify", {
+        body: {
+          challengeId: login.challengeId,
+          code: adminKey.recoveryCodes[0],
+        },
+      })
+    ).status,
+    400,
+  );
+  assert.equal((await sql`SELECT * FROM recovery_codes`).length, 20);
+});
+
+test("challenge purposes cannot authorize a different operation and concurrent recovery consumes one challenge once", async () => {
+  const admin = await setupUser();
+  const key = virtualPasskey(admin.user.id);
+  const registration = await (
+    await request("/api/auth/passkeys/register/options", {
+      cookie: admin.cookie,
+      body: {},
+    })
+  ).json();
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/authenticate/options", {
+        cookie: admin.cookie,
+        body: { challengeId: registration.challengeId },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/authenticate/verify", {
+        cookie: admin.cookie,
+        body: {
+          challengeId: registration.challengeId,
+          response: key.authentication(registration.options.challenge),
+        },
+      })
+    ).status,
+    400,
+  );
+  const registered = await request("/api/auth/passkeys/register/verify", {
+    cookie: admin.cookie,
+    body: {
+      challengeId: registration.challengeId,
+      name: "New passkey",
+      response: key.registration(registration.options.challenge),
+    },
+  });
+  assert.equal(registered.status, 200);
+  const codes = (await registered.json()).recoveryCodes;
+  const login = await (
+    await request("/api/auth/login", {
+      body: { email: admin.user.email, password },
+    })
+  ).json();
+  assert.equal(
+    (
+      await request("/api/auth/passkeys/register/verify", {
+        cookie: admin.cookie,
+        body: {
+          challengeId: login.challengeId,
+          name: "Another passkey",
+          response: key.registration(registration.options.challenge),
+        },
+      })
+    ).status,
+    400,
+  );
+  const attempts = await Promise.all(
+    codes.slice(0, 2).map((code: string) =>
+      request("/api/auth/passkeys/recovery/verify", {
+        body: { challengeId: login.challengeId, code },
+      }),
+    ),
+  );
+  assert.deepEqual(attempts.map((result) => result.status).sort(), [200, 400]);
+  assert.equal((await sql`SELECT * FROM recovery_codes`).length, 9);
+});
+
+test("expired browser cookies do not prevent a fresh passkey sign-in", async () => {
+  const admin = await setupUser();
+  const passkey = await registerPasskey(admin.cookie, admin.user.id);
+  await sql`UPDATE sessions SET expires_at=now()-interval '1 minute'`;
+  const optionsResponse = await request(
+    "/api/auth/passkeys/authenticate/options",
+    { cookie: admin.cookie, body: {} },
+  );
+  assert.equal(optionsResponse.status, 200);
+  const options = await optionsResponse.json();
+  const login = await request("/api/auth/passkeys/authenticate/verify", {
+    cookie: admin.cookie,
+    body: {
+      challengeId: options.challengeId,
+      response: passkey.authentication(options.options.challenge),
+    },
+  });
+  assert.equal(login.status, 200);
+  assert.equal(
+    (await request("/api/auth/me", { cookie: cookie(login) })).status,
+    200,
+  );
+});
+
+test("member directory reports actual passkey status, excludes disabled members and invalidates cursors after factor changes", async () => {
+  const admin = await setupUser();
+  const viewer = await invite(
+    admin.cookie,
+    "viewer-status@example.test",
+    "viewer",
+  );
+  const removed = await invite(admin.cookie, "removed-status@example.test");
+  await registerPasskey(removed.cookie, removed.user.id);
+  assert.equal(
+    (
+      await request(`/api/auth/members/${removed.user.id}`, {
+        cookie: admin.cookie,
+        method: "DELETE",
+      })
+    ).status,
+    200,
+  );
+  const before = await (
+    await request("/api/auth/members?limit=1", { cookie: admin.cookie })
+  ).json();
+  assert.equal(before.items[0].id, admin.user.id);
+  assert.equal(before.items[0].passkeyEnabled, false);
+  assert.ok(before.nextCursor);
+  const key = await registerPasskey(admin.cookie, admin.user.id);
+  assert.equal(
+    (
+      await request(
+        `/api/auth/members?limit=1&cursor=${encodeURIComponent(before.nextCursor)}`,
+        { cookie: admin.cookie },
+      )
+    ).status,
+    409,
+  );
+  const directory = await (
+    await request("/api/auth/members", { cookie: viewer.cookie })
+  ).json();
+  assert.deepEqual(
+    directory.items.map((member: { id: string; passkeyEnabled: boolean }) => ({
+      id: member.id,
+      passkeyEnabled: member.passkeyEnabled,
+    })),
+    [
+      { id: admin.user.id, passkeyEnabled: true },
+      { id: viewer.user.id, passkeyEnabled: false },
+    ],
+  );
+  assert.equal((await request("/api/auth/members")).status, 401);
+  assert.equal(
+    (
+      await request(`/api/auth/passkeys/${key.id}`, {
+        cookie: admin.cookie,
+        method: "DELETE",
+      })
+    ).status,
+    200,
+  );
+  const after = await (
+    await request("/api/auth/members", { cookie: viewer.cookie })
+  ).json();
+  assert.equal(
+    after.items.find((member: { id: string }) => member.id === admin.user.id)
+      .passkeyEnabled,
+    false,
   );
 });
