@@ -34,4 +34,4 @@ Permanent deletion cascades the deleted work's comments, notifications, and acti
 
 [The initial migration](../packages/database/migrations/001_initial.sql) creates the supported v1 schema directly. It contains no Agent tables or fields, Kanban columns, checklist storage or historical upgrade transformations. Startup serializes migration application with an advisory lock and verifies the stored checksum before serving requests. An incompatible pre-launch ledger is rejected without changing its data.
 
-Operational PostgreSQL backups preserve the complete installation and require the original encryption secret. See [upgrades](upgrades.md) and [backup/recovery](backup.md). Current fresh-install, permission and restore evidence belongs in [v1 verification](b1-verification.md); earlier candidate receipts remain historical.
+Operational PostgreSQL backups preserve the complete installation and require the original encryption secret. See [upgrades](upgrades.md) and [backup/recovery](backup.md).

@@ -76,7 +76,10 @@ for (const [width, theme] of [
         headers: { Origin: fixture.origin },
         data: { email, role: "member" },
       });
-      expect(invitation.ok()).toBe(true);
+      expect(
+        invitation.ok(),
+        `Fixture invitation returned HTTP ${invitation.status()}`,
+      ).toBe(true);
       const account = await request.newContext({ baseURL: fixture.origin });
       const accepted = await account.post("/api/auth/accept-invitation", {
         headers: { Origin: fixture.origin },
@@ -86,7 +89,10 @@ for (const [width, theme] of [
           password,
         },
       });
-      expect(accepted.ok()).toBe(true);
+      expect(
+        accepted.ok(),
+        `Fixture invitation acceptance returned HTTP ${accepted.status()}`,
+      ).toBe(true);
       const initialSessions = await account.get("/api/auth/sessions");
       expect(initialSessions.ok()).toBe(true);
       const initial = (await initialSessions.json()).items.find(

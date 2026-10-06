@@ -130,8 +130,8 @@ for (const result of ["success", "failure"] as const)
           ),
       );
       await expect(
-        page.getByRole("button", { name: "Open notifications", exact: true }),
-      ).not.toHaveAttribute("aria-describedby");
+        page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
+      ).toHaveAccessibleName("Notifications");
       await expect(
         page.locator(toastSelector).filter({ hasText: failure }),
       ).toHaveCount(0);

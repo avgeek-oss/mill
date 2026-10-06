@@ -135,7 +135,12 @@ export function BoardPage({
   const [confirmBoard, setConfirmBoard] = useState(false);
   const [boardDeleteKey] = useState(createRetryKey);
   const [settings, setSettings] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState({
+    name: "",
+    description: "",
+  });
   const [busy, setBusy] = useState(false);
+  const mutationRequest = useRef<AbortController | null>(null);
   const pendingSettingsOpener = useRef<HTMLElement | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const latestLoad = useRef(0);
@@ -157,6 +162,14 @@ export function BoardPage({
   const boardContent = useRef<HTMLDivElement>(null);
   const appSuspended = useAppSuspended();
   const writable = !!board && user.role !== "viewer";
+  useLayoutEffect(() => {
+    setBusy(false);
+    return () => {
+      mutationRequest.current?.abort();
+      mutationRequest.current = null;
+      ++latestLoad.current;
+    };
+  }, [appSuspended, boardId]);
   useLayoutEffect(() => {
     if (
       !board ||
@@ -489,10 +502,14 @@ export function BoardPage({
     };
   }, [settings, confirmBoard]);
   async function settingsRun(
-    action: () => Promise<void>,
+    action: (signal: AbortSignal) => Promise<void>,
     notice = "Changes saved.",
   ) {
-    if (busy) return false;
+    if (busy || appSuspended || mutationRequest.current) return false;
+    const request = new AbortController();
+    mutationRequest.current = request;
+    const current = () =>
+      mutationRequest.current === request && !request.signal.aborted;
     pendingSettingsOpener.current =
       settings && document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -500,25 +517,40 @@ export function BoardPage({
     setBusy(true);
     setSettingsError("");
     try {
-      await action();
+      await action(request.signal);
+      if (!current()) return false;
       await load(taskPage, true);
+      if (!current()) return false;
       onBoardsChanged();
       toast.success(notice);
       return true;
     } catch (e) {
-      setSettingsError(errorText(e));
+      if (current()) setSettingsError(errorText(e));
       return false;
     } finally {
-      setBusy(false);
+      if (mutationRequest.current === request) {
+        mutationRequest.current = null;
+        setBusy(false);
+      }
     }
   }
   async function deleteBoard() {
-    if (busy || !board || user.role !== "admin") return;
+    if (
+      busy ||
+      appSuspended ||
+      mutationRequest.current ||
+      !board ||
+      user.role !== "admin"
+    )
+      return;
+    const request = new AbortController();
+    mutationRequest.current = request;
     setBusy(true);
     setSettingsError("");
     try {
       await api(`/boards/${board.id}`, { version: board.version }, "DELETE", {
         validateResponse: hasOkResponse,
+        signal: request.signal,
         headers: {
           "Idempotency-Key": boardDeleteKey.forRequest(
             `/boards/${board.id}`,
@@ -527,6 +559,7 @@ export function BoardPage({
           ),
         },
       });
+      if (mutationRequest.current !== request || request.signal.aborted) return;
       boardDeleteKey.reset();
       ++latestLoad.current;
       setConfirmBoard(false);
@@ -534,8 +567,14 @@ export function BoardPage({
       onBoardsChanged(board.id);
       toast.success("Board deleted.");
       navigate("/boards");
+    } catch (cause) {
+      if (mutationRequest.current === request && !request.signal.aborted)
+        throw cause;
     } finally {
-      setBusy(false);
+      if (mutationRequest.current === request) {
+        mutationRequest.current = null;
+        setBusy(false);
+      }
     }
   }
   const hasFilters = !!(
@@ -672,8 +711,16 @@ export function BoardPage({
                           aria-label="Board actions"
                           onAction={(key) => {
                             setSettingsError("");
-                            if (key === "settings") setSettings(true);
-                            else if (key === "delete" && user.role === "admin")
+                            if (key === "settings" && board) {
+                              setSettingsDraft({
+                                name: board.name,
+                                description: board.description ?? "",
+                              });
+                              setSettings(true);
+                            } else if (
+                              key === "delete" &&
+                              user.role === "admin"
+                            )
                               setConfirmBoard(true);
                           }}
                         >
@@ -979,7 +1026,7 @@ export function BoardPage({
                   onSubmit={(e) => {
                     e.preventDefault();
                     const data = new FormData(e.currentTarget);
-                    void settingsRun(async () => {
+                    void settingsRun(async (signal) => {
                       await api(
                         `/boards/${board.id}`,
                         {
@@ -988,6 +1035,7 @@ export function BoardPage({
                           description: data.get("description"),
                         },
                         "PATCH",
+                        { signal },
                       );
                     }, "Board updated.");
                   }}
@@ -995,7 +1043,13 @@ export function BoardPage({
                   <TextField
                     label="Board name"
                     name="name"
-                    defaultValue={board.name}
+                    value={settingsDraft.name}
+                    onChange={(event) =>
+                      setSettingsDraft((draft) => ({
+                        ...draft,
+                        name: event.target.value,
+                      }))
+                    }
                     required
                     maxLength={100}
                     disabled={!writable}
@@ -1004,7 +1058,13 @@ export function BoardPage({
                   <TextField
                     label="Description"
                     name="description"
-                    defaultValue={board.description}
+                    value={settingsDraft.description}
+                    onChange={(event) =>
+                      setSettingsDraft((draft) => ({
+                        ...draft,
+                        description: event.target.value,
+                      }))
+                    }
                     multiline
                     maxLength={2000}
                     disabled={!writable}

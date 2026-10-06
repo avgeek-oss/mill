@@ -28,6 +28,7 @@ import {
   toast,
 } from "@mill/web-design-system";
 import {
+  useOverlaySuspension,
   ProfileSettings as SharedProfileSettings,
   PreferencesSettings,
   PasswordChangeSettings,
@@ -217,6 +218,7 @@ function ProfileSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   return (
     <section className="min-w-0">
       <PageHeading
@@ -232,8 +234,9 @@ function ProfileSettings({
           value={session.user.name}
           maxLength={100}
           onSave={async (name) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", { name }, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
       </div>
@@ -247,6 +250,7 @@ function PreferenceSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const preferenceOptions = useMemo(
     () => ({
       ...dateTimePreferenceOptions,
@@ -270,7 +274,8 @@ function PreferenceSettings({
   const notificationPending = useRef(false);
   const [notificationError, setNotificationError] = useState("");
   async function saveNotifications() {
-    if (notificationPending.current) return;
+    if (notificationPending.current || suspension.isSuspended) return;
+    const isCurrent = suspension.capture();
     notificationPending.current = true;
     setBusy(true);
     setNotificationError("");
@@ -280,10 +285,12 @@ function PreferenceSettings({
         { notificationPreferences: { assignments, mentions } },
         "PATCH",
       );
-      toast.success("Notifications saved.");
-      onRefresh();
+      if (isCurrent()) {
+        toast.success("Notifications saved.");
+        onRefresh();
+      }
     } catch (cause) {
-      setNotificationError(errorText(cause));
+      if (isCurrent()) setNotificationError(errorText(cause));
     } finally {
       notificationPending.current = false;
       setBusy(false);
@@ -305,8 +312,9 @@ function PreferenceSettings({
           options={preferenceOptions}
           formatPreview={dateTimePreview}
           onSave={async (preferences) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", preferences, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
         <AccountWidget title="Notifications">
@@ -369,6 +377,7 @@ function EmailPasswordSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const identity = useIdentityConfirmation();
   return (
     <section className="min-w-0">
@@ -387,12 +396,15 @@ function EmailPasswordSettings({
           minLength={15}
           maxLength={1024}
           onChangePassword={async ({ currentPassword, newPassword }) => {
+            const isCurrent = suspension.capture();
             await api(
               "/auth/password",
               { currentPassword, password: newPassword },
               "POST",
               { onReauthenticationRequired: identity.confirmIdentity },
             );
+            if (!isCurrent())
+              throw new DOMException("Account action canceled.", "AbortError");
             toast.success("Password changed.");
             onRefresh();
           }}

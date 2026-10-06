@@ -117,7 +117,7 @@ async function login(page: Page, who: Account) {
 }
 async function openNotifications(page: Page) {
   await page
-    .getByRole("button", { name: "Open notifications", exact: true })
+    .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
     .click();
   await expect(inbox(page)).toBeVisible();
 }
@@ -232,8 +232,8 @@ for (const [width, theme] of [
       120,
     );
     await expect(
-      page.getByRole("button", { name: "Open notifications", exact: true }),
-    ).toHaveAccessibleDescription("1 unread notifications");
+      page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
+    ).toHaveAccessibleName("Notifications, 1 unread");
     expect(mutations).toBe(1);
     const receipts =
       await database`SELECT id,read_at FROM notifications WHERE user_id=${who.id}`;
@@ -325,8 +325,8 @@ test("mark-all refresh preserves focus deliberately moved during the update", as
   await expect(chosenLink).toBeFocused();
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   await expect(
-    page.getByRole("button", { name: "Open notifications", exact: true }),
-  ).toHaveAccessibleDescription("");
+    page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
+  ).toHaveAccessibleName("Notifications");
   await expect(
     page.locator('[data-slot="toast"]:not([data-exiting="true"])'),
   ).toHaveCount(0);
@@ -484,11 +484,14 @@ test("the single list reaches older notifications and marks refresh the durable 
   }
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   await expect(
-    page.getByLabel("120 unread notifications", { exact: true }),
+    page.getByRole("button", {
+      name: "Notifications, 120 unread",
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
-    page.getByLabel("Open notifications", { exact: true }),
-  ).toHaveAccessibleDescription("120 unread notifications");
+    page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
+  ).toHaveAccessibleName("Notifications, 120 unread");
   page.context().on("request", onRequest);
   await link.click();
   await expect(page).toHaveURL(expectedURL);
@@ -507,11 +510,14 @@ test("the single list reaches older notifications and marks refresh the durable 
   await expect(rows(page)).toHaveCount(240);
   await expect(oldest.getByText("Read", { exact: true })).toBeVisible();
   await expect(
-    page.getByLabel("119 unread notifications", { exact: true }),
+    page.getByRole("button", {
+      name: "Notifications, 119 unread",
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(
-    page.getByLabel("Open notifications", { exact: true }),
-  ).toHaveAccessibleDescription("119 unread notifications");
+    page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
+  ).toHaveAccessibleName("Notifications, 119 unread");
   const [marked] =
     await database`SELECT read_at FROM notifications WHERE user_id=${who.id} AND actor_name='Older Inbox teammate 1'`;
   expect(marked.readAt).not.toBeNull();
@@ -524,11 +530,14 @@ test("the single list reaches older notifications and marks refresh the durable 
   ).toBeDisabled();
   await expect(inbox(page)).toBeFocused();
   await expect(
-    page.getByLabel("119 unread notifications", { exact: true }),
+    page.getByRole("button", {
+      name: "Notifications, 119 unread",
+      exact: true,
+    }),
   ).toHaveCount(0);
   await expect(
-    page.getByLabel("Open notifications", { exact: true }),
-  ).toHaveAccessibleDescription("");
+    page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
+  ).toHaveAccessibleName("Notifications");
   const [counts] =
     await database`SELECT count(*) FILTER (WHERE user_id=${who.id} AND read_at IS NULL)::int AS own,count(*) FILTER (WHERE user_id=${other.id} AND read_at IS NULL)::int AS other FROM notifications`;
   expect(counts).toMatchObject({ own: 0, other: 1 });
@@ -614,11 +623,29 @@ test("opening an unread task marks its notification read and read links do not m
     )
       marks++;
   });
-  await row(page, "Opening Inbox teammate 2").getByRole("link").focus();
-  await page.keyboard.down("Enter");
+  let release!: () => void;
+  let started!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const requested = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  await page.route("**/api/notifications", async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    started();
+    await pending;
+    await route.continue();
+  });
+  const unreadLink = row(page, "Opening Inbox teammate 2").getByRole("link");
   try {
-    await settled(page);
+    await unreadLink.press("Enter");
+    await requested;
+    await expect(unreadLink).toHaveAttribute("aria-busy", "true");
     expect((await json(who.api, "/notifications")).unreadCount).toBe(2);
+    const [pendingReceipt] =
+      await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
+    expect(pendingReceipt.readAt).toBeNull();
     await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
     await expect(taskPage(page)).toHaveCount(0);
     await expect(
@@ -626,16 +653,17 @@ test("opening an unread task marks its notification read and read links do not m
         exact: true,
       }),
     ).toBeVisible();
-    expect(marks).toBe(0);
+    expect(marks).toBe(1);
   } finally {
-    await page.keyboard.up("Enter");
+    release();
+    await page.unrouteAll({ behavior: "wait" });
   }
   await expect(page).toHaveURL(
     new RegExp(`/boards/${boardId}/tasks/${fixture.task.id}$`),
   );
   await expect(taskPage(page)).toBeVisible();
   await expect(
-    page.getByLabel("1 unread notifications", { exact: true }),
+    page.getByRole("button", { name: "Notifications, 1 unread", exact: true }),
   ).toBeVisible();
   expect(marks).toBe(1);
   const [marked] =
@@ -703,11 +731,13 @@ test("failed task opening toasts its error and retries the original mark before 
     await route.continue();
   });
   try {
-    await latest
+    await inbox(page)
       .getByRole("button", { name: "Retry opening task", exact: true })
       .click();
     await requested;
-    await expect(latest.getByRole("status")).toHaveText("Opening task…");
+    await expect(
+      inbox(page).getByRole("status").filter({ hasText: "Opening task…" }),
+    ).toHaveCount(1);
     await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
     await expect(taskPage(page)).toHaveCount(0);
     await expect(latest.getByRole("button")).toHaveCount(0);
@@ -726,7 +756,7 @@ test("failed task opening toasts its error and retries the original mark before 
   );
   await expect(taskPage(page)).toBeVisible();
   await expect(
-    page.getByLabel("1 unread notifications", { exact: true }),
+    page.getByRole("button", { name: "Notifications, 1 unread", exact: true }),
   ).toBeVisible();
   const [marked] =
     await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
@@ -850,9 +880,27 @@ test("pending, pagination failure and mark failure retain their owning retry sta
     await login(page, who);
     await requested;
     await expect(inbox(page).locator('[aria-busy="true"]')).toHaveCount(1);
-    await expect(
-      inbox(page).getByText("Loading notifications…", { exact: true }),
-    ).toHaveCount(0);
+    const announcement = inbox(page).getByRole("status").filter({
+      hasText: "Loading notifications…",
+    });
+    await expect(announcement).toHaveCount(1);
+    await expect(announcement).toHaveClass(/\bsr-only\b/);
+    const announcementLayout = await announcement.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const bounds = element.getBoundingClientRect();
+      return {
+        position: style.position,
+        overflow: style.overflow,
+        clipPath: style.clipPath,
+        width: bounds.width,
+        height: bounds.height,
+      };
+    });
+    expect(announcementLayout.position).toBe("absolute");
+    expect(announcementLayout.overflow).toBe("hidden");
+    expect(announcementLayout.clipPath).toBe("inset(50%)");
+    expect(announcementLayout.width).toBeLessThanOrEqual(1);
+    expect(announcementLayout.height).toBeLessThanOrEqual(1);
     await expect(
       inbox(page).getByText("No notifications yet", { exact: true }),
     ).toHaveCount(0);
@@ -1049,19 +1097,20 @@ test("notifications stay on the board with bounded wheel scrolling and keyboard 
     page.getByRole("link", { name: /^Inbox(?: \d+ unread notifications)?$/ }),
   ).toHaveCount(0);
   const trigger = page.getByRole("button", {
-    name: "Open notifications",
-    exact: true,
+    name: /^Notifications(?:, \d+ unread)?$/,
   });
   for (const width of [1440, 375]) {
     await page.setViewportSize({ width, height: width === 375 ? 844 : 1000 });
     await expect
       .poll(async () => (await trigger.boundingBox())?.height ?? 0)
-      .toBe(32);
-    await expect(trigger.locator("svg")).toHaveAttribute("width", "18");
+      .toBe(width < 768 ? 40 : 36);
+    await expect(trigger.locator("svg")).toHaveCSS("width", "16px");
     await expect(inbox(page).getByRole("tablist")).toHaveCount(0);
     const scroller = inbox(page).locator(
-      '.scroll-shadow[data-orientation="vertical"]',
+      '[data-slot="scroll-shadow"][data-orientation="vertical"]',
     );
+    await expect(scroller).toHaveCount(1);
+    await expect(scroller).toHaveCSS("max-height", "416px");
     await expect
       .poll(async () => {
         const bounds = await inbox(page).boundingBox();
@@ -1071,6 +1120,7 @@ test("notifications stay on the board with bounded wheel scrolling and keyboard 
     const bounds = await inbox(page).boundingBox();
     expect(bounds).not.toBeNull();
     expect(bounds!.x).toBeGreaterThanOrEqual(15);
+    expect(bounds!.width).toBeLessThanOrEqual(Math.min(384, width - 32));
     expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 15);
     expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(
       width === 375 ? 833 : 989,
@@ -1131,7 +1181,7 @@ test("dismissing a pending task opening keeps the acknowledged read without dela
     await page.keyboard.press("Escape");
     await expect(inbox(page)).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Open notifications", exact: true }),
+      page.getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ }),
     ).toBeFocused();
   } finally {
     release();
@@ -1166,8 +1216,7 @@ test("notification popover full-row links fit desktop and phone in both themes",
   );
   await login(page, who);
   const trigger = page.getByRole("button", {
-    name: "Open notifications",
-    exact: true,
+    name: /^Notifications(?:, \d+ unread)?$/,
   });
   for (const width of [1440, 375, 390])
     for (const theme of ["light", "dark"]) {
@@ -1184,8 +1233,12 @@ test("notification popover full-row links fit desktop and phone in both themes",
       try {
         await expect(trigger).toHaveCSS("scale", "none");
         await expect(trigger).toHaveCSS("transform", "none");
-        expect((await trigger.boundingBox())!.width).toBe(32);
-        expect((await trigger.boundingBox())!.height).toBe(32);
+        expect((await trigger.boundingBox())!.width).toBe(
+          width < 768 ? 40 : 36,
+        );
+        expect((await trigger.boundingBox())!.height).toBe(
+          width < 768 ? 40 : 36,
+        );
       } finally {
         await page.mouse.up();
       }
@@ -1198,7 +1251,7 @@ test("notification popover full-row links fit desktop and phone in both themes",
       });
       await expect
         .poll(async () => (await headerAction.boundingBox())?.height ?? 0)
-        .toBe(32);
+        .toBe(24);
       await expect(inbox(page).getByRole("tablist")).toHaveCount(0);
       expect(
         await page.evaluate(() => document.documentElement.scrollWidth),
@@ -1207,12 +1260,13 @@ test("notification popover full-row links fit desktop and phone in both themes",
       const layout = await first.evaluate((element) => {
         const link = element.querySelector("a")!;
         const style = getComputedStyle(link);
-        const title = element.querySelector("a p")!;
-        const dot = link.firstElementChild!;
+        const title =
+          link.lastElementChild!.firstElementChild!.firstElementChild!;
+        const icon = link.firstElementChild!;
         const time = element.querySelector("time")!;
         const linkBounds = link.getBoundingClientRect();
         const titleBounds = title.getBoundingClientRect();
-        const dotBounds = dot.getBoundingClientRect();
+        const iconBounds = icon.getBoundingClientRect();
         const firstLineHeight = Number.parseFloat(
           getComputedStyle(title).lineHeight,
         );
@@ -1222,9 +1276,9 @@ test("notification popover full-row links fit desktop and phone in both themes",
           bottom: style.paddingBottom,
           weight: getComputedStyle(title).fontWeight,
           titleSize: getComputedStyle(title).fontSize,
-          dotFirstLineCenterOffset: Math.abs(
-            dotBounds.y +
-              dotBounds.height / 2 -
+          iconFirstLineCenterOffset: Math.abs(
+            iconBounds.y +
+              iconBounds.height / 2 -
               (titleBounds.y + firstLineHeight / 2),
           ),
           linkHeight: linkBounds.height,
@@ -1239,22 +1293,23 @@ test("notification popover full-row links fit desktop and phone in both themes",
             titleBounds.y < timeBounds.bottom &&
             titleBounds.bottom > timeBounds.y,
           contentFits: link.scrollWidth <= link.clientWidth,
-          stateHidden:
-            element.querySelector("a .sr-only")?.textContent?.trim() ===
-            "Unread",
+          stateLabel:
+            link.lastElementChild!.lastElementChild!.textContent?.trim(),
+          iconWidth: iconBounds.width,
         };
       });
       expect(layout.top).toBe(layout.bottom);
       expect(layout.weight).toBe("500");
       expect(layout.titleSize).toBe("14px");
-      expect(layout.dotFirstLineCenterOffset).toBeLessThanOrEqual(4);
+      expect(layout.iconFirstLineCenterOffset).toBeLessThanOrEqual(4);
       expect(layout.linkHeight).toBeGreaterThanOrEqual(44);
       expect(layout.linkCount).toBe(1);
       expect(layout.buttonCount).toBe(0);
       expect(layout.timeInside).toBe(true);
       expect(layout.titleTimeOverlap).toBe(false);
       expect(layout.contentFits).toBe(true);
-      expect(layout.stateHidden).toBe(true);
+      expect(layout.stateLabel).toBe("Unread");
+      expect(layout.iconWidth).toBe(16);
       await page.screenshot({
         path: `tmp/notifications-preview/notifications-${width}-${theme}.png`,
         fullPage: true,
@@ -1360,8 +1415,7 @@ test.describe("touch notifications", () => {
     expect(touchMedia.noHover).toBe(true);
     expect(touchMedia.touchPoints).toBeGreaterThan(0);
     const trigger = page.getByRole("button", {
-      name: "Open notifications",
-      exact: true,
+      name: /^Notifications(?:, \d+ unread)?$/,
     });
     for (const theme of ["light", "dark"]) {
       await page.evaluate(
@@ -1378,18 +1432,16 @@ test.describe("touch notifications", () => {
       ).toBeGreaterThanOrEqual(44);
       await expect
         .poll(async () => (await trigger.boundingBox())?.height ?? 0)
-        .toBe(32);
-      await expect(trigger.locator("svg")).toHaveAttribute("width", "18");
+        .toBe(40);
+      await expect(trigger.locator("svg")).toHaveCSS("width", "16px");
       const markAll = inbox(page).getByRole("button", {
         name: "Mark all read",
         exact: true,
       });
       await expect
         .poll(async () => (await markAll.boundingBox())?.height ?? 0)
-        .toBe(32);
-      await expect(trigger).toHaveAccessibleDescription(
-        "2 unread notifications",
-      );
+        .toBe(24);
+      await expect(trigger).toHaveAccessibleName("Notifications, 2 unread");
       await page.keyboard.press("Escape");
       await expect(inbox(page)).toHaveCount(0);
       await expect(trigger).toBeFocused();
@@ -1400,6 +1452,6 @@ test.describe("touch notifications", () => {
       .tap();
     await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(2);
     expect((await json(who.api, "/notifications")).unreadCount).toBe(0);
-    await expect(trigger).toHaveAccessibleDescription("");
+    await expect(trigger).toHaveAccessibleName("Notifications");
   });
 });
