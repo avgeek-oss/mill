@@ -1,15 +1,20 @@
-// Adapted from Towbar's Apache-2.0 mcp-oauth-consent and public AuthFrame composition.
+import { QueryFeedback } from "./query-feedback.js";
 import { useEffect, useRef, useState } from "react";
+import { Choice, toast } from "@mill/web-design-system";
 import {
-  Alert,
-  Button,
-  Choice,
-  ErrorMessage,
-  toast,
-} from "@mill/web-design-system";
-import { ApiError, errorText, isResponseObject, type Session } from "./api.js";
+  AuthScreen,
+  McpAuthorization,
+  QueryLoading,
+} from "@avgeek-oss/design-system";
+import { AuthBrand } from "./auth.js";
+import {
+  ApiError,
+  errorText,
+  isResponseObject,
+  responseError,
+  type Session,
+} from "./api.js";
 import { useBoardDirectory } from "./board-directory.js";
-import { AuthFrame } from "./identity-ui.js";
 
 type ConsentDetails = {
   clientName: string;
@@ -18,6 +23,7 @@ type ConsentDetails = {
   redirectUri: string;
   scope: string;
   canApprove: boolean;
+  expiresIn: number;
   user: { name: string; role: "admin" | "member" | "viewer" };
 };
 type ConnectionState =
@@ -37,6 +43,8 @@ function validDetails(value: unknown): value is ConsentDetails {
     typeof value.redirectUri !== "string" ||
     typeof value.scope !== "string" ||
     typeof value.canApprove !== "boolean" ||
+    !Number.isSafeInteger(value.expiresIn) ||
+    Number(value.expiresIn) <= 0 ||
     typeof value.user.name !== "string" ||
     typeof value.user.role !== "string" ||
     !["admin", "member", "viewer"].includes(value.user.role)
@@ -132,16 +140,12 @@ async function consentRequest(
       "The server response could not be read. Try again.",
     );
   }
-  if (!response.ok) {
-    const message = isResponseObject(body)
-      ? typeof body.error_description === "string"
-        ? body.error_description
-        : typeof body.error === "string"
-          ? body.error
-          : "This connection could not be completed. Try again."
-      : "This connection could not be completed. Try again.";
-    throw new ApiError(response.status, message);
-  }
+  if (!response.ok)
+    throw responseError(
+      response.status,
+      body,
+      response.headers.get("x-request-id") ?? undefined,
+    );
   return body;
 }
 
@@ -300,192 +304,108 @@ function ConsentRequest({
     }
   }
 
+  const blockedReason = !validScope
+    ? "This app requested unsupported permissions. Start a new connection with read or read and write access."
+    : write && !canWrite
+      ? "Your Viewer role cannot grant edit access. Reconnect with read-only access."
+      : !details?.canApprove
+        ? "Your account cannot grant the requested access."
+        : directory.pending
+          ? "Wait for your available boards to load."
+          : directory.error
+            ? "Reload your available boards before approving access."
+            : !selectedAvailable
+              ? "This board is no longer available. Choose another board."
+              : unconfirmed
+                ? "Start again from your app to confirm this connection."
+                : undefined;
+  if (!id)
+    return (
+      <AuthScreen brand={<AuthBrand />} title="Connect to Mill">
+        <QueryFeedback message="This connection link is incomplete. Start again from your app." />
+      </AuthScreen>
+    );
+  if (connection.phase === "pending")
+    return (
+      <AuthScreen brand={<AuthBrand />} title="Connect to Mill">
+        <QueryLoading>Loading connection request…</QueryLoading>
+      </AuthScreen>
+    );
+  if (connection.phase === "failed")
+    return (
+      <AuthScreen brand={<AuthBrand />} title="Connect to Mill">
+        <QueryFeedback
+          message={connection.error}
+          onRetry={() => setAttempt((value) => value + 1)}
+        />
+      </AuthScreen>
+    );
+  if (!details) return null;
+  const redirect = new URL(details.redirectUri);
   return (
-    <AuthFrame
-      title="Connect to Mill"
-      description="Choose whether to give this app access."
+    <McpAuthorization
+      brand={<AuthBrand />}
+      productName="Mill"
+      isPending={!!decision || complete}
+      error={decisionError || undefined}
+      approvalBlockedReason={blockedReason}
+      onAllow={() => void decide(true)}
+      onDeny={() => void decide(false)}
+      details={{
+        clientName: details.clientName,
+        clientId: details.clientId,
+        clientTrust: details.clientTrust,
+        identityDescription:
+          details.clientTrust === "metadata-document"
+            ? "The app publishes its details in an HTTPS metadata document. This does not verify the app making this request."
+            : "The app supplied its own name. Mill has not verified its identity.",
+        redirectUri: details.redirectUri,
+        account: {
+          email: session.user.email,
+          name: session.user.name,
+          teamName: session.workspace.name,
+          role: session.user.role,
+        },
+        permissionSummary: validScope
+          ? `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
+          : "Requested permissions are unsupported.",
+        accessDescription: `${write ? "Can view and make changes allowed by your Mill role." : "Can only view data allowed by your Mill role."} Cannot manage accounts or reveal stored credentials.`,
+        accessLifetime:
+          details.expiresIn % 86400 === 0
+            ? `${details.expiresIn / 86400} days`
+            : `${details.expiresIn} seconds`,
+        revocationDescription: "Revoke access anytime in API keys.",
+        restrictions:
+          "Administrative access is excluded. Access remains limited by your current membership, role, and approved boards.",
+        deviceConnectionNotice: ["localhost", "127.0.0.1", "[::1]"].includes(
+          redirect.hostname,
+        )
+          ? "This opens an app on your device. Only continue if you started this connection yourself."
+          : undefined,
+      }}
     >
-      {!id ? (
-        <ErrorMessage>
-          This connection link is incomplete. Start again from your app.
-        </ErrorMessage>
-      ) : connection.phase === "pending" ? (
-        <div role="region" aria-label="Connection request" aria-busy />
-      ) : connection.phase === "failed" ? (
-        <div className="content-grid">
-          <ErrorMessage>{connection.error}</ErrorMessage>
-          <Button
-            variant="secondary"
-            onPress={() => setAttempt((value) => value + 1)}
-          >
-            Retry connection
-          </Button>
-        </div>
-      ) : details ? (
-        <form
-          aria-label="Connection permissions"
-          aria-busy={!!decision || directory.pending}
-          className="grid min-w-0 gap-6 pt-4"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void decide(true);
-          }}
-        >
-          <div className="grid min-w-0 gap-2">
-            <p className="break-words text-base font-medium">
-              {details.clientName}
-            </p>
-            {validScope && (
-              <p className="text-sm font-normal text-muted">
-                Wants to {write ? "read and write to" : "read"} your Mill
-                boards, tasks, and comments.
-              </p>
-            )}
-          </div>
-          {details.clientTrust === "unverified" && (
-            <Alert status="warning">
-              <Alert.Indicator />
-              <Alert.Content>
-                <Alert.Description className="text-sm font-normal">
-                  Unverified app. Only continue if you recognize this app and
-                  started this connection yourself.
-                </Alert.Description>
-              </Alert.Content>
-            </Alert>
-          )}
-          <div className="grid min-w-0 gap-3 text-sm font-normal text-muted">
-            <p>
-              Signed in as{" "}
-              <strong className="break-all font-normal text-foreground">
-                {session.user.email}
-              </strong>{" "}
-              in{" "}
-              <strong className="break-words font-normal text-foreground">
-                {session.workspace.name}
-              </strong>
-              .
-            </p>
-            <p>
-              {write
-                ? "Can view and make changes allowed by your Mill role."
-                : "Can only view data allowed by your Mill role."}{" "}
-              Cannot manage accounts or reveal stored credentials. Revoke access
-              anytime in API keys.
-            </p>
-            <p className="text-muted">
-              Returns to{" "}
-              <span className="break-all">
-                {new URL(details.redirectUri).origin}
-              </span>
-              .
-            </p>
-            {["localhost", "127.0.0.1", "[::1]"].includes(
-              new URL(details.redirectUri).hostname,
-            ) && (
-              <p className="text-muted">
-                This opens an app on your device. Only continue if you started
-                this connection yourself.
-              </p>
-            )}
-          </div>
-          <div className="content-grid min-w-0" aria-busy={directory.pending}>
-            <Choice
-              label="Approved boards"
-              value={boardId}
-              onChange={setBoardId}
-              items={[
-                { id: "", name: "All allowed boards" },
-                ...displayedBoards.map((board) => ({
-                  id: board.id,
-                  name: board.name,
-                })),
-              ]}
-              search
-              disabled={!!decision || directory.pending || !!directory.error}
-            />
-            {directory.error && (
-              <>
-                <ErrorMessage>{directory.error}</ErrorMessage>
-                <Button
-                  variant="secondary"
-                  isDisabled={!!decision}
-                  onPress={directory.reload}
-                >
-                  Retry boards
-                </Button>
-              </>
-            )}
-            {!directory.pending && !directory.error && !selectedAvailable && (
-              <ErrorMessage>
-                This board is no longer available. Choose another board.
-              </ErrorMessage>
-            )}
-          </div>
-          <details className="min-w-0 text-sm font-normal text-muted">
-            <summary className="flex min-h-11 cursor-pointer items-center text-muted underline underline-offset-4">
-              Connection details
-            </summary>
-            <div className="grid min-w-0 gap-3 pt-2 text-muted">
-              <p>
-                {details.clientTrust === "metadata-document"
-                  ? "The app publishes its details in an HTTPS metadata document. This does not verify the app making this request."
-                  : "The app supplied its own name. Mill has not verified its identity."}
-              </p>
-              <p>
-                <span>Client ID</span>
-                <span className="block break-all text-sm font-normal text-foreground">
-                  {details.clientId}
-                </span>
-              </p>
-              <p>
-                <span>Return URL</span>
-                <span className="block break-all text-sm font-normal text-foreground">
-                  {details.redirectUri}
-                </span>
-              </p>
-              <p>Administrative access is excluded.</p>
-            </div>
-          </details>
-          {!validScope && (
-            <ErrorMessage>
-              This app requested unsupported permissions. Start a new connection
-              with read or read and write access.
-            </ErrorMessage>
-          )}
-          {write && !canWrite && (
-            <ErrorMessage>
-              Your Viewer role cannot grant edit access. Reconnect with
-              read-only access.
-            </ErrorMessage>
-          )}
-          <ErrorMessage>{decisionError}</ErrorMessage>
-          {decision && (
-            <p role="status" className="text-sm font-normal text-muted">
-              {complete
-                ? "Returning to your app…"
-                : decision === "allow"
-                  ? "Allowing access…"
-                  : "Denying access…"}
-            </p>
-          )}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="submit"
-              isDisabled={!allowAvailable || !!decision || unconfirmed}
-            >
-              Allow access
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              isDisabled={!!decision || unconfirmed}
-              onPress={() => void decide(false)}
-            >
-              Deny
-            </Button>
-          </div>
-        </form>
-      ) : null}
-    </AuthFrame>
+      <div className="content-grid min-w-0" aria-busy={directory.pending}>
+        <Choice
+          label="Approved boards"
+          value={boardId}
+          onChange={setBoardId}
+          items={[
+            { id: "", name: "All allowed boards" },
+            ...displayedBoards.map((board) => ({
+              id: board.id,
+              name: board.name,
+            })),
+          ]}
+          search
+          disabled={!!decision || directory.pending || !!directory.error}
+        />
+        {directory.error && (
+          <QueryFeedback
+            message={directory.error}
+            onRetry={() => void directory.reload()}
+          />
+        )}
+      </div>
+    </McpAuthorization>
   );
 }

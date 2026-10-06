@@ -72,14 +72,16 @@ test("profile failures retry with a fresh toast while retaining the draft", asyn
       json: { error: "Profile update unavailable. Try again." },
     });
   });
-  const form = page.getByRole("region", { name: "Profile details" });
-  await form.getByLabel("Name", { exact: true }).fill("Retained profile draft");
+  const form = page.getByRole("main").locator("form");
+  await form
+    .getByLabel("Your Name", { exact: true })
+    .fill("Retained profile draft");
   for (let attempt = 0; attempt < 2; attempt++) {
-    await form.getByRole("button", { name: "Save profile" }).click();
+    await form.getByRole("button", { name: "Save", exact: true }).click();
     const toast = notification(page, "Profile update unavailable. Try again.");
     await expect(toast).toBeVisible();
     await expect(form.getByRole("alert")).toHaveCount(0);
-    await expect(form.getByLabel("Name", { exact: true })).toHaveValue(
+    await expect(form.getByLabel("Your Name", { exact: true })).toHaveValue(
       "Retained profile draft",
     );
     await toast.locator('[data-slot="toast-close"]').click();
@@ -93,7 +95,7 @@ test("identical synchronous password mismatches produce a toast on every attempt
 }) => {
   await authenticateBrowserFixture(page, fixture);
   await page.goto("/settings/email-password");
-  const form = page.getByRole("region", { name: "Password", exact: true });
+  const form = page.getByRole("main").locator("form");
   await form
     .getByLabel("Current password", { exact: true })
     .fill("Current-only-password-42");
@@ -110,7 +112,7 @@ test("identical synchronous password mismatches produce a toast on every attempt
   });
   for (let attempt = 0; attempt < 2; attempt++) {
     await form.getByRole("button", { name: "Change password" }).click();
-    const toast = notification(page, "The passwords do not match.");
+    const toast = notification(page, "New passwords do not match");
     await expect(toast).toBeVisible();
     await expect(form.getByRole("alert")).toHaveCount(0);
     await toast.locator('[data-slot="toast-close"]').click();

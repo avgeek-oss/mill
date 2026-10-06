@@ -14,6 +14,42 @@ export default ts.config(
   js.configs.recommended,
   ...ts.configs.recommended,
   {
+    files: ["apps/web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@avgeek-oss/design-system",
+              importNames: ["QueryError", "FieldError"],
+              message:
+                "Use Mill's toast-only QueryFeedback or FieldError, or report validation from the submit handler.",
+            },
+            {
+              name: "@mill/web-design-system",
+              importNames: ["QueryError"],
+              message:
+                "Use QueryFeedback to keep errors in toasts and retry actions in the page.",
+            },
+            {
+              name: "@avgeek-oss/design-system/patterns/feedback/query-state",
+              importNames: ["QueryError"],
+              message:
+                "Use QueryFeedback to keep errors in toasts and retry actions in the page.",
+            },
+            {
+              name: "@avgeek-oss/design-system/forms/field",
+              importNames: ["FieldError"],
+              message:
+                "Use Mill's toast-only FieldError or report validation from the submit handler.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     languageOptions: {
       globals: {
         process: "readonly",

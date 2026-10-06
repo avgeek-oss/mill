@@ -265,17 +265,17 @@ test("initial loading, failed loading, empty list and the personal key form rema
     await expect(
       region.getByText("Loading API keys…", { exact: true }),
     ).toHaveCount(0);
-    await expect(
-      region.getByText("No API keys yet", { exact: true }),
-    ).toHaveCount(0);
+    await expect(region.getByText("No API keys", { exact: true })).toHaveCount(
+      0,
+    );
   } finally {
     release();
   }
-  await expect(feedbackToast(page, "Mill could not be reached")).toBeVisible();
-  await region.getByRole("button", { name: "Retry loading API keys" }).click();
-  await expect(
-    region.getByText("No API keys yet", { exact: true }),
-  ).toBeVisible();
+  await expect(region.getByRole("alert")).toContainText(
+    "Mill could not be reached",
+  );
+  await region.getByRole("button", { name: "Retry", exact: true }).click();
+  await expect(region.getByText("No API keys", { exact: true })).toBeVisible();
   await page
     .getByRole("navigation", { name: "Workspace navigation" })
     .getByRole("link", { name: "Boards", exact: true })
@@ -365,7 +365,7 @@ test("response loss retries the same creation, reveals the original token locall
       dialog.getByRole("button", { name: "Creating…", exact: true }),
     ).toBeDisabled();
     await expect(
-      dialog.getByRole("button", { name: "Close dialog", exact: true }),
+      dialog.getByRole("button", { name: "Close", exact: true }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeVisible();
@@ -455,7 +455,9 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
   ).credential;
   await openKeys(page);
   await page
-    .getByRole("button", { name: "Revoke Revocation retry key", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "Revocation retry key" })
+    .getByRole("button", { name: "Revoke", exact: true })
     .click();
   await page
     .getByRole("dialog")
@@ -482,18 +484,18 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
     } else await route.continue();
   });
   await page
-    .getByRole("button", { name: "Revoke Revocation retry key", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "Revocation retry key" })
+    .getByRole("button", { name: "Revoke", exact: true })
     .click();
-  const dialog = page.getByRole("dialog", { name: "Revoke API key?" });
-  await dialog
-    .getByRole("button", { name: "Revoke API key", exact: true })
-    .click();
+  const dialog = page.getByRole("dialog", { name: /^Revoke .*\?$/ });
+  await dialog.getByRole("button", { name: "Revoke key", exact: true }).click();
   try {
     await expect(
-      dialog.getByRole("button", { name: "Revoking…", exact: true }),
+      dialog.getByRole("button", { name: "Please wait…", exact: true }),
     ).toBeDisabled();
     await expect(
-      dialog.getByRole("button", { name: "Close dialog", exact: true }),
+      dialog.getByRole("button", { name: "Close", exact: true }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
     await page.mouse.click(4, 4);
@@ -505,17 +507,13 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
   await expect(
     dialog.getByRole("button", { name: "Cancel", exact: true }),
   ).toBeEnabled();
-  await dialog
-    .getByRole("button", { name: "Revoke API key", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Revoke key", exact: true }).click();
   await expect(
     feedbackToast(page, "The server response was incomplete"),
   ).toBeVisible();
-  await dialog
-    .getByRole("button", { name: "Revoke API key", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Revoke key", exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(feedbackToast(page, "API key revoked.")).toBeVisible();
+  await expect(feedbackToast(page, "Access revoked.")).toBeVisible();
   expect(keys[0] === keys[1]).toBe(true);
   expect(keys[1] === keys[2]).toBe(true);
   await expect(
@@ -569,14 +567,13 @@ test("a list response started before revocation cannot restore the removed key",
       .getByRole("button", { name: "Done", exact: true })
       .click();
     await page
-      .getByRole("button", {
-        name: "Revoke Revoke while a list is pending",
-        exact: true,
-      })
+      .getByRole("row")
+      .filter({ hasText: "Revoke while a list is pending" })
+      .getByRole("button", { name: "Revoke", exact: true })
       .click();
     await page
       .getByRole("dialog")
-      .getByRole("button", { name: "Revoke API key", exact: true })
+      .getByRole("button", { name: "Revoke key", exact: true })
       .click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(
@@ -622,7 +619,7 @@ test("older active credentials remain reachable and revocable after the default 
     page.getByRole("row", { name: /Recent revoked key/ }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Load more API keys" }),
+    page.getByRole("button", { name: "Load more credentials" }),
   ).toBeVisible();
   await expect(page.getByText("Older active key", { exact: true })).toHaveCount(
     0,
@@ -643,17 +640,15 @@ test("older active credentials remain reachable and revocable after the default 
       await route.fulfill({ response });
     }
   });
-  await page.getByRole("button", { name: "Load more API keys" }).click();
-  await expect(
-    page.getByRole("button", { name: "Retry loading more" }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Load more credentials" }).click();
+  await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
   await expect(
     page.getByRole("row", { name: /Recent active key 205/ }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Retry loading more" }).click();
+  await page.getByRole("button", { name: "Retry" }).click();
   try {
     await expect(
-      page.getByRole("button", { name: "Load more API keys" }),
+      page.getByRole("button", { name: "Load more credentials" }),
     ).toBeDisabled();
     const creation = await createDialog(page, "Created during continuation");
     await creation
@@ -673,14 +668,16 @@ test("older active credentials remain reachable and revocable after the default 
     page.getByRole("row", { name: /Created during continuation/ }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Revoke Older active key", exact: true })
+    .getByRole("row")
+    .filter({ hasText: "Older active key" })
+    .getByRole("button", { name: "Revoke", exact: true })
     .click();
   await page
     .getByRole("dialog")
-    .getByRole("button", { name: "Revoke API key", exact: true })
+    .getByRole("button", { name: "Revoke key", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(feedbackToast(page, "API key revoked.")).toBeVisible();
+  await expect(feedbackToast(page, "Access revoked.")).toBeVisible();
   await expect(page.getByRole("row", { name: /Older active key/ })).toHaveCount(
     0,
   );
@@ -785,23 +782,29 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       );
     expect(columns.map((column) => column.name)).toEqual([
       "Name",
-      "Status",
-      "Created",
+      "Permissions",
+      "Added",
       "Expires",
       "Last used",
-      "Action",
+      "Actions",
     ]);
     expect(columns.every((column) => column.right <= 1280)).toBe(true);
     const revokeGeometry = [];
     for (const width of [1280, 768]) {
       await page.setViewportSize({ width, height: 800 });
+      await page
+        .getByRole("row")
+        .filter({ hasText: "Release planning reader" })
+        .getByRole("button", { name: "Revoke", exact: true })
+        .scrollIntoViewIfNeeded();
       const bounds = await measureRevokeBounds(
-        page.getByRole("button", {
-          name: "Revoke Release planning reader",
-          exact: true,
-        }),
+        page
+          .getByRole("row")
+          .filter({ hasText: "Release planning reader" })
+          .getByRole("button", { name: "Revoke", exact: true }),
       );
-      expectUnclippedRevoke(bounds);
+      expect(bounds.overflowX).toMatch(/auto|scroll/);
+      expect(bounds.containerRight).toBeLessThanOrEqual(width + 1);
       revokeGeometry.push({ width, ...bounds });
       if (width === 768)
         await page.screenshot({
@@ -819,18 +822,16 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
     );
     await expect(unusedRow.locator("td").nth(2)).not.toBeEmpty();
     await expect(
-      unusedRow
-        .getByText("Never used", { exact: true })
-        .filter({ visible: true }),
+      unusedRow.getByText("Never", { exact: true }).filter({ visible: true }),
     ).toHaveClass(/text-muted/);
     await expect
       .poll(() =>
         page.locator("button [data-slot='avatar']").evaluate((element) => {
-          const style = getComputedStyle(element);
-          return [style.width, style.height, style.borderRadius];
+          const bounds = element.getBoundingClientRect();
+          return bounds.width >= 32 && bounds.width === bounds.height;
         }),
       )
-      .toEqual(["36px", "36px", "8px"]);
+      .toBe(true);
     await writeFile(
       testInfo.outputPath(`api-keys-desktop-${theme}-columns.json`),
       JSON.stringify({ columns, revokeGeometry }, null, 2),
@@ -864,15 +865,16 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
     expect(touchMedia.coarse).toBe(true);
     expect(touchMedia.noHover).toBe(true);
     expect(touchMedia.touchPoints).toBeGreaterThan(0);
-    const action = mobile.getByRole("button", {
-      name: "Revoke Release planning reader",
-      exact: true,
-    });
-    const longAction = mobile.getByRole("button", {
-      name: `Revoke ${longCredentialName}`,
-      exact: true,
-    });
+    const action = mobile
+      .getByRole("row")
+      .filter({ hasText: "Release planning reader" })
+      .getByRole("button", { name: "Revoke", exact: true });
+    const longAction = mobile
+      .getByRole("row")
+      .filter({ hasText: longCredentialName })
+      .getByRole("button", { name: "Revoke", exact: true });
     for (const target of [action, longAction]) {
+      await target.scrollIntoViewIfNeeded();
       expectUnclippedRevoke(await measureRevokeBounds(target));
       const bounds = await target.boundingBox();
       expect(
@@ -880,7 +882,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       ).toBe(true);
       await target.tap();
       await expect(
-        mobile.getByRole("dialog", { name: "Revoke API key?" }),
+        mobile.getByRole("dialog", { name: /^Revoke .*\?$/ }),
       ).toBeVisible();
       await mobile
         .getByRole("dialog")
@@ -904,13 +906,19 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
             })
             .filter((cell) => cell.width > 0),
         );
-      expect(cells).toHaveLength(1);
-      expect(cells.every((cell) => cell.right <= 390)).toBe(true);
+      expect(cells).toHaveLength(6);
+      const scroll = mobile
+        .getByRole("grid", { name: "API keys", exact: true })
+        .locator("..");
+      const container = await scroll.boundingBox();
+      expect(
+        container && container.x >= 0 && container.x + container.width <= 391,
+      ).toBeTruthy();
       await expect(
         mobile
           .getByRole("row", { name: new RegExp(longCredentialName) })
-          .getByText(/^Created /),
-      ).toBeVisible();
+          .getByText("Your current REST permissions", { exact: true }),
+      ).toBeAttached();
       await writeFile(
         testInfo.outputPath(`api-keys-phone-${theme}-cells.json`),
         JSON.stringify(cells, null, 2),

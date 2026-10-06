@@ -1,3 +1,6 @@
+import { QueryFeedback } from "./query-feedback.js";
+import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
+import { ActionConfirmation, ResourceTable } from "@avgeek-oss/design-system";
 import {
   Suspense,
   lazy,
@@ -19,12 +22,9 @@ import {
   Dropdown,
   EmptyState,
   TypographyText,
-  Table,
   TableCellStack,
   TableCellDescription,
-  Link,
   TooltipText,
-  TypographyParagraph,
   TypographyHeading,
   Chip,
   Pagination,
@@ -475,7 +475,8 @@ export function BoardPage({
         boardActionsButton.current?.focus({ preventScroll: true });
     };
     const afterDialogRemoved = () => {
-      if (document.querySelector("[data-board-dialog]")) return;
+      if (document.querySelector('[data-board-dialog], [role="dialog"]'))
+        return;
       observer.disconnect();
       frame = requestAnimationFrame(restore);
     };
@@ -533,8 +534,6 @@ export function BoardPage({
       onBoardsChanged(board.id);
       toast.success("Board deleted.");
       navigate("/boards");
-    } catch (e) {
-      setSettingsError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -601,12 +600,10 @@ export function BoardPage({
       </EmptyState>
     );
   }
-  if (!accessDenied && !board && !loading && errorStatus >= 500)
+  if (!accessDenied && !board && !loading && error)
     return (
-      <ErrorPage
-        code={errorPageCode(errorStatus)}
-        description={error}
-        pending={loading}
+      <QueryFeedback
+        message={error}
         onRetry={() => void load(requestedPage.current, true)}
       />
     );
@@ -755,26 +752,22 @@ export function BoardPage({
                 </PortalProvider>,
                 filterContainer,
               )}
-            <ErrorMessage>{accessDenied ? "" : error}</ErrorMessage>
-            {error && board && (
-              <div>
-                <Button
-                  ref={retryTasksButton}
-                  variant="secondary"
-                  isDisabled={loading}
-                  onPress={() => {
-                    rememberPaginationFocus(retryTasksButton.current);
-                    void load(requestedPage.current, true);
-                  }}
-                >
-                  Retry loading tasks
-                </Button>
-              </div>
+            {!accessDenied && error && board && (
+              <QueryFeedback
+                message={error}
+                onRetry={() => {
+                  if (loading) return;
+                  rememberPaginationFocus();
+                  void load(requestedPage.current, true);
+                }}
+              />
             )}
             {loading && !tasks.length ? (
-              <QueryLoading label="Loading tasks…" />
+              <QueryLoading>Loading tasks…</QueryLoading>
             ) : !tasks.length ? (
-              emptyTasks()
+              error ? null : (
+                emptyTasks()
+              )
             ) : (
               <div ref={taskList} className="space-y-4" aria-busy={loading}>
                 {groups.map((group) => (
@@ -789,112 +782,103 @@ export function BoardPage({
                           {group.name}
                         </TypographyHeading>
                         <Chip
-                          variant="secondary"
-                          size="small"
+                          variant="soft"
+                          size="sm"
                           aria-label={`${group.tasks.length} tasks on this page`}
                         >
                           {group.tasks.length}
                         </Chip>
                       </div>
                     )}
-                    <Table>
-                      <Table.ScrollContainer>
-                        <Table.Content
-                          className="task-table"
-                          aria-label={
-                            group.name ? `${group.name} tasks` : "Task list"
-                          }
-                        >
-                          <Table.Header>
-                            <Table.Column className="hidden sm:table-cell">
-                              Task ID
-                            </Table.Column>
-                            <Table.Column isRowHeader>Task</Table.Column>
-                            <Table.Column className="w-36">Status</Table.Column>
-                            <Table.Column className="w-40">
-                              Assignee
-                            </Table.Column>
-                            <Table.Column className="w-32">
-                              Priority
-                            </Table.Column>
-                          </Table.Header>
-                          <Table.Body>
-                            {group.tasks.map((task) => (
-                              <Table.Row
-                                key={task.id}
-                                id={task.id}
-                                data-task-id={task.id}
+                    <ResourceTable
+                      ariaLabel={
+                        group.name ? `${group.name} tasks` : "Task list"
+                      }
+                      tableClassName="task-table"
+                      items={group.tasks}
+                      getRowKey={(task) => task.id}
+                      emptyTitle="No tasks yet"
+                      emptyDescription="Tasks created by your team will appear here."
+                      columns={[
+                        {
+                          key: "identifier",
+                          header: "Task ID",
+                          isRowHeader: false,
+                          className: "hidden sm:table-cell",
+                          headerClassName: "hidden sm:table-cell",
+                          cell: (task) => (
+                            <div className="flex min-w-0 items-center gap-2">
+                              <TaskTypeIndicator type={task.type} />
+                              <Link
+                                href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                                className="block shrink-0 whitespace-nowrap rounded-lg font-mono text-sm text-muted hover:underline"
                               >
-                                <Table.Cell className="hidden sm:table-cell">
-                                  <div className="flex min-w-0 items-center gap-2">
-                                    <TaskTypeIndicator type={task.type} />
-                                    <Link
-                                      href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
-                                      className="block shrink-0 whitespace-nowrap rounded-lg font-mono text-sm text-muted outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
-                                    >
-                                      <TooltipText
-                                        className="block"
-                                        tooltip={task.identifier}
-                                      >
-                                        {task.identifier}
-                                      </TooltipText>
-                                    </Link>
-                                  </div>
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <Link
-                                    href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
-                                    className="block min-w-0 rounded-lg outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
-                                  >
-                                    <TableCellStack>
-                                      <TooltipText
-                                        className="block w-full truncate align-middle"
-                                        tooltip={task.title}
-                                      >
-                                        {task.title}
-                                      </TooltipText>
-                                      <TableCellDescription className="flex items-center gap-2 font-mono sm:hidden">
-                                        <TaskTypeIndicator
-                                          type={task.type}
-                                          focusable={false}
-                                        />
-                                        <TooltipText
-                                          className="shrink-0 whitespace-nowrap"
-                                          tooltip={task.identifier}
-                                          tabIndex={-1}
-                                        >
-                                          {task.identifier}
-                                        </TooltipText>
-                                      </TableCellDescription>
-                                    </TableCellStack>
-                                  </Link>
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <StatusChip status={task.status} />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <TaskIdentity
-                                    name={
-                                      members.find(
-                                        (m) => m.id === task.assigneeId,
-                                      )?.name
-                                    }
-                                    email={
-                                      members.find(
-                                        (m) => m.id === task.assigneeId,
-                                      )?.email
-                                    }
+                                {task.identifier}
+                              </Link>
+                            </div>
+                          ),
+                        },
+                        {
+                          key: "title",
+                          header: "Task",
+                          isRowHeader: true,
+                          cell: (task) => (
+                            <Link
+                              href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                              className="block min-w-0 rounded-lg hover:underline"
+                            >
+                              <TableCellStack>
+                                <TooltipText
+                                  className="block w-full truncate align-middle"
+                                  tooltip={task.title}
+                                >
+                                  {task.title}
+                                </TooltipText>
+                                <TableCellDescription className="flex items-center gap-2 font-mono sm:hidden">
+                                  <TaskTypeIndicator
+                                    type={task.type}
+                                    focusable={false}
                                   />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <PriorityChip priority={task.priority} />
-                                </Table.Cell>
-                              </Table.Row>
-                            ))}
-                          </Table.Body>
-                        </Table.Content>
-                      </Table.ScrollContainer>
-                    </Table>
+                                  <span className="shrink-0 whitespace-nowrap">
+                                    {task.identifier}
+                                  </span>
+                                </TableCellDescription>
+                              </TableCellStack>
+                            </Link>
+                          ),
+                        },
+                        {
+                          key: "status",
+                          header: "Status",
+                          headerClassName: "w-36",
+                          cell: (task) => <StatusChip status={task.status} />,
+                        },
+                        {
+                          key: "assignee",
+                          header: "Assignee",
+                          headerClassName: "w-40",
+                          cell: (task) => {
+                            const member = members.find(
+                              (member) => member.id === task.assigneeId,
+                            );
+                            return (
+                              <TaskIdentity
+                                name={member?.name}
+                                email={member?.email}
+                              />
+                            );
+                          },
+                        },
+                        {
+                          key: "priority",
+                          header: "Priority",
+                          headerClassName: "w-32",
+                          cell: (task) => (
+                            <PriorityChip priority={task.priority} />
+                          ),
+                        },
+                      ]}
+                    />
                   </section>
                 ))}
               </div>
@@ -913,19 +897,24 @@ export function BoardPage({
                     ? "0 tasks"
                     : `${(taskPage - 1) * displayedPageSize + 1}–${Math.min(taskPage * displayedPageSize, taskTotal)} of ${taskTotal} tasks`}
                 </TypographyText>
-                <Pagination
-                  className="w-auto"
-                  aria-label="Task pages"
-                  page={taskPage}
-                  totalPages={totalPages}
-                  isDisabled={paginationDisabled || taskListChanged}
-                  onPageChange={(page) => {
-                    if (!paginationDisabled && page !== taskPage) {
-                      rememberPaginationFocus();
-                      changeList({ page });
-                    }
-                  }}
-                />
+                <fieldset disabled={paginationDisabled || taskListChanged}>
+                  <Pagination
+                    className="w-auto"
+                    aria-label="Task pages"
+                    page={taskPage}
+                    totalPages={totalPages}
+                    onPageChange={(page) => {
+                      if (
+                        !paginationDisabled &&
+                        !taskListChanged &&
+                        page !== taskPage
+                      ) {
+                        rememberPaginationFocus();
+                        changeList({ page });
+                      }
+                    }}
+                  />
+                </fieldset>
                 <Choice
                   className="w-36"
                   label="Tasks per page"
@@ -1035,37 +1024,15 @@ export function BoardPage({
               </Dialog>
             )}
             {confirmBoard && board && user.role === "admin" && (
-              <Dialog
-                data-board-dialog
-                isDismissDisabled={busy}
-                open
-                onClose={() => setConfirmBoard(false)}
+              <ActionConfirmation
+                isOpen
+                onOpenChange={setConfirmBoard}
                 title="Delete board?"
-                footer={
-                  <>
-                    <Button
-                      variant="secondary"
-                      onPress={() => setConfirmBoard(false)}
-                      isDisabled={busy}
-                    >
-                      Keep board
-                    </Button>
-                    <Button
-                      variant="danger"
-                      isPending={busy}
-                      onPress={() => void deleteBoard()}
-                    >
-                      Delete board
-                    </Button>
-                  </>
-                }
-              >
-                <TypographyParagraph size="sm">
-                  Permanently delete “{board.name}” and all of its tasks and
-                  comments? This cannot be undone. There is no restore.
-                </TypographyParagraph>
-                <ErrorMessage>{settingsError}</ErrorMessage>
-              </Dialog>
+                description={`Permanently delete “${board.name}” and all of its tasks and comments? This cannot be undone. There is no restore.`}
+                confirmLabel="Delete board"
+                variant="danger"
+                onConfirm={deleteBoard}
+              />
             )}
           </PortalProvider>
         </SuspendedAppProvider>

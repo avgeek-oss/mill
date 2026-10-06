@@ -6,7 +6,10 @@ import {
   CheckmarkCircle02Icon,
   OctagonXIcon,
 } from "@hugeicons/core-free-icons";
-import { Chip, type ChipProps } from "@mill/web-design-system";
+import {
+  StatusIndicator,
+  type StatusDescriptor,
+} from "@avgeek-oss/design-system";
 import type { ComponentProps } from "react";
 import {
   TASK_STATUSES,
@@ -19,38 +22,38 @@ const presentation: Record<
   {
     icon: ComponentProps<typeof HugeiconsIcon>["icon"];
     iconClassName: string;
-    chipVariant: NonNullable<ChipProps["variant"]>;
+    color: StatusDescriptor["color"];
   }
 > = {
   backlog: {
     icon: NotepadTextDashedIcon,
     iconClassName: "text-muted",
-    chipVariant: "secondary",
+    color: "default",
   },
   todo: {
     icon: Note01Icon,
     iconClassName: "text-foreground",
-    chipVariant: "secondary",
+    color: "default",
   },
   in_progress: {
     icon: ProgressIcon,
-    iconClassName: "text-yellow-600 dark:text-yellow-400",
-    chipVariant: "yellow",
+    iconClassName: "text-warning",
+    color: "warning",
   },
   in_review: {
     icon: ProgressIcon,
     iconClassName: "text-accent",
-    chipVariant: "info",
+    color: "accent",
   },
   done: {
     icon: CheckmarkCircle02Icon,
     iconClassName: "text-success",
-    chipVariant: "success",
+    color: "success",
   },
   wont_do: {
     icon: OctagonXIcon,
-    iconClassName: "text-orange-600 dark:text-orange-400",
-    chipVariant: "orange",
+    iconClassName: "text-danger",
+    color: "danger",
   },
 };
 
@@ -73,13 +76,11 @@ export const statusOptions = TASK_STATUSES.map((id) => ({
 
 export function StatusChip({ status }: { status: TaskStatus }) {
   return (
-    <Chip
-      variant={presentation[status].chipVariant}
-      size="small"
-      className={status === "backlog" ? "text-muted" : undefined}
+    <StatusIndicator
+      color={presentation[status].color}
+      size="sm"
       icon={<StatusIcon status={status} />}
-    >
-      {taskStatusLabel(status)}
-    </Chip>
+      label={taskStatusLabel(status)}
+    />
   );
 }

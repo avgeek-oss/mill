@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type ComponentProps,
 } from "react";
 import {
   AppLayout,
@@ -17,31 +16,35 @@ import {
   Button,
   Dialog,
   ErrorMessage,
-  FooterIdentity,
-  Navbar,
+  ApplicationNavbar,
   PortalProvider,
-  SecondarySidebar,
+  RouteProvider,
+  useTheme,
   SuspendedAppProvider,
   TextField,
   ThemeSwitcher,
-  usePersistentAppSidebar,
-  type ShellLinkConfig,
+  toast,
 } from "@mill/web-design-system";
 import {
   ClipboardListIcon,
   UserAccountIcon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
 import type {
   Board,
   BoardSummary,
   Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
+import {
+  SecondarySection,
+  SecondarySidebarLayout,
+} from "@avgeek-oss/design-system/navigation/secondary-sidebar";
+import { usePersistentAppSidebar } from "@avgeek-oss/design-system/layouts/app-shell";
+import type { SidebarLinkConfig } from "@avgeek-oss/design-system/layouts/application-shell-types";
 import { ErrorPage } from "./error-page.js";
 import { AppBreadcrumbs } from "./app-breadcrumbs.js";
-import { AccountMenuItems } from "./account-menu.js";
+import { AccountMenu } from "./account-menu.js";
 import {
   SettingsNavigation,
   isAccountSection,
@@ -68,24 +71,9 @@ import {
   type Session,
 } from "./api.js";
 
-function iconComponent(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
-  return function Icon(
-    props: Omit<ComponentProps<typeof HugeiconsIcon>, "icon">,
-  ) {
-    return (
-      <HugeiconsIcon
-        aria-hidden="true"
-        size={16}
-        className="size-4 shrink-0"
-        {...props}
-        icon={icon}
-      />
-    );
-  };
-}
-const BoardIcon = iconComponent(ClipboardListIcon);
-const AccountIcon = iconComponent(UserAccountIcon);
-const Users = iconComponent(UserGroupIcon);
+const BoardIcon = ClipboardListIcon;
+const AccountIcon = UserAccountIcon;
+const Users = UserGroupIcon;
 const Auth = lazy(() => import("./auth.js").then((m) => ({ default: m.Auth })));
 const BoardPage = lazy(() =>
   import("./board.js").then((m) => ({ default: m.BoardPage })),
@@ -196,7 +184,7 @@ export function App() {
   > | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
-  const sidebarState = usePersistentAppSidebar();
+  const sidebarState = usePersistentAppSidebar("mill:sidebar-open");
   const [newBoard, setNewBoard] = useState(false);
   const [boardName, setBoardName] = useState("");
   const [boardDescription, setBoardDescription] = useState("");
@@ -204,12 +192,7 @@ export function App() {
   const [createError, setCreateError] = useState("");
   const [boardCreateKey] = useState(createRetryKey);
   const [busy, setBusy] = useState(false);
-  const [theme, setTheme] = useState(
-    localStorage.getItem("mill:theme") ??
-      (window.matchMedia("(prefers-color-scheme:dark)").matches
-        ? "dark"
-        : "light"),
-  );
+  const { resolvedTheme: theme } = useTheme();
   const lastBoardsRequest = useRef(0);
   const lastRefreshRequest = useRef(0);
   const recentlyCreatedBoard = useRef<BoardSummary | null>(null);
@@ -231,29 +214,10 @@ export function App() {
         .sort(compareBoardNames);
     });
   }, []);
-  useLayoutEffect(() => {
-    const root = document.documentElement;
-    root.classList.add("theme-changing");
-    root.classList.toggle("dark", theme === "dark");
-    root.dataset.theme = theme;
+  useEffect(() => {
     document
       .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
-      ?.setAttribute(
-        "content",
-        theme === "dark"
-          ? millBrand.themeColor.dark
-          : millBrand.themeColor.light,
-      );
-    localStorage.setItem("mill:theme", theme);
-    // Commit the new colors while transitions are paused, before the next paint.
-    getComputedStyle(root).getPropertyValue("color");
-    const frame = requestAnimationFrame(() => {
-      root.classList.remove("theme-changing");
-    });
-    return () => {
-      cancelAnimationFrame(frame);
-      root.classList.remove("theme-changing");
-    };
+      ?.setAttribute("content", millBrand.themeColor[theme]);
   }, [theme]);
   async function initial() {
     setReady(false);
@@ -392,14 +356,37 @@ export function App() {
   useEffect(() => {
     if (session && !expired) {
       void refresh();
-      const timer = setInterval(
-        () =>
-          void api<{ unreadCount: number }>("/notifications?limit=1")
-            .then((n) => setNotificationCount(n.unreadCount))
-            .catch(() => {}),
-        30000,
-      );
-      return () => clearInterval(timer);
+      let active = true;
+      let pending = false;
+      let outage = false;
+      const poll = async () => {
+        if (!active || pending || suspensionActive.current) return;
+        pending = true;
+        try {
+          const notification = await api<{ unreadCount: number }>(
+            "/notifications?limit=1",
+          );
+          if (!active || suspensionActive.current) return;
+          if (
+            !Number.isSafeInteger(notification.unreadCount) ||
+            notification.unreadCount < 0
+          )
+            throw new Error("Notification counts could not be loaded.");
+          setNotificationCount(notification.unreadCount);
+          outage = false;
+        } catch (cause) {
+          if (!active || suspensionActive.current) return;
+          if (!outage) toast.danger(errorText(cause));
+          outage = true;
+        } finally {
+          pending = false;
+        }
+      };
+      const timer = setInterval(() => void poll(), 30000);
+      return () => {
+        active = false;
+        clearInterval(timer);
+      };
     }
   }, [session?.user.id, expired]);
   useLayoutEffect(() => {
@@ -529,22 +516,26 @@ export function App() {
     );
   const settingsSection = path.match(/^\/settings\/([^/]+)/)?.[1];
   const knownSettings = Object.keys(settingsTitles);
-  function nav(label: string, url: string, icon: ReactNode): ShellLinkConfig {
+  function nav(
+    label: string,
+    url: string,
+    icon: SidebarLinkConfig["icon"],
+  ): SidebarLinkConfig {
     return {
       id: url,
       href: url,
       label,
       icon,
-      active: path === url,
+      kind: "link",
     };
   }
   const admin = session.user.role === "admin";
   const boardsHref = "/boards";
   const secondarySidebar =
     activeBoardId && !activeTaskId ? (
-      <SecondarySidebar title="Filters" hideTitle items={[]}>
+      <SecondarySection>
         <div ref={setFilterContainer} className="min-w-0" />
-      </SecondarySidebar>
+      </SecondarySection>
     ) : settingsSection &&
       knownSettings.includes(settingsSection) &&
       (isAccountSection(settingsSection) || admin) ? (
@@ -556,6 +547,8 @@ export function App() {
         accessibleLabel: "Workspace navigation",
         homeHref: "/boards",
         brand: {
+          id: "mill",
+          accessibleLabel: "Mill",
           title: "Mill",
           logo: <MillMark />,
         },
@@ -569,8 +562,9 @@ export function App() {
                 id: "boards",
                 href: boardsHref,
                 label: "Boards",
-                icon: <BoardIcon />,
-                active: !!activeBoardId || overview,
+                kind: "link",
+                icon: BoardIcon,
+                activePath: "/boards",
               },
             ],
           },
@@ -579,20 +573,19 @@ export function App() {
             label: "Settings",
             items: [
               {
-                ...nav(
-                  "Account settings",
-                  "/settings/profile",
-                  <AccountIcon />,
-                ),
-                active: isAccountSection(settingsSection),
+                ...nav("Account settings", "/settings/profile", AccountIcon),
+                activePath: isAccountSection(settingsSection)
+                  ? "/settings"
+                  : "/settings/profile",
               },
               ...(admin
                 ? [
                     {
-                      ...nav("Team settings", "/settings/workspace", <Users />),
-                      active: ["workspace", "members"].includes(
-                        settingsSection ?? "",
-                      ),
+                      ...nav("Team settings", "/settings/workspace", Users),
+                      activePath:
+                        settingsSection === "members"
+                          ? "/settings/members"
+                          : "/settings/workspace",
                     },
                   ]
                 : []),
@@ -600,14 +593,12 @@ export function App() {
           },
         ],
         footerContent: (
-          <FooterIdentity
+          <AccountMenu
             name={session.user.name}
             email={session.user.email}
-            workspaceName={session.workspace.name}
+            teamName={session.workspace.name}
             onLogout={signOut}
-          >
-            <AccountMenuItems />
-          </FooterIdentity>
+          />
         ),
       }}
     />
@@ -631,22 +622,19 @@ export function App() {
         : overview
           ? "Boards"
           : "Page not found";
-  const navbarContent = (
-    <AppBreadcrumbs
-      boards={boards}
-      boardsHref={boardsHref}
-      boardId={activeBoardId}
-      boardName={navbarTitle}
-      taskId={activeTaskId}
-      taskIdentifier={
-        routeTask?.id === activeTaskId ? routeTask?.identifier : undefined
-      }
-      settingsSection={settingsSection}
-      admin={admin}
-      search={window.location.search}
-      fallback={navbarTitle}
-    />
-  );
+  const breadcrumbProps = {
+    boards,
+    boardsHref,
+    boardId: activeBoardId,
+    boardName: navbarTitle,
+    taskId: activeTaskId,
+    taskIdentifier:
+      routeTask?.id === activeTaskId ? routeTask?.identifier : undefined,
+    settingsSection,
+    admin,
+    search: window.location.search,
+    fallback: navbarTitle,
+  };
   return (
     <>
       {expired && authView}
@@ -659,243 +647,269 @@ export function App() {
           aria-hidden={expired}
         >
           <PortalProvider getContainer={() => appContainer.current}>
-            <AppShell contentWidth="broad">
-              <a
-                href="#main-content"
-                className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-background focus:px-4 focus:py-2 focus:ring-2 focus:ring-focus"
+            <RouteProvider
+              pathname={path.split("?")[0] ?? "/"}
+              navigate={navigate}
+            >
+              <AppShell
+                contentWidth="broad"
+                policy={{ kind: "product", toasts: false }}
               >
-                Skip to content
-              </a>
-              <AppLayout
-                navigate={navigate}
-                path={path}
-                sidebar={sidebar}
-                secondarySidebar={secondarySidebar}
-                toggleShortcut
-                {...sidebarState}
-                sidebarOpen={expired ? false : sidebarState.sidebarOpen}
-                navbar={
-                  <Navbar
-                    title={navbarContent}
-                    sidebarOpen={sidebarState.sidebarOpen}
-                    onSidebarToggle={() =>
-                      sidebarState.onSidebarOpenChange(
-                        !sidebarState.sidebarOpen,
-                      )
+                <AppBreadcrumbs {...breadcrumbProps}>
+                  <a
+                    href="#main-content"
+                    className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-background focus:px-4 focus:py-2 focus:ring-2 focus:ring-focus"
+                  >
+                    Skip to content
+                  </a>
+                  <AppLayout
+                    navigate={navigate}
+                    sidebar={sidebar}
+                    toggleShortcut
+                    {...sidebarState}
+                    sidebarOpen={expired ? false : sidebarState.sidebarOpen}
+                    navbar={
+                      <ApplicationNavbar
+                        config={{
+                          homeHref: "/boards",
+                          brand: {
+                            id: "mill",
+                            accessibleLabel: "Mill",
+                            title: "Mill",
+                            logo: <MillMark />,
+                          },
+                        }}
+                        hasSidebar
+                        sidebarOpen={sidebarState.sidebarOpen}
+                        onSidebarToggle={() =>
+                          sidebarState.onSidebarOpenChange(
+                            !sidebarState.sidebarOpen,
+                          )
+                        }
+                        actions={
+                          <>
+                            <Suspense fallback={null}>
+                              <NotificationsPopover
+                                key={session.user.id}
+                                userId={session.user.id}
+                                timeZone={session.user.timeZone}
+                                unreadCount={notificationCount}
+                                onRead={() => void refresh()}
+                                suspended={expired}
+                                sessionRevision={sessionRevision}
+                              />
+                            </Suspense>
+                            <ThemeSwitcher />
+                          </>
+                        }
+                      />
                     }
-                    actions={
-                      <>
+                  >
+                    <SecondarySidebarLayout>
+                      {secondarySidebar}
+                      <AppShell.Content
+                        id="main-content"
+                        tabIndex={-1}
+                        variant="broad"
+                      >
                         <Suspense fallback={null}>
-                          <NotificationsPopover
-                            key={session.user.id}
-                            userId={session.user.id}
-                            timeZone={session.user.timeZone}
-                            unreadCount={notificationCount}
-                            onRead={() => void refresh()}
-                            suspended={expired}
-                            sessionRevision={sessionRevision}
-                          />
+                          {error && <ErrorMessage>{error}</ErrorMessage>}
+                          {activeBoardId && activeTaskId ? (
+                            <TaskPage
+                              key={activeTaskId}
+                              boardId={activeBoardId}
+                              taskId={activeTaskId}
+                              user={session.user}
+                              members={members}
+                              returnHref={`/boards/${activeBoardId}${window.location.search}`}
+                              onBoardLoaded={rememberLoadedBoard}
+                              onTaskLoaded={setRouteTask}
+                              sessionRevision={sessionRevision}
+                            />
+                          ) : activeBoardId ? (
+                            <BoardPage
+                              key={activeBoardId}
+                              boardId={activeBoardId}
+                              onBoardLoaded={(board) => {
+                                rememberLoadedBoard(board);
+                                if (
+                                  recentlyCreatedBoard.current?.id === board.id
+                                )
+                                  recentlyCreatedBoard.current = {
+                                    ...recentlyCreatedBoard.current,
+                                    ...board,
+                                  };
+                              }}
+                              boards={boards}
+                              filterContainer={filterContainer}
+                              onOpenFilters={() =>
+                                sidebarState.onSidebarOpenChange(true)
+                              }
+                              user={session.user}
+                              members={members}
+                              sessionRevision={sessionRevision}
+                              onBoardsChanged={(removedBoardId?: string) => {
+                                if (removedBoardId) {
+                                  if (
+                                    recentlyCreatedBoard.current?.id ===
+                                    removedBoardId
+                                  )
+                                    recentlyCreatedBoard.current = null;
+                                  if (
+                                    latestLoadedBoard.current?.id ===
+                                    removedBoardId
+                                  )
+                                    latestLoadedBoard.current = null;
+                                  if (routeBoard?.id === removedBoardId)
+                                    setRouteBoard(null);
+                                  setBoards((previous) =>
+                                    previous.filter(
+                                      (board) => board.id !== removedBoardId,
+                                    ),
+                                  );
+                                }
+                                void loadBoards();
+                                void refresh();
+                              }}
+                              path={location}
+                            />
+                          ) : settingsSection &&
+                            knownSettings.includes(settingsSection) ? (
+                            <SettingsPage
+                              key={settingsSection}
+                              section={settingsSection}
+                              session={session}
+                              members={members}
+                              boards={boards}
+                              onRefresh={() => {
+                                void refresh();
+                                void loadBoards();
+                              }}
+                            />
+                          ) : overview ? (
+                            <BoardsPage
+                              boards={boards}
+                              pending={boardsPending}
+                              error={boardsError}
+                              canCreate={session.user.role !== "viewer"}
+                              onRetry={() => void loadBoards()}
+                              onCreate={() => {
+                                setCreateError("");
+                                setNewBoard(true);
+                              }}
+                            />
+                          ) : (
+                            <ErrorPage code="404" />
+                          )}
                         </Suspense>
-                        <ThemeSwitcher
-                          size="small"
-                          theme={theme}
-                          onThemeChange={setTheme}
-                        />
+                      </AppShell.Content>
+                    </SecondarySidebarLayout>
+                  </AppLayout>
+                  <Dialog
+                    isDismissDisabled={busy}
+                    open={newBoard}
+                    onClose={() => {
+                      boardCreateKey.reset();
+                      setNewBoard(false);
+                    }}
+                    title="Create a board"
+                    footer={
+                      <>
+                        <Button
+                          variant="secondary"
+                          onPress={() => {
+                            boardCreateKey.reset();
+                            setNewBoard(false);
+                          }}
+                          isDisabled={busy}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="submit"
+                          form="new-board"
+                          isDisabled={busy}
+                        >
+                          {busy ? "Creating…" : "Create board"}
+                        </Button>
                       </>
                     }
-                  />
-                }
-              >
-                <AppShell.Content
-                  variant="broad"
-                  className="pt-0 pb-20 sm:pt-0 sm:pb-20"
-                >
-                  <Suspense fallback={null}>
-                    {error && <ErrorMessage>{error}</ErrorMessage>}
-                    {activeBoardId && activeTaskId ? (
-                      <TaskPage
-                        key={activeTaskId}
-                        boardId={activeBoardId}
-                        taskId={activeTaskId}
-                        user={session.user}
-                        members={members}
-                        returnHref={`/boards/${activeBoardId}${window.location.search}`}
-                        onBoardLoaded={rememberLoadedBoard}
-                        onTaskLoaded={setRouteTask}
-                        sessionRevision={sessionRevision}
-                      />
-                    ) : activeBoardId ? (
-                      <BoardPage
-                        key={activeBoardId}
-                        boardId={activeBoardId}
-                        onBoardLoaded={(board) => {
-                          rememberLoadedBoard(board);
-                          if (recentlyCreatedBoard.current?.id === board.id)
-                            recentlyCreatedBoard.current = {
-                              ...recentlyCreatedBoard.current,
-                              ...board,
-                            };
-                        }}
-                        boards={boards}
-                        filterContainer={filterContainer}
-                        onOpenFilters={() =>
-                          sidebarState.onSidebarOpenChange(true)
-                        }
-                        user={session.user}
-                        members={members}
-                        sessionRevision={sessionRevision}
-                        onBoardsChanged={(removedBoardId?: string) => {
-                          if (removedBoardId) {
-                            if (
-                              recentlyCreatedBoard.current?.id ===
-                              removedBoardId
-                            )
-                              recentlyCreatedBoard.current = null;
-                            if (
-                              latestLoadedBoard.current?.id === removedBoardId
-                            )
-                              latestLoadedBoard.current = null;
-                            if (routeBoard?.id === removedBoardId)
-                              setRouteBoard(null);
-                            setBoards((previous) =>
-                              previous.filter(
-                                (board) => board.id !== removedBoardId,
-                              ),
-                            );
-                          }
-                          void loadBoards();
-                          void refresh();
-                        }}
-                        path={location}
-                      />
-                    ) : settingsSection &&
-                      knownSettings.includes(settingsSection) ? (
-                      <SettingsPage
-                        key={settingsSection}
-                        section={settingsSection}
-                        session={session}
-                        members={members}
-                        boards={boards}
-                        onRefresh={() => {
-                          void refresh();
-                          void loadBoards();
-                        }}
-                      />
-                    ) : overview ? (
-                      <BoardsPage
-                        boards={boards}
-                        pending={boardsPending}
-                        error={boardsError}
-                        canCreate={session.user.role !== "viewer"}
-                        onRetry={() => void loadBoards()}
-                        onCreate={() => {
-                          setCreateError("");
-                          setNewBoard(true);
-                        }}
-                      />
-                    ) : (
-                      <ErrorPage code="404" />
-                    )}
-                  </Suspense>
-                </AppShell.Content>
-              </AppLayout>
-              <Dialog
-                isDismissDisabled={busy}
-                open={newBoard}
-                onClose={() => {
-                  boardCreateKey.reset();
-                  setNewBoard(false);
-                }}
-                title="Create a board"
-                footer={
-                  <>
-                    <Button
-                      variant="secondary"
-                      onPress={() => {
-                        boardCreateKey.reset();
-                        setNewBoard(false);
-                      }}
-                      isDisabled={busy}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" form="new-board" isDisabled={busy}>
-                      {busy ? "Creating…" : "Create board"}
-                    </Button>
-                  </>
-                }
-              >
-                <form
-                  id="new-board"
-                  className="content-grid min-w-0"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (busy) return;
-                    setBusy(true);
-                    setCreateError("");
-                    const payload = {
-                      name: boardName,
-                      description: boardDescription,
-                      ...(boardPrefix ? { prefix: boardPrefix } : {}),
-                    };
-                    void api<{ board: Board }>("/boards", payload, "POST", {
-                      validateResponse: hasBoardResponse,
-                      headers: {
-                        "Idempotency-Key": boardCreateKey.forRequest(
-                          "/boards",
-                          payload,
-                        ),
-                      },
-                    })
-                      .then((result) => {
-                        boardCreateKey.reset();
-                        recentlyCreatedBoard.current = {
-                          ...result.board,
-                          backlogCount: 0,
-                          activeCount: 0,
-                          inProgressCount: 0,
-                          todoCount: 0,
+                  >
+                    <form
+                      id="new-board"
+                      className="content-grid min-w-0"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (busy) return;
+                        setBusy(true);
+                        setCreateError("");
+                        const payload = {
+                          name: boardName,
+                          description: boardDescription,
+                          ...(boardPrefix ? { prefix: boardPrefix } : {}),
                         };
-                        setNewBoard(false);
-                        setBoardName("");
-                        setBoardDescription("");
-                        setBoardPrefix("");
-                        void loadBoards();
-                        navigate(`/boards/${result.board.id}`);
-                      })
-                      .catch((e) => setCreateError(errorText(e)))
-                      .finally(() => setBusy(false));
-                  }}
-                >
-                  <TextField
-                    label="Board name"
-                    value={boardName}
-                    onChange={(e) => setBoardName(e.target.value)}
-                    required
-                    autoFocus={!window.matchMedia("(pointer: coarse)").matches}
-                    maxLength={100}
-                  />
-                  <TextField
-                    label="Description"
-                    value={boardDescription}
-                    onChange={(e) => setBoardDescription(e.target.value)}
-                    multiline
-                    maxLength={10000}
-                    className="min-w-0 w-full"
-                  />
-                  <TextField
-                    label="Task prefix"
-                    value={boardPrefix}
-                    onChange={(e) =>
-                      setBoardPrefix(e.target.value.toUpperCase())
-                    }
-                    maxLength={12}
-                    placeholder="e.g. WEB"
-                  />
-                  <ErrorMessage>{createError}</ErrorMessage>
-                </form>
-              </Dialog>
-            </AppShell>
+                        void api<{ board: Board }>("/boards", payload, "POST", {
+                          validateResponse: hasBoardResponse,
+                          headers: {
+                            "Idempotency-Key": boardCreateKey.forRequest(
+                              "/boards",
+                              payload,
+                            ),
+                          },
+                        })
+                          .then((result) => {
+                            boardCreateKey.reset();
+                            recentlyCreatedBoard.current = {
+                              ...result.board,
+                              backlogCount: 0,
+                              activeCount: 0,
+                              inProgressCount: 0,
+                              todoCount: 0,
+                            };
+                            setNewBoard(false);
+                            setBoardName("");
+                            setBoardDescription("");
+                            setBoardPrefix("");
+                            void loadBoards();
+                            navigate(`/boards/${result.board.id}`);
+                          })
+                          .catch((e) => setCreateError(errorText(e)))
+                          .finally(() => setBusy(false));
+                      }}
+                    >
+                      <TextField
+                        label="Board name"
+                        value={boardName}
+                        onChange={(e) => setBoardName(e.target.value)}
+                        required
+                        autoFocus={
+                          !window.matchMedia("(pointer: coarse)").matches
+                        }
+                        maxLength={100}
+                      />
+                      <TextField
+                        label="Description"
+                        value={boardDescription}
+                        onChange={(e) => setBoardDescription(e.target.value)}
+                        multiline
+                        maxLength={10000}
+                        className="min-w-0 w-full"
+                      />
+                      <TextField
+                        label="Task prefix"
+                        value={boardPrefix}
+                        onChange={(e) =>
+                          setBoardPrefix(e.target.value.toUpperCase())
+                        }
+                        maxLength={12}
+                        placeholder="e.g. WEB"
+                      />
+                      <ErrorMessage>{createError}</ErrorMessage>
+                    </form>
+                  </Dialog>
+                </AppBreadcrumbs>
+              </AppShell>
+            </RouteProvider>
           </PortalProvider>
         </div>
       </SuspendedAppProvider>

@@ -52,7 +52,7 @@ for (const width of [1920, 1280, 390]) {
       await page.goto("/settings/sessions");
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       const table = page.getByRole("grid", {
-        name: "Active browser sessions",
+        name: "Sessions",
       });
       await expect(table).toBeVisible();
       const current = table
@@ -70,26 +70,26 @@ for (const width of [1920, 1280, 390]) {
           .filter({ visible: true })
           .first(),
       ).toBeVisible();
-      if (width >= 768) {
-        for (const name of [
-          "Session",
-          "Session ID",
-          "Last active",
-          "Expires",
-          "Status",
-          "Actions",
-        ])
-          await expect(
-            table.getByRole("columnheader", { name, exact: true }),
-          ).toBeVisible();
-        await expect(current.locator("code:visible")).toHaveText(
-          /^[a-f0-9]{8}$/,
-        );
-      } else {
-        await expect(table.getByRole("columnheader")).toHaveCount(1);
-        await expect(current.locator("time:visible").first()).toBeVisible();
-        await expect(current.locator("time:visible").last()).toBeVisible();
-      }
+      for (const name of [
+        "Session",
+        "Last active",
+        "Expires",
+        "Status",
+        "Actions",
+      ])
+        await expect(
+          table.getByRole("columnheader", { name, exact: true }),
+        ).toBeVisible();
+      const sessions = await (
+        await page.request.get("/api/auth/sessions")
+      ).json();
+      const currentSession = sessions.items.find(
+        (item: { current: boolean }) => item.current,
+      );
+      expect(currentSession).toBeTruthy();
+      await expect(
+        current.getByText(currentSession.id, { exact: true }),
+      ).toBeVisible();
       await expect
         .poll(() =>
           page.evaluate(
@@ -153,21 +153,16 @@ test("sessions loading and request failure announce status and retry without a f
     await expect(
       page.getByText("Loading sessions", { exact: true }),
     ).toBeAttached();
-    await expect(
-      page.getByText("No active sessions", { exact: true }),
-    ).toHaveCount(0);
+    await expect(page.getByText("No sessions", { exact: true })).toHaveCount(0);
   } finally {
     release!();
   }
   const region = page.getByRole("region", { name: "Sessions", exact: true });
-  await expect(
-    feedbackToast(page, "Sessions temporarily unavailable"),
-  ).toBeVisible();
-  await expect(region.getByRole("alert")).toHaveCount(0);
+  await expect(region.getByRole("alert")).toHaveText(
+    "Sessions temporarily unavailable",
+  );
   await page.unroute("**/api/auth/sessions");
-  await region
-    .getByRole("button", { name: "Retry sessions", exact: true })
-    .click();
+  await region.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(region.getByText("This browser", { exact: true })).toBeVisible();
 });
 
@@ -184,10 +179,8 @@ test("revoking a session requires confirmation, keeps the dialog open after an e
     .and(page.locator(":enabled"))
     .first();
   await action.click();
-  const dialog = page.getByRole("dialog", { name: "Revoke this session?" });
-  await dialog
-    .getByRole("button", { name: "Keep session", exact: true })
-    .click();
+  const dialog = page.getByRole("dialog", { name: "Revoke session?" });
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   expect(
     (await (await page.request.get("/api/auth/sessions")).json()).items,
   ).toHaveLength(before.length);
@@ -201,15 +194,11 @@ test("revoking a session requires confirmation, keeps the dialog open after an e
       }),
     }),
   );
-  await dialog
-    .getByRole("button", { name: "Revoke session", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(feedbackToast(page, "Could not revoke")).toBeVisible();
   await expect(dialog).toBeVisible();
   await page.unroute("**/api/auth/sessions/*");
-  await dialog
-    .getByRole("button", { name: "Revoke session", exact: true })
-    .click();
+  await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(() => !!document.activeElement?.closest("main")))
@@ -259,10 +248,8 @@ test("a lost committed revocation response reconciles against the server", async
       expect((await route.fetch()).status()).toBe(200);
       await route.abort("failed");
     });
-    const dialog = page.getByRole("dialog", { name: "Revoke this session?" });
-    await dialog
-      .getByRole("button", { name: "Revoke session", exact: true })
-      .click();
+    const dialog = page.getByRole("dialog", { name: "Revoke session?" });
+    await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     await expect(
       region.getByRole("button", { name: "Revoke", exact: true }),

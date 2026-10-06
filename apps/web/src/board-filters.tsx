@@ -1,3 +1,5 @@
+import { SecondarySection } from "@avgeek-oss/design-system/navigation/secondary-sidebar";
+import { ChoiceField, HistoryFilter } from "@avgeek-oss/design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   FilterResetIcon,
@@ -5,13 +7,7 @@ import {
   Layers01Icon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
-import {
-  Avatar,
-  Button,
-  Choice,
-  SecondarySection,
-  useAppSuspended,
-} from "@mill/web-design-system";
+import { Avatar, Button, useAppSuspended } from "@mill/web-design-system";
 import type { Member } from "../../../packages/contracts/src/index.js";
 import type { BoardUrlState } from "./board-url.js";
 import { priorityOptions } from "./task-priority.js";
@@ -35,111 +31,79 @@ export function BoardFilters({
   return (
     <div className="grid min-w-0 gap-3" aria-label="Task filters">
       <SecondarySection title="Sort tasks">
-        <Choice
+        <ChoiceField
           label="Sort order"
           value={filters.sort}
           onChange={(sort) => onChange({ sort, page: 1 })}
-          items={[
-            { id: "createdAt", name: "Newest first" },
-            { id: "title", name: "Title" },
-            { id: "updatedAt", name: "Recently updated" },
-            { id: "dueDate", name: "Due date" },
-            { id: "priority", name: "Priority" },
-            { id: "status", name: "Status" },
+          options={[
+            { id: "createdAt", label: "Newest first" },
+            { id: "title", label: "Title" },
+            { id: "updatedAt", label: "Recently updated" },
+            { id: "dueDate", label: "Due date" },
+            { id: "priority", label: "Priority" },
+            { id: "status", label: "Status" },
           ].map((item) => ({
             ...item,
-            startContent: (
-              <HugeiconsIcon
-                icon={Layers01Icon}
-                className="size-4 shrink-0"
-                aria-hidden="true"
-              />
-            ),
+            icon: <HugeiconsIcon icon={Layers01Icon} size={16} aria-hidden />,
           }))}
         />
       </SecondarySection>
       <SecondarySection title="Filter tasks">
         <div className="grid min-w-0 gap-4">
-          <Choice
+          <HistoryFilter
             label="Assignee"
             value={filters.assigneeId}
             onChange={(assigneeId) => onChange({ assigneeId, page: 1 })}
-            items={[
-              {
-                id: "",
-                name: "All assignees",
-                startContent: (
-                  <HugeiconsIcon
-                    icon={UserGroupIcon}
-                    className="size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                ),
-              },
+            allIcon={
+              <HugeiconsIcon icon={UserGroupIcon} size={16} aria-hidden />
+            }
+            searchPlaceholder="Search assignees…"
+            options={[
               {
                 id: "unassigned",
-                name: "Unassigned",
-                muted: true,
-                startContent: (
-                  <HugeiconsIcon
-                    icon={UserGroupIcon}
-                    className="size-4 shrink-0"
-                    aria-hidden="true"
-                  />
+                label: "Unassigned",
+                icon: (
+                  <HugeiconsIcon icon={UserGroupIcon} size={16} aria-hidden />
                 ),
               },
               ...members.map((member) => ({
                 id: member.id,
-                name: member.name,
-                startContent: (
+                label: member.name,
+                searchText: `${member.name} ${member.email}`,
+                icon: (
                   <Avatar
-                    className="size-5"
                     email={member.email}
                     name={member.name}
                     size="sm"
+                    className="size-5"
                   />
                 ),
               })),
             ]}
-            search
           />
-          <Choice
+          <HistoryFilter
             label="Priority"
             value={filters.priority}
             onChange={(priority) => onChange({ priority, page: 1 })}
-            items={[
-              {
-                id: "",
-                name: "All priorities",
-                startContent: (
-                  <HugeiconsIcon
-                    icon={Flag01Icon}
-                    className="size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                ),
-              },
-              ...priorityOptions,
-            ]}
+            allIcon={<HugeiconsIcon icon={Flag01Icon} size={16} aria-hidden />}
+            options={priorityOptions.map((option) => ({
+              id: option.id,
+              label: option.name,
+              icon: option.startContent,
+            }))}
           />
-          <Choice
+          <HistoryFilter
             label="Status"
             value={filters.status}
             onChange={(status) => onChange({ status, page: 1 })}
-            items={[
-              {
-                id: "",
-                name: "All statuses",
-                startContent: (
-                  <HugeiconsIcon
-                    icon={Layers01Icon}
-                    className="size-4 shrink-0"
-                    aria-hidden="true"
-                  />
-                ),
-              },
-              ...statusOptions,
-            ]}
+            allIcon={
+              <HugeiconsIcon icon={Layers01Icon} size={16} aria-hidden />
+            }
+            options={statusOptions.map((option) => ({
+              id: option.id,
+              label: option.name,
+              icon: option.startContent,
+            }))}
           />
           {(hasFilters || filters.sort !== "createdAt") && (
             <Button variant="secondary" onPress={onClear}>

@@ -39,7 +39,12 @@
         "groups": [
           {
             "group": "Install and configure",
-            "pages": ["installation", "configuration", "security"]
+            "pages": [
+              "installation",
+              "package-registry",
+              "configuration",
+              "security"
+            ]
           },
           {
             "group": "Operate Mill",

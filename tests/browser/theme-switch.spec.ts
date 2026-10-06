@@ -23,8 +23,8 @@ for (const width of [1280, 390]) {
     });
     try {
       await context.addInitScript(() => {
-        if (!localStorage.getItem("mill:theme"))
-          localStorage.setItem("mill:theme", "light");
+        if (!localStorage.getItem("avgeek-oss-ui-theme"))
+          localStorage.setItem("avgeek-oss-ui-theme", "light");
       });
       const page = await context.newPage();
       await authenticateBrowserFixture(page, fixture);

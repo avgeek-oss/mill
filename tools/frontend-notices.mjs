@@ -1,5 +1,13 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import {
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  parse,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 
@@ -19,6 +27,19 @@ function sourcePath(id, root) {
 }
 
 function owningPackage(path) {
+  const parts = path.slice(parse(path).root.length).split(sep);
+  const installedAt = parts.lastIndexOf("node_modules");
+  if (installedAt !== -1) {
+    const name = parts[installedAt + 1];
+    const packageEnd = installedAt + (name?.startsWith("@") ? 3 : 2);
+    const directory = join(parse(path).root, ...parts.slice(0, packageEnd));
+    const manifest = join(directory, "package.json");
+    if (existsSync(manifest)) {
+      const metadata = JSON.parse(readFileSync(manifest, "utf8"));
+      if (metadata.name && metadata.version) return { directory, metadata };
+    }
+    throw new Error(`Cannot identify the installed package owning ${path}`);
+  }
   let directory = dirname(path);
   while (directory !== dirname(directory)) {
     const manifest = join(directory, "package.json");

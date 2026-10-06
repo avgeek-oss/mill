@@ -1,26 +1,25 @@
+import { QueryFeedback } from "./query-feedback.js";
 // Adapted from Towbar's public Apache-2.0 API/MCP settings composition.
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { Board } from "../../../packages/contracts/src/index.js";
 import {
   Button,
-  Chip,
   Choice,
   Dialog,
-  EmptyState,
   QueryLoading,
   ErrorMessage,
-  Table,
-  TableCellStack,
-  TableCellDescription,
   TextField,
   toast,
 } from "@mill/web-design-system";
-import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Key01Icon,
-  Copy01Icon,
-  ShieldBanIcon,
-} from "@hugeicons/core-free-icons";
+  ApiKeysSettings as SharedApiKeysSettings,
+  AuthorizedClientsTable,
+  AsyncActionButton,
+  type ApiKey,
+  type AuthorizedClient,
+} from "@avgeek-oss/design-system";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Key01Icon, Copy01Icon } from "@hugeicons/core-free-icons";
 import { Plus } from "./icons.js";
 import {
   api,
@@ -38,6 +37,8 @@ type Credential = {
   scopes: string[];
   boardIds: string[] | null;
   tokenType: "api-key" | "oauth";
+  tokenPrefix?: string;
+  oauthClientId?: string | null;
   expiresAt: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -219,82 +220,9 @@ function CreateCredential({
   );
 }
 
-function RevokeCredential({
-  credential,
-  onClose,
-  onRevoked,
-}: {
-  credential: Credential;
-  onClose: () => void;
-  onRevoked: (id: string) => void;
-}) {
-  const [retryKey] = useState(createRetryKey);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  function close() {
-    if (!pending) onClose();
-  }
-  async function revoke() {
-    if (pending) return;
-    setPending(true);
-    setError("");
-    const path = `/credentials/${credential.id}`;
-    try {
-      await api(path, undefined, "DELETE", {
-        validateResponse: (value) =>
-          isResponseObject(value) && value.revoked === true,
-        headers: {
-          "Idempotency-Key": retryKey.forRequest(path, undefined, "DELETE"),
-        },
-      });
-      retryKey.reset();
-      onRevoked(credential.id);
-      toast.success("API key revoked.");
-      onClose();
-    } catch (cause) {
-      setError(errorText(cause));
-    } finally {
-      setPending(false);
-    }
-  }
-  return (
-    <Dialog
-      open
-      title="Revoke API key?"
-      onClose={close}
-      isDismissDisabled={pending}
-      footer={
-        <>
-          <Button variant="secondary" onPress={close} isDisabled={pending}>
-            Cancel
-          </Button>
-          <Button
-            variant="danger"
-            onPress={() => void revoke()}
-            isDisabled={pending}
-          >
-            {pending ? "Revoking…" : "Revoke API key"}
-          </Button>
-        </>
-      }
-    >
-      <div className="content-grid">
-        <p className="text-sm font-normal text-muted">
-          Tools using{" "}
-          <strong className="font-normal text-foreground">
-            {credential.name}
-          </strong>{" "}
-          will lose access immediately. You can create a new key if they need
-          access again.
-        </p>
-        <ErrorMessage>{error}</ErrorMessage>
-      </div>
-    </Dialog>
-  );
-}
-
 export function ApiKeySettings({
   session,
+  boards,
   onRefresh,
 }: {
   session: Session;
@@ -308,7 +236,9 @@ export function ApiKeySettings({
   const [morePending, setMorePending] = useState(false);
   const [moreError, setMoreError] = useState("");
   const [creating, setCreating] = useState(false);
-  const [revoking, setRevoking] = useState<Credential | null>(null);
+  const revokeKeys = useRef(
+    new Map<string, ReturnType<typeof createRetryKey>>(),
+  );
   const generation = useRef(0);
   const revokedIds = useRef(new Set<string>());
   const visibleCredentials = useCallback(
@@ -389,12 +319,72 @@ export function ApiKeySettings({
       if (current === generation.current) setError(errorText(cause));
     }
   }
+  async function revoke(id: string) {
+    const path = `/credentials/${id}`;
+    let retryKey = revokeKeys.current.get(id);
+    if (!retryKey) {
+      retryKey = createRetryKey();
+      revokeKeys.current.set(id, retryKey);
+    }
+    await api(path, undefined, "DELETE", {
+      validateResponse: (value) =>
+        isResponseObject(value) && value.revoked === true,
+      headers: {
+        "Idempotency-Key": retryKey.forRequest(path, undefined, "DELETE"),
+      },
+    });
+    revokeKeys.current.delete(id);
+    revokedIds.current.add(id);
+    setItems((previous) => previous?.filter((item) => item.id !== id) ?? null);
+    toast.success("Access revoked.");
+    onRefresh();
+  }
+  function keyRecord(credential: Credential): ApiKey {
+    const state = stateOf(credential);
+    return {
+      id: credential.id,
+      name: credential.name,
+      expiresAt: credential.expiresAt,
+      tokenHint: credential.tokenPrefix,
+      createdAt: credential.createdAt,
+      lastUsedAt: credential.lastUsedAt,
+      permissions: "Your current REST permissions",
+      status: {
+        label: state,
+        color: state === "Active" ? "success" : "warning",
+      },
+    };
+  }
+  function authorizedRecord(credential: Credential): AuthorizedClient {
+    const boardNames = credential.boardIds
+      ?.map((id) => boards.find((board) => board.id === id)?.name)
+      .filter((name): name is string => !!name);
+    const permissions = credential.scopes.includes("write")
+      ? "Read and edit"
+      : "Read only";
+    return {
+      ...keyRecord(credential),
+      client: {
+        name: credential.name,
+        ...(credential.oauthClientId ? { id: credential.oauthClientId } : {}),
+      },
+      permissions: `${permissions}${credential.boardIds ? (boardNames?.length ? ` · ${boardNames.join(", ")}` : " · Approved boards") : " · All boards"}`,
+    };
+  }
+  const apiKeys = (items ?? [])
+    .filter((item) => item.tokenType === "api-key")
+    .map(keyRecord);
+  const authorizedClients = (items ?? [])
+    .filter((item) => item.tokenType === "oauth")
+    .map(authorizedRecord);
+  const formatDate = (value: string) => (
+    <RelativeDateTime value={value} timeZone={session.user.timeZone} />
+  );
   return (
     <section className="settings-page min-w-0">
       <PageHeading
         title="API keys"
         icon={<HugeiconsIcon icon={Key01Icon} size={20} />}
-
         actions={
           <Button onPress={() => setCreating(true)}>
             <Plus /> Create API key
@@ -402,189 +392,62 @@ export function ApiKeySettings({
         }
       />
       <section
-        className="min-w-0 space-y-3"
+        className="content-grid min-w-0"
         aria-label="API keys"
         role="region"
         aria-busy={pending || morePending}
       >
-        <div className="min-w-0">
-          {pending && items === null ? (
-            <QueryLoading label="Loading API keys" />
-          ) : error && items === null ? (
-            <div className="content-grid">
-              <ErrorMessage>{error}</ErrorMessage>
-              <Button variant="secondary" onPress={() => void refresh()}>
-                Retry loading API keys
-              </Button>
-            </div>
-          ) : items?.length ? (
-            <Table>
-              <Table.ScrollContainer>
-                <Table.Content
-                  aria-label="API keys"
-                  className="w-full! table-fixed!"
+        {error ? (
+          <QueryFeedback message={error} onRetry={() => void refresh()} />
+        ) : null}
+        {pending && items === null ? (
+          <QueryLoading>Loading API keys</QueryLoading>
+        ) : items !== null ? (
+          <>
+            <SharedApiKeysSettings
+              items={apiKeys}
+              formatDate={formatDate}
+              emptyDescription="Create a personal key to use Mill through the REST API."
+              onRevoke={revoke}
+            />
+            <h2 className="text-lg font-medium">Authorized clients</h2>
+            <AuthorizedClientsTable
+              items={authorizedClients}
+              formatDate={formatDate}
+              emptyDescription="Connect an MCP client by signing in and approving its access."
+              actions={(item) => (
+                <AsyncActionButton
+                  variant="danger"
+                  onAction={() => revoke(item.id)}
+                  confirmation={{
+                    title: `Revoke ${item.client.name}?`,
+                    description:
+                      "This client will lose access immediately. Sign in from the client again to reconnect.",
+                    confirmLabel: "Revoke access",
+                  }}
                 >
-                  <Table.Header>
-                    <Table.Column isRowHeader className="md:w-1/4">
-                      Name
-                    </Table.Column>
-                    <Table.Column className="hidden md:table-cell">
-                      Status
-                    </Table.Column>
-                    <Table.Column className="hidden md:table-cell">
-                      Created
-                    </Table.Column>
-                    <Table.Column className="hidden md:table-cell">
-                      Expires
-                    </Table.Column>
-                    <Table.Column className="hidden md:table-cell">
-                      Last used
-                    </Table.Column>
-                    <Table.Column className="hidden md:table-cell md:w-32">
-                      Action
-                    </Table.Column>
-                  </Table.Header>
-                  <Table.Body>
-                    {items.map((credential) => {
-                      const state = stateOf(credential);
-                      const status = (
-                        <Chip
-                          size="small"
-                          variant={state === "Active" ? "success" : "warning"}
-                        >
-                          {state}
-                        </Chip>
-                      );
-                      const revoke =
-                        state === "Active" ? (
-                          <Button
-                            variant="danger-soft"
-                            aria-label={`Revoke ${credential.name}`}
-                            onPress={() => setRevoking(credential)}
-                          >
-                            <HugeiconsIcon icon={ShieldBanIcon} size={16} />
-                            Revoke
-                          </Button>
-                        ) : null;
-                      return (
-                        <Table.Row key={credential.id} id={credential.id}>
-                          <Table.Cell className="whitespace-normal!">
-                            <TableCellStack className="md:max-w-xs">
-                              <span className="break-words">
-                                {credential.name}
-                              </span>
-                              <div className="grid gap-0.5 md:hidden">
-                                <RelativeDateTime
-                                  value={credential.createdAt}
-                                  timeZone={session.user.timeZone}
-                                  label="Created"
-                                  prefix="Created"
-                                  compact
-                                />
-                                <RelativeDateTime
-                                  value={credential.expiresAt}
-                                  timeZone={session.user.timeZone}
-                                  label="Expires"
-                                  prefix="Expires"
-                                  compact
-                                />
-                                {credential.lastUsedAt ? (
-                                  <RelativeDateTime
-                                    value={credential.lastUsedAt}
-                                    timeZone={session.user.timeZone}
-                                    label="Last used"
-                                    prefix="Last used"
-                                    compact
-                                  />
-                                ) : (
-                                  <TableCellDescription>
-                                    Never used
-                                  </TableCellDescription>
-                                )}
-                              </div>
-                              <div className="flex items-center justify-between gap-3 pt-1 md:hidden">
-                                {status}
-                                {revoke}
-                              </div>
-                            </TableCellStack>
-                          </Table.Cell>
-                          <Table.Cell className="hidden md:table-cell">
-                            {status}
-                          </Table.Cell>
-                          <Table.Cell className="hidden whitespace-normal! md:table-cell">
-                            <RelativeDateTime
-                              value={credential.createdAt}
-                              timeZone={session.user.timeZone}
-                              label="Created"
-                            />
-                          </Table.Cell>
-                          <Table.Cell className="hidden whitespace-normal! md:table-cell">
-                            <RelativeDateTime
-                              value={credential.expiresAt}
-                              timeZone={session.user.timeZone}
-                              label="Expires"
-                            />
-                          </Table.Cell>
-                          <Table.Cell className="hidden whitespace-normal! md:table-cell">
-                            {credential.lastUsedAt ? (
-                              <RelativeDateTime
-                                value={credential.lastUsedAt}
-                                timeZone={session.user.timeZone}
-                                label="Last used"
-                              />
-                            ) : (
-                              <span className="text-sm font-normal text-muted">
-                                Never used
-                              </span>
-                            )}
-                          </Table.Cell>
-                          <Table.Cell className="hidden md:table-cell">
-                            {revoke ?? (
-                              <span className="text-sm font-normal text-muted">
-                                —
-                              </span>
-                            )}
-                          </Table.Cell>
-                        </Table.Row>
-                      );
-                    })}
-                  </Table.Body>
-                </Table.Content>
-              </Table.ScrollContainer>
-            </Table>
-          ) : (
-            <EmptyState>
-              <EmptyState.Header>
-                <EmptyState.Title>No API keys yet</EmptyState.Title>
-                <EmptyState.Description>
-                  Create a personal key to use Mill through the REST API.
-                </EmptyState.Description>
-              </EmptyState.Header>
-            </EmptyState>
-          )}
-          {items !== null && error && (
-            <div className="content-grid">
-              <ErrorMessage>{error}</ErrorMessage>
-              <Button variant="secondary" onPress={() => void refresh()}>
-                Retry loading API keys
-              </Button>
-            </div>
-          )}
-        </div>
-        {nextCursor && (
-          <div>
-            <div className="content-grid">
-              <ErrorMessage>{moreError}</ErrorMessage>
+                  Revoke
+                </AsyncActionButton>
+              )}
+            />
+          </>
+        ) : null}
+        {nextCursor ? (
+          <div className="content-grid">
+            {moreError ? (
+              <QueryFeedback message={moreError} onRetry={() => void more()} />
+            ) : null}
+            <div>
               <Button
                 variant="secondary"
                 isDisabled={morePending}
                 onPress={() => void more()}
               >
-                {moreError ? "Retry loading more" : "Load more API keys"}
+                {morePending ? "Loading…" : "Load more credentials"}
               </Button>
             </div>
           </div>
-        )}
+        ) : null}
       </section>
       {creating && (
         <CreateCredential
@@ -596,19 +459,6 @@ export function ApiKeySettings({
             ]);
             if (items === null) void refresh();
             else void reconcile();
-            onRefresh();
-          }}
-        />
-      )}
-      {revoking && (
-        <RevokeCredential
-          credential={revoking}
-          onClose={() => setRevoking(null)}
-          onRevoked={(id) => {
-            revokedIds.current.add(id);
-            setItems(
-              (previous) => previous?.filter((item) => item.id !== id) ?? null,
-            );
             onRefresh();
           }}
         />

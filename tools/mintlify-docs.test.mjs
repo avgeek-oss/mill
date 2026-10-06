@@ -23,6 +23,7 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     "home.css",
     "overview.md",
     "installation.md",
+    "package-registry.md",
     "getting-started.md",
     "workflows.md",
     "authentication.md",
@@ -95,6 +96,12 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     assert.equal(config.navbar.links[0].label, "v2.3.4");
     const routes = config.navigation.dropdowns.flatMap((section) =>
       section.groups.flatMap((group) => group.pages),
+    );
+    assert.ok(routes.includes("package-registry"));
+    assert.ok(
+      (await readFile(resolve(output, "installation.md"), "utf8")).includes(
+        "](/package-registry)",
+      ),
     );
     const pages = ["index.mdx", ...routes.map((route) => `${route}.md`)];
     const links = [

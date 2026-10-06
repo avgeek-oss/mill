@@ -1,4 +1,3 @@
-// Adapted from Towbar's Apache-2.0 account-menu composition.
 import {
   BookOpen01Icon,
   GithubIcon,
@@ -6,92 +5,96 @@ import {
   Mail01Icon,
   Message01Icon,
   News01Icon,
+  Logout01Icon,
   Settings01Icon,
   UserAccountIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Dropdown, Header } from "@mill/web-design-system";
+import { SidebarAccountMenu } from "@avgeek-oss/design-system";
+import { navigate } from "./api.js";
 
-const repository = "https://github.com/avgeek-inc/mill";
+const repository = "https://github.com/avgeek-oss/mill";
+const externalLinks: Record<string, string> = {
+  changelog: `${repository}/blob/main/CHANGELOG.md`,
+  documentation: "https://mill.fyi",
+  feedback: `${repository}/issues/new/choose`,
+  contribute: `${repository}/blob/main/CONTRIBUTING.md`,
+};
 
-export function AccountMenuItems() {
+export function AccountMenu({
+  name,
+  email,
+  teamName,
+  onLogout,
+}: {
+  name: string;
+  email: string;
+  teamName: string;
+  onLogout: () => void;
+}) {
   return (
-    <>
-      <Dropdown.Section aria-label="Account" className="w-full">
-        <Header className="px-2 py-1.5 text-xs font-medium text-muted">
-          Account
-        </Header>
-        {[
-          { id: "profile", label: "Profile", icon: UserAccountIcon },
-          { id: "preferences", label: "Preferences", icon: Settings01Icon },
-          { id: "email-password", label: "Auth & Security", icon: Mail01Icon },
-          { id: "api-keys", label: "My API Keys", icon: Key01Icon },
-        ].map((item) => (
-          <Dropdown.Item
-            key={item.id}
-            id={`account-${item.id}`}
-            href={`/settings/${item.id}`}
-            textValue={item.label}
-          >
-            <HugeiconsIcon
-              aria-hidden
-              icon={item.icon}
-              className="size-4 shrink-0 text-muted"
-            />
-            {item.label}
-          </Dropdown.Item>
-        ))}
-      </Dropdown.Section>
-      <Dropdown.Section
-        aria-label="Mill"
-        className="mt-1.5 w-full border-t border-separator pt-1.5"
-      >
-        <Header className="px-2 py-1.5 text-xs font-medium text-muted">
-          Mill
-        </Header>
-        {[
-          {
-            id: "changelog",
-            label: "Changelog",
-            icon: News01Icon,
-            href: `${repository}/blob/main/CHANGELOG.md`,
-          },
-          {
-            id: "documentation",
-            label: "Documentation",
-            icon: BookOpen01Icon,
-            href: "https://mill.fyi",
-          },
-          {
-            id: "feedback",
-            label: "Feedback",
-            icon: Message01Icon,
-            href: `${repository}/issues/new/choose`,
-          },
-          {
-            id: "contribute",
-            label: "Repo / Contribute",
-            icon: GithubIcon,
-            href: `${repository}/blob/main/CONTRIBUTING.md`,
-          },
-        ].map((item) => (
-          <Dropdown.Item
-            key={item.id}
-            id={item.id}
-            href={item.href}
-            target="_blank"
-            rel="noopener noreferrer"
-            textValue={item.label}
-          >
-            <HugeiconsIcon
-              aria-hidden
-              icon={item.icon}
-              className="size-4 shrink-0 text-muted"
-            />
-            {item.label}
-          </Dropdown.Item>
-        ))}
-      </Dropdown.Section>
-    </>
+    <SidebarAccountMenu
+      name={name}
+      email={email}
+      teamName={teamName}
+      groups={[
+        {
+          id: "account",
+          label: "Account",
+          items: [
+            { id: "profile", label: "Profile", icon: UserAccountIcon },
+            { id: "preferences", label: "Preferences", icon: Settings01Icon },
+            {
+              id: "email-password",
+              label: "Auth & Security",
+              icon: Mail01Icon,
+            },
+            { id: "api-keys", label: "My API Keys", icon: Key01Icon },
+          ].map((item) => ({
+            ...item,
+            id: `account-${item.id}`,
+            icon: <HugeiconsIcon icon={item.icon} aria-hidden />,
+          })),
+        },
+        {
+          id: "mill",
+          label: "Mill",
+          items: [
+            { id: "changelog", label: "Changelog", icon: News01Icon },
+            {
+              id: "documentation",
+              label: "Documentation",
+              icon: BookOpen01Icon,
+            },
+            { id: "feedback", label: "Feedback", icon: Message01Icon },
+            { id: "contribute", label: "Repo / Contribute", icon: GithubIcon },
+          ].map((item) => ({
+            ...item,
+            icon: <HugeiconsIcon icon={item.icon} aria-hidden />,
+          })),
+        },
+        {
+          id: "session",
+          label: "Session",
+          items: [
+            {
+              id: "logout",
+              label: "Sign out",
+              icon: <HugeiconsIcon icon={Logout01Icon} aria-hidden />,
+              destructive: true,
+            },
+          ],
+        },
+      ]}
+      onAction={(id) => {
+        if (id === "logout") onLogout();
+        else if (id.startsWith("account-"))
+          navigate(`/settings/${id.slice(8)}`);
+        else {
+          const href = externalLinks[id];
+          if (href) window.open(href, "_blank", "noopener,noreferrer");
+        }
+      }}
+    />
   );
 }

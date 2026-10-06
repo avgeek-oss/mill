@@ -1,3 +1,7 @@
+import { QueryFeedback } from "./query-feedback.js";
+import { AppShellBreadcrumb } from "@avgeek-oss/design-system/layouts/app-shell-breadcrumb";
+import { usePageBreadcrumbs } from "./app-breadcrumbs.js";
+import { ChoiceField, ActionConfirmation } from "@avgeek-oss/design-system";
 import { useEffect, useRef, useState } from "react";
 import {
   Avatar,
@@ -100,6 +104,7 @@ export function TaskPage({
   onTaskLoaded: (task: Task) => void;
   sessionRevision: number;
 }) {
+  const breadcrumbs = usePageBreadcrumbs();
   const editor = useTaskEditor(taskId);
   const { task, values } = editor;
   const writable = user.role !== "viewer";
@@ -108,9 +113,9 @@ export function TaskPage({
     useState<DuplicateTaskSource | null>(null);
   const [closingDetails, setClosingDetails] = useState(false);
   const [boardError, setBoardError] = useState("");
+  const [boardRevision, setBoardRevision] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState("");
   const [leaving, setLeaving] = useState(false);
   const [deleteKey] = useState(createRetryKey);
   const deleteAttempt = useRef<{ version: number } | null>(null);
@@ -150,7 +155,7 @@ export function TaskPage({
     return () => {
       current = false;
     };
-  }, [boardId, onBoardLoaded, sessionRevision]);
+  }, [boardId, onBoardLoaded, sessionRevision, boardRevision]);
 
   useEffect(() => {
     if (editor.accessDenied) {
@@ -219,14 +224,12 @@ export function TaskPage({
     if (!task || deletePending.current) return;
     deletePending.current = true;
     setDeleting(true);
-    setDeleteError("");
     try {
       if (!deleteAttempt.current) {
         if (!(await editor.flushAll())) {
-          setDeleteError(
+          throw new Error(
             "Resolve the unsaved changes before deleting this task.",
           );
-          return;
         }
         const latest = await api<{ task: Task }>(
           `/tasks/${taskId}?commentLimit=0&activityLimit=0`,
@@ -248,6 +251,7 @@ export function TaskPage({
         },
       });
       deleteKey.reset();
+      toast.success("Task deleted.");
       window.history.replaceState(
         { ...window.history.state, millFocusAfterTaskDeletion: true },
         "",
@@ -263,7 +267,7 @@ export function TaskPage({
         deleteAttempt.current = null;
         deleteKey.reset();
       }
-      setDeleteError(errorText(error));
+      throw error;
     } finally {
       deletePending.current = false;
       setDeleting(false);
@@ -290,7 +294,17 @@ export function TaskPage({
       onRetry={() => void editor.reload()}
     />
   );
-  if (!editor.loading && (!task || !values)) return loadFailure;
+  if (!editor.loading && (!task || !values)) {
+    if (![403, 404].includes(editor.loadErrorStatus)) {
+      return (
+        <QueryFeedback
+          message={error || "This task could not be opened."}
+          onRetry={() => void editor.reload()}
+        />
+      );
+    }
+    return loadFailure;
+  }
   if (task && task.boardId !== boardId)
     return (
       <ErrorPage
@@ -317,6 +331,9 @@ export function TaskPage({
 
   return (
     <>
+      {!editor.accessDenied && (
+        <AppShellBreadcrumb items={breadcrumbs} title={task?.title ?? "Task"} />
+      )}
       {editor.accessDenied && loadFailure}
       <div
         ref={taskContent}
@@ -331,7 +348,18 @@ export function TaskPage({
               className="task-page w-full min-w-0"
               aria-busy={editor.loading}
             >
-              {boardError && <ErrorMessage>{boardError}</ErrorMessage>}
+              {boardError && (
+                <QueryFeedback
+                  message={boardError}
+                  onRetry={() => setBoardRevision((revision) => revision + 1)}
+                />
+              )}
+              {error && !editor.accessDenied && task && (
+                <QueryFeedback
+                  message={error}
+                  onRetry={() => void editor.reload()}
+                />
+              )}
               {task && values && (
                 <section
                   aria-label="Task details"
@@ -396,20 +424,22 @@ export function TaskPage({
                               <Dropdown.Menu
                                 aria-label="Task actions"
                                 onAction={(key) => {
-                                  if (key === "copy")
-                                    void navigator.clipboard
-                                      .writeText(
-                                        `${window.location.origin}/boards/${boardId}/tasks/${taskId}`,
-                                      )
-                                      .then(() => toast.success("Link copied."))
-                                      .catch(() =>
+                                  if (key === "copy") {
+                                    void (async () => {
+                                      try {
+                                        await navigator.clipboard.writeText(
+                                          `${window.location.origin}/boards/${boardId}/tasks/${taskId}`,
+                                        );
+                                        toast.success("Link copied.");
+                                      } catch {
                                         toast.danger(
                                           "Copy the task link from your address bar.",
-                                        ),
-                                      );
+                                        );
+                                      }
+                                    })();
+                                  }
                                   if (key === "delete") {
                                     const openConfirmation = () => {
-                                      setDeleteError("");
                                       setConfirmDelete(true);
                                     };
                                     if (
@@ -500,11 +530,15 @@ export function TaskPage({
                     aria-label="Task properties"
                   >
                     <div className="grid gap-2">
-                      <Choice
+                      <ChoiceField
                         label="Type"
                         value={values.type}
-                        items={taskTypeOptions}
-                        disabled={disabled}
+                        options={taskTypeOptions.map((option) => ({
+                          id: option.id,
+                          label: option.name,
+                          icon: option.startContent,
+                        }))}
+                        isDisabled={disabled}
                         onChange={(value) =>
                           editor.updateField("type", value as Task["type"])
                         }
@@ -512,11 +546,15 @@ export function TaskPage({
                       <FieldFeedback editor={editor} field="type" />
                     </div>
                     <div className="grid gap-2">
-                      <Choice
+                      <ChoiceField
                         label="Status"
                         value={values.status}
-                        items={statusOptions}
-                        disabled={disabled}
+                        options={statusOptions.map((option) => ({
+                          id: option.id,
+                          label: option.name,
+                          icon: option.startContent,
+                        }))}
+                        isDisabled={disabled}
                         onChange={(value) =>
                           editor.updateField("status", value as Task["status"])
                         }
@@ -535,11 +573,15 @@ export function TaskPage({
                       <FieldFeedback editor={editor} field="assigneeId" />
                     </div>
                     <div className="grid gap-2">
-                      <Choice
+                      <ChoiceField
                         label="Priority"
                         value={values.priority}
-                        items={priorityOptions}
-                        disabled={disabled}
+                        options={priorityOptions.map((option) => ({
+                          id: option.id,
+                          label: option.name,
+                          icon: option.startContent,
+                        }))}
+                        isDisabled={disabled}
                         onChange={(value) =>
                           editor.updateField(
                             "priority",
@@ -644,36 +686,15 @@ export function TaskPage({
                   }}
                 />
               )}
-              <Dialog
-                open={confirmDelete}
-                onClose={() => setConfirmDelete(false)}
-                isDismissDisabled={deleting}
+              <ActionConfirmation
+                isOpen={confirmDelete}
+                onOpenChange={setConfirmDelete}
                 title="Delete this task?"
-                footer={
-                  <>
-                    <Button
-                      variant="secondary"
-                      isDisabled={deleting}
-                      onPress={() => setConfirmDelete(false)}
-                    >
-                      Keep task
-                    </Button>
-                    <Button
-                      variant="danger"
-                      isDisabled={deleting}
-                      onPress={() => void removeTask()}
-                    >
-                      {deleting ? "Deleting…" : "Delete task"}
-                    </Button>
-                  </>
-                }
-              >
-                <TypographyParagraph size="sm">
-                  Permanently delete “{task?.title}” and its comments and
-                  history? This cannot be undone.
-                </TypographyParagraph>
-                <ErrorMessage>{deleteError}</ErrorMessage>
-              </Dialog>
+                description={`Permanently delete “${task?.title}” and its comments and history? This cannot be undone.`}
+                confirmLabel="Delete task"
+                variant="danger"
+                onConfirm={removeTask}
+              />
             </div>
           </PortalProvider>
         </SuspendedAppProvider>

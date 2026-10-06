@@ -1,3 +1,4 @@
+import { ChoiceField } from "@avgeek-oss/design-system";
 import { useEffect, useId, useRef, useState } from "react";
 import type { Member, Task } from "../../../packages/contracts/src/index.js";
 import {
@@ -187,28 +188,40 @@ export function CreateTaskDialog({
           disabled={!writable || pending}
           className="min-w-0 w-full max-md:text-base!"
         />
-        <Choice
+        <ChoiceField
           label="Type"
           value={type}
           onChange={(value) => setType(value as Task["type"])}
-          disabled={!writable || pending}
-          items={taskTypeOptions}
+          isDisabled={!writable || pending}
+          options={taskTypeOptions.map((option) => ({
+            id: option.id,
+            label: option.name,
+            icon: option.startContent,
+          }))}
         />
         {duplicateSource && (
           <>
-            <Choice
+            <ChoiceField
               label="Status"
               value={status}
               onChange={(value) => setStatus(value as Task["status"])}
-              disabled={!writable || pending}
-              items={statusOptions}
+              isDisabled={!writable || pending}
+              options={statusOptions.map((option) => ({
+                id: option.id,
+                label: option.name,
+                icon: option.startContent,
+              }))}
             />
-            <Choice
+            <ChoiceField
               label="Priority"
               value={priority}
               onChange={(value) => setPriority(value as Task["priority"])}
-              disabled={!writable || pending}
-              items={priorityOptions}
+              isDisabled={!writable || pending}
+              options={priorityOptions.map((option) => ({
+                id: option.id,
+                label: option.name,
+                icon: option.startContent,
+              }))}
             />
           </>
         )}

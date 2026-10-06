@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -38,7 +39,11 @@ jobs:
         with:
           node-version: 24.16.0
           cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: "@avgeek-oss"
       - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
       - run: pnpm verify
         env:
           NODE_ENV: production
@@ -71,7 +76,11 @@ jobs:
         with:
           node-version: 24.16.0
           cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: "@avgeek-oss"
       - run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm build
         env:
@@ -98,6 +107,7 @@ jobs:
       - name: Build and exercise a disposable production installation
         env:
           MILL_VERIFY_EXPECT_ARCH: amd64
+          NODE_AUTH_TOKEN: ${{ github.token }}
         run: node tools/production-verify.mjs
       - name: Preserve production evidence
         if: always()
@@ -127,6 +137,7 @@ jobs:
     permissions:
       contents: read
       checks: read
+      packages: read
     uses: ./.github/workflows/release-artifacts.yml
     with:
       source_revision: ${{ github.sha }}

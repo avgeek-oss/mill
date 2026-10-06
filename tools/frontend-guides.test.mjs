@@ -9,7 +9,20 @@ test("curated installed guides retain commands, resolve every local link and exc
   const guides = await renderGuides({
     stylesheets: ["assets/index-guide.css"],
   });
-  assert.equal(guides.size, 14);
+  assert.equal(guides.size, 15);
+  assert.ok(
+    guides
+      .get("guides/installation.html")
+      .includes('href="/guides/package-registry.html"'),
+  );
+  assert.ok(
+    guides.get("guides/package-registry.html").includes("read:packages"),
+  );
+  assert.ok(
+    guides
+      .get("guides/package-registry.html")
+      .includes("tools/with-package-token.mjs"),
+  );
   assert.ok(guides.get("guides/clients.html").includes("/mcp"));
   assert.ok(guides.get("guides/backup.html").includes("tools/backup.sh"));
   assert.ok(
@@ -74,7 +87,7 @@ test("build plugin emits static guides using actual CSS assets and rejects a sty
       script: { type: "chunk", fileName: "assets/index-built.js" },
     },
   );
-  assert.equal(emitted.length, 14);
+  assert.equal(emitted.length, 15);
   assert.ok(emitted.every((asset) => asset.type === "asset"));
   assert.ok(
     emitted

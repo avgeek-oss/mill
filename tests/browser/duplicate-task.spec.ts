@@ -164,17 +164,19 @@ for (const width of [1280, 390])
           dialog.getByLabel("Description", { exact: true }),
         ).toHaveValue(source.task.description);
         await expect(
-          dialog.getByRole("button", {
-            name: theme === "dark" ? "Bug Type" : "Task Type",
-          }),
+          dialog
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: theme === "dark" ? "Bug" : "Task" }),
         ).toBeVisible();
         await expect(
-          dialog.getByRole("button", {
-            name: theme === "dark" ? "Urgent Priority" : "Low Priority",
-          }),
+          dialog
+            .getByRole("button", { name: /Priority$/ })
+            .filter({ hasText: theme === "dark" ? "Urgent" : "Low" }),
         ).toBeVisible();
         await expect(
-          dialog.getByRole("button", { name: "Backlog Status" }),
+          dialog
+            .getByRole("button", { name: /Status$/ })
+            .filter({ hasText: "Backlog" }),
         ).toBeVisible();
         await expect(
           dialog.getByRole("button", { name: "Unassigned Assignee" }),
@@ -239,7 +241,9 @@ for (const width of [1280, 390])
           name: "Task properties",
         });
         await expect(
-          properties.getByRole("button", { name: "Backlog Status" }),
+          properties
+            .getByRole("button", { name: /Status$/ })
+            .filter({ hasText: "Backlog" }),
         ).toBeVisible();
         await expect(
           properties.getByRole("button", { name: "Unassigned Assignee" }),
@@ -279,10 +283,12 @@ for (const width of [1280, 390])
           fresh.getByLabel("Description", { exact: true }),
         ).toHaveValue("");
         await expect(
-          fresh.getByRole("button", { name: "Task Type" }),
+          fresh
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Task" }),
         ).toBeVisible();
         await expect(
-          fresh.getByRole("button", { name: / (Status|Priority)$/ }),
+          fresh.getByRole("button", { name: /(?:Status|Priority)$/ }),
         ).toHaveCount(0);
         await fresh
           .getByRole("button", { name: "Cancel", exact: true })
@@ -335,11 +341,17 @@ test("a committed duplicate retries with the same key after its response is lost
     source.task.description,
   );
   await expect(
-    dialog.getByRole("button", { name: "Urgent Priority" }),
+    dialog
+      .getByRole("button", { name: /Priority$/ })
+      .filter({ hasText: "Urgent" }),
   ).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Bug Type" })).toBeVisible();
   await expect(
-    dialog.getByRole("button", { name: "Backlog Status" }),
+    dialog.getByRole("button", { name: /Type$/ }).filter({ hasText: "Bug" }),
+  ).toBeVisible();
+  await expect(
+    dialog
+      .getByRole("button", { name: /Status$/ })
+      .filter({ hasText: "Backlog" }),
   ).toBeVisible();
   await expect(page).toHaveURL(`/boards/${boardId}/tasks/${source.task.id}`);
   await submit.click();

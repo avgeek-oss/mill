@@ -8,12 +8,9 @@ import {
   UserAccountIcon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
+import { navigate } from "./api.js";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  SecondaryLinks,
-  SecondarySection,
-  SecondarySidebar,
-} from "@mill/web-design-system";
+import { SecondaryItems } from "@avgeek-oss/design-system/navigation/secondary-sidebar";
 
 export const accountSections = [
   {
@@ -76,31 +73,20 @@ export function isAccountSection(section?: string) {
 export function SettingsNavigation({ section }: { section: string }) {
   const account = isAccountSection(section);
   return (
-    <SecondarySidebar
-      title={account ? "Account settings" : "Team settings"}
-      hideTitle
-      items={[]}
-    >
+    <>
       {(account ? accountSections : teamSections).map((group) => (
-        <SecondarySection key={group.title} title={group.title}>
-          <SecondaryLinks
-            items={group.items.map((item) => ({
-              id: item.id,
-              href: `/settings/${item.id}`,
-              label: item.label,
-              icon: (
-                <HugeiconsIcon
-                  aria-hidden
-                  icon={item.icon}
-                  size={16}
-                  className="size-4 shrink-0"
-                />
-              ),
-              active: canonicalSettingsSection(section) === item.id,
-            }))}
-          />
-        </SecondarySection>
+        <SecondaryItems
+          key={group.title}
+          title={group.title}
+          selected={canonicalSettingsSection(section)}
+          onSelect={(id) => navigate(`/settings/${id}`)}
+          items={group.items.map((item) => ({
+            id: item.id,
+            label: item.label,
+            icon: <HugeiconsIcon aria-hidden icon={item.icon} />,
+          }))}
+        />
       ))}
-    </SecondarySidebar>
+    </>
   );
 }

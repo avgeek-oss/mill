@@ -62,6 +62,11 @@ const pages = [
     "Install Mill with Docker Compose and PostgreSQL.",
   ],
   [
+    "package-registry",
+    "Package registry setup",
+    "Authenticate source builds to GitHub Packages.",
+  ],
+  [
     "getting-started",
     "Your first board",
     "Set up a workspace and make your first task.",
@@ -210,7 +215,12 @@ const config = {
         groups: [
           {
             group: "Install and configure",
-            pages: ["installation", "configuration", "security"],
+            pages: [
+              "installation",
+              "package-registry",
+              "configuration",
+              "security",
+            ],
           },
           {
             group: "Operate Mill",

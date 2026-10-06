@@ -229,7 +229,7 @@ for (const width of [1280, 390])
               ? ["Task", "Status", "Assignee", "Priority"]
               : ["Task ID", "Task", "Status", "Assignee", "Priority"],
           );
-          const row = table.locator(`[data-task-id="${taskId}"]`);
+          const row = table.locator(`[data-key="${taskId}"]`);
           const title = row.getByRole("link", { name: /^Release task todo/ });
           const id = row.getByRole("link", {
             name: task.identifier,

@@ -1,4 +1,4 @@
-// Adapted from Towbar's Apache-2.0 team-settings and ResourceTable compositions.
+import { QueryFeedback } from "./query-feedback.js";
 import {
   useCallback,
   useEffect,
@@ -8,21 +8,22 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Avatar,
-  Button,
-  Chip,
   Choice,
   Dialog,
-  EmptyState,
-  QueryLoading,
   ErrorMessage,
-  Table,
-  TableCellStack,
-  TableCellDescription,
-  Tooltip,
   TextField,
-  toast,
 } from "@mill/web-design-system";
+import {
+  Button,
+  QueryLoading,
+  MembersTable,
+  ResourceTable,
+  StatusIndicator,
+} from "@avgeek-oss/design-system";
+import { Tooltip } from "@avgeek-oss/design-system/overlays/tooltip";
+import { toast } from "@avgeek-oss/design-system/overlays/toast";
+import { UserAvatar } from "@avgeek-oss/design-system/patterns/user-avatar";
+import type { ChoiceOption } from "@avgeek-oss/design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Copy01Icon,
@@ -33,12 +34,10 @@ import {
   CheckmarkCircle01Icon,
   InformationCircleIcon,
   Mail01Icon,
-  PencilEdit02Icon,
   UserMultipleIcon,
 } from "@hugeicons/core-free-icons";
 import type { Member, Role } from "../../../packages/contracts/src/index.js";
 import { ApiError, api, errorText, type Session } from "./api.js";
-import { Trash2 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import { RelativeDateTime, useCurrentTime } from "./relative-date-time.js";
 
@@ -72,6 +71,13 @@ const roleOptions = Object.entries(roleNames).map(([id, name]) => ({
     />
   ),
 }));
+const sharedRoleOptions: ChoiceOption<Role>[] = Object.entries(roleNames).map(
+  ([id, label]) => ({
+    id: id as Role,
+    label,
+    icon: <HugeiconsIcon icon={roleIcons[id as Role]} aria-hidden />,
+  }),
+);
 type ListState<T> = {
   items: T[];
   loading: boolean;
@@ -175,13 +181,6 @@ function PeopleSection({
     </section>
   );
 }
-function RoleChip({ role }: { role: Role }) {
-  return (
-    <Chip variant="secondary" icon={<HugeiconsIcon icon={roleIcons[role]} />}>
-      {roleNames[role]}
-    </Chip>
-  );
-}
 function RemovalHint({
   name,
   isProtected,
@@ -229,16 +228,16 @@ function invitationStatus(invitation: Invitation) {
   if (invitation.acceptedAt)
     return {
       label: "Accepted",
-      variant: "success" as const,
+      color: "success" as const,
       icon: CheckmarkCircle01Icon,
     };
   if (invitation.revokedAt)
     return {
       label: "Revoked",
-      variant: "secondary" as const,
+      color: "default" as const,
       icon: InformationCircleIcon,
     };
-  return { label: "Pending", variant: "warning" as const, icon: Clock01Icon };
+  return { label: "Pending", color: "warning" as const, icon: Clock01Icon };
 }
 
 export function PeopleSettings({
@@ -330,139 +329,58 @@ export function PeopleSettings({
       <div className="content-grid min-w-0">
         <PeopleSection label="Workspace members" busy={members.loading}>
           {members.loading && !members.items.length && (
-            <QueryLoading label="Loading people" />
+            <QueryLoading>Loading people</QueryLoading>
           )}
-          <ErrorMessage>{members.error}</ErrorMessage>
           {members.error && (
-            <div>
-              <Button
-                variant="secondary"
-                isDisabled={members.loading}
-                onPress={() => void members.retry()}
-              >
-                Retry people
-              </Button>
-            </div>
+            <QueryFeedback
+              message={members.error}
+              onRetry={() => void members.retry()}
+            />
           )}
-          {!members.loading && !members.error && !members.items.length && (
-            <EmptyState>
-              <EmptyState.Header>
-                <EmptyState.Title>No people to show</EmptyState.Title>
-                <EmptyState.Description>
-                  Invite a person to join this workspace.
-                </EmptyState.Description>
-              </EmptyState.Header>
-            </EmptyState>
-          )}
-          {!!members.items.length && (
-            <Table>
-              <Table.ScrollContainer>
-                <Table.Content
-                  aria-label="Workspace members"
-                  className="w-full max-md:w-full! max-md:table-fixed!"
-                >
-                  <Table.Header>
-                    <Table.Column isRowHeader>Person</Table.Column>
-                    <Table.Column className="hidden w-28 md:table-cell">
-                      Role
-                    </Table.Column>
-                    <Table.Column className="w-24 text-right max-md:w-20!">
-                      Actions
-                    </Table.Column>
-                  </Table.Header>
-                  <Table.Body>
-                    {members.items.map((member) => {
-                      const lastAdmin =
-                        completeDirectory &&
-                        member.role === "admin" &&
-                        adminCount === 1;
-                      return (
-                        <Table.Row key={member.id} id={member.id}>
-                          <Table.Cell className="whitespace-normal!">
-                            <div className="flex min-w-0 items-start gap-3">
-                              <Avatar
-                                email={member.email}
-                                name={member.name}
-                                size="sm"
-                                className="shrink-0"
-                              />
-                              <TableCellStack
-                                as="div"
-                                className="whitespace-normal"
-                              >
-                                <span className="break-words">
-                                  {member.name}
-                                  {member.id === session.user.id && (
-                                    <span className="font-normal text-muted">
-                                      {" "}
-                                      (you)
-                                    </span>
-                                  )}
-                                </span>
-                                <TableCellDescription className="break-all">
-                                  {member.email}
-                                </TableCellDescription>
-                                <div className="pt-1 md:hidden">
-                                  <RoleChip role={member.role} />
-                                </div>
-                              </TableCellStack>
-                            </div>
-                          </Table.Cell>
-                          <Table.Cell className="hidden align-middle md:table-cell">
-                            <RoleChip role={member.role} />
-                          </Table.Cell>
-                          <Table.Cell className="align-top max-md:w-20! md:align-middle">
-                            <div className="flex flex-col items-end gap-1 md:flex-row md:justify-end">
-                              <Button
-                                ref={rememberAction(`role:${member.id}`)}
-                                onFocus={(event) => {
-                                  event.stopPropagation();
-                                }}
-                                variant="secondary"
-                                isIconOnly
-                                aria-label={`Edit role for ${member.name}`}
-                                isDisabled={!completeDirectory || lastAdmin}
-                                onPress={() => {
-                                  actionTrigger.current = `role:${member.id}`;
-                                  setAction({ kind: "role", member });
-                                }}
-                              >
-                                <HugeiconsIcon
-                                  icon={PencilEdit02Icon}
-                                  size={16}
-                                />
-                              </Button>
-                              <RemovalHint
-                                name={member.name}
-                                isProtected={lastAdmin}
-                              >
-                                <Button
-                                  ref={rememberAction(`remove:${member.id}`)}
-                                  onFocus={(event) => {
-                                    event.stopPropagation();
-                                  }}
-                                  variant="danger"
-                                  isIconOnly
-                                  aria-label={`Remove ${member.name}`}
-                                  isDisabled={!completeDirectory || lastAdmin}
-                                  onPress={() => {
-                                    actionTrigger.current = `remove:${member.id}`;
-                                    setAction({ kind: "remove", member });
-                                  }}
-                                >
-                                  <Trash2 />
-                                </Button>
-                              </RemovalHint>
-                            </div>
-                          </Table.Cell>
-                        </Table.Row>
-                      );
-                    })}
-                  </Table.Body>
-                </Table.Content>
-              </Table.ScrollContainer>
-            </Table>
-          )}
+          {(!members.loading || members.items.length > 0) &&
+            !(!members.items.length && members.error) && (
+              <MembersTable
+                items={members.items}
+                roles={sharedRoleOptions}
+                emptyDescription="Invite a person to join this workspace."
+                actions={(member) => {
+                  const lastAdmin =
+                    completeDirectory &&
+                    member.role === "admin" &&
+                    adminCount === 1;
+                  return (
+                    <>
+                      <Button
+                        ref={rememberAction(`role:${member.id}`)}
+                        variant="secondary"
+                        aria-label={`Edit role for ${member.name}`}
+                        isDisabled={!completeDirectory || lastAdmin}
+                        onPress={() => {
+                          actionTrigger.current = `role:${member.id}`;
+                          setAction({ kind: "role", member });
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <RemovalHint name={member.name} isProtected={lastAdmin}>
+                        <Button
+                          ref={rememberAction(`remove:${member.id}`)}
+                          variant="danger"
+                          aria-label={`Remove ${member.name}`}
+                          isDisabled={!completeDirectory || lastAdmin}
+                          onPress={() => {
+                            actionTrigger.current = `remove:${member.id}`;
+                            setAction({ kind: "remove", member });
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </RemovalHint>
+                    </>
+                  );
+                }}
+              />
+            )}
           {!members.error && members.hasMore && members.nextCursor && (
             <div className="grid justify-items-start gap-2">
               <p className="text-sm text-muted">
@@ -481,134 +399,97 @@ export function PeopleSettings({
         </PeopleSection>
         <PeopleSection label="Invitations" busy={invitations.loading}>
           {invitations.loading && !invitations.items.length && (
-            <QueryLoading label="Loading invitations" />
+            <QueryLoading>Loading invitations</QueryLoading>
           )}
-          <ErrorMessage>{invitations.error}</ErrorMessage>
           {invitations.error && (
-            <div>
-              <Button
-                variant="secondary"
-                isDisabled={invitations.loading}
-                onPress={() => void invitations.retry()}
-              >
-                Retry invitations
-              </Button>
-            </div>
+            <QueryFeedback
+              message={invitations.error}
+              onRetry={() => void invitations.retry()}
+            />
           )}
-          {!invitations.loading &&
-            !invitations.error &&
-            !visibleInvitations.length &&
-            !invitations.hasMore && (
-              <EmptyState>
-                <EmptyState.Header>
-                  <EmptyState.Title>No invitations yet</EmptyState.Title>
-                  <EmptyState.Description>
-                    Choose Invite a person to share access to your workspace.
-                  </EmptyState.Description>
-                </EmptyState.Header>
-              </EmptyState>
-            )}
-          {!!visibleInvitations.length && (
-            <Table>
-              <Table.ScrollContainer>
-                <Table.Content
-                  aria-label="Workspace invitations"
-                  className="w-full max-md:w-full! max-md:table-fixed!"
-                >
-                  <Table.Header>
-                    <Table.Column isRowHeader>Invitation</Table.Column>
-                    <Table.Column className="hidden w-28 md:table-cell">
-                      Role
-                    </Table.Column>
-                    <Table.Column className="hidden w-24 md:table-cell">
-                      Status
-                    </Table.Column>
-                    <Table.Column className="w-20 text-right max-md:w-20!">
-                      Actions
-                    </Table.Column>
-                  </Table.Header>
-                  <Table.Body>
-                    {visibleInvitations.map((invitation) => {
+          {(!invitations.loading || visibleInvitations.length > 0) &&
+            !(!visibleInvitations.length && invitations.error) && (
+              <ResourceTable
+                ariaLabel="Pending invitations"
+                items={visibleInvitations}
+                getRowKey={(invitation) => invitation.id}
+                emptyTitle="No pending invitations"
+                emptyDescription="Invite a person to share access to your workspace."
+                columns={[
+                  {
+                    key: "email",
+                    header: "Invitation",
+                    cell: (invitation) => (
+                      <div className="flex min-w-0 items-center gap-2">
+                        <UserAvatar email={invitation.email} aria-hidden />
+                        <span className="break-words">{invitation.email}</span>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "role",
+                    header: "Role",
+                    cell: (invitation) => (
+                      <StatusIndicator
+                        label={roleNames[invitation.role]}
+                        icon={
+                          <HugeiconsIcon icon={roleIcons[invitation.role]} />
+                        }
+                      />
+                    ),
+                  },
+                  {
+                    key: "expires",
+                    header: "Expires",
+                    cell: (invitation) => (
+                      <RelativeDateTime
+                        value={invitation.expiresAt}
+                        timeZone={session.user.timeZone}
+                        label="Invitation expires"
+                        prefix="Expires"
+                        showAbsolute={false}
+                        compact
+                      />
+                    ),
+                  },
+                  {
+                    key: "status",
+                    header: "Status",
+                    cell: (invitation) => {
                       const status = invitationStatus(invitation);
                       return (
-                        <Table.Row key={invitation.id} id={invitation.id}>
-                          <Table.Cell className="whitespace-normal!">
-                            <div className="flex min-w-0 items-start gap-3">
-                              <Avatar
-                                email={invitation.email}
-                                size="sm"
-                                className="shrink-0"
-                              />
-                              <TableCellStack
-                                as="div"
-                                className="whitespace-normal"
-                              >
-                                <span className="break-all">
-                                  {invitation.email}
-                                </span>
-                                <RelativeDateTime
-                                  value={invitation.expiresAt}
-                                  timeZone={session.user.timeZone}
-                                  label="Invitation expires"
-                                  prefix="Expires"
-                                  showAbsolute={false}
-                                  compact
-                                  className="text-muted"
-                                />
-                                <div className="flex flex-wrap gap-1 pt-1 md:hidden">
-                                  <RoleChip role={invitation.role} />
-                                  <Chip
-                                    variant={status.variant}
-                                    icon={<HugeiconsIcon icon={status.icon} />}
-                                  >
-                                    {status.label}
-                                  </Chip>
-                                </div>
-                              </TableCellStack>
-                            </div>
-                          </Table.Cell>
-                          <Table.Cell className="hidden align-middle md:table-cell">
-                            <RoleChip role={invitation.role} />
-                          </Table.Cell>
-                          <Table.Cell className="hidden align-middle md:table-cell">
-                            <Chip
-                              variant={status.variant}
-                              icon={<HugeiconsIcon icon={status.icon} />}
-                            >
-                              {status.label}
-                            </Chip>
-                          </Table.Cell>
-                          <Table.Cell className="align-top max-md:w-20! md:align-middle">
-                            <div className="flex justify-end">
-                              {status.label === "Pending" && (
-                                <Button
-                                  ref={rememberAction(
-                                    `revoke:${invitation.id}`,
-                                  )}
-                                  onFocus={(event) => {
-                                    event.stopPropagation();
-                                  }}
-                                  variant="danger"
-                                  isIconOnly
-                                  aria-label={`Revoke invitation for ${invitation.email}`}
-                                  onPress={() => {
-                                    actionTrigger.current = `revoke:${invitation.id}`;
-                                    setAction({ kind: "revoke", invitation });
-                                  }}
-                                >
-                                  <Trash2 />
-                                </Button>
-                              )}
-                            </div>
-                          </Table.Cell>
-                        </Table.Row>
+                        <StatusIndicator
+                          label={status.label}
+                          color={status.color}
+                          icon={<HugeiconsIcon icon={status.icon} />}
+                        />
                       );
-                    })}
-                  </Table.Body>
-                </Table.Content>
-              </Table.ScrollContainer>
-            </Table>
-          )}
+                    },
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    headerClassName: "text-right",
+                    cell: (invitation) =>
+                      invitationStatus(invitation).label === "Pending" ? (
+                        <div className="flex justify-end">
+                          <Button
+                            ref={rememberAction(`revoke:${invitation.id}`)}
+                            variant="danger"
+                            aria-label={`Revoke invitation for ${invitation.email}`}
+                            onPress={() => {
+                              actionTrigger.current = `revoke:${invitation.id}`;
+                              setAction({ kind: "revoke", invitation });
+                            }}
+                          >
+                            Revoke
+                          </Button>
+                        </div>
+                      ) : null,
+                  },
+                ]}
+              />
+            )}
           {invitations.hasMore && (
             <div>
               <Button

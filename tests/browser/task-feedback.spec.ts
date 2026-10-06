@@ -62,7 +62,7 @@ for (const [width, theme] of [
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(
-      (value) => localStorage.setItem("mill:theme", value),
+      (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
       theme,
     );
     const task = await sourceTask(`Task feedback ${width} ${theme}`);
@@ -130,7 +130,7 @@ for (const [width, theme] of [
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(
-      (value) => localStorage.setItem("mill:theme", value),
+      (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
       theme,
     );
     const task = await sourceTask(`Comment feedback ${width} ${theme}`);

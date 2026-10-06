@@ -1,19 +1,11 @@
-import { useEffect, useState } from "react";
-import {
-  Button,
-  EmptyState,
-  ButtonLink,
-  ErrorMessage,
-  Widget,
-  FieldGroup,
-  FieldLabel,
-  Input,
-  toast,
-} from "@mill/web-design-system";
-import { Settings2, Save } from "./icons.js";
+import { useEffect } from "react";
+import { ButtonLink } from "@avgeek-oss/design-system";
+import { EmptyState } from "@avgeek-oss/design-system/data-display/empty-state";
+import { NameSettingsForm } from "@avgeek-oss/design-system/patterns/settings/name-form";
+import { Settings2 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
 import type { Board, Member } from "../../../packages/contracts/src/index.js";
-import { api, errorText, type Session } from "./api.js";
+import { api, type Session } from "./api.js";
 import { AccountSettings } from "./account-settings.js";
 import { PeopleSettings } from "./people-settings.js";
 import { ApiKeySettings } from "./api-key-settings.js";
@@ -32,25 +24,10 @@ export function SettingsPage({
   boards: Board[];
   onRefresh: () => void;
 }) {
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const title = settingsTitles[section] ?? "Settings";
   useEffect(() => {
     document.title = `${title} · Mill`;
   }, [title]);
-  async function run(action: () => Promise<void>) {
-    setBusy(true);
-    setError("");
-    try {
-      await action();
-      onRefresh();
-      toast.success("Team settings updated.");
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
   if (isAccountSection(section) && !["api-keys", "mcp"].includes(section))
     return (
       <AccountSettings
@@ -90,49 +67,18 @@ export function SettingsPage({
   return (
     <section className="settings-page">
       <PageHeading title={title} icon={<Settings2 />} />
-      <ErrorMessage>{error}</ErrorMessage>
       {section === "workspace" && (
         <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
-          <Widget>
-            <Widget.Content>
-              <form
-                className="content-grid"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const data = new FormData(e.currentTarget);
-                  void run(async () => {
-                    await api(
-                      "/workspace",
-                      { name: data.get("name") },
-                      "PATCH",
-                    );
-                  });
-                }}
-              >
-                <FieldGroup>
-                  <div className="grid w-full gap-1.5">
-                    <FieldLabel htmlFor="workspace-name" isRequired>
-                      Team name
-                    </FieldLabel>
-                    <Input
-                      id="workspace-name"
-                      name="name"
-                      defaultValue={session.workspace.name}
-                      required
-                      maxLength={120}
-                      variant="secondary"
-                    />
-                  </div>
-                </FieldGroup>
-                <div className="flex items-center gap-3">
-                  <Button type="submit" isDisabled={busy}>
-                    <Save />
-                    Update
-                  </Button>
-                </div>
-              </form>
-            </Widget.Content>
-          </Widget>
+          <NameSettingsForm
+            title="Team details"
+            label="Team name"
+            value={session.workspace.name}
+            maxLength={120}
+            onSave={async (name) => {
+              await api("/workspace", { name }, "PATCH");
+              onRefresh();
+            }}
+          />
         </div>
       )}
     </section>

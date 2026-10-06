@@ -150,7 +150,7 @@ for (const width of [1280, 390]) {
           path: `tmp/terminal-status-evidence/${status}-${width}.png`,
         });
       }
-      await selectStatus("All statuses");
+      await selectStatus("All status");
       await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
       await expectDefaultTasks();
       await page.reload();

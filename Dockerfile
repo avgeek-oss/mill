@@ -5,8 +5,11 @@ FROM base AS build
 WORKDIR /build
 RUN npm install --global pnpm@11.5.3
 COPY . .
-RUN --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
-    pnpm install --frozen-lockfile --store-dir /pnpm/store
+RUN --mount=type=secret,id=npm_token,required=true \
+    --mount=type=tmpfs,target=/run/npm-config \
+    --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
+    printf '//npm.pkg.github.com/:_authToken=%s\n' "$(cat /run/secrets/npm_token)" > /run/npm-config/npmrc \
+    && NPM_CONFIG_USERCONFIG=/run/npm-config/npmrc pnpm install --frozen-lockfile --store-dir /pnpm/store
 RUN pnpm build
 RUN pnpm --filter mill deploy --prod --legacy /prod/mill
 
@@ -14,7 +17,7 @@ FROM base AS runtime
 ARG SOURCE_COMMIT=development
 LABEL org.opencontainers.image.title="Mill" \
       org.opencontainers.image.description="Self-hosted task board for teams" \
-      org.opencontainers.image.source="https://github.com/avgeek-inc/mill" \
+      org.opencontainers.image.source="https://github.com/avgeek-oss/mill" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.revision="${SOURCE_COMMIT}"
 WORKDIR /app

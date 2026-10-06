@@ -1991,7 +1991,7 @@ test("task deletion removes discussion permanently, retains other tasks, and ret
     await expect(confirmation).toContainText("its comments and history");
     await expect(confirmation).toContainText("cannot be undone");
     await confirmation
-      .getByRole("button", { name: "Keep task", exact: true })
+      .getByRole("button", { name: "Cancel", exact: true })
       .click();
     await expect(confirmation).toBeHidden();
     await expect(
@@ -2056,7 +2056,7 @@ test("task deletion removes discussion permanently, retains other tasks, and ret
         .click();
       await requestStarted;
       await expect(
-        confirmation.getByRole("button", { name: "Keep task", exact: true }),
+        confirmation.getByRole("button", { name: "Cancel", exact: true }),
       ).toBeDisabled();
       await expect(
         confirmation.getByRole("button", { name: "Close dialog", exact: true }),
@@ -2237,9 +2237,7 @@ test("board settings keep detail failures recoverable and delete boards permanen
   });
   await expect(deletion).toContainText("all of its tasks and comments");
   await expect(deletion).toContainText("There is no restore");
-  await deletion
-    .getByRole("button", { name: "Keep board", exact: true })
-    .click();
+  await deletion.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Board actions", exact: true }),
   ).toBeFocused();
@@ -2256,7 +2254,7 @@ test("board settings keep detail failures recoverable and delete boards permanen
     deletion.getByRole("button", { name: "Delete board", exact: true }),
     async () => {
       await expect(
-        deletion.getByRole("button", { name: "Keep board", exact: true }),
+        deletion.getByRole("button", { name: "Cancel", exact: true }),
       ).toBeDisabled();
       await expect(
         deletion.getByRole("button", { name: "Close dialog", exact: true }),
@@ -2864,9 +2862,7 @@ test("overview autoloads every board, retries directory failures, and keeps muta
     );
     await expect(create).toBeVisible();
     await page.unroute("**/api/boards?**", abortContinuation);
-    await main
-      .getByRole("button", { name: "Retry loading boards", exact: true })
-      .click();
+    await main.getByRole("button", { name: "Retry", exact: true }).click();
     await checkOverview(234);
     await expect(main.getByRole("alert")).toHaveCount(0);
     await page

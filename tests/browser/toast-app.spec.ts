@@ -89,7 +89,7 @@ for (const [width, theme] of [
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(
-      (value) => localStorage.setItem("mill:theme", value),
+      (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
       theme,
     );
     await page.goto("/login");
@@ -105,7 +105,7 @@ for (const [width, theme] of [
     for (let attempt = 0; attempt < 2; attempt++) {
       await submit.click();
       await expect(notification(page)).toHaveCount(1);
-      await expect(notification(page)).toContainText("Email:");
+      await expect(notification(page)).toContainText("Email");
       await expect(email).toBeFocused();
       expect(requests).toBe(0);
       await dismiss(page);
@@ -141,7 +141,7 @@ for (const [width, theme] of [
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.addInitScript(
-      (value) => localStorage.setItem("mill:theme", value),
+      (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
       theme,
     );
     await authenticateBrowserFixture(page, fixture);

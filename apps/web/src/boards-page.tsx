@@ -1,10 +1,10 @@
+import { QueryFeedback } from "./query-feedback.js";
+import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
 import { Add01Icon, ClipboardListIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Button,
   EmptyState,
-  ErrorMessage,
-  Link,
   Skeleton,
   TypographyHeading,
   Widget,
@@ -54,12 +54,12 @@ export function BoardsPage({
         }
       />
       {error && (
-        <div className="grid justify-items-start gap-2">
-          <ErrorMessage>{error}</ErrorMessage>
-          <Button variant="secondary" isDisabled={pending} onPress={onRetry}>
-            Retry loading boards
-          </Button>
-        </div>
+        <QueryFeedback
+          message={error}
+          onRetry={() => {
+            if (!pending) onRetry();
+          }}
+        />
       )}
       {boards.length ? (
         <ul

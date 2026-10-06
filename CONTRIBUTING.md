@@ -1,6 +1,6 @@
 # Contributing
 
-Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before changing Mill. The task board is the product. Changes should work for people and connected clients without requiring private packages, cloud credentials, or another checkout.
+Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before changing Mill. The task board is the product. Changes should work for people and connected clients without requiring private packages or another checkout. Source builds require [GitHub Packages authentication](docs/package-registry.md) for the public shared design system; the running application needs no registry credentials.
 
 ## Local setup
 
@@ -22,6 +22,8 @@ node tools/production-verify.mjs
 `pnpm verify` covers formatting, lint, types, real PostgreSQL integration tests, production dependency advisories, and builds. `pnpm test:browser` runs every browser file in a fresh isolated installation, starting with the real setup journey. It requires the built frontend to stay unchanged and verifies server, session-cache, and PostgreSQL schema cleanup. Original logs, screenshots, and the distribution manifest are retained under `playwright-report` and `test-results`. For a focused check, use `pnpm exec playwright test tests/browser/FILE.spec.ts`.
 
 The production runner builds the image, creates an isolated Compose project, exercises setup and task persistence, verifies upgrade and full database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. All three gates are required in CI.
+
+The production runner accepts `NODE_AUTH_TOKEN` or your stored GitHub Packages npm login. It passes the credential to BuildKit as a build secret and redacts it from saved evidence. CI uses `GITHUB_TOKEN` with `packages:read`; the shared package must grant the Mill repository Actions access. See [package registry setup](docs/package-registry.md#continuous-integration).
 
 When editing UI, review the running routes in light and dark themes, on desktop and phone widths. Include long titles, empty states, permission errors, keyboard movement, and scrolled selects inside dialogs. Preserve the shared components' keyboard, focus, and touch behavior.
 

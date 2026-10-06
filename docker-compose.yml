@@ -18,6 +18,8 @@ services:
     image: ${MILL_IMAGE:-mill:local}
     build:
       context: .
+      secrets:
+        - npm_token
       args:
         SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
     init: true
@@ -47,3 +49,7 @@ services:
 
 volumes:
   postgres-data:
+
+secrets:
+  npm_token:
+    environment: NODE_AUTH_TOKEN

@@ -146,6 +146,79 @@ async function settled(page: Page) {
   );
 }
 
+for (const [width, theme] of [
+  [1280, "light"],
+  [1280, "dark"],
+  [390, "light"],
+  [390, "dark"],
+] as const) {
+  test(`mark-all refresh preserves receipts and concurrent arrivals at ${width}px in ${theme}`, async ({
+    page,
+  }) => {
+    const who = await account("Receipt snapshot", "member", true);
+    const fixture = await seed(who, 120, 119);
+    const originalId = fixture.items[0]!.id;
+    await database`UPDATE notifications SET read_at=now()-interval '2 hours' WHERE id=${originalId}`;
+    const [original] =
+      await database`SELECT read_at FROM notifications WHERE id=${originalId}`;
+    await page.setViewportSize({ width, height: 900 });
+    await page.addInitScript(
+      (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
+      theme,
+    );
+    await authenticateBrowserFixture(page, who.fixture!);
+    await page.goto(`/boards/${boardId}`);
+    await openNotifications(page);
+    await expect(rows(page)).toHaveCount(100);
+    expect((await json(who.api, "/notifications")).unreadCount).toBe(119);
+    await inbox(page)
+      .getByRole("button", { name: "Load older notifications", exact: true })
+      .click();
+    await expect(rows(page)).toHaveCount(120);
+    let mutations = 0;
+    let arrivalId = "";
+    await page.route("**/api/notifications", async (route) => {
+      if (route.request().method() !== "PATCH") return route.continue();
+      mutations++;
+      const response = await route.fetch();
+      expect(response.status()).toBe(200);
+      const [arrival] =
+        await database`INSERT INTO notifications(user_id,task_id,kind,actor_name) VALUES (${who.id},${fixture.task.id},'mention','Arrived after snapshot') RETURNING id`;
+      arrivalId = arrival.id;
+      await route.fulfill({ response });
+    });
+    await inbox(page)
+      .getByRole("button", { name: "Mark all read", exact: true })
+      .click();
+    await expect(rows(page)).toHaveCount(121);
+    await expect(
+      row(page, "Arrived after snapshot").getByText("Unread", { exact: true }),
+    ).toHaveCount(1);
+    await expect(inbox(page).getByText("Read", { exact: true })).toHaveCount(
+      120,
+    );
+    await expect(
+      page.getByRole("button", { name: "Open notifications", exact: true }),
+    ).toHaveAccessibleDescription("1 unread notifications");
+    expect(mutations).toBe(1);
+    const receipts =
+      await database`SELECT id,read_at FROM notifications WHERE user_id=${who.id}`;
+    expect(receipts.find((item) => item.id === originalId)?.readAt).toEqual(
+      original.readAt,
+    );
+    expect(receipts.find((item) => item.id === arrivalId)?.readAt).toBeNull();
+    expect((await json(who.api, "/notifications")).unreadCount).toBe(1);
+    await expect(inbox(page)).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(inbox(page)).toHaveCount(0);
+    await openNotifications(page);
+    await expect(
+      row(page, "Arrived after snapshot").getByText("Unread", { exact: true }),
+    ).toHaveCount(1);
+    expect(mutations).toBe(1);
+  });
+}
+
 test.beforeAll(async ({ baseURL }) => {
   const bootstrap = await getBrowserBootstrap(baseURL!);
   origin = bootstrap.origin;

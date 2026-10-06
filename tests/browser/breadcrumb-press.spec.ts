@@ -110,7 +110,7 @@ for (const width of [1280, 390])
       });
       try {
         await context.addInitScript(
-          (value) => localStorage.setItem("mill:theme", value),
+          (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
           theme,
         );
         const page = await context.newPage();
@@ -127,6 +127,25 @@ for (const width of [1280, 390])
             name: "Breadcrumb",
             exact: true,
           });
+          if (width === 390) {
+            await expect(breadcrumb).toBeHidden();
+            await page
+              .getByRole("button", { name: "Toggle navigation", exact: true })
+              .click();
+            const drawer = page.getByRole("dialog", {
+              name: "Navigation",
+              exact: true,
+            });
+            await expect(
+              drawer.getByRole("link", {
+                name: `${category === "Account" ? "Account" : "Team"} settings`,
+                exact: true,
+              }),
+            ).toBeVisible();
+            await page.keyboard.press("Escape");
+            await expect(drawer).toHaveCount(0);
+            continue;
+          }
           await pressWithoutScaling(
             page,
             breadcrumb.getByRole("button", {
@@ -146,14 +165,15 @@ for (const width of [1280, 390])
             exact: true,
           }),
         ).toBeVisible();
-        await pressWithoutScaling(
-          page,
-          page.getByRole("button", {
-            name: "Switch board: Breadcrumb press verification",
-            exact: true,
-          }),
-          page.getByRole("listbox"),
-        );
+        if (width === 1280)
+          await pressWithoutScaling(
+            page,
+            page.getByRole("button", {
+              name: "Switch board: Breadcrumb press verification",
+              exact: true,
+            }),
+            page.getByRole("listbox"),
+          );
         await page.screenshot({
           path: `tmp/breadcrumb-press/task-${width}-${theme}.png`,
           animations: "disabled",

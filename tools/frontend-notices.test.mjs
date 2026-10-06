@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createRequire } from "node:module";
@@ -107,6 +107,50 @@ test("complete README licenses are retained, while metadata alone cannot substit
     () =>
       collectFrontendNotices({ root, moduleIds: [join(missing, "index.js")] }),
     /missing-license@1\.2\.3 has no supplied license text/,
+  );
+});
+
+test("installed package ownership ignores subpath manifests but preserves nested dependency ownership", async (t) => {
+  const root = await fixture(t);
+  const resolvers = await dependency(root, "@hookform/resolvers", {
+    LICENSE: mit,
+  });
+  const standardSchema = join(resolvers, "standard-schema");
+  await mkdir(join(standardSchema, "dist"), { recursive: true });
+  await writeFile(
+    join(standardSchema, "package.json"),
+    JSON.stringify({
+      name: "@hookform/resolvers/standard-schema",
+      version: "1.0.0",
+      license: "MIT",
+    }),
+  );
+  const modulePath = join(standardSchema, "dist", "index.js");
+  await writeFile(modulePath, "export const resolver = true;");
+  const nested = await dependency(resolvers, "nested", {
+    LICENSE: "Nested dependency license bytes",
+    "index.js": "export const nested = true;",
+  });
+  const notices = collectFrontendNotices({
+    root,
+    moduleIds: [modulePath, join(nested, "index.js")],
+  });
+  assert.ok(notices.includes("@hookform/resolvers@1.2.3"));
+  assert.ok(notices.includes(mit));
+  assert.ok(!notices.includes("@hookform/resolvers/standard-schema@"));
+  assert.ok(notices.includes("nested@1.2.3"));
+  assert.ok(notices.includes("Nested dependency license bytes"));
+});
+
+test("an installed package without metadata cannot borrow an ancestor package license", async (t) => {
+  const root = await fixture(t);
+  const missing = join(root, "node_modules", "missing-metadata");
+  await mkdir(missing, { recursive: true });
+  const modulePath = join(missing, "index.js");
+  await writeFile(modulePath, "export const value = true;");
+  assert.throws(
+    () => collectFrontendNotices({ root, moduleIds: [modulePath] }),
+    /Cannot identify the installed package owning/,
   );
 });
 
@@ -268,6 +312,84 @@ test("real Vite/Rolldown fixture retains CSS import and inline font notices in i
   assert.ok(notices.includes(mit));
   assert.ok(!notices.includes("unused@"));
   assert.ok(!notices.includes(fileURLToPath(new URL("../", import.meta.url))));
+});
+
+test("the published stylesheet emits every referenced font through the Vite Tailwind pipeline", async (t) => {
+  const root = await fixture(t);
+  const web = createRequire(
+    new URL("../apps/web/package.json", import.meta.url),
+  );
+  const stylesheet = web.resolve("@avgeek-oss/design-system/styles.css");
+  const { build } = await import(pathToFileURL(web.resolve("vite")).href);
+  const { default: tailwindcss } = await import(
+    pathToFileURL(web.resolve("@tailwindcss/vite")).href
+  );
+  await writeFile(
+    join(root, "index.html"),
+    '<html><body><script type="module" src="/main.js"></script></body></html>',
+  );
+  await writeFile(join(root, "main.js"), 'import "./style.css";');
+  await writeFile(
+    join(root, "style.css"),
+    `@import ${JSON.stringify(stylesheet)};\n@source "./";`,
+  );
+  const warnings = [];
+  await build({
+    root,
+    configFile: false,
+    logLevel: "silent",
+    customLogger: {
+      hasWarned: false,
+      info() {},
+      warn(message) {
+        warnings.push(message);
+      },
+      warnOnce(message) {
+        warnings.push(message);
+      },
+      error(message) {
+        throw new Error(message);
+      },
+      clearScreen() {},
+      hasErrorLogged() {
+        return false;
+      },
+    },
+    plugins: [tailwindcss(), frontendNotices({ root })],
+    build: { assetsInlineLimit: 0 },
+  });
+  assert.deepEqual(warnings, []);
+  const assets = join(root, "dist", "assets");
+  const filenames = await readdir(assets);
+  const css = (
+    await Promise.all(
+      filenames
+        .filter((name) => name.endsWith(".css"))
+        .map((name) => readFile(join(assets, name), "utf8")),
+    )
+  ).join("\n");
+  const fontUrls = [
+    ...css.matchAll(/url\((?:["'])?([^\s)"']+\.woff2)(?:["'])?\)/g),
+  ].map((match) => match[1]);
+  assert.equal(
+    fontUrls.length,
+    13,
+    "all Inter and Geist Mono language subsets must ship",
+  );
+  for (const url of fontUrls) {
+    assert.ok(url.startsWith("/assets/"), url);
+    assert.ok(
+      (await readFile(join(root, "dist", url.slice(1)))).length > 0,
+      url,
+    );
+  }
+  const notices = await readFile(
+    join(root, "dist", "THIRD-PARTY-NOTICES.txt"),
+    "utf8",
+  );
+  assert.ok(notices.includes("@fontsource-variable/inter@"));
+  assert.ok(notices.includes("@fontsource-variable/geist-mono@"));
+  assert.ok(notices.includes("SIL OPEN FONT LICENSE"));
 });
 
 test("installed frontend licenses, Adobe source copyright, and reviewed Hugeicons supplement are retained", async () => {

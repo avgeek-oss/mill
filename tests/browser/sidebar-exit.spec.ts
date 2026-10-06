@@ -261,13 +261,13 @@ for (const theme of ["light", "dark"] as const)
         filters.getByRole("button", { name: /Newest first/ }),
       ).toBeVisible();
       await expect(
-        filters.getByRole("button", { name: /All statuses/ }),
+        filters.getByRole("button", { name: /All status/ }),
       ).toBeVisible();
       const before = await navigationSnapshot(page);
       await page.goBack();
       await expect(page).toHaveURL(new RegExp(`/tasks/${taskId}$`));
       await expect(
-        filters.getByRole("button", { name: /All statuses/ }),
+        filters.getByRole("button", { name: /All status/ }),
       ).toBeVisible();
       await inspectExit(
         page,

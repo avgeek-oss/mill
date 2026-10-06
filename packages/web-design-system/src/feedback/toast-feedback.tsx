@@ -1,7 +1,7 @@
 "use client";
 
 import { isValidElement, useEffect, useRef, type ReactNode } from "react";
-import { toast } from "@heroui/react";
+import { toast } from "@avgeek-oss/design-system/overlays/toast";
 
 function feedbackText(content: ReactNode): string {
   if (typeof content === "string" || typeof content === "number")

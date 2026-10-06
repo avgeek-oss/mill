@@ -1,6 +1,9 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Flag01Icon } from "@hugeicons/core-free-icons";
-import { Chip, type ChipProps } from "@mill/web-design-system";
+import {
+  StatusIndicator,
+  type StatusDescriptor,
+} from "@avgeek-oss/design-system";
 import type { Task } from "../../../packages/contracts/src/index.js";
 
 type Priority = Task["priority"];
@@ -10,29 +13,29 @@ const presentation: Record<
   {
     label: string;
     iconClassName: string;
-    chipVariant: NonNullable<ChipProps["variant"]>;
+    color: StatusDescriptor["color"];
   }
 > = {
   urgent: {
     label: "Urgent",
     iconClassName: "text-danger",
-    chipVariant: "destructive",
+    color: "danger",
   },
   high: {
     label: "High",
-    iconClassName: "text-orange-600 dark:text-orange-400",
-    chipVariant: "orange",
+    iconClassName: "text-warning",
+    color: "warning",
   },
   medium: {
     label: "Medium",
-    iconClassName: "text-yellow-600 dark:text-yellow-400",
-    chipVariant: "yellow",
+    iconClassName: "text-warning",
+    color: "warning",
   },
-  low: { label: "Low", iconClassName: "text-accent", chipVariant: "info" },
+  low: { label: "Low", iconClassName: "text-accent", color: "accent" },
   none: {
     label: "No priority",
     iconClassName: "text-muted",
-    chipVariant: "secondary",
+    color: "default",
   },
 };
 
@@ -57,13 +60,11 @@ export const priorityOptions = priorities.map((id) => ({
 
 export function PriorityChip({ priority }: { priority: Priority }) {
   return (
-    <Chip
-      variant={presentation[priority].chipVariant}
-      size="small"
-      className={priority === "none" ? "text-muted" : undefined}
+    <StatusIndicator
+      color={presentation[priority].color}
+      size="sm"
       icon={<PriorityIcon priority={priority} />}
-    >
-      {presentation[priority].label}
-    </Chip>
+      label={presentation[priority].label}
+    />
   );
 }

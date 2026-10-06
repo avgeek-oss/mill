@@ -51,6 +51,7 @@ function localTarget(value, source, anchor = false) {
         "/brand/mill-mark.png",
         "/brand/mill-touch-icon.png",
         "/startup-recovery.js",
+        "/theme-bootstrap.js",
       ].includes(path)) &&
       !path.split("/").some((part) => [".", ".."].includes(part)) &&
       !/[\\\p{Cc}]/u.test(path),
@@ -62,6 +63,7 @@ function localTarget(value, source, anchor = false) {
 function resourceKind(path) {
   if (path === "/THIRD-PARTY-NOTICES.txt") return "notice";
   if (path === "/startup-recovery.js") return "startup-script";
+  if (path === "/theme-bootstrap.js") return "theme-script";
   const extension = extname(path).toLowerCase();
   if (path.startsWith("/assets/") && /-[A-Za-z0-9_-]{8}\.js$/.test(path))
     return "script";
@@ -243,11 +245,35 @@ export async function staticManifest(directory) {
     "Startup recovery has no inline script body",
   );
   await add("/startup-recovery.js");
+  const themeScripts = scripts.filter(
+    (match) => attribute(match[1], "src") === "/theme-bootstrap.js",
+  );
+  assert.equal(themeScripts.length, 1, "The app loads one theme bootstrap");
+  assert.equal(
+    themeScripts[0][2].trim(),
+    "",
+    "Theme bootstrap has no inline body",
+  );
+  assert.equal(attribute(themeScripts[0][1], "type"), undefined);
+  assert.doesNotMatch(
+    themeScripts[0][1],
+    /\b(?:async|defer)\b/i,
+    "Theme bootstrap runs before the first paint",
+  );
+  assert.ok(
+    themeScripts[0].index < index.indexOf('<link rel="stylesheet"'),
+    "Theme bootstrap precedes the stylesheet",
+  );
+  await add("/theme-bootstrap.js");
   const appScripts = scripts.filter(
     (match) => attribute(match[1], "type") === "module",
   );
   assert.equal(appScripts.length, 1, "The app loads one hashed module script");
-  assert.equal(scripts.length, 2, "The app loads only the two bundled scripts");
+  assert.equal(
+    scripts.length,
+    3,
+    "The app loads only the three bundled scripts",
+  );
   const appScript = localTarget(attribute(appScripts[0][1], "src"), "/");
   assert.equal(resourceKind(appScript?.path), "script");
   assert.match(appScript.path, /^\/assets\/[^/]+-[A-Za-z0-9_-]{8}\.js$/);
@@ -277,7 +303,7 @@ function expectedMime(kind, value, path) {
   const type = value.split(";", 1)[0].trim();
   if (["notice", "text"].includes(kind)) return type === "text/plain";
   if (kind === "guide") return type === "text/html";
-  if (["startup-script", "script"].includes(kind))
+  if (["startup-script", "theme-script", "script"].includes(kind))
     return ["text/javascript", "application/javascript"].includes(type);
   if (kind === "style") return type === "text/css";
   if (kind === "font")

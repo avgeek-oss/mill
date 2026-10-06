@@ -1,15 +1,17 @@
-import { ArrowDown01Icon, ClipboardListIcon } from "@hugeicons/core-free-icons";
+import { ClipboardListIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useState } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import type { AppShellBreadcrumbItems } from "@avgeek-oss/design-system/layouts/application-shell-types";
 import {
   Autocomplete,
-  BreadcrumbTrail,
-  Dropdown,
   Link,
   ListBox,
   SearchField,
-  Select,
 } from "@mill/web-design-system";
+import {
+  BreadcrumbDropdown,
+  BreadcrumbSelect,
+} from "@avgeek-oss/design-system/navigation/breadcrumbs";
 import type { Board } from "../../../packages/contracts/src/index.js";
 import { navigate } from "./api.js";
 import {
@@ -19,7 +21,12 @@ import {
   settingsTitles,
 } from "./settings-navigation.js";
 
-export function AppBreadcrumbs({
+const BreadcrumbContext = createContext<AppShellBreadcrumbItems>([
+  { label: "Mill", href: "/boards" },
+]);
+export const usePageBreadcrumbs = () => useContext(BreadcrumbContext);
+
+function breadcrumbItems({
   boards,
   boardsHref,
   boardId,
@@ -41,34 +48,14 @@ export function AppBreadcrumbs({
   admin: boolean;
   search: string;
   fallback: string;
-}) {
-  // An interrupted exit must not reuse a blurred overlay whose autofocus already ran.
-  const owner = boardId ? `board:${boardId}` : `settings:${settingsSection}`;
-  const [popover, setPopover] = useState({
-    owner,
-    isOpen: false,
-    presentation: 0,
-  });
-  function onOpenChange(isOpen: boolean) {
-    setPopover((previous) =>
-      previous.owner === owner && previous.isOpen === isOpen
-        ? previous
-        : {
-            owner,
-            isOpen,
-            presentation: previous.presentation + Number(isOpen),
-          },
-    );
-  }
+}): AppShellBreadcrumbItems {
   if (boardId) {
     const boardHref = `/boards/${boardId}${search}`;
     const options = boards.some((board) => board.id === boardId)
       ? boards
       : [{ id: boardId, name: boardName }, ...boards];
     const switcher = (
-      <Select
-        isOpen={popover.owner === owner && popover.isOpen}
-        onOpenChange={onOpenChange}
+      <BreadcrumbSelect.Root
         className="min-w-0"
         aria-label="Switch board"
         selectedKey={boardId}
@@ -81,21 +68,15 @@ export function AppBreadcrumbs({
             navigate(`/boards/${key}`);
         }}
       >
-        <Select.Trigger
-          className="breadcrumb-board-trigger"
+        <BreadcrumbSelect.Trigger
+          className="transition-colors focus-visible:[box-shadow:none]! focus-visible:outline-none!"
           aria-label={taskId ? `Switch board: ${boardName}` : undefined}
         >
           {!taskId && (
-            <Select.Value className="min-w-0 truncate">
-              {boardName}
-            </Select.Value>
+            <BreadcrumbSelect.Value>{boardName}</BreadcrumbSelect.Value>
           )}
-          <Select.Indicator className="static size-3 shrink-0 text-muted" />
-        </Select.Trigger>
-        <Select.Popover
-          key={popover.presentation}
-          className="breadcrumb-popover w-72 max-w-[calc(100vw-2rem)] overflow-hidden"
-        >
+        </BreadcrumbSelect.Trigger>
+        <BreadcrumbSelect.Popover className="breadcrumb-popover w-72 max-w-[calc(100vw-2rem)] overflow-hidden">
           <Autocomplete.Filter
             filter={(text, query) =>
               text
@@ -143,33 +124,36 @@ export function AppBreadcrumbs({
               ))}
             </ListBox>
           </Autocomplete.Filter>
-        </Select.Popover>
-      </Select>
+        </BreadcrumbSelect.Popover>
+      </BreadcrumbSelect.Root>
     );
-    return (
-      <BreadcrumbTrail
-        items={[
-          { label: "Boards", href: boardsHref },
-          {
-            label: boardName,
-            content: taskId ? (
-              <span className="flex min-w-0 items-center gap-1">
-                <Link
-                  href={boardHref}
-                  className="min-w-0 truncate text-sm font-normal text-muted hover:text-foreground"
-                >
-                  {boardName}
-                </Link>
-                {switcher}
-              </span>
-            ) : (
-              switcher
-            ),
-          },
-          ...(taskId ? [{ label: taskIdentifier ?? "Task" }] : []),
-        ]}
-      />
-    );
+    return [
+      { label: "Boards", href: boardsHref },
+      {
+        label: boardName,
+        contentKey: JSON.stringify({
+          boardId,
+          taskId,
+          boardName,
+          search,
+          options: options.map(({ id, name }) => ({ id, name })),
+        }),
+        content: taskId ? (
+          <span className="flex min-w-0 items-center gap-1">
+            <Link
+              href={boardHref}
+              className="min-w-0 truncate text-sm font-normal text-muted hover:text-foreground"
+            >
+              {boardName}
+            </Link>
+            {switcher}
+          </span>
+        ) : (
+          switcher
+        ),
+      },
+      ...(taskId ? [{ label: taskIdentifier ?? "Task" }] : []),
+    ];
   }
   if (settingsSection && settingsTitles[settingsSection]) {
     const account = isAccountSection(settingsSection);
@@ -179,59 +163,58 @@ export function AppBreadcrumbs({
       : admin
         ? teamSections.flatMap((group) => group.items)
         : [];
-    return (
-      <BreadcrumbTrail
-        items={[
-          {
-            label: category,
-            content: (
-              <Dropdown
-                isOpen={popover.owner === owner && popover.isOpen}
-                onOpenChange={onOpenChange}
-              >
-                <Dropdown.Trigger
-                  aria-label={`Navigate ${category.toLowerCase()} pages`}
-                  className="flex min-w-0 items-center gap-1 rounded-sm text-sm text-muted outline-none hover:text-foreground"
-                >
-                  {category}
-                  <HugeiconsIcon
-                    icon={ArrowDown01Icon}
-                    size={12}
-                    aria-hidden
-                    className="shrink-0"
-                  />
-                </Dropdown.Trigger>
-                <Dropdown.Popover
-                  key={popover.presentation}
-                  placement="bottom start"
-                  className="breadcrumb-popover w-56 max-w-[calc(100vw-2rem)]"
-                >
-                  <Dropdown.Menu aria-label={`${category} pages`}>
-                    {sections.map((section) => (
-                      <Dropdown.Item
-                        key={section.id}
-                        id={section.id}
-                        href={`/settings/${section.id}`}
-                        textValue={section.label}
-                      >
-                        <HugeiconsIcon
-                          aria-hidden
-                          icon={section.icon}
-                          size={16}
-                          className="size-4 shrink-0 text-muted"
-                        />
-                        {section.label}
-                      </Dropdown.Item>
-                    ))}
-                  </Dropdown.Menu>
-                </Dropdown.Popover>
-              </Dropdown>
-            ),
-          },
-          { label: settingsTitles[settingsSection] },
-        ]}
-      />
-    );
+    return [
+      {
+        label: category,
+        contentKey: `${settingsSection}:${admin}`,
+        content: (
+          <BreadcrumbDropdown.Root>
+            <BreadcrumbDropdown.Trigger
+              aria-label={`Navigate ${category.toLowerCase()} pages`}
+              className="transition-colors focus-visible:[box-shadow:none]! focus-visible:outline-none!"
+            >
+              {category}
+            </BreadcrumbDropdown.Trigger>
+            <BreadcrumbDropdown.Popover
+              placement="bottom start"
+              className="breadcrumb-popover w-56 max-w-[calc(100vw-2rem)]"
+            >
+              <BreadcrumbDropdown.Menu aria-label={`${category} pages`}>
+                {sections.map((section) => (
+                  <BreadcrumbDropdown.Item
+                    key={section.id}
+                    id={section.id}
+                    href={`/settings/${section.id}`}
+                    textValue={section.label}
+                  >
+                    <HugeiconsIcon
+                      aria-hidden
+                      icon={section.icon}
+                      size={16}
+                      className="size-4 shrink-0 text-muted"
+                    />
+                    {section.label}
+                  </BreadcrumbDropdown.Item>
+                ))}
+              </BreadcrumbDropdown.Menu>
+            </BreadcrumbDropdown.Popover>
+          </BreadcrumbDropdown.Root>
+        ),
+      },
+      { label: settingsTitles[settingsSection] },
+    ];
   }
-  return <BreadcrumbTrail items={[{ label: fallback }]} />;
+  return [{ label: fallback }];
+}
+
+export function AppBreadcrumbs({
+  children,
+  ...props
+}: Parameters<typeof breadcrumbItems>[0] & { children: ReactNode }) {
+  const items = breadcrumbItems(props);
+  return (
+    <BreadcrumbContext.Provider value={items}>
+      {children}
+    </BreadcrumbContext.Provider>
+  );
 }

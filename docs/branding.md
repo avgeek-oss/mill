@@ -22,7 +22,7 @@ The asset pack also includes light/dark wordmarks and lockups, a currentColor mo
 
 ## Theme
 
-[Theme tokens](../packages/web-design-system/src/styles/mill-theme.css) override HeroUI's semantic roles through the existing CSS base layer. Cocoa accents sit on nearly neutral white and gray surfaces in light mode, with light brown accents on near-black surfaces in dark mode. Secondary controls, tables, menus, dialogs, focus rings and accent chips derive their colors from those roles. Success, warning and danger hues retain their existing semantic definitions.
+[Theme tokens](../apps/web/src/mill-theme.css) override HeroUI's semantic roles through the existing CSS base layer. Cocoa accents sit on nearly neutral white and gray surfaces in light mode, with light brown accents on near-black surfaces in dark mode. Secondary controls, tables, menus, dialogs, focus rings and accent chips derive their colors from those roles. Success, warning and danger hues retain their existing semantic definitions.
 
 The [brand module](../apps/web/src/brand.tsx) and browser theme-color use the matching background values. Metadata uses their sRGB hex equivalents for browser compatibility: light `#f7f7f6` and dark `#060605`. The initial browser theme-color matches the light background and tracks the active theme after initialization. CSS tokens remain OKLCH.
 
@@ -88,7 +88,7 @@ In `apps/web/src/brand.tsx`, the dark browser theme-color changes from `#120d0b`
 
 The light theme reduces chroma on the page, elevated surfaces, neutral controls, borders and separators. Lightness and hue stay fixed, preserving the existing surface hierarchy with much less brown tint. Accent colors, foreground/muted text and dark mode retain their preceding values. Overlay, field and segment aliases inherit the revised surface automatically.
 
-Every changed declaration in `packages/web-design-system/src/styles/mill-theme.css` is listed below. The brown cast was excessive for neutral surfaces; reducing chroma addresses it without flattening their lightness differences.
+Every changed declaration in `apps/web/src/mill-theme.css` is listed below. The brown cast was excessive for neutral surfaces; reducing chroma addresses it without flattening their lightness differences.
 
 | Token                 | Previous Mill value     | Current value           |
 | --------------------- | ----------------------- | ----------------------- |

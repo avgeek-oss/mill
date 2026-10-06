@@ -327,7 +327,7 @@ for (const width of [1280, 390])
           page.getByRole("grid", { name: "Task list", exact: true }),
         ).toBeVisible();
         const identities = page.locator(
-          `.task-table [data-task-id="${taskId}"] [data-slot=avatar]`,
+          `.task-table [data-key="${taskId}"] [data-slot=avatar]`,
         );
         await expect(identities).toHaveCount(1);
         const avatarShape = await identities.first().evaluate((e) => ({

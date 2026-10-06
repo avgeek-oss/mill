@@ -8,15 +8,18 @@ Mill needs Docker with the Compose v2 plugin, Git, and Node.js 24 to generate co
 ## Local installation
 
 ```sh
-git clone https://github.com/avgeek-inc/mill.git
+git clone https://github.com/avgeek-oss/mill.git
 cd mill
+npm login --scope=@avgeek-oss --registry=https://npm.pkg.github.com --auth-type=legacy
 node tools/init-env.mjs
-docker compose --project-name mill --env-file .env up --build --detach --wait
+node tools/with-package-token.mjs docker compose --project-name mill --env-file .env up --build --detach --wait
 docker compose --project-name mill --env-file .env ps
 curl --fail http://localhost:4321/health/ready
 ```
 
 Open [localhost:4321](http://localhost:4321). Create a workspace, your name, email, and a strong password. The first account becomes an administrator. There is no default login, and later attempts to repeat setup are rejected.
+
+Use your GitHub username and a classic personal access token with `read:packages` at the npm login prompt. The frontend's public shared design system is hosted in GitHub Packages, which requires authentication even for public npm packages. The wrapper uses your stored login or `NODE_AUTH_TOKEN` and sends it as a BuildKit secret. Registry credentials are needed only while building from source; they do not enter the running application. See [package registry setup](/package-registry).
 
 The generator creates `.env` with owner-only permissions. It refuses to overwrite an existing file. Mill's database volume belongs to the `mill` Compose project, so use `--project-name mill` consistently. `down` stops and removes containers; it leaves the database volume in place. `down --volumes` permanently removes it.
 
@@ -26,7 +29,7 @@ Point a DNS name you own to the server, then configure an HTTPS reverse proxy. G
 
 ```sh
 node tools/init-env.mjs --base-url https://tasks.example.com
-docker compose --project-name mill --env-file .env up --build --detach --wait
+node tools/with-package-token.mjs docker compose --project-name mill --env-file .env up --build --detach --wait
 ```
 
 Keep `MILL_BIND_ADDRESS=127.0.0.1` when the reverse proxy runs on the same host. Mill's URL must match the browser's origin; it is used for cookies, passkeys, links, and OAuth checks. HTTP OAuth access is restricted to explicit loopback development.

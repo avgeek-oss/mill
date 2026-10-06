@@ -86,9 +86,9 @@ for (const failure of ["server", "network"] as const) {
     await expect(
       page.getByRole("heading", { name: "Mill could not load" }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Sign in to Mill" }),
-    ).toHaveCount(0);
+    await expect(page.locator('[data-slot="toast"]')).toHaveCount(1);
+    await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0);
 
     let resume!: () => void;
     const blocked = new Promise<void>((resolve) => {
@@ -124,9 +124,7 @@ test("an unauthenticated session still opens the sign-in form", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Mill could not load" }),
@@ -171,7 +169,7 @@ test("cold sign-in and board routes reach usable controls on a throttled connect
           ).toBeVisible();
         } else {
           await expect(
-            page.getByRole("heading", { name: "Sign in to Mill" }),
+            page.getByRole("heading", { name: "Sign in" }),
           ).toBeVisible({ timeout: 30000 });
           await expect(
             page.getByLabel("Password", { exact: true }),
@@ -255,14 +253,10 @@ test("a failed application entry shows recovery before React starts", async ({
   await page.getByRole("button", { name: "Dismiss notification" }).click();
   await expect(page.locator('[data-slot="toast"]')).toHaveCount(0);
   await page.unroute("**/assets/*.css");
-  await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Reload Mill" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 });
 
 test("a held application entry offers recovery and can still finish loading", async ({
@@ -284,9 +278,7 @@ test("a held application entry offers recovery and can still finish loading", as
       page.getByRole("heading", { name: "Mill could not start" }),
     ).toBeVisible({ timeout: 20000 });
     release();
-    await expect(
-      page.getByRole("heading", { name: "Sign in to Mill" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Mill could not start" }),
     ).toHaveCount(0);
@@ -319,9 +311,7 @@ test("a slow sign-in chunk does not show entry recovery after React starts", asy
       page.getByRole("heading", { name: "Mill could not start" }),
     ).toHaveCount(0);
     release();
-    await expect(
-      page.getByRole("heading", { name: "Sign in to Mill" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   } finally {
     release();
   }
@@ -354,9 +344,7 @@ test("a stale entry reloads once to the current application build", async ({
   );
 
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   expect(navigations).toBe(2);
   expect(
     await page.evaluate(() => sessionStorage.getItem("mill:entry-reload")),
@@ -471,7 +459,7 @@ test("missing pages have a primary recovery action in both themes and viewport s
       try {
         await context.addCookies(sessionCookies);
         await context.addInitScript((value) => {
-          localStorage.setItem("mill:theme", value);
+          localStorage.setItem("avgeek-oss-ui-theme", value);
         }, theme);
         const page = await context.newPage();
         await page.goto("/missing-review-page");
@@ -609,7 +597,7 @@ test("limited roles see permission recovery without administrative data requests
           });
           try {
             await context.addInitScript(
-              (value) => localStorage.setItem("mill:theme", value),
+              (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
               theme,
             );
             const page = await context.newPage();

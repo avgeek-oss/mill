@@ -1,3 +1,4 @@
+import { QueryFeedback } from "./query-feedback.js";
 import {
   useCallback,
   useEffect,
@@ -12,23 +13,24 @@ import { createPortal } from "react-dom";
 import { ArrowRight02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  Avatar,
   Button,
-  Chip,
-  Dialog,
-  ErrorMessage,
-  Tabs,
-  ResourceTable,
-  TableCellStack,
-  TableCellDescription,
+  HistoryTable,
   QueryLoading,
-  TextField,
-  TooltipText,
   TypographyParagraph,
   TypographyText,
-  toast,
-  useAppSuspended,
-} from "@mill/web-design-system";
+} from "@avgeek-oss/design-system";
+import { ErrorMessage, useAppSuspended } from "@mill/web-design-system";
+import { UserAvatar } from "@avgeek-oss/design-system/patterns/user-avatar";
+import { Chip } from "@avgeek-oss/design-system/data-display/chip";
+import { Modal } from "@avgeek-oss/design-system/overlays/modal";
+import { Tabs } from "@avgeek-oss/design-system/navigation/tabs";
+import {
+  TableCellStack,
+  TableCellDescription,
+} from "@avgeek-oss/design-system/data-display/table-cell-text";
+import { Textarea } from "@avgeek-oss/design-system/forms/textarea";
+import { toast } from "@avgeek-oss/design-system/overlays/toast";
+import { TooltipText } from "@avgeek-oss/design-system/overlays/tooltip";
 import type {
   Activity,
   Comment,
@@ -126,6 +128,21 @@ function activityEntity(action: string) {
   if (action.startsWith("comment.")) return "Comment";
   if (action.startsWith("task.")) return "Task";
   return "Change";
+}
+
+function activityConnectionLabel(detail: unknown) {
+  if (!isResponseObject(detail) || !isResponseObject(detail.connection))
+    return null;
+  switch (detail.connection.type) {
+    case "session":
+      return "Browser";
+    case "api-key":
+      return "API key";
+    case "oauth":
+      return "MCP";
+    default:
+      return null;
+  }
 }
 
 function mentionAtCaret(
@@ -413,9 +430,10 @@ function TaskDiscussionContent({
   function humanAvatar(id: string, name: string, className: string) {
     const member = members?.find((item) => item.id === id);
     return (
-      <Avatar
+      <UserAvatar
         email={member?.email ?? (id === user.id ? user.email : "")}
         name={member?.name ?? (id === user.id ? user.name : name)}
+        size="sm"
         className={className}
       />
     );
@@ -788,17 +806,17 @@ function TaskDiscussionContent({
                 onMouseEnter={() => setActiveMention(index)}
               >
                 <span aria-hidden="true" className="shrink-0">
-                  <Avatar
+                  <UserAvatar
                     email={member.email}
                     name={member.name}
-                    className="size-6 rounded-[6px] [&_[data-slot=avatar-fallback]]:text-[9px]"
+                    size="sm"
                   />
                 </span>
                 <span className="min-w-0 truncate">{member.name}</span>
               </div>
             ))
           ) : (
-            <TypographyParagraph size="xs" color="muted" className="px-2 py-2">
+            <TypographyParagraph size="sm" color="muted" className="px-2 py-2">
               No people found.
             </TypographyParagraph>
           )}
@@ -846,15 +864,13 @@ function TaskDiscussionContent({
             >
               <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
                 <div ref={mentionContainer} className="relative min-w-0">
-                  <TextField
+                  <Textarea
                     ref={commentInput}
-                    label="Add a comment"
-                    hideLabel
+                    variant="primary"
                     aria-label="Add a comment"
                     placeholder="Add a comment…"
                     className="min-h-20 w-full min-w-0 resize-y"
                     rows={2}
-                    multiline
                     value={draft}
                     disabled={busy}
                     maxLength={10000}
@@ -923,19 +939,17 @@ function TaskDiscussionContent({
             </div>
           )}
           {comments.error && (
-            <div className="grid gap-2">
-              <ErrorMessage>
-                {`Unable to load comments. ${comments.error}`}
-              </ErrorMessage>
-              <Button
-                variant="secondary"
-                className="w-fit"
-                isDisabled={comments.busy || busy}
-                onPress={() => void comments.refresh()}
-              >
-                Retry loading comments
-              </Button>
-            </div>
+            <QueryFeedback
+              message={`Unable to load comments. ${comments.error}`}
+              onRetry={
+                comments.busy || busy
+                  ? undefined
+                  : () => void comments.refresh()
+              }
+            />
+          )}
+          {comments.busy && !comments.ready && (
+            <QueryLoading>Loading comments…</QueryLoading>
           )}
           <div className="grid min-w-0 gap-6">
             {comments.items.map((item) => {
@@ -949,7 +963,7 @@ function TaskDiscussionContent({
                   aria-label={`Comment by ${name}`}
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    {humanAvatar(item.authorId, name, "mt-0.5 size-7 shrink-0")}
+                    {humanAvatar(item.authorId, name, "mt-0.5 shrink-0")}
                     <div className="grid min-w-0 flex-1 gap-0.5">
                       <div className="flex min-w-0 items-center gap-2">
                         <TypographyText className="min-w-0 truncate text-sm/5 font-medium">
@@ -966,7 +980,7 @@ function TaskDiscussionContent({
                     </div>
                     {canChange(item) && (
                       <Button
-                        variant="secondary"
+                        variant="danger-soft"
                         isIconOnly
                         className="task-comment-delete shrink-0"
                         aria-label={`Delete comment by ${name}`}
@@ -984,7 +998,7 @@ function TaskDiscussionContent({
                 </article>
               );
             })}
-            {comments.ready && !comments.items.length && (
+            {comments.ready && !comments.error && !comments.items.length && (
               <TypographyParagraph size="sm" color="muted" className="py-3">
                 No comments yet.
               </TypographyParagraph>
@@ -1007,31 +1021,20 @@ function TaskDiscussionContent({
           aria-busy={activity.busy}
         >
           {activity.error && (
-            <div className="grid gap-2">
-              <ErrorMessage>
-                {`Unable to load activity. ${activity.error}`}
-              </ErrorMessage>
-              <Button
-                variant="secondary"
-                className="w-fit"
-                isDisabled={activity.busy}
-                onPress={() => void activity.refresh()}
-              >
-                Retry loading activity
-              </Button>
-            </div>
+            <QueryFeedback
+              message={`Unable to load activity. ${activity.error}`}
+              onRetry={
+                activity.busy ? undefined : () => void activity.refresh()
+              }
+            />
           )}
-          {activity.busy && !activity.ready && (
-            <QueryLoading label="Loading activity" />
-          )}
-          {(activity.items.length > 0 ||
-            (activity.ready && !activity.error)) && (
-            <ResourceTable
-              ariaLabel="Task activity"
-              tableClassName="min-w-[34rem]"
-              getRowKey={(item) => item.id}
+          {(activity.ready || !activity.error) && (
+            <HistoryTable
+              label="Task activity"
               items={activity.items}
-              emptyTitle="No activity yet"
+              emptyDescription="Task changes and comment actions appear here."
+              isLoading={!activity.ready && activity.busy}
+              isRefreshing={activity.ready && activity.busy}
               columns={[
                 {
                   key: "action",
@@ -1045,14 +1048,15 @@ function TaskDiscussionContent({
                         )}
                       </span>
                       <TableCellDescription className="flex min-w-0 items-center gap-1.5">
-                        {humanAvatar(
-                          item.actorId,
-                          item.actorName,
-                          "size-[18px] rounded-[5px] [&_[data-slot=avatar-fallback]]:text-[8px]",
-                        )}
+                        {humanAvatar(item.actorId, item.actorName, "shrink-0")}
                         <span className="min-w-0 break-words">
                           {item.actorName}
                         </span>
+                        {activityConnectionLabel(item.detail) && (
+                          <span className="shrink-0">
+                            · {activityConnectionLabel(item.detail)}
+                          </span>
+                        )}
                       </TableCellDescription>
                     </TableCellStack>
                   ),
@@ -1063,16 +1067,12 @@ function TaskDiscussionContent({
                   headerClassName: "w-28",
                   cell: (item) => (
                     <Chip
-                      variant={
-                        item.action.startsWith("comment.")
-                          ? "orange"
-                          : item.action.startsWith("task.")
-                            ? "info"
-                            : "secondary"
+                      color={
+                        item.action.startsWith("task.") ? "accent" : "default"
                       }
-                      size="small"
+                      size="sm"
                     >
-                      {activityEntity(item.action)}
+                      <Chip.Label>{activityEntity(item.action)}</Chip.Label>
                     </Chip>
                   ),
                 },
@@ -1104,49 +1104,62 @@ function TaskDiscussionContent({
           )}
         </Tabs.Panel>
       </Tabs>
-      <Dialog
-        open={!!deleting}
-        onClose={closeDelete}
-        isDismissDisabled={busy || comments.busy}
-        title="Delete comment?"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              isDisabled={busy || comments.busy}
-              onPress={closeDelete}
-            >
-              Keep comment
-            </Button>
-            <Button
-              variant="danger-soft"
-              isDisabled={
-                busy || comments.busy || !deleting || !canChange(deleting)
-              }
-              isPending={busy && !!deleting}
-              onPress={() => void deleteComment()}
-            >
-              Delete comment
-            </Button>
-          </>
-        }
+      <Modal
+        isOpen={!!deleting && !appSuspended}
+        onOpenChange={(open) => {
+          if (!open && !appSuspended && !busy && !comments.busy) closeDelete();
+        }}
       >
-        <TypographyParagraph className="text-sm">
-          Permanently delete this comment from the task discussion? This cannot
-          be undone.
-        </TypographyParagraph>
-        <ErrorMessage>{deleteError}</ErrorMessage>
-        {deleteConflict && (
-          <Button
-            variant="secondary"
-            className="mt-3"
-            isDisabled={busy || comments.busy}
-            onPress={() => void reloadDeletingComment()}
-          >
-            Reload comment
-          </Button>
-        )}
-      </Dialog>
+        <Modal.Backdrop
+          isDismissable={!busy && !comments.busy}
+          isKeyboardDismissDisabled={busy || comments.busy}
+        >
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>Delete comment?</Modal.Heading>
+                <Modal.CloseTrigger isDisabled={busy || comments.busy} />
+              </Modal.Header>
+              <Modal.Body>
+                <TypographyParagraph className="text-sm">
+                  Permanently delete this comment from the task discussion? This
+                  cannot be undone.
+                </TypographyParagraph>
+                <ErrorMessage>{deleteError}</ErrorMessage>
+                {deleteConflict && (
+                  <Button
+                    variant="secondary"
+                    className="mt-3"
+                    isDisabled={busy || comments.busy}
+                    onPress={() => void reloadDeletingComment()}
+                  >
+                    Reload comment
+                  </Button>
+                )}
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  variant="secondary"
+                  isDisabled={busy || comments.busy}
+                  onPress={closeDelete}
+                >
+                  Keep comment
+                </Button>
+                <Button
+                  variant="danger-soft"
+                  isDisabled={
+                    busy || comments.busy || !deleting || !canChange(deleting)
+                  }
+                  isPending={busy && !!deleting}
+                  onPress={() => void deleteComment()}
+                >
+                  Delete comment
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
     </section>
   );
 }

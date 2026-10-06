@@ -15,7 +15,7 @@ import {
   Select,
   TextArea,
 } from "@heroui/react";
-import { Field, FieldDescription } from "./forms/field.js";
+import { Field, FieldDescription } from "@avgeek-oss/design-system/forms/field";
 import { cn } from "./utils.js";
 import { useErrorToast } from "./feedback/toast-feedback.js";
 

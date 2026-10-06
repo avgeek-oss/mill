@@ -167,7 +167,7 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   await login(page, admin);
   await accountAction(page, "Profile");
   const avatar = page
-    .getByRole("region", { name: "Profile details", exact: true })
+    .getByRole("region", { name: "Profile image", exact: true })
     .getByRole("link", {
       name: "Edit Gravatar image (opens in a new tab)",
       exact: true,
@@ -177,45 +177,51 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   await expect(avatar.getByText("CS", { exact: true })).toBeVisible();
   const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(admin.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
   await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
-  await page.getByLabel("Name", { exact: true }).click();
-  await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
-  await page.getByLabel("Name", { exact: true }).fill("Casey Profile Updated");
-  await page.getByRole("button", { name: "Save profile", exact: true }).click();
-  await expect(feedbackToast(page, "Profile saved.")).toBeVisible();
+  await page.getByLabel("Your Name", { exact: true }).click();
+  await expect(page.getByLabel("Your Name", { exact: true })).toBeFocused();
+  await page
+    .getByLabel("Your Name", { exact: true })
+    .fill("Casey Profile Updated");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(feedbackToast(page, "Changes saved")).toBeVisible();
   await page.reload();
-  await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Your Name", { exact: true })).toHaveValue(
     "Casey Profile Updated",
   );
-  await page.getByLabel("Name", { exact: true }).fill(admin.name);
-  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await page.getByLabel("Your Name", { exact: true }).fill(admin.name);
+  await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect
     .poll(async () => (await json(page.request, "/auth/me")).user.name)
     .toBe(admin.name);
-  await page.getByLabel("Name", { exact: true }).fill("Unsaved profile draft");
-  await accountAction(page, "Preferences");
-  await page.getByRole("button", { name: /Time zone$/ }).click();
   await page
-    .getByRole("searchbox", { name: "Search time zone" })
-    .fill("+05:30");
+    .getByLabel("Your Name", { exact: true })
+    .fill("Unsaved profile draft");
+  await accountAction(page, "Preferences");
+  await page.getByRole("button", { name: /Time zone/ }).click();
+  await page
+    .getByRole("searchbox", { name: "Search time zones" })
+    .fill("Colombo");
   const colombo = page.getByRole("option", {
     name: "Asia/Colombo",
     exact: true,
   });
   await expect(colombo).toContainText("+05:30");
   await colombo.click();
-  await expect(page.getByRole("button", { name: /Time zone$/ })).toContainText(
+  await expect(page.getByRole("button", { name: /Time zone/ })).toContainText(
     "+05:30",
   );
-  await page.getByRole("button", { name: /Time zone$/ }).click();
-  await page.getByRole("searchbox", { name: "Search time zone" }).fill("UTC");
+  await page.getByRole("button", { name: /Time zone/ }).click();
+  await page.getByRole("searchbox", { name: "Search time zones" }).fill("UTC");
   await expect(
     page.getByRole("option", { name: "UTC", exact: true }),
   ).toContainText("+00:00");
   await page.getByRole("option", { name: "UTC", exact: true }).click();
+  await page.getByRole("button", { name: /Time format/ }).click();
   await page
-    .getByRole("button", { name: "Save preferences", exact: true })
+    .getByRole("option", { name: "12-hour (2:30 PM)", exact: true })
     .click();
-  await expect(feedbackToast(page, "Preferences saved.")).toBeVisible();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(feedbackToast(page, "Preferences updated")).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /email/i })).toHaveCount(0);
   await expect(
     page.getByText("Email delivery is unavailable for this installation.", {
@@ -237,9 +243,9 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
     .click();
   await expect(feedbackToast(page, "Notifications saved.")).toBeVisible();
   expect((await json(page.request, "/auth/me")).user.name).toBe(admin.name);
-  await expect(page.getByLabel("Name", { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Your Name", { exact: true })).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole("button", { name: /Time zone$/ })).toContainText(
+  await expect(page.getByRole("button", { name: /Time zone/ })).toContainText(
     "UTC",
   );
   await expect(
@@ -251,6 +257,8 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
     mentions: true,
   });
   expect(profile.user.timeZone).toBe("UTC");
+  expect(profile.user.timeFormat).toBe("12-hour");
+  expect(profile.user.dateFormat).toBe("day-short-month-year");
   const notifications = page.getByRole("region", {
     name: "Notifications",
     exact: true,
@@ -402,7 +410,9 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     page.getByRole("dialog", { name: "Save your recovery codes" }),
   ).toBeVisible();
   const recoveryText = (
-    await page.locator(".recovery-codes").innerText()
+    await page
+      .getByRole("list", { name: "Recovery codes", exact: true })
+      .innerText()
   ).trim();
   expect(recoveryText.split("\n").length).toBe(10);
   const recoveryDialog = page.getByRole("dialog", {
@@ -417,25 +427,31 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     browserContextId: target.targetInfo.browserContextId,
   });
   await recoveryDialog.getByRole("button", { name: "Copy codes" }).click();
-  await expect(feedbackToast(page, "Copy the codes manually")).toBeVisible();
-  await feedbackToast(page, "Copy the codes manually")
+  await expect(
+    feedbackToast(page, "Could not copy recovery codes"),
+  ).toBeVisible();
+  await feedbackToast(page, "Could not copy recovery codes")
     .locator('[data-slot="toast-close"]')
     .click();
-  await expect(feedbackToast(page, "Copy the codes manually")).toHaveCount(0);
+  await expect(
+    feedbackToast(page, "Could not copy recovery codes"),
+  ).toHaveCount(0);
   await recoveryDialog.getByRole("button", { name: "Copy codes" }).click();
-  await expect(feedbackToast(page, "Copy the codes manually")).toBeVisible();
+  await expect(
+    feedbackToast(page, "Could not copy recovery codes"),
+  ).toBeVisible();
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
     origin,
   });
   await recoveryDialog.getByRole("button", { name: "Copy codes" }).click();
-  await expect(feedbackToast(page, "Recovery codes copied.")).toBeVisible();
+  await expect(feedbackToast(page, "Recovery codes copied")).toBeVisible();
   const copiedCodes = await page.evaluate(() => navigator.clipboard.readText());
-  expect(copiedCodes.split("\n").length).toBe(10);
+  expect(copiedCodes.trimEnd().split("\n").length).toBe(10);
   expect(
-    copiedCodes === recoveryText,
+    copiedCodes === recoveryText + "\n",
     "Clipboard exactly matches the generated recovery codes",
   ).toBe(true);
-  await page.getByRole("button", { name: "I saved these codes" }).click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
   await expect(recoveryDialog).toHaveCount(0);
   await expect(
     page.getByText("Authenticator enabled", { exact: true }),
@@ -823,18 +839,15 @@ test("a personal API key uses current human permissions and loses access when re
       .getByRole("region", { name: "API keys", exact: true })
       .getByRole("row")
       .filter({ hasText: "Settings personal API key" });
-    await row
-      .getByRole("button", {
-        name: "Revoke Settings personal API key",
-        exact: true,
-      })
-      .click();
-    const revoke = page.getByRole("dialog", { name: "Revoke API key?" });
+    await row.getByRole("button", { name: "Revoke", exact: true }).click();
+    const revoke = page.getByRole("dialog", {
+      name: "Revoke Settings personal API key?",
+    });
     await revoke
-      .getByRole("button", { name: "Revoke API key", exact: true })
+      .getByRole("button", { name: "Revoke key", exact: true })
       .click();
     await expect(revoke).toHaveCount(0);
-    await expect(feedbackToast(page, "API key revoked.")).toBeVisible();
+    await expect(feedbackToast(page, "Access revoked.")).toBeVisible();
     await expect(row).toHaveCount(0);
     expect((await key.get(`/api/boards/${board.id}/tasks`)).status()).toBe(401);
   } finally {
@@ -921,18 +934,18 @@ test("session management revokes another browser without signing out the current
       .first()
       .click();
     await page
-      .getByRole("dialog", { name: "Revoke this session?" })
-      .getByRole("button", { name: "Revoke session", exact: true })
+      .getByRole("dialog", { name: "Revoke session?" })
+      .getByRole("button", { name: "Confirm", exact: true })
       .click();
-    await expect(feedbackToast(page, "Session revoked.")).toBeVisible();
+    await expect(feedbackToast(page, "Session revoked")).toBeVisible();
     await sessionSection
       .getByRole("button", { name: "Revoke", exact: true })
       .and(page.locator(":enabled"))
       .first()
       .click();
     await page
-      .getByRole("dialog", { name: "Revoke this session?" })
-      .getByRole("button", { name: "Revoke session", exact: true })
+      .getByRole("dialog", { name: "Revoke session?" })
+      .getByRole("button", { name: "Confirm", exact: true })
       .click();
     await expect(
       sessionSection.getByRole("button", { name: "Revoke", exact: true }),
@@ -1214,7 +1227,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
     page.getByRole("navigation", { name: "Workspace navigation" }),
   ).toBeVisible();
   await accountAction(page, "Profile");
-  await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+  await expect(page.getByLabel("Your Name", { exact: true })).toHaveValue(
     "Identity Links",
   );
   await page.screenshot({
@@ -1248,7 +1261,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
     expect(touchMedia.coarse).toBe(true);
     expect(touchMedia.noHover).toBe(true);
     expect(touchMedia.touchPoints).toBeGreaterThan(0);
-    await expect(mobile.getByLabel("Name", { exact: true })).toBeVisible();
+    await expect(mobile.getByLabel("Your Name", { exact: true })).toBeVisible();
     expect(
       await mobile.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,

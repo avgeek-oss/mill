@@ -75,7 +75,9 @@ for (const width of [1280, 390])
           exact: true,
         });
         await expect(
-          create.getByRole("button", { name: "Task Type" }),
+          create
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Task" }),
         ).toBeVisible();
         const title = `Bug reproduction ${width} ${theme}`;
         await create.getByLabel("Title", { exact: true }).fill(title);
@@ -104,7 +106,9 @@ for (const width of [1280, 390])
             .filter({ hasText: "Task creation is temporarily unavailable." }),
         ).toBeVisible();
         await expect(
-          create.getByRole("button", { name: "Bug Type" }),
+          create
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Bug" }),
         ).toBeVisible();
         await expect(create.getByLabel("Title", { exact: true })).toHaveValue(
           title,
@@ -128,18 +132,20 @@ for (const width of [1280, 390])
           name: "Task properties",
         });
         await expect(
-          properties.getByRole("button", { name: "Bug Type" }),
+          properties
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Bug" }),
         ).toBeVisible();
         const propertyControls = properties.getByRole("button", {
-          name: / (Type|Status)$/,
+          name: /(?:Type|Status)$/,
         });
-        await expect(propertyControls.nth(0)).toHaveAccessibleName("Bug Type");
-        await expect(propertyControls.nth(1)).toHaveAccessibleName(
-          "Todo Status",
-        );
+        await expect(propertyControls.nth(0)).toHaveAccessibleName(/Type$/);
+        await expect(propertyControls.nth(1)).toHaveAccessibleName(/Status$/);
         await page.reload();
         await expect(
-          properties.getByRole("button", { name: "Bug Type" }),
+          properties
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Bug" }),
         ).toBeVisible();
         await page.screenshot({
           path: `tmp/task-types/task-${width}-${theme}.png`,
@@ -168,7 +174,9 @@ for (const width of [1280, 390])
             .filter({ hasText: "Could not save the task type." }),
         ).toContainText("Could not save");
         await expect(
-          properties.getByRole("button", { name: "Task Type" }),
+          properties
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Task" }),
         ).toBeVisible();
         expect(
           (await (await api.get(`/api/tasks/${task.id}`)).json()).task.type,
@@ -178,7 +186,9 @@ for (const width of [1280, 390])
         expect(changes).toBe(2);
         await page.reload();
         await expect(
-          properties.getByRole("button", { name: "Task Type" }),
+          properties
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Task" }),
         ).toBeVisible();
         const saved = (await (await api.get(`/api/tasks/${task.id}`)).json())
           .task;
@@ -188,7 +198,7 @@ for (const width of [1280, 390])
         await page
           .getByRole("button", { name: "Back to board", exact: true })
           .click();
-        const row = page.locator(`[data-task-id="${task.id}"]`);
+        const row = page.locator(`[data-key="${task.id}"]`);
         const icon = row.getByRole("img", { name: "Task", exact: true });
         await expect(icon).toBeVisible();
         await expect(icon.locator("svg")).toHaveClass(/text-accent/);
@@ -223,7 +233,9 @@ for (const width of [1280, 390])
           .getByRole("button", { name: "New task", exact: true })
           .click();
         await expect(
-          create.getByRole("button", { name: "Task Type" }),
+          create
+            .getByRole("button", { name: /Type$/ })
+            .filter({ hasText: "Task" }),
         ).toBeVisible();
         await expect(create.getByLabel("Title", { exact: true })).toHaveValue(
           "",
@@ -238,7 +250,7 @@ for (const width of [1280, 390])
         const bugTask = (await bug.json()).task;
         await page.reload();
         const bugIcon = page
-          .locator(`[data-task-id="${bugTask.id}"]`)
+          .locator(`[data-key="${bugTask.id}"]`)
           .getByRole("img", { name: "Bug", exact: true });
         await expect(bugIcon).toBeVisible();
         await expect(bugIcon.locator("svg")).toHaveClass(
@@ -264,7 +276,9 @@ test("a task type save preserves a concurrent priority update", async ({
     name: "Task properties",
   });
   await expect(
-    properties.getByRole("button", { name: "Task Type" }),
+    properties
+      .getByRole("button", { name: /Type$/ })
+      .filter({ hasText: "Task" }),
   ).toBeVisible();
   let attempts = 0;
   await page.route(`**/api/tasks/${task.id}`, async (route) => {
@@ -292,15 +306,21 @@ test("a task type save preserves a concurrent priority update", async ({
   const saved = (await (await api.get(`/api/tasks/${task.id}`)).json()).task;
   expect(saved.priority).toBe("high");
   await expect(
-    properties.getByRole("button", { name: "High Priority" }),
+    properties
+      .getByRole("button", { name: /Priority$/ })
+      .filter({ hasText: "High" }),
   ).toBeVisible();
   await expect(page.locator("#task-type-error")).toHaveCount(0);
   await page.reload();
   await expect(
-    properties.getByRole("button", { name: "Bug Type" }),
+    properties
+      .getByRole("button", { name: /Type$/ })
+      .filter({ hasText: "Bug" }),
   ).toBeVisible();
   await expect(
-    properties.getByRole("button", { name: "High Priority" }),
+    properties
+      .getByRole("button", { name: /Priority$/ })
+      .filter({ hasText: "High" }),
   ).toBeVisible();
 });
 
@@ -320,7 +340,8 @@ test("viewers can see task types but cannot change them or create tasks", async 
     await expect(
       page
         .getByRole("complementary", { name: "Task properties" })
-        .getByRole("button", { name: "Bug Type" }),
+        .getByRole("button", { name: /Type$/ })
+        .filter({ hasText: "Bug" }),
     ).toBeDisabled();
     await page
       .getByRole("button", { name: "Back to board", exact: true })
@@ -330,7 +351,7 @@ test("viewers can see task types but cannot change them or create tasks", async 
     ).toHaveCount(0);
     await expect(
       page
-        .locator(`[data-task-id="${task.id}"]`)
+        .locator(`[data-key="${task.id}"]`)
         .getByRole("img", { name: "Bug", exact: true }),
     ).toBeVisible();
   } finally {

@@ -14,24 +14,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Notification02Icon } from "@hugeicons/core-free-icons";
 import { api, errorText, navigate } from "./api.js";
 import { AbsoluteDateTime } from "./relative-date-time.js";
-
-type Notification = {
-  id: string;
-  taskId: string;
-  boardId: string;
-  kind: string;
-  actorName: string | null;
-  identifier: string;
-  title: string;
-  readAt: string | null;
-  createdAt: string;
-};
-type NotificationPage = {
-  items: Notification[];
-  unreadCount: number;
-  hasMore: boolean;
-  nextCursor: string | null;
-};
+import type { NotificationPage } from "../../../packages/contracts/src/index.js";
 type ListState = NotificationPage & { loading: boolean; error: string };
 type MarkTarget = "all" | string;
 const emptyList: ListState = {
@@ -75,11 +58,11 @@ export function NotificationsPopover({
   const markPending = useRef(false);
   const openingSequence = useRef(0);
   const attemptedCursor = useRef<string | undefined>(undefined);
+  const attemptedRefresh = useRef(false);
+  const loadedPages = useRef(1);
   const currentOpen = useRef(isOpen);
-  const currentState = useRef(state);
   const suspendedRef = useRef(suspended);
   currentOpen.current = isOpen;
-  currentState.current = state;
   suspendedRef.current = suspended;
 
   useEffect(() => {
@@ -102,34 +85,56 @@ export function NotificationsPopover({
   }, []);
 
   const load = useCallback(
-    async (cursor?: string) => {
+    async (cursor?: string, refreshLoaded = false) => {
+      if (suspendedRef.current) return;
       const request = ++sequence.current;
       attemptedCursor.current = cursor;
+      attemptedRefresh.current = refreshLoaded;
       setState((previous) =>
-        cursor ? { ...previous, loading: true, error: "" } : { ...emptyList },
+        cursor || refreshLoaded
+          ? { ...previous, loading: true, error: "" }
+          : { ...emptyList },
       );
-      const query = new URLSearchParams({ limit: "100" });
-      if (cursor) query.set("cursor", cursor);
       try {
-        const result = await api<NotificationPage>(`/notifications?${query}`);
+        const targetPages = refreshLoaded ? loadedPages.current : 1;
+        let nextCursor = cursor;
+        let result: NotificationPage;
+        const collected: NotificationPage["items"] = [];
+        let fetchedPages = 0;
+        const cursors = new Set<string>();
+        do {
+          const query = new URLSearchParams({ limit: "100" });
+          if (nextCursor) query.set("cursor", nextCursor);
+          result = await api<NotificationPage>(`/notifications?${query}`);
+          if (request !== sequence.current || suspendedRef.current) return;
+          collected.push(...result.items);
+          fetchedPages++;
+          nextCursor = result.nextCursor ?? undefined;
+          if (nextCursor && cursors.has(nextCursor))
+            throw new Error(
+              "The notification list could not be completed. Try again.",
+            );
+          if (nextCursor) cursors.add(nextCursor);
+        } while (nextCursor && fetchedPages < targetPages);
         if (request !== sequence.current) return;
+        loadedPages.current = cursor
+          ? loadedPages.current + fetchedPages
+          : fetchedPages;
         setState((previous) => ({
           ...result,
-          items: cursor
-            ? [
-                ...new Map(
-                  [...previous.items, ...result.items].map((item) => [
-                    item.id,
-                    item,
-                  ]),
-                ).values(),
-              ]
-            : result.items,
+          items: [
+            ...new Map(
+              [...(cursor ? previous.items : []), ...collected].map((item) => [
+                item.id,
+                item,
+              ]),
+            ).values(),
+          ],
           loading: false,
           error: "",
         }));
       } catch (cause) {
-        if (request !== sequence.current) return;
+        if (request !== sequence.current || suspendedRef.current) return;
         setState((previous) => ({
           ...previous,
           loading: false,
@@ -150,6 +155,7 @@ export function NotificationsPopover({
   useEffect(() => {
     setIsOpen(false);
     setState({ ...emptyList });
+    loadedPages.current = 1;
     markPending.current = false;
     setMarking(null);
     setOpening(null);
@@ -215,28 +221,10 @@ export function NotificationsPopover({
         );
       if (request !== markSequence.current) return;
       sequence.current++;
-      if (currentState.current.loading) {
-        if (currentOpen.current) void currentLoad.current();
-      } else {
-        setState((previous) => {
-          const readAt = new Date().toISOString();
-          const marked = (item: Notification) =>
-            target === "all" || item.id === target;
-          const newlyRead = previous.items.filter(
-            (item) => marked(item) && !item.readAt,
-          ).length;
-          return {
-            ...previous,
-            items: previous.items.map((item) =>
-              marked(item) ? { ...item, readAt } : item,
-            ),
-            unreadCount:
-              target === "all"
-                ? 0
-                : Math.max(0, previous.unreadCount - newlyRead),
-          };
-        });
-      }
+      // Receipts and concurrent arrivals are authoritative on the server.
+      if (currentOpen.current && !suspendedRef.current)
+        await currentLoad.current(undefined, true);
+      if (request !== markSequence.current) return;
       onRead();
       if (
         href &&
@@ -289,7 +277,11 @@ export function NotificationsPopover({
         <EmptyState>
           <ErrorMessage>{state.error}</ErrorMessage>
           <EmptyState.Content>
-            <Button onPress={() => void load(attemptedCursor.current)}>
+            <Button
+              onPress={() =>
+                void load(attemptedCursor.current, attemptedRefresh.current)
+              }
+            >
               Retry notifications
             </Button>
           </EmptyState.Content>
@@ -394,7 +386,9 @@ export function NotificationsPopover({
           <Button
             className="justify-self-start"
             variant="secondary"
-            onPress={() => void load(attemptedCursor.current)}
+            onPress={() =>
+              void load(attemptedCursor.current, attemptedRefresh.current)
+            }
           >
             Retry older notifications
           </Button>
