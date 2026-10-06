@@ -8,7 +8,7 @@ import postgres from "postgres";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const baselineName = "001_initial.sql";
 const reviewedBaselineChecksum =
-  "070ba86deb3dd76c9489b580bf79f1b65e217d80cb3cedc2ca00fc3b8d9e4a22";
+  "0db7924eada8cea6c3c9bfd3181e3753e6148198d2d0c9d6396f2d66a819b804";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 const qualify = (schema, name) => `${quote(schema)}.${quote(name)}`;
@@ -444,6 +444,7 @@ async function main(args) {
     );
     const knownSources = await Promise.all(
       [
+        "prelaunch-display-preferences-layout.json",
         "prelaunch-auth-settings-layout.json",
         "prelaunch-account-preferences-layout.json",
         "prelaunch-start-date-layout.json",
