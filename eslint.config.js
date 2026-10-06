@@ -22,7 +22,7 @@ export default ts.config(
           selector:
             "JSXMemberExpression[object.name='CodeBlock'][property.name='CopyButton']",
           message:
-            "The published copy control lacks toast feedback. Use Widget.Action with awaited clipboard copying and success/error toasts until the shared fix is published.",
+            "The published copy control does not lock pending clipboard requests. Use Widget.Action with guarded, awaited copying and success/error toasts until the shared fix is published.",
         },
       ],
       "no-restricted-imports": [

@@ -529,7 +529,7 @@ export function TaskPage({
                     className="task-page-properties col-start-1 row-start-3 grid min-w-0 grid-cols-2 gap-4 min-[701px]:col-start-2 min-[701px]:row-start-2 min-[701px]:grid-cols-1 min-[701px]:gap-5"
                     aria-label="Task properties"
                   >
-                    <div className="grid gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2">
                       <ChoiceField
                         label="Type"
                         value={values.type}
@@ -545,7 +545,7 @@ export function TaskPage({
                       />
                       <FieldFeedback editor={editor} field="type" />
                     </div>
-                    <div className="grid gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2">
                       <ChoiceField
                         label="Status"
                         value={values.status}
@@ -561,8 +561,9 @@ export function TaskPage({
                       />
                       <FieldFeedback editor={editor} field="status" />
                     </div>
-                    <div className="grid gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2">
                       <Choice
+                        className="min-w-0"
                         label="Assignee"
                         value={values.assigneeId ?? ""}
                         items={assigneeOptions}
@@ -572,7 +573,7 @@ export function TaskPage({
                       />
                       <FieldFeedback editor={editor} field="assigneeId" />
                     </div>
-                    <div className="grid gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2">
                       <ChoiceField
                         label="Priority"
                         value={values.priority}
@@ -591,7 +592,7 @@ export function TaskPage({
                       />
                       <FieldFeedback editor={editor} field="priority" />
                     </div>
-                    <div className="grid gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2">
                       <DatePickerField
                         label="Start date"
                         value={values.startDate?.slice(0, 10) ?? null}
@@ -602,7 +603,7 @@ export function TaskPage({
                       />
                       <FieldFeedback editor={editor} field="startDate" />
                     </div>
-                    <div className="grid gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2">
                       <DatePickerField
                         label="Due date"
                         value={values.dueDate?.slice(0, 10) ?? null}

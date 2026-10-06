@@ -1,25 +1,18 @@
 import { QueryFeedback } from "./query-feedback.js";
 // Adapted from Towbar's public Apache-2.0 API/MCP settings composition.
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Board } from "../../../packages/contracts/src/index.js";
-import {
-  Button,
-  Choice,
-  Dialog,
-  QueryLoading,
-  ErrorMessage,
-  TextField,
-  toast,
-} from "@mill/web-design-system";
+import { Button, QueryLoading, toast } from "@mill/web-design-system";
 import {
   ApiKeysSettings as SharedApiKeysSettings,
   AuthorizedClientsTable,
   AsyncActionButton,
+  CreateApiKeyDialog,
   type ApiKey,
   type AuthorizedClient,
 } from "@avgeek-oss/design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Key01Icon, Copy01Icon } from "@hugeicons/core-free-icons";
+import { Key01Icon } from "@hugeicons/core-free-icons";
 import { Plus } from "./icons.js";
 import {
   api,
@@ -83,140 +76,45 @@ function CreateCredential({
   onClose: () => void;
   onCreated: (credential: Credential) => void;
 }) {
-  const formId = useId();
   const [retryKey] = useState(createRetryKey);
-  const [name, setName] = useState("");
-  const [expiry, setExpiry] = useState("30");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
-  const [token, setToken] = useState("");
-  function close() {
-    if (pending) return;
-    setToken("");
-    retryKey.reset();
-    onClose();
-  }
-  async function create() {
-    if (pending) return;
-    const payload = {
-      name: name.trim(),
-      expiresInDays: Number(expiry),
-    };
-    setPending(true);
-    setError("");
-    try {
-      const result = await api<{ credential: Credential; token: string }>(
-        "/credentials",
-        payload,
-        "POST",
-        {
-          validateResponse: validCreationResponse,
-          headers: {
-            "Idempotency-Key": retryKey.forRequest("/credentials", payload),
-          },
-        },
-      );
-      setToken(result.token);
-      retryKey.reset();
-      toast.success("API key created.");
-      onCreated(result.credential);
-    } catch (cause) {
-      setError(errorText(cause));
-    } finally {
-      setPending(false);
-    }
-  }
-  async function copy() {
-    setError("");
-    try {
-      await navigator.clipboard.writeText(token);
-      toast.success("API key copied.");
-    } catch {
-      toast.danger("Copy failed. Select the key and copy it manually.");
-    }
-  }
   return (
-    <Dialog
-      open
-      title={token ? "Copy your API key" : "Create API key"}
-      onClose={close}
-      isDismissDisabled={pending}
-      footer={
-        token ? (
-          <>
-            <Button variant="secondary" onPress={() => void copy()}>
-              <HugeiconsIcon icon={Copy01Icon} size={16} /> Copy API key
-            </Button>
-            <Button onPress={close}>Done</Button>
-          </>
-        ) : (
-          <>
-            <Button variant="secondary" isDisabled={pending} onPress={close}>
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              form={formId}
-              isDisabled={pending || !name.trim()}
-            >
-              {pending ? "Creating…" : "Create API key"}
-            </Button>
-          </>
-        )
-      }
+    <CreateApiKeyDialog
+      isOpen
+      onOpenChange={(open) => {
+        if (!open) {
+          retryKey.reset();
+          onClose();
+        }
+      }}
+      expiryOptions={[30, 60, 90, 365].map((days) => ({
+        id: String(days),
+        label: `${days} days`,
+      }))}
+      defaultExpiry="30"
+      onCreate={async ({ name, expiry }) => {
+        const payload = { name: name.trim(), expiresInDays: Number(expiry) };
+        const result = await api<{ credential: Credential; token: string }>(
+          "/credentials",
+          payload,
+          "POST",
+          {
+            validateResponse: validCreationResponse,
+            headers: {
+              "Idempotency-Key": retryKey.forRequest("/credentials", payload),
+            },
+          },
+        );
+        retryKey.reset();
+        onCreated(result.credential);
+        toast.success("API key created.");
+        return { token: result.token };
+      }}
     >
-      {token ? (
-        <div className="content-grid">
-          <p className="text-sm font-normal text-muted">
-            Save this key in your secret storage. It is shown only in this
-            dialog and cannot be viewed again after you close it.
-          </p>
-          <TextField
-            label="API key"
-            className="max-md:text-base!"
-            value={token}
-            readOnly
-            autoComplete="off"
-          />
-          <ErrorMessage>{error}</ErrorMessage>
-        </div>
-      ) : (
-        <form
-          id={formId}
-          className="content-grid"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void create();
-          }}
-        >
-          <TextField
-            label="Name"
-            className="max-md:text-base!"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="For example, release assistant"
-            required
-            maxLength={120}
-            disabled={pending}
-          />
-          <Choice
-            label="Expiry"
-            value={expiry}
-            onChange={setExpiry}
-            disabled={pending}
-            items={[30, 60, 90, 365].map((days) => ({
-              id: String(days),
-              name: `${days} days`,
-            }))}
-          />
-          <p className="text-xs font-normal text-muted">
-            This key uses your current permissions. Keep it private; you can
-            revoke it at any time.
-          </p>
-          <ErrorMessage>{error}</ErrorMessage>
-        </form>
-      )}
-    </Dialog>
+      <p className="text-xs text-muted">
+        This key uses your current permissions. Keep it private; you can revoke
+        it at any time.
+      </p>
+    </CreateApiKeyDialog>
   );
 }
 
@@ -401,7 +299,7 @@ export function ApiKeySettings({
           <QueryFeedback message={error} onRetry={() => void refresh()} />
         ) : null}
         {pending && items === null ? (
-          <QueryLoading>Loading API keys</QueryLoading>
+          <QueryLoading className="sr-only">Loading API keys</QueryLoading>
         ) : items !== null ? (
           <>
             <SharedApiKeysSettings

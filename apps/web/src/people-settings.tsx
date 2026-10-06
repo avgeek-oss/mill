@@ -2,7 +2,6 @@ import { QueryFeedback } from "./query-feedback.js";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -258,6 +257,8 @@ export function PeopleSettings({
   const inviteWasOpened = useRef(false);
   const actionButtons = useRef(new Map<string, HTMLButtonElement>());
   const actionTrigger = useRef<string | null>(null);
+  const peopleSection = useRef<HTMLElement>(null);
+  const actionRegion = useRef<string | null>(null);
   const [action, setAction] = useState<
     | { kind: "role" | "remove"; member: Member }
     | { kind: "revoke"; invitation: Invitation }
@@ -269,21 +270,67 @@ export function PeopleSettings({
   const completeDirectory =
     !members.loading && !members.error && !members.hasMore;
   useEffect(() => {
+    if (action && actionTrigger.current) {
+      actionRegion.current =
+        action.kind === "revoke" ? "Invitations" : "Workspace members";
+    }
     if (!action && actionTrigger.current) {
-      const trigger = actionButtons.current.get(actionTrigger.current);
-      actionTrigger.current = null;
-      if (
-        trigger?.isConnected &&
-        !trigger.disabled &&
-        trigger.getAttribute("aria-disabled") !== "true"
-      ) {
-        trigger.focus();
-        return;
+      const key = actionTrigger.current;
+      const region = actionRegion.current;
+      let frame = 0;
+      let stopped = false;
+      const isRestoredGridFocus = (element: Element | null) =>
+        Boolean(
+          element?.matches('[role="grid"], [role="row"], [role="gridcell"]') &&
+          peopleSection.current?.contains(element) &&
+          element.closest('[role="region"]')?.getAttribute("aria-label") ===
+            region,
+        );
+      function stop() {
+        stopped = true;
+        cancelAnimationFrame(frame);
+        document.removeEventListener("focusin", onFocus);
+        document.removeEventListener("pointerdown", stop, true);
+        document.removeEventListener("keydown", stop, true);
       }
-      requestAnimationFrame(() => {
-        if (!actionTrigger.current && document.activeElement === document.body)
+      function restore() {
+        if (stopped) return;
+        actionTrigger.current = null;
+        actionRegion.current = null;
+        const focused = document.activeElement;
+        if (focused !== document.body && !isRestoredGridFocus(focused)) return;
+        const trigger = actionButtons.current.get(key);
+        if (
+          trigger?.isConnected &&
+          !trigger.disabled &&
+          trigger.getAttribute("aria-disabled") !== "true"
+        ) {
+          trigger.focus();
+        } else {
           inviteTrigger.current?.focus();
+        }
+      }
+      function onFocus(event: FocusEvent) {
+        const focused = event.target instanceof Element ? event.target : null;
+        if (isRestoredGridFocus(focused)) {
+          cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(restore);
+        } else if (
+          focused !== document.body &&
+          focused !== actionButtons.current.get(key) &&
+          focused !== inviteTrigger.current
+        ) {
+          stop();
+        }
+      }
+      // The grid can resume focus after its rows reconcile following deletion.
+      document.addEventListener("focusin", onFocus);
+      document.addEventListener("pointerdown", stop, true);
+      document.addEventListener("keydown", stop, true);
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(restore);
       });
+      return stop;
     }
   }, [action]);
   function rememberAction(key: string) {
@@ -292,10 +339,13 @@ export function PeopleSettings({
       else actionButtons.current.delete(key);
     };
   }
-  useLayoutEffect(() => {
+  useEffect(() => {
     if (!inviteOpen && inviteWasOpened.current) {
-      inviteWasOpened.current = false;
-      inviteTrigger.current?.focus();
+      const frame = requestAnimationFrame(() => {
+        inviteWasOpened.current = false;
+        inviteTrigger.current?.focus();
+      });
+      return () => cancelAnimationFrame(frame);
     }
   }, [inviteOpen]);
   useEffect(() => {
@@ -309,7 +359,7 @@ export function PeopleSettings({
     }
   }
   return (
-    <section className="settings-page">
+    <section ref={peopleSection} className="settings-page">
       <PageHeading
         title="People"
         icon={<HugeiconsIcon icon={UserMultipleIcon} size={20} />}
@@ -329,7 +379,7 @@ export function PeopleSettings({
       <div className="content-grid min-w-0">
         <PeopleSection label="Workspace members" busy={members.loading}>
           {members.loading && !members.items.length && (
-            <QueryLoading>Loading people</QueryLoading>
+            <QueryLoading className="sr-only">Loading people</QueryLoading>
           )}
           {members.error && (
             <QueryFeedback
@@ -399,7 +449,7 @@ export function PeopleSettings({
         </PeopleSection>
         <PeopleSection label="Invitations" busy={invitations.loading}>
           {invitations.loading && !invitations.items.length && (
-            <QueryLoading>Loading invitations</QueryLoading>
+            <QueryLoading className="sr-only">Loading invitations</QueryLoading>
           )}
           {invitations.error && (
             <QueryFeedback

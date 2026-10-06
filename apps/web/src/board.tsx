@@ -763,7 +763,7 @@ export function BoardPage({
               />
             )}
             {loading && !tasks.length ? (
-              <QueryLoading>Loading tasks…</QueryLoading>
+              <QueryLoading className="sr-only">Loading tasks…</QueryLoading>
             ) : !tasks.length ? (
               error ? null : (
                 emptyTasks()

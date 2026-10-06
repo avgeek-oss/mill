@@ -36,6 +36,9 @@ import {
   PasswordChangeSettings,
   SessionsSettings,
   RecoveryCodes,
+  PasskeySettings,
+  EmailChangeSettings,
+  ConfirmIdentityDialog,
 } from "@avgeek-oss/design-system";
 import {
   dateTimePreferenceOptions,
@@ -149,7 +152,7 @@ function ListState({
     return error ? (
       <QueryFeedback message={error} onRetry={retry} />
     ) : (
-      <QueryLoading>{`Loading ${noun}`}</QueryLoading>
+      <QueryLoading className="sr-only">{`Loading ${noun}`}</QueryLoading>
     );
   return (
     <>
@@ -266,9 +269,11 @@ function PreferenceSettings({
     session.user.notificationPreferences.mentions !== false,
   );
   const [busy, setBusy] = useState(false);
+  const notificationPending = useRef(false);
   const [notificationError, setNotificationError] = useState("");
   async function saveNotifications() {
-    if (busy) return;
+    if (notificationPending.current) return;
+    notificationPending.current = true;
     setBusy(true);
     setNotificationError("");
     try {
@@ -282,6 +287,7 @@ function PreferenceSettings({
     } catch (cause) {
       setNotificationError(errorText(cause));
     } finally {
+      notificationPending.current = false;
       setBusy(false);
     }
   }
@@ -372,17 +378,15 @@ function EmailPasswordSettings({
         icon={<HugeiconsIcon icon={Mail01Icon} />}
       />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
-        <AccountWidget title="Email address">
-          <TextField
-            label="Current email"
-            value={session.user.email}
-            readOnly
-            autoComplete="username"
-          />
+        <EmailChangeSettings
+          email={session.user.email}
+          isVerified={false}
+          mode="read-only"
+        >
           <FieldDescription>
             Your email identifies this account.
           </FieldDescription>
-        </AccountWidget>
+        </EmailChangeSettings>
         <PasswordChangeSettings
           minLength={15}
           maxLength={1024}
@@ -407,7 +411,11 @@ function TwoFactorSettings({
   onRefresh: () => void;
 }) {
   const keys = useAccountList<Passkey>("/auth/passkeys");
-  const [pending, setPending] = useState<(() => Promise<void>) | null>(null);
+  const [pending, setPending] = useState<{
+    action: () => Promise<void>;
+    onComplete?: () => void;
+    onCancel?: () => void;
+  } | null>(null);
   const [totp, setTotp] = useState<{ secret: string; uri: string } | null>(
     null,
   );
@@ -417,6 +425,8 @@ function TwoFactorSettings({
   const [code, setCode] = useState("");
   const [totpError, setTotpError] = useState("");
   const [totpBusy, setTotpBusy] = useState(false);
+  const totpPending = useRef(false);
+  const securityPending = useRef(false);
   const [copyingSetupKey, setCopyingSetupKey] = useState(false);
   const setupKeyCopyPending = useRef(false);
   const [codes, setCodes] = useState<string[]>([]);
@@ -425,10 +435,27 @@ function TwoFactorSettings({
     await keys.refresh();
   }
   function secure(action: () => Promise<void>) {
-    setPending(() => action);
+    if (securityPending.current) return;
+    securityPending.current = true;
+    setPending({ action });
+  }
+  function securePasskey(action: () => Promise<void>) {
+    if (securityPending.current)
+      return Promise.reject(
+        new Error("Complete the current security change first."),
+      );
+    securityPending.current = true;
+    return new Promise<void>((resolve, reject) => {
+      setPending({
+        action,
+        onComplete: resolve,
+        onCancel: () => reject(new Error("Identity confirmation canceled.")),
+      });
+    });
   }
   async function verifyAuthenticator() {
-    if (totpBusy) return;
+    if (totpPending.current) return;
+    totpPending.current = true;
     setTotpBusy(true);
     setTotpError("");
     try {
@@ -453,6 +480,7 @@ function TwoFactorSettings({
     } catch (cause) {
       setTotpError(errorText(cause));
     } finally {
+      totpPending.current = false;
       setTotpBusy(false);
     }
   }
@@ -463,94 +491,45 @@ function TwoFactorSettings({
         icon={<HugeiconsIcon icon={SecurityCheckIcon} />}
       />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
-        <AccountWidget
-          title="Passkeys"
-          busy={keys.pending}
-          status={
-            keys.items && !keys.error ? (
-              <Chip color={keys.items.length ? "success" : "default"}>
-                {keys.items.length
-                  ? `${keys.items.length} added`
-                  : "None added"}
-              </Chip>
-            ) : undefined
-          }
-        >
-          <p className="text-sm text-muted">
-            Sign in with your device or password manager. Mill prefers a passkey
-            when second verification is needed.
-          </p>
+        <div className="min-w-0">
           <ListState
             loaded={keys.items !== null}
             error={keys.error}
             retry={() => void keys.refresh()}
             noun="passkeys"
           >
-            {keys.items?.length ? (
-              <ul className="divide-y divide-separator">
-                {keys.items.map((key) => (
-                  <li
-                    key={key.id}
-                    className="flex flex-wrap items-center justify-between gap-3 py-4 first:pt-0 last:pb-0"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium break-words">
-                        {key.name}
-                      </p>
-                      <RelativeDateTime
-                        value={key.createdAt}
-                        timeZone={session.user.timeZone}
-                        label="Passkey added"
-                        prefix="Added"
-                        compact
-                        className="text-muted"
-                      />
-                    </div>
-                    <Button
-                      variant="danger"
-                      isDisabled={!!pending || keys.pending}
-                      onPress={() =>
-                        secure(async () => {
-                          await api(`/auth/passkeys/${key.id}`, {}, "DELETE");
-                          toast.success("Passkey removed.");
-                        })
-                      }
-                    >
-                      Remove
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-muted">No passkeys added.</p>
-            )}
-          </ListState>
-          <div>
-            <Button
-              variant="secondary"
-              isDisabled={!!pending}
-              onPress={() =>
-                secure(async () => {
+            <PasskeySettings
+              items={keys.items ?? []}
+              formatDate={(value) => (
+                <RelativeDateTime
+                  value={value}
+                  timeZone={session.user.timeZone}
+                />
+              )}
+              onAdd={(name) =>
+                securePasskey(async () => {
                   const options = await api<{
                     challengeId: string;
                     options: PublicKeyCredentialCreationOptionsJSON;
-                  }>("/auth/passkeys/register/options", { name: "My passkey" });
+                  }>("/auth/passkeys/register/options", { name });
                   const response = await startRegistration({
                     optionsJSON: options.options,
                   });
                   await api("/auth/passkeys/register/verify", {
                     challengeId: options.challengeId,
                     response,
-                    name: "My passkey",
+                    name,
                   });
-                  toast.success("Passkey added.");
                 })
               }
-            >
-              Add passkey
-            </Button>
-          </div>
-        </AccountWidget>
+              onRemove={(id) =>
+                securePasskey(async () => {
+                  await api(`/auth/passkeys/${id}`, {}, "DELETE");
+                })
+              }
+            />
+          </ListState>
+        </div>
         <AccountWidget
           title="Authenticator"
           status={
@@ -720,10 +699,16 @@ function TwoFactorSettings({
       {pending && (
         <ReauthenticationDialog
           email={session.user.email}
-          onClose={() => setPending(null)}
+          onClose={() => {
+            pending.onCancel?.();
+            securityPending.current = false;
+            setPending(null);
+          }}
           onConfirmed={async () => {
-            await pending();
+            await pending.action();
             await refresh();
+            pending.onComplete?.();
+            securityPending.current = false;
             setPending(null);
           }}
         />
@@ -814,16 +799,18 @@ function ReauthenticationDialog({
   const [verified, setVerified] = useState(false);
   const [error, setError] = useState("");
   const active = useRef(true);
+  const requestPending = useRef(false);
+  const passkeyPending = useRef(false);
   const ceremony = useRef<AbortController | null>(null);
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    active.current = true;
+    return () => {
       active.current = false;
       ceremony.current?.abort();
-    },
-    [],
-  );
+    };
+  }, []);
   function dismiss() {
-    if (busy && !passkeyBusy) return;
+    if (requestPending.current && !passkeyPending.current) return;
     active.current = false;
     ceremony.current?.abort();
     WebAuthnAbortService.cancelCeremony();
@@ -834,7 +821,10 @@ function ReauthenticationDialog({
     setVerified(true);
     await onConfirmed();
   }
-  async function passkey(value: IdentityChallenge) {
+  async function passkey(value: IdentityChallenge, fromConfirmation = false) {
+    if (requestPending.current && !fromConfirmation) return;
+    requestPending.current = true;
+    passkeyPending.current = true;
     setBusy(true);
     setPasskeyBusy(true);
     setError("");
@@ -843,11 +833,14 @@ function ReauthenticationDialog({
     try {
       await verifyPasskey(value.challengeId, controller.signal);
       if (!active.current) return;
+      passkeyPending.current = false;
       setPasskeyBusy(false);
       await complete();
     } catch (cause) {
       if (active.current) setError(passkeyError(cause));
     } finally {
+      requestPending.current = false;
+      passkeyPending.current = false;
       if (active.current) {
         setBusy(false);
         setPasskeyBusy(false);
@@ -855,7 +848,8 @@ function ReauthenticationDialog({
     }
   }
   async function confirm() {
-    if (busy) return;
+    if (requestPending.current) return;
+    requestPending.current = true;
     setBusy(true);
     setError("");
     try {
@@ -881,12 +875,13 @@ function ReauthenticationDialog({
           setMethod(
             result.methods.find((m) => m === "totp" || m === "recovery") ?? "",
           );
-          if (result.preferredMethod === "passkey") await passkey(result);
+          if (result.preferredMethod === "passkey") await passkey(result, true);
         } else await complete();
       }
     } catch (cause) {
       setError(errorText(cause));
     } finally {
+      requestPending.current = false;
       setBusy(false);
     }
   }
@@ -895,12 +890,14 @@ function ReauthenticationDialog({
     !challenge ||
     challenge.methods.some((m) => m === "totp" || m === "recovery");
   return (
-    <Dialog
-      open
-      size="sm"
+    <ConfirmIdentityDialog
+      isOpen
+      method="custom"
+      isPending={busy}
       isDismissDisabled={busy && !passkeyBusy}
-      onClose={dismiss}
-      title="Confirm it’s you"
+      onOpenChange={(open) => {
+        if (!open) dismiss();
+      }}
     >
       <form
         className="content-grid"
@@ -968,16 +965,9 @@ function ReauthenticationDialog({
               {verified ? "Retry security change" : "Confirm"}
             </Button>
           )}
-          <Button
-            variant="secondary"
-            isDisabled={busy && !passkeyBusy}
-            onPress={dismiss}
-          >
-            Cancel
-          </Button>
         </div>
       </form>
-    </Dialog>
+    </ConfirmIdentityDialog>
   );
 }
 function RecoveryCodesDialog({

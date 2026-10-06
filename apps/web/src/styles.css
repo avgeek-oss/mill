@@ -1,6 +1,5 @@
 @import "@avgeek-oss/design-system/styles.css";
 @import "./mill-theme.css";
-@import "./feedback.css";
 @source "./";
 
 @layer components {

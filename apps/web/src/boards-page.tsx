@@ -5,7 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Button,
   EmptyState,
-  Skeleton,
+  QueryLoading,
   TypographyHeading,
   Widget,
 } from "@mill/web-design-system";
@@ -115,14 +115,7 @@ export function BoardsPage({
           ))}
         </ul>
       ) : pending ? (
-        <div
-          aria-label="Loading boards"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          {Array.from({ length: 3 }, (_, index) => (
-            <Skeleton key={index} className="h-40 rounded-2xl" />
-          ))}
-        </div>
+        <QueryLoading className="sr-only">Loading boards</QueryLoading>
       ) : !error ? (
         <EmptyState>
           <EmptyState.Media>

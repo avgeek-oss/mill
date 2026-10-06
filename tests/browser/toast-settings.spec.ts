@@ -18,6 +18,80 @@ function notification(page: Page, text: string) {
   return page.locator('[data-slot="toast"]').filter({ hasText: text });
 }
 
+for (const width of [1280, 390])
+  test(`whitespace-only required names toast and retain the draft at ${width}px`, async ({
+    browser,
+  }) => {
+    const context = await browser.newContext({
+      viewport: { width, height: 844 },
+      isMobile: width === 390,
+      hasTouch: width === 390,
+    });
+    try {
+      const page = await context.newPage();
+      await authenticateBrowserFixture(page, fixture);
+      await page.goto("/settings/api-keys");
+      await page
+        .getByRole("button", { name: "Create API key", exact: true })
+        .click();
+      const dialog = page.getByRole("dialog", {
+        name: "Create API key",
+        exact: true,
+      });
+      const name = dialog.getByLabel("Name", { exact: true });
+      await name.fill("   ");
+      let requests = 0;
+      await page.route("**/api/credentials", (route) => {
+        if (route.request().method() === "POST") requests++;
+        return route.continue();
+      });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        await dialog
+          .getByRole("button", { name: "Create key", exact: true })
+          .click();
+        const alert = notification(page, "Enter a value for Name.");
+        await expect(alert).toBeVisible();
+        await expect(name).toBeFocused();
+        await expect(name).toHaveValue("   ");
+        await expect(dialog.getByRole("alert")).toHaveCount(0);
+        await expect(alert).toHaveCount(1);
+        if (attempt === 0) {
+          await expect
+            .poll(() =>
+              alert.evaluate((element) => {
+                const rect = element.getBoundingClientRect();
+                return (
+                  rect.top >= 0 &&
+                  rect.bottom <= window.innerHeight &&
+                  element
+                    .getAnimations({ subtree: true })
+                    .every((animation) => animation.playState !== "running")
+                );
+              }),
+            )
+            .toBe(true);
+          await page.screenshot({
+            path: `tmp/toast-feedback/whitespace-${width}.png`,
+          });
+        }
+        await alert.locator('[data-slot="toast-close"]').click();
+        await expect(alert).toHaveCount(0);
+      }
+      expect(requests).toBe(0);
+      await name.fill(`Valid name ${width}`);
+      await dialog
+        .getByRole("button", { name: "Create key", exact: true })
+        .click();
+      await expect(
+        page.getByRole("dialog", { name: "Copy your API key", exact: true }),
+      ).toBeVisible();
+      await expect(notification(page, "API key created.")).toBeVisible();
+      expect(requests).toBe(1);
+    } finally {
+      await context.close();
+    }
+  });
+
 test("API key copy failures toast on every attempt when the clipboard API is unavailable", async ({
   page,
 }) => {
@@ -39,17 +113,16 @@ test("API key copy failures toast on every attempt when the clipboard API is una
   await form
     .getByLabel("Name", { exact: true })
     .fill("Clipboard failure verification");
-  await form
-    .getByRole("button", { name: "Create API key", exact: true })
-    .click();
+  await form.getByRole("button", { name: "Create key", exact: true }).click();
   const result = page.getByRole("dialog", {
     name: "Copy your API key",
     exact: true,
   });
-  const failure = "Copy failed. Select the key and copy it manually.";
+  const failure =
+    "Could not copy to the clipboard. Select and copy the text instead.";
   for (let attempt = 0; attempt < 2; attempt++) {
     await result
-      .getByRole("button", { name: "Copy API key", exact: true })
+      .getByRole("button", { name: "Copy code", exact: true })
       .click();
     const toast = notification(page, failure);
     await expect(toast).toBeVisible();

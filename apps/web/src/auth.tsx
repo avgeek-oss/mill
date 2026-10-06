@@ -62,6 +62,7 @@ export function Auth({
   const [lookupAttempt, setLookupAttempt] = useState(0);
   const [challenge, setChallenge] = useState<IdentityChallenge | null>(null);
   const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [credentialsBusy, setCredentialsBusy] = useState(false);
   const ceremony = useRef<AbortController | null>(null);
   const pending = useRef(false);
   const active = useRef(true);
@@ -134,6 +135,7 @@ export function Auth({
   async function signIn(identifier: string, password: string) {
     if (pending.current) return;
     pending.current = true;
+    setCredentialsBusy(true);
     setEmail(identifier);
     try {
       const result = await api<Session | IdentityChallenge>("/auth/login", {
@@ -150,6 +152,7 @@ export function Auth({
       } else onSession(result);
     } finally {
       pending.current = false;
+      if (active.current) setCredentialsBusy(false);
     }
   }
   const brand = <AuthBrand />;
@@ -173,6 +176,7 @@ export function Auth({
       <SignIn
         brand={brand}
         defaultEmail={email}
+        isPending={credentialsBusy}
         onSubmit={({ identifier, password }) => signIn(identifier, password)}
         onForgotPassword={() => setMode("forgot")}
         onPasskeySignIn={() => void passkey()}
@@ -234,7 +238,9 @@ export function Auth({
     if (!invitation)
       return (
         <AuthScreen brand={brand} title="Join your workspace">
-          <QueryLoading>Checking your invitation…</QueryLoading>
+          <QueryLoading className="sr-only">
+            Checking your invitation…
+          </QueryLoading>
         </AuthScreen>
       );
     return (
@@ -326,54 +332,86 @@ export function Auth({
         onRetry={() => void passkey(challenge?.challengeId)}
         onCancelRequest={() => ceremony.current?.abort()}
         onBackToSignIn={backToSignIn}
-        onRecoverySignIn={() => {
-          ceremony.current?.abort();
-          setMode("recovery");
-        }}
+        onRecoverySignIn={
+          challenge?.methods.includes("recovery")
+            ? () => setMode("recovery")
+            : undefined
+        }
+        onAuthenticatorSignIn={
+          challenge?.methods.includes("totp")
+            ? () => setMode("factor")
+            : undefined
+        }
       />
     );
   return (
     <AuthScreen
       brand={brand}
       title="Verify your sign-in"
-      description="Enter your authenticator code or an unused recovery code."
+      description={
+        challenge?.methods.includes("totp")
+          ? "Enter the six-digit code from your authenticator app."
+          : "Enter an unused recovery code."
+      }
     >
       <AuthForm
         fields={[
           {
             name: "code",
-            label: "Verification code",
+            label: challenge?.methods.includes("totp")
+              ? "Six-digit code"
+              : "Recovery code",
             required: true,
             autoComplete: "one-time-code",
-            maxLength: 100,
+            maxLength: challenge?.methods.includes("totp") ? 6 : 30,
+            pattern: challenge?.methods.includes("totp")
+              ? "[0-9]{6}"
+              : undefined,
+            inputMode: challenge?.methods.includes("totp") ? "numeric" : "text",
           },
         ]}
         submitLabel="Verify"
         onSubmit={async ({ code }) => {
           if (!challenge) throw new Error("Start again from sign in.");
-          onSession(
-            await api<Session>("/auth/second-factor", {
+          if (pending.current) return;
+          pending.current = true;
+          setCredentialsBusy(true);
+          try {
+            const result = await api<Session>("/auth/second-factor", {
               challengeId: challenge.challengeId,
               method: challenge.methods.includes("totp") ? "totp" : "recovery",
               code,
-            }),
-          );
+            });
+            if (active.current) onSession(result);
+          } finally {
+            pending.current = false;
+            if (active.current) setCredentialsBusy(false);
+          }
         }}
       />
       {challenge?.methods.includes("passkey") && (
         <Button
           variant="secondary"
+          isDisabled={credentialsBusy}
           onPress={() => void passkey(challenge.challengeId)}
         >
           Use passkey
         </Button>
       )}
       {challenge?.methods.includes("recovery") && (
-        <Button variant="secondary" onPress={() => setMode("recovery")}>
+        <Button
+          variant="secondary"
+          isDisabled={credentialsBusy}
+          onPress={() => setMode("recovery")}
+        >
           Use a recovery code
         </Button>
       )}
-      <Button variant="secondary" onPress={backToSignIn}>
+      <Button
+        variant="secondary"
+        isDisabled={credentialsBusy}
+        onPress={backToSignIn}
+      >
         ← Back to Sign In
       </Button>
     </AuthScreen>

@@ -327,7 +327,9 @@ function ConsentRequest({
   if (connection.phase === "pending")
     return (
       <AuthScreen brand={<AuthBrand />} title="Connect to Mill">
-        <QueryLoading>Loading connection request…</QueryLoading>
+        <QueryLoading className="sr-only">
+          Loading connection request…
+        </QueryLoading>
       </AuthScreen>
     );
   if (connection.phase === "failed")

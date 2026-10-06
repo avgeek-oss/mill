@@ -949,7 +949,7 @@ function TaskDiscussionContent({
             />
           )}
           {comments.busy && !comments.ready && (
-            <QueryLoading>Loading comments…</QueryLoading>
+            <QueryLoading className="sr-only">Loading comments…</QueryLoading>
           )}
           <div className="grid min-w-0 gap-6">
             {comments.items.map((item) => {
