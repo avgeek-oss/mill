@@ -181,6 +181,23 @@ export async function rebasePrelaunch(
     await tx`SELECT pg_advisory_xact_lock(69115501)`;
     const original = await schemaLayout(tx, schema);
     requireKnownLegacy(original, expectedLegacy);
+    const sourceTables = Object.keys(original.tables);
+    if (apply) {
+      await requireStopped(tx);
+      await tx.unsafe(
+        `LOCK TABLE ${sourceTables.map((name) => qualify(schema, name)).join(",")} IN ACCESS EXCLUSIVE MODE`,
+      );
+      requireKnownLegacy(await schemaLayout(tx, schema), expectedLegacy);
+    }
+    if (sourceTables.includes("authenticators")) {
+      const [unprotected] = await tx.unsafe(
+        `SELECT EXISTS(SELECT 1 FROM ${qualify(schema, "authenticators")} a JOIN ${qualify(schema, "users")} u ON u.id=a.user_id WHERE a.verified AND u.disabled_at IS NULL AND NOT EXISTS(SELECT 1 FROM ${qualify(schema, "passkeys")} p WHERE p.user_id=a.user_id)) AS blocked`,
+      );
+      if (unprotected.blocked)
+        throw new Error(
+          "Add passkeys or explicitly recover active authenticator-only accounts before conversion; security factors cannot be silently removed",
+        );
+    }
     const counts = {};
     if (!apply) {
       for (const table of Object.keys(original.tables)) {
@@ -190,21 +207,6 @@ export async function rebasePrelaunch(
         counts[table] = row.count;
       }
       return { applied: false, schema, counts, baseline: baselineName };
-    }
-    await requireStopped(tx);
-    const sourceTables = Object.keys(original.tables);
-    await tx.unsafe(
-      `LOCK TABLE ${sourceTables.map((name) => qualify(schema, name)).join(",")} IN ACCESS EXCLUSIVE MODE`,
-    );
-    requireKnownLegacy(await schemaLayout(tx, schema), expectedLegacy);
-    if (sourceTables.includes("authenticators")) {
-      const [unprotected] = await tx.unsafe(
-        `SELECT EXISTS(SELECT 1 FROM ${qualify(schema, "authenticators")} a WHERE a.verified AND NOT EXISTS(SELECT 1 FROM ${qualify(schema, "passkeys")} p WHERE p.user_id=a.user_id)) AS blocked`,
-      );
-      if (unprotected.blocked)
-        throw new Error(
-          "Add passkeys or explicitly recover authenticator-only accounts before conversion; security factors cannot be silently removed",
-        );
     }
     await tx.unsafe(`CREATE SCHEMA ${quote(staging)}`);
     await tx.unsafe(`SET LOCAL search_path TO ${quote(staging)}, pg_catalog`);
@@ -442,6 +444,7 @@ async function main(args) {
     );
     const knownSources = await Promise.all(
       [
+        "prelaunch-auth-settings-layout.json",
         "prelaunch-account-preferences-layout.json",
         "prelaunch-start-date-layout.json",
         "prelaunch-task-type-layout.json",

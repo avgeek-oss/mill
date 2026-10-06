@@ -149,7 +149,7 @@ for (const [width, theme] of [
       await page.goto("/settings/mcp");
       const copy = page.getByRole("button", { name: "Copy code", exact: true });
       const failure =
-        "Could not copy code. Select the configuration and copy it manually.";
+        "Could not copy to the clipboard. Select and copy the text instead.";
       for (let attempt = 0; attempt < 2; attempt++) {
         await copy.click();
         await expect(notification(page, failure)).toHaveCount(1);
@@ -164,9 +164,7 @@ for (const [width, theme] of [
           true;
       });
       await copy.click();
-      await expect(notification(page, "Code copied to clipboard.")).toHaveCount(
-        1,
-      );
+      await expect(notification(page, "Copied to clipboard.")).toHaveCount(1);
       await expect(copy).toHaveText("Copy");
       expect(uncaught).toEqual([]);
     });

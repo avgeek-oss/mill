@@ -2,7 +2,6 @@ import { QueryFeedback } from "./query-feedback.js";
 import { useEffect, useRef, useState } from "react";
 import {
   InvitationPasswordSetup,
-  InvitationUnavailable,
   AuthScreen,
   Button,
   PasskeyVerification,
@@ -225,7 +224,12 @@ export function Auth({
   if (mode === "invite") {
     if (!token)
       return (
-        <InvitationUnavailable brand={brand} onBackToSignIn={backToSignIn} />
+        <AuthScreen brand={brand} title="Join your workspace">
+          <QueryFeedback message="This invitation link is incomplete. Ask your administrator for a new link." />
+          <Button variant="secondary" onPress={backToSignIn}>
+            ← Back to Sign In
+          </Button>
+        </AuthScreen>
       );
     if (invitationError)
       return (

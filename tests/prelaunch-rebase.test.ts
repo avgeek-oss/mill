@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -380,6 +380,13 @@ test("prelaunch conversion rejects active clients, checksum drift, unknown sourc
 
 for (const source of [
   {
+    name: "c49f109 auth and account preference baseline",
+    file: "prelaunch-auth-settings-layout.json",
+    hasType: true,
+    hasStartDate: true,
+    hasPreferences: true,
+  },
+  {
     name: "preceding clean baseline",
     file: "prelaunch-task-type-layout.json",
     hasType: false,
@@ -418,9 +425,17 @@ for (const source of [
             !line.startsWith("  time_format "),
         )
         .join("\n");
+      const preferenceBaseline = source.hasPreferences
+        ? legacyBaseline
+        : withoutPreferences;
       const sourceBaseline = source.hasStartDate
-        ? withoutPreferences
-        : withoutPreferences.replace("  start_date date,\n", "");
+        ? preferenceBaseline
+        : preferenceBaseline.replace("  start_date date,\n", "");
+      if (source.hasPreferences)
+        assert.equal(
+          createHash("sha256").update(sourceBaseline).digest("hex"),
+          expected.migrations[0].checksum,
+        );
       await sql.unsafe(
         source.hasType
           ? sourceBaseline
@@ -437,6 +452,13 @@ for (const source of [
         task = randomUUID();
       await sql`INSERT INTO workspace(id,name) VALUES(${workspace},'Preserved workspace')`;
       await sql`INSERT INTO users(id,workspace_id,name,email,password_hash,role) VALUES(${user},${workspace},'Owner','owner@example.test','hash','admin')`;
+      if (source.hasPreferences) {
+        await sql`UPDATE users SET date_format='year-month-day',time_format='12-hour',time_zone='Asia/Kolkata',notification_preferences='{"assignments":false,"mentions":true}' WHERE id=${user}`;
+        await sql`INSERT INTO authenticators(user_id,encrypted_secret,verified) VALUES(${user},'preserved-retired-factor',true)`;
+        await sql`INSERT INTO passkeys(id,user_id,name,public_key,counter) VALUES('preserved-passkey',${user},'Owner passkey',${Buffer.from("preserved-public-key")},7)`;
+        await sql`INSERT INTO recovery_codes(user_id,code_hash) VALUES(${user},'preserved-retired-recovery')`;
+        await sql`INSERT INTO sessions(id,user_id,token_hash,security_epoch,user_agent,expires_at) VALUES(${randomUUID()},${user},'preserved-browser-hash',0,'Preserved browser',now()+interval '1 day')`;
+      }
       await sql`INSERT INTO boards(id,workspace_id,name,prefix) VALUES(${board},${workspace},'Preserved board','KEEP')`;
       await sql`INSERT INTO tasks(id,board_id,identifier,title,description,created_by,assignee_id,priority,status,version,status_changed_at) VALUES(${task},${board},'KEEP-1','Preserved task','All original content',${user},${user},'urgent','done',9,now()-interval '3 days')`;
       if (source.hasType)
@@ -448,11 +470,39 @@ for (const source of [
       await sql`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail) VALUES(${task},${board},${user},'Historical owner name','oauth','task.updated','{"fields":["title"]}')`;
       await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at) VALUES(${user},'Existing connection','retained-hash','prefix',ARRAY['read','write'],'oauth',ARRAY[${board}::uuid],now()+interval '1 day')`;
       await sql`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,board_ids,task_ids) VALUES('owner','retry','retained-request','{"task":{"title":"cached old task"}}',201,ARRAY[${board}::uuid],ARRAY[${task}::uuid])`;
+      if (source.hasPreferences) {
+        const [key] = await sql`DELETE FROM passkeys RETURNING *`;
+        await assert.rejects(
+          execFileAsync(
+            process.execPath,
+            [
+              fileURLToPath(
+                new URL("../tools/rebase-prelaunch.mjs", import.meta.url),
+              ),
+              "--schema",
+              "public",
+            ],
+            { env: { ...process.env, DATABASE_URL: url.href } },
+          ),
+          /active authenticator-only accounts.*security factors cannot be silently removed/,
+        );
+        assert.equal((await sql`SELECT * FROM authenticators`).length, 1);
+        assert.equal((await sql`SELECT * FROM recovery_codes`).length, 1);
+        assert.equal(
+          (
+            await sql`SELECT nspname FROM pg_namespace WHERE nspname LIKE 'mill_prelaunch_%'`
+          ).length,
+          0,
+        );
+        await sql`INSERT INTO passkeys ${sql(key)}`;
+      }
       const before = [...(await sql`SELECT * FROM tasks`)];
       const users = [...(await sql`SELECT * FROM users`)];
       const credentials = [...(await sql`SELECT * FROM credentials`)];
       const activity = [...(await sql`SELECT * FROM activity`)];
       const comments = [...(await sql`SELECT * FROM comments`)];
+      const passkeys = [...(await sql`SELECT * FROM passkeys`)];
+      const sessions = [...(await sql`SELECT * FROM sessions`)];
       const layout = await schemaLayout(sql, "public");
       assert.deepEqual(layout, expected);
       const inspection = await execFileAsync(
@@ -503,15 +553,46 @@ for (const source of [
       const retained = { ...tasks[0] };
       if (!source.hasStartDate) delete retained.start_date;
       const convertedUsers = [...(await sql`SELECT * FROM users`)];
-      assert.equal(convertedUsers[0].date_format, "day-short-month-year");
-      assert.equal(convertedUsers[0].time_format, "24-hour");
+      if (source.hasPreferences) assert.deepEqual(convertedUsers, users);
+      else {
+        assert.equal(convertedUsers[0].date_format, "day-short-month-year");
+        assert.equal(convertedUsers[0].time_format, "24-hour");
+        assert.deepEqual(
+          convertedUsers.map(
+            ({ date_format: _dateFormat, time_format: _timeFormat, ...user }) =>
+              user,
+          ),
+          users,
+        );
+      }
+      assert.deepEqual([...(await sql`SELECT * FROM passkeys`)], passkeys);
       assert.deepEqual(
-        convertedUsers.map(
-          ({ date_format: _dateFormat, time_format: _timeFormat, ...user }) =>
-            user,
-        ),
-        users,
+        [...(await sql`SELECT * FROM sessions`)],
+        sessions.map((session) => ({
+          ...session,
+          authenticated_at: new Date(0),
+          passkey_authenticated_at: null,
+        })),
       );
+      if (source.hasPreferences) {
+        assert.equal((await sql`SELECT * FROM recovery_codes`).length, 0);
+        assert.equal(
+          (
+            await sql.unsafe(
+              `SELECT encrypted_secret FROM "${converted.archivedSchema}".authenticators`,
+            )
+          )[0].encrypted_secret,
+          "preserved-retired-factor",
+        );
+        assert.equal(
+          (
+            await sql.unsafe(
+              `SELECT code_hash FROM "${converted.archivedSchema}".recovery_codes`,
+            )
+          )[0].code_hash,
+          "preserved-retired-recovery",
+        );
+      }
       if (!source.hasType) delete retained.type;
       assert.deepEqual(retained, before[0]);
       assert.deepEqual(
@@ -559,15 +640,16 @@ test("prelaunch conversion blocks authenticator-only downgrade and archives lega
     await sql`INSERT INTO recovery_codes(user_id,code_hash) VALUES(${ids.admin},'legacy-recovery-digest')`;
     const session = randomUUID();
     await sql`INSERT INTO sessions(id,user_id,token_hash,security_epoch,user_agent,expires_at) VALUES(${session},${ids.admin},'retained-session-digest',0,'Retained browser',now()+interval '1 day')`;
-    await assert.rejects(
-      rebasePrelaunch(sql, {
-        schema: "public",
-        baseline,
-        expectedLegacy: layout,
-        apply: true,
-      }),
-      /security factors cannot be silently removed/,
-    );
+    for (const apply of [false, true])
+      await assert.rejects(
+        rebasePrelaunch(sql, {
+          schema: "public",
+          baseline,
+          expectedLegacy: layout,
+          apply,
+        }),
+        /active authenticator-only accounts.*security factors cannot be silently removed/,
+      );
     assert.deepEqual(await schemaLayout(sql, "public"), layout);
     assert.equal((await sql`SELECT * FROM authenticators`).length, 1);
     assert.equal(
@@ -602,6 +684,82 @@ test("prelaunch conversion blocks authenticator-only downgrade and archives lega
         await sql.unsafe(`SELECT code_hash FROM "${archived}".recovery_codes`)
       )[0].code_hash,
       "legacy-recovery-digest",
+    );
+  });
+});
+
+test("removed authenticator-only members do not block inspection or conversion and their retired factors stay in the source archive", async () => {
+  await fixture(async (sql, layout, ids) => {
+    await sql`UPDATE users SET disabled_at=now(),security_epoch=security_epoch+1 WHERE id=${ids.member}`;
+    await sql`INSERT INTO authenticators(user_id,encrypted_secret,verified,last_used_step) VALUES(${ids.member},'removed-member-retired-secret',true,42)`;
+    await sql`INSERT INTO recovery_codes(user_id,code_hash) VALUES(${ids.member},'removed-member-recovery-digest')`;
+    const members = [...(await sql`SELECT * FROM users ORDER BY id`)];
+    const authenticators = [...(await sql`SELECT * FROM authenticators`)];
+    const recoveryCodes = [...(await sql`SELECT * FROM recovery_codes`)];
+    const tasks = [...(await sql`SELECT * FROM tasks`)];
+    const dry = await rebasePrelaunch(sql, {
+      schema: "public",
+      baseline,
+      expectedLegacy: layout,
+    });
+    assert.equal(dry.applied, false);
+    assert.equal(dry.counts.authenticators, 1);
+    assert.deepEqual(await schemaLayout(sql, "public"), layout);
+    assert.deepEqual(
+      [...(await sql`SELECT * FROM authenticators`)],
+      authenticators,
+    );
+    assert.deepEqual(
+      [...(await sql`SELECT * FROM recovery_codes`)],
+      recoveryCodes,
+    );
+    assert.equal(
+      (
+        await sql`SELECT nspname FROM pg_namespace WHERE nspname LIKE 'mill_prelaunch_%'`
+      ).length,
+      0,
+    );
+    const converted = await rebasePrelaunch(sql, {
+      schema: "public",
+      baseline,
+      expectedLegacy: layout,
+      apply: true,
+    });
+    assert.equal(converted.applied, true);
+    const convertedMembers = [...(await sql`SELECT * FROM users ORDER BY id`)];
+    assert.deepEqual(
+      convertedMembers.map(
+        ({ date_format: _dateFormat, time_format: _timeFormat, ...member }) =>
+          member,
+      ),
+      members,
+    );
+    assert.ok(
+      convertedMembers.find((member) => member.id === ids.member)?.disabled_at,
+    );
+    assert.equal((await sql`SELECT * FROM recovery_codes`).length, 0);
+    assert.equal(
+      (
+        await sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name='authenticators'`
+      ).length,
+      0,
+    );
+    const archived = converted.archivedSchema!;
+    assert.deepEqual(
+      [...(await sql.unsafe(`SELECT * FROM "${archived}".authenticators`))],
+      authenticators,
+    );
+    assert.deepEqual(
+      [...(await sql.unsafe(`SELECT * FROM "${archived}".recovery_codes`))],
+      recoveryCodes,
+    );
+    assert.deepEqual(
+      [...(await sql.unsafe(`SELECT * FROM "${archived}".users ORDER BY id`))],
+      members,
+    );
+    assert.deepEqual(
+      [...(await sql.unsafe(`SELECT * FROM "${archived}".tasks`))],
+      tasks,
     );
   });
 });

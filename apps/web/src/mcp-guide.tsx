@@ -8,8 +8,7 @@ import {
 import { RouteLink } from "@avgeek-oss/design-system/navigation/route-link";
 import { Widget } from "@avgeek-oss/design-system/data-display/widget";
 import { CodeBlock } from "@avgeek-oss/design-system/typography/code-block";
-import { toast } from "@avgeek-oss/design-system/overlays/toast";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { McpClientLogo } from "./mcp-client-logo.js";
 import { PageHeading } from "./page-heading.js";
 
@@ -24,8 +23,6 @@ const clients = [
 export function McpGuide() {
   const endpoint = `${window.location.origin}/mcp`;
   const [client, setClient] = useState("cursor");
-  const [copying, setCopying] = useState(false);
-  const copyPending = useRef(false);
   const configs = {
     codex: {
       title: "~/.codex/config.toml",
@@ -99,28 +96,7 @@ export function McpGuide() {
             <CodeBlock>
               <CodeBlock.Header>
                 <CodeBlock.Filename>{config.title}</CodeBlock.Filename>
-                <Widget.Action
-                  aria-label="Copy code"
-                  isDisabled={copying}
-                  onPress={async () => {
-                    if (copyPending.current) return;
-                    copyPending.current = true;
-                    setCopying(true);
-                    try {
-                      await navigator.clipboard.writeText(config.code);
-                      toast.success("Code copied to clipboard.");
-                    } catch {
-                      toast.danger(
-                        "Could not copy code. Select the configuration and copy it manually.",
-                      );
-                    } finally {
-                      copyPending.current = false;
-                      setCopying(false);
-                    }
-                  }}
-                >
-                  Copy
-                </Widget.Action>
+                <CodeBlock.CopyButton code={config.code} />
               </CodeBlock.Header>
               <CodeBlock.Code
                 code={config.code}

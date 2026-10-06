@@ -90,6 +90,7 @@ export function ReauthenticationDialog({
         if (active.current) setPasskeyBusy(false);
       });
     } catch (cause) {
+      if (!active.current || controller.signal.aborted) return;
       throw new Error(passkeyError(cause));
     } finally {
       if (active.current) setPasskeyBusy(false);
