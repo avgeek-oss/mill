@@ -89,11 +89,16 @@ for (const width of [1280, 390]) {
       await authenticateBrowserFixture(page, fixture);
       await page.goto(`/boards/${boardId}`);
       const table = page.getByRole("grid", { name: "Task list", exact: true });
+      const rows = table
+        .getByRole("row")
+        .filter({ has: page.getByRole("link") });
+      const linksPerTask = width >= 640 ? 2 : 1;
       const expectDefaultTasks = async () => {
         await expect(
           page.getByText("1–4 of 4 tasks", { exact: true }),
         ).toBeVisible();
-        await expect(table.getByRole("link")).toHaveCount(4);
+        await expect(rows).toHaveCount(4);
+        await expect(table.getByRole("link")).toHaveCount(4 * linksPerTask);
         for (const title of [taskTitles.oldDone, taskTitles.oldWontDo])
           await expect(table.getByRole("link", { name: title })).toHaveCount(0);
         for (const title of [
@@ -137,13 +142,15 @@ for (const width of [1280, 390]) {
         await expect(
           page.getByText("1–2 of 2 tasks", { exact: true }),
         ).toBeVisible();
-        await expect(table.getByRole("link")).toHaveCount(2);
+        await expect(rows).toHaveCount(2);
+        await expect(table.getByRole("link")).toHaveCount(2 * linksPerTask);
         for (const title of titles)
           await expect(table.getByRole("link", { name: title })).toBeVisible();
         const filteredURL = page.url();
         await page.reload();
         await expect(page).toHaveURL(filteredURL);
-        await expect(table.getByRole("link")).toHaveCount(2);
+        await expect(rows).toHaveCount(2);
+        await expect(table.getByRole("link")).toHaveCount(2 * linksPerTask);
         for (const title of titles)
           await expect(table.getByRole("link", { name: title })).toBeVisible();
         await page.screenshot({
