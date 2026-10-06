@@ -4,6 +4,7 @@ import {
   createHash,
   generateKeyPairSync,
   randomBytes,
+  randomUUID,
   sign,
 } from "node:crypto";
 import {
@@ -440,6 +441,51 @@ test("invitations are one-time, expiring, revocable and only administrators can 
     await request("/api/auth/invitations", { cookie: admin.cookie })
   ).json();
   assert.equal(JSON.stringify(list).includes("token"), false);
+  assert.equal(
+    list.items.some((item: { id: string }) => item.id === inv.invitation.id),
+    false,
+  );
+  assert.equal(
+    list.items.some((item: { id: string }) => item.id === rev.invitation.id),
+    true,
+  );
+  assert.equal(
+    list.items.some(
+      (item: { id: string }) => item.id === member.invitation.invitation.id,
+    ),
+    true,
+  );
+});
+test("expired invitations do not consume list pages, and an expired cursor still reaches older invitations", async () => {
+  const admin = await setupUser();
+  const ids = Array.from({ length: 4 }, () => randomUUID());
+  for (const [index, id] of ids.entries()) {
+    await sql`INSERT INTO invitations(id,email,role,token_hash,invited_by,created_at,expires_at)
+      VALUES(${id},${`pagination-${index}@example.test`},'viewer',${randomUUID()},${admin.user.id},now()-${index}*interval '1 minute',now()+interval '1 day')`;
+  }
+  await sql`UPDATE invitations SET expires_at=now()-interval '1 second' WHERE id IN (${ids[0]},${ids[2]})`;
+  const first = await (
+    await request("/api/auth/invitations?limit=1", { cookie: admin.cookie })
+  ).json();
+  assert.deepEqual(
+    first.items.map((item: { id: string }) => item.id),
+    [ids[1]],
+  );
+  assert.equal(first.hasMore, true);
+  assert.equal(first.nextCursor, ids[1]);
+  await sql`UPDATE invitations SET expires_at=now()-interval '1 second' WHERE id=${ids[1]}`;
+  const next = await (
+    await request(`/api/auth/invitations?limit=1&cursor=${first.nextCursor}`, {
+      cookie: admin.cookie,
+    })
+  ).json();
+  assert.deepEqual(
+    next.items.map((item: { id: string }) => item.id),
+    [ids[3]],
+  );
+  assert.equal(next.hasMore, false);
+  assert.equal(next.nextCursor, null);
+  assert.equal((await sql`SELECT id FROM invitations`).length, 4);
 });
 test("last administrator protection survives concurrent demotion and member removal revokes access", async () => {
   const admin = await setupUser();
@@ -870,6 +916,8 @@ test("a stale password proof cannot create a session after a concurrent security
   const newHash = await hashPassword("Recovered concurrent password 42!");
   let pending: Promise<Response>;
   await sql.begin(async (tx) => {
+    const [{ pid }] = await tx`SELECT pg_backend_pid() AS pid`;
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     await tx`SELECT id FROM users WHERE id=${admin.user.id} FOR UPDATE`;
     pending = request("/api/auth/login", {
       body: { email: admin.user.email, password },
@@ -877,14 +925,18 @@ test("a stale password proof cannot create a session after a concurrent security
     let blocked = false;
     for (let attempts = 0; attempts < 100; attempts++) {
       const [waiting] =
-        await sql`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE wait_event_type='Lock' AND query LIKE 'SELECT * FROM users WHERE id=%FOR UPDATE%') AS blocked`;
+        await sql`SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE ${pid}=ANY(pg_blocking_pids(pid))) AS blocked`;
       if (waiting.blocked) {
         blocked = true;
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    assert.equal(blocked, true, "Login reached locked security-state recheck");
+    assert.equal(
+      blocked,
+      true,
+      "Login reached the locked workspace authority before its security-state recheck",
+    );
     await tx`UPDATE users SET password_hash=${newHash},security_epoch=security_epoch+1 WHERE id=${admin.user.id}`;
     await tx`DELETE FROM sessions WHERE user_id=${admin.user.id}`;
   });

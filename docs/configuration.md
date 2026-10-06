@@ -12,7 +12,7 @@ Start with `node tools/init-env.mjs`; the repository’s `.env.example` document
 | `MILL_BIND_ADDRESS`        | Compose binding, default 127.0.0.1. Keep private behind a reverse proxy.                                                                                             |
 | `PORT`                     | Server port for direct Node execution, default 4321. Compose fixes it to 4321.                                                                                       |
 | `NODE_ENV`                 | `development`, `test`, or `production`. Compose uses production.                                                                                                     |
-| `ALLOW_INSECURE_LOCALHOST` | Explicit loopback HTTP exception for local agent OAuth development. Never use it for a remote origin.                                                                |
+| `ALLOW_INSECURE_LOCALHOST` | Explicit loopback HTTP exception for local MCP OAuth development. Never use it for a remote origin.                                                                  |
 | `MILL_IMAGE`               | Local or immutable reviewed image reference used by Compose, default `mill:local`.                                                                                   |
 | `SOURCE_COMMIT`            | Build metadata identifying the image's source revision.                                                                                                              |
 | `MILL_MIGRATIONS_DIR`      | Override for the migration directory. The image uses `/app/packages/database/migrations`; operators normally do not change it.                                       |

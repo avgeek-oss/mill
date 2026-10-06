@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
-import type { Agent } from "../packages/contracts/src/index.js";
 process.env.DATABASE_URL ??=
   "postgres://mill:mill-test-disposable@127.0.0.1:55432/mill";
 process.env.MILL_BASE_URL ??= "http://localhost:4321";
@@ -70,33 +69,13 @@ export async function setupUser(overrides: Record<string, unknown> = {}) {
   return { cookie, body, user: body.user };
 }
 
-export async function setupAgent(
+export async function setupOAuth(
   cookie: string,
   input: {
-    name?: string;
-    scope?: "personal" | "team";
-    memberIds?: string[];
-    allMembers?: boolean;
-  } = {},
-): Promise<Agent> {
-  const response = await request("/api/agents", {
-    cookie,
-    body: { name: "Test agent", scope: "personal", ...input },
-  });
-  const body = await response.json();
-  if (response.status !== 201 || !body.agent?.id)
-    throw new Error(`Agent setup failed: ${response.status}`);
-  return body.agent;
-}
-
-export async function setupOAuthAgent(
-  cookie: string,
-  input: {
-    agentId: string;
     scopes?: ("read" | "write")[];
     boardIds?: string[];
     idempotencyKey?: string;
-  },
+  } = {},
 ) {
   const { digest, secret } =
     await import("../apps/api/src/external/protocol.js");
@@ -141,7 +120,6 @@ export async function setupOAuthAgent(
       : {}),
     body: {
       allow: true,
-      agentId: input.agentId,
       ...(input.boardIds ? { boardIds: input.boardIds } : {}),
     },
   });
@@ -173,14 +151,12 @@ export async function setupOAuthAgent(
     {
       id: string;
       userId: string;
-      agentId: string;
-      agentName: string;
       scopes: string[];
       tokenType: string;
     }[]
   >`
-    SELECT c.id,c.user_id,c.agent_id,a.name AS agent_name,c.scopes,c.token_type
-    FROM credentials c JOIN agents a ON a.id=c.agent_id WHERE c.token_hash=${digest(issued.access_token)}`;
+    SELECT c.id,c.user_id,c.scopes,c.token_type
+    FROM credentials c WHERE c.token_hash=${digest(issued.access_token)}`;
   if (!credential) throw new Error("OAuth credential was not persisted");
   return { token: issued.access_token, credential };
 }

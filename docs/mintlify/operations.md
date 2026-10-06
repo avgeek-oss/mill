@@ -14,7 +14,7 @@ docker compose --project-name mill --env-file .env restart mill
 
 `/health/live` checks that the HTTP service is responsive. `/health/ready` runs a bounded PostgreSQL check after migration and returns 503 when the database is unavailable. Liveness can still return 200 during that database outage. Health endpoints do not expose configuration or account data. Container readiness and a successful sign-in/task edit prove different things; check both after recovery or upgrades.
 
-Mill runs as the non-root `node` user, with a read-only application filesystem, no added capabilities, and a small temporary directory. PostgreSQL writes to its own persistent volume. There is no Docker socket mount, agent process execution, or separate queue service.
+Mill runs as the non-root `node` user, with a read-only application filesystem, no added capabilities, and a small temporary directory. PostgreSQL writes to its own persistent volume. There is no Docker socket mount, external process execution, or separate queue service.
 
 ## Migrations
 
@@ -24,7 +24,7 @@ Do not edit an applied migration or remove migration records to get a service ru
 
 ## Account recovery
 
-Recovery codes let a person satisfy a second-factor challenge after losing an authenticator. When a person cannot sign in at all, the server operator can run the recovery command against the intended installation. It prints a private, one-time link valid for 30 minutes. After the person uses it to choose a new password, Mill revokes their existing sessions and agent credentials.
+Recovery codes let a person satisfy a second-factor challenge after losing an authenticator. When a person cannot sign in at all, the server operator can run the recovery command against the intended installation. It prints a private, one-time link valid for 30 minutes. After the person uses it to choose a new password, Mill revokes their existing sessions and client credentials.
 
 This command requires shell and database access to the installation; it is an operator action, not an unauthenticated web endpoint. Save the database first, then run:
 
@@ -38,7 +38,7 @@ Add `--reset-mfa` only when the account owner also lost their second factor. In 
 
 - Back up PostgreSQL and the encryption secret regularly. Verify restores in a separate project.
 - Keep the host, Docker, reverse proxy, and reviewed Mill image current.
-- Review memberships, active sessions, Agent access grants, and personal API keys/OAuth connections when a person leaves or access changes.
+- Review memberships, active sessions, personal API keys/OAuth connections when a person leaves or access changes.
 - Check disk capacity for the database and backups. Store another encrypted backup off the Docker host.
 - Test changes to the public origin, proxy, and authentication using an account with a working fallback.
 

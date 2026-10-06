@@ -12,8 +12,6 @@ type CredentialResult = {
   token: string;
   credential: {
     id: string;
-    agentId: null;
-    agentName: null;
     boardIds: null;
     scopes: string[];
     expiresAt: string;
@@ -75,8 +73,8 @@ test("personal REST keys inherit human permissions without granting session or M
             await makeKey(admin.cookie, `Expiry ${days}`, days),
             201,
           );
-          assert.equal(issued.credential.agentId, null);
-          assert.equal(issued.credential.agentName, null);
+          assert.equal("agentId" in issued.credential, false);
+          assert.equal("agentName" in issued.credential, false);
           assert.equal(issued.credential.boardIds, null);
           assert.deepEqual(issued.credential.scopes, []);
           const lifetime =
@@ -105,16 +103,12 @@ test("personal REST keys inherit human permissions without granting session or M
             ).status,
             400,
           );
-        const [{ count }] =
-          await sql`SELECT count(*)::int AS count FROM agents`;
-        assert.equal(count, 0, "Creating personal keys does not create Agents");
         for (const path of [
           "/api/auth/me",
           "/api/auth/members",
           "/api/auth/sessions",
           "/api/credentials",
           "/api/workspace",
-          "/api/agents?manage=true",
           "/oauth/register",
         ])
           assert.equal(
@@ -122,19 +116,6 @@ test("personal REST keys inherit human permissions without granting session or M
             403,
             path,
           );
-        assert.equal(
-          (await request("/api/agents", { token: viewerKey.token })).status,
-          200,
-        );
-        assert.equal(
-          (
-            await request("/api/agents", {
-              token: viewerKey.token,
-              body: { name: "Forbidden Agent", scope: "personal" },
-            })
-          ).status,
-          403,
-        );
         assert.equal(
           (await request("/mcp", { token: viewerKey.token, body: {} })).status,
           403,

@@ -18,6 +18,19 @@ let sessionCookies: Awaited<
   ReturnType<APIRequestContext["storageState"]>
 >["cookies"] = [];
 
+async function expectBoardsOverview(page: Page) {
+  await expect(page).toHaveURL("/boards");
+  await expect(
+    page.getByRole("heading", { name: "Boards", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("main")
+      .getByRole("link", { name: "Recovery verification", exact: true })
+      .and(page.locator(`a[href="/boards/${boardId}"]`)),
+  ).toHaveAttribute("href", `/boards/${boardId}`);
+}
+
 test.beforeAll(async ({ baseURL }) => {
   origin = baseURL!;
   const { api } = await getBrowserBootstrap(origin);
@@ -219,12 +232,29 @@ test("a failed application entry shows recovery before React starts", async ({
     failEntry = false;
     await route.abort("connectionfailed");
   });
+  await page.route("**/assets/*.css", (route) =>
+    route.abort("connectionfailed"),
+  );
 
   await page.goto("/");
   await expect(
     page.getByRole("heading", { name: "Mill could not start" }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Reload Mill" })).toBeVisible();
+  await expect(page.locator('[data-slot="toast"]')).toContainText(
+    "The application did not load.",
+  );
+  await expect(page.locator('[data-slot="toast"]')).toHaveCSS(
+    "position",
+    "fixed",
+  );
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("main")).not.toContainText(
+    "The application did not load.",
+  );
+  await page.getByRole("button", { name: "Dismiss notification" }).click();
+  await expect(page.locator('[data-slot="toast"]')).toHaveCount(0);
+  await page.unroute("**/assets/*.css");
   await expect(
     page.getByRole("heading", { name: "Sign in to Mill" }),
   ).toHaveCount(0);
@@ -358,11 +388,19 @@ for (const action of ["Reload", "Go to boards"]) {
     await expect(
       page.getByRole("heading", { name: "Unable to open this page" }),
     ).toHaveCount(0);
-    await expect(page).toHaveURL(/\/boards\/[^/]+$/);
+    if (action === "Reload") {
+      await expect(page).toHaveURL(`/boards/${boardId}`);
+      await expect(
+        page.getByRole("heading", {
+          name: "Recovery verification",
+          exact: true,
+        }),
+      ).toBeVisible();
+    } else await expectBoardsOverview(page);
   });
 }
 
-test("phone actions and fields retain touch targets and readable input text", async () => {
+test("phone actions remain compact and fields retain readable input text", async () => {
   const phoneBrowser = await chromium.launch({ channel: "chromium" });
   const context = await phoneBrowser.newContext({
     baseURL: origin,
@@ -376,7 +414,7 @@ test("phone actions and fields retain touch targets and readable input text", as
     await page.goto("/settings/workspace");
     await expectTouchContext(page);
     await expect(
-      page.getByRole("textbox", { name: "Name", exact: true }),
+      page.getByRole("textbox", { name: /^Team name/ }),
     ).toBeVisible();
     for (const name of [
       "Open navigation",
@@ -390,11 +428,11 @@ test("phone actions and fields retain touch targets and readable input text", as
       });
       const bounds = await control.boundingBox();
       expect(bounds).not.toBeNull();
-      expect(bounds!.height).toBeGreaterThanOrEqual(44);
-      expect(bounds!.width).toBeGreaterThanOrEqual(44);
+      expect(bounds!.height).toBe(name === "Update" ? 34 : 32);
+      expect(bounds!.width).toBeGreaterThanOrEqual(name === "Update" ? 34 : 32);
     }
     const inputSize = await page
-      .getByRole("textbox", { name: "Name", exact: true })
+      .getByRole("textbox", { name: /^Team name/ })
       .evaluate((element) =>
         Number.parseFloat(getComputedStyle(element).fontSize),
       );
@@ -409,8 +447,8 @@ test("phone actions and fields retain touch targets and readable input text", as
       .getByRole("dialog", { name: "Workspace navigation" })
       .getByRole("button", { name: "Close navigation", exact: true });
     const bounds = await close.boundingBox();
-    expect(bounds!.height).toBeGreaterThanOrEqual(44);
-    expect(bounds!.width).toBeGreaterThanOrEqual(44);
+    expect(bounds!.height).toBe(32);
+    expect(bounds!.width).toBe(32);
   } finally {
     await context.close();
     await phoneBrowser.close();
@@ -463,14 +501,14 @@ test("missing pages have a primary recovery action in both themes and viewport s
         if (width === 390) {
           await expectTouchContext(page);
           const bounds = await action.boundingBox();
-          expect(bounds!.height).toBeGreaterThanOrEqual(44);
+          expect(bounds!.height).toBe(34);
         }
         await page.screenshot({
           path: testInfo.outputPath(`missing-${width}-${theme}.png`),
         });
         await action.focus();
         await page.keyboard.press("Enter");
-        await expect(page).toHaveURL(/\/boards\/[^/]+$/);
+        await expectBoardsOverview(page);
         await expect(heading).toHaveCount(0);
       } finally {
         await context.close();
@@ -515,8 +553,8 @@ test("board read failure retries without a transient placeholder or empty state"
     await expect(
       page.getByRole("heading", { name: "Recovery verification", exact: true }),
     ).toBeVisible();
-    await expect(page.getByText("Loading tasks…", { exact: true })).toHaveCount(
-      0,
+    await expect(page.getByText("Loading tasks…", { exact: true })).toHaveClass(
+      "sr-only",
     );
     await expect(page.getByText("No tasks yet", { exact: true })).toHaveCount(
       0,
@@ -537,9 +575,9 @@ test("board read failure retries without a transient placeholder or empty state"
     await expect(
       page.getByRole("heading", { name: "Recovery verification", exact: true }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("status", { name: "Loading tasks…" }),
-    ).toHaveCount(0);
+    await expect(page.getByText("Loading tasks…", { exact: true })).toHaveCount(
+      0,
+    );
     await expect(
       page.getByRole("heading", {
         name: "Mill could not load this page",
@@ -614,7 +652,7 @@ test("limited roles see permission recovery without administrative data requests
             });
             await action.focus();
             await page.keyboard.press("Enter");
-            await expect(page).toHaveURL(/\/boards\/[^/]+$/);
+            await expectBoardsOverview(page);
             for (const section of ["audit", "data"]) {
               await page.goto(`/settings/${section}`);
               await expect(

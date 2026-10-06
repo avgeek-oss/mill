@@ -1,21 +1,14 @@
 // Adapted from Towbar's Apache-2.0 mcp-oauth-consent and public AuthFrame composition.
 import { useEffect, useRef, useState } from "react";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { BotIcon } from "@hugeicons/core-free-icons";
 import {
   Alert,
   Button,
   Choice,
   ErrorMessage,
-  Link,
+  toast,
 } from "@mill/web-design-system";
 import { ApiError, errorText, isResponseObject, type Session } from "./api.js";
 import { useBoardDirectory } from "./board-directory.js";
-import {
-  useAgentDirectory,
-  validAgent,
-  type Agent,
-} from "./agents-settings.js";
 import { AuthFrame } from "./identity-ui.js";
 
 type ConsentDetails = {
@@ -24,8 +17,6 @@ type ConsentDetails = {
   clientTrust: "unverified" | "metadata-document";
   redirectUri: string;
   scope: string;
-  agents: Agent[];
-  requiresAgent: true;
   canApprove: boolean;
   user: { name: string; role: "admin" | "member" | "viewer" };
 };
@@ -45,10 +36,7 @@ function validDetails(value: unknown): value is ConsentDetails {
     !["unverified", "metadata-document"].includes(value.clientTrust) ||
     typeof value.redirectUri !== "string" ||
     typeof value.scope !== "string" ||
-    value.requiresAgent !== true ||
     typeof value.canApprove !== "boolean" ||
-    !Array.isArray(value.agents) ||
-    !value.agents.every(validAgent) ||
     typeof value.user.name !== "string" ||
     typeof value.user.role !== "string" ||
     !["admin", "member", "viewer"].includes(value.user.role)
@@ -105,7 +93,7 @@ function decisionRedirect(
 async function consentRequest(
   id: string,
   signal: AbortSignal,
-  decision?: { allow: boolean; agentId?: string; boardIds?: string[] },
+  decision?: { allow: boolean; boardIds?: string[] },
 ): Promise<unknown> {
   let response: Response;
   try {
@@ -202,7 +190,6 @@ function ConsentRequest({
   });
   const [attempt, setAttempt] = useState(0);
   const [boardId, setBoardId] = useState("");
-  const [agentId, setAgentId] = useState("");
   const [decisionError, setDecisionError] = useState("");
   const [decision, setDecision] = useState<"allow" | "deny" | null>(null);
   const [complete, setComplete] = useState(false);
@@ -211,9 +198,6 @@ function ConsentRequest({
   const decisionController = useRef<AbortController | null>(null);
   const active = useRef(true);
   const directory = useBoardDirectory(
-    id ? `${session.user.id}:${session.user.role}:${id}` : null,
-  );
-  const agents = useAgentDirectory(
     id ? `${session.user.id}:${session.user.role}:${id}` : null,
   );
   const [previousBoards, setPreviousBoards] = useState<typeof directory.boards>(
@@ -263,18 +247,13 @@ function ConsentRequest({
     directory.pending || directory.error ? previousBoards : choices;
   const selectedAvailable =
     !boardId || choices.some((board) => board.id === boardId);
-  const selectedAgentAvailable = agents.items.some(
-    (agent) => agent.id === agentId,
-  );
   const allowAvailable =
     !!details &&
+    details.canApprove &&
     validScope &&
     (!write || canWrite) &&
     !directory.pending &&
     !directory.error &&
-    !agents.pending &&
-    !agents.error &&
-    selectedAgentAvailable &&
     selectedAvailable;
 
   async function decide(allow: boolean) {
@@ -294,7 +273,6 @@ function ConsentRequest({
     try {
       const response = await consentRequest(id, controller.signal, {
         allow,
-        ...(allow ? { agentId } : {}),
         ...(allow && boardId ? { boardIds: [boardId] } : {}),
       });
       if (!active.current || controller.signal.aborted) return;
@@ -306,6 +284,7 @@ function ConsentRequest({
         );
       }
       setComplete(true);
+      toast.success(allow ? "Access allowed." : "Access denied.");
       window.location.assign(target.href);
     } catch (cause: unknown) {
       if (!active.current || controller.signal.aborted) return;
@@ -315,7 +294,7 @@ function ConsentRequest({
         cause instanceof ApiError &&
         [400, 403, 404].includes(cause.status)
       )
-        void agents.reload();
+        void directory.reload();
       setDecision(null);
       decisionPending.current = false;
     }
@@ -345,7 +324,7 @@ function ConsentRequest({
       ) : details ? (
         <form
           aria-label="Connection permissions"
-          aria-busy={!!decision || agents.pending || directory.pending}
+          aria-busy={!!decision || directory.pending}
           className="grid min-w-0 gap-6 pt-4"
           onSubmit={(event) => {
             event.preventDefault();
@@ -356,24 +335,25 @@ function ConsentRequest({
             <p className="break-words text-base font-medium">
               {details.clientName}
             </p>
-            <p className="text-xs font-normal text-muted">
-              {validScope
-                ? `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
-                : "The requested permissions are unavailable."}
-            </p>
+            {validScope && (
+              <p className="text-sm font-normal text-muted">
+                Wants to {write ? "read and write to" : "read"} your Mill
+                boards, tasks, and comments.
+              </p>
+            )}
           </div>
           {details.clientTrust === "unverified" && (
             <Alert status="warning">
               <Alert.Indicator />
               <Alert.Content>
-                <Alert.Description className="text-xs font-normal">
+                <Alert.Description className="text-sm font-normal">
                   Unverified app. Only continue if you recognize this app and
                   started this connection yourself.
                 </Alert.Description>
               </Alert.Content>
             </Alert>
           )}
-          <div className="grid min-w-0 gap-3 text-xs font-normal text-muted">
+          <div className="grid min-w-0 gap-3 text-sm font-normal text-muted">
             <p>
               Signed in as{" "}
               <strong className="break-all font-normal text-foreground">
@@ -408,75 +388,13 @@ function ConsentRequest({
               </p>
             )}
           </div>
-          <div
-            className="content-grid min-w-0"
-            aria-busy={agents.pending || directory.pending}
-          >
-            <Choice
-              label="Agent"
-              value={agentId}
-              onChange={setAgentId}
-              items={agents.items.map((agent) => ({
-                id: agent.id,
-                name: agent.name,
-                startContent: <HugeiconsIcon icon={BotIcon} size={16} />,
-                description:
-                  agent.scope === "personal"
-                    ? "Personal"
-                    : agent.allMembers
-                      ? "Team · All team members"
-                      : "Team",
-              }))}
-              search
-              disabled={!!decision || agents.pending || !!agents.error}
-            />
-            <ErrorMessage>{agents.error}</ErrorMessage>
-            {agents.error && (
-              <Button
-                variant="secondary"
-                isDisabled={!!decision}
-                onPress={() => void agents.reload()}
-              >
-                Retry agents
-              </Button>
-            )}
-            {!agents.pending && !agents.error && !agents.items.length && (
-              <>
-                <p className="text-xs font-normal text-muted">
-                  Create a personal agent in{" "}
-                  <Link
-                    href="/settings/agents"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Agents
-                  </Link>{" "}
-                  or ask an administrator to assign you to a team agent before
-                  connecting.
-                </p>
-                <Button
-                  variant="secondary"
-                  isDisabled={!!decision}
-                  onPress={() => void agents.reload()}
-                >
-                  Refresh agents
-                </Button>
-              </>
-            )}
-            {agentId &&
-              !agents.pending &&
-              !agents.error &&
-              !selectedAgentAvailable && (
-                <ErrorMessage>
-                  This agent is no longer available. Choose another agent.
-                </ErrorMessage>
-              )}
+          <div className="content-grid min-w-0" aria-busy={directory.pending}>
             <Choice
               label="Approved boards"
               value={boardId}
               onChange={setBoardId}
               items={[
-                { id: "", name: "All boards" },
+                { id: "", name: "All allowed boards" },
                 ...displayedBoards.map((board) => ({
                   id: board.id,
                   name: board.name,
@@ -503,7 +421,7 @@ function ConsentRequest({
               </ErrorMessage>
             )}
           </div>
-          <details className="min-w-0 text-xs font-normal text-muted">
+          <details className="min-w-0 text-sm font-normal text-muted">
             <summary className="flex min-h-11 cursor-pointer items-center text-muted underline underline-offset-4">
               Connection details
             </summary>
@@ -542,11 +460,9 @@ function ConsentRequest({
           )}
           <ErrorMessage>{decisionError}</ErrorMessage>
           {decision && (
-            <p role="status" className="text-xs font-normal text-muted">
+            <p role="status" className="text-sm font-normal text-muted">
               {complete
-                ? decision === "allow"
-                  ? "Access allowed. Returning to your app…"
-                  : "Access denied. Returning to your app…"
+                ? "Returning to your app…"
                 : decision === "allow"
                   ? "Allowing access…"
                   : "Denying access…"}

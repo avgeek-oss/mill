@@ -3,8 +3,7 @@ import {
   request,
   resetDatabase,
   setupUser,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   sql,
 } from "./support.js";
 import assert from "node:assert/strict";
@@ -15,34 +14,17 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { app } from "../apps/api/src/app.js";
 import { credentialActor } from "../apps/api/src/external.js";
-import {
-  TASK_STATUSES,
-  type TaskStatus,
-} from "../packages/contracts/src/index.js";
+import { TASK_STATUSES, type Task } from "../packages/contracts/src/index.js";
 type BoardResult = {
   board: { id: string; version: number };
 };
-type TaskResult = {
-  task: {
-    id: string;
-    boardId: string;
-    status: TaskStatus;
-    title: string;
-    description: string;
-    version: number;
-    assigneeId: string | null;
-    agentId: string | null;
-    agentName: string | null;
-  };
-};
+type TaskResult = { task: Task };
 type CredentialResult = {
   credential: {
     id: string;
     name: string;
     scopes: string[];
     boardIds: string[] | null;
-    agentId: string | null;
-    agentName: string | null;
   };
   token: string;
 };
@@ -63,11 +45,10 @@ async function result<T>(
 test("External credentials and actual MCP task workflows enforce current permission boundaries", async (t) => {
   await resetDatabase();
   const { cookie, user } = await setupUser();
-  const agent = await setupAgent(cookie, { name: "Integration Agent" });
   const first = await ok<BoardResult>(
     await request("/api/boards", {
       cookie,
-      body: { name: "Agent board", prefix: "AGENT" },
+      body: { name: "Connected board", prefix: "MCP" },
     }),
   );
   const second = await ok<BoardResult>(
@@ -107,14 +88,14 @@ test("External credentials and actual MCP task workflows enforce current permiss
           /^mill_[A-Za-z0-9_-]{43}$/.test(write.token),
           "Credential token has the expected format",
         );
-        assert.equal(write.credential.agentId, null);
-        assert.equal(write.credential.agentName, null);
+        assert.equal("agentId" in write.credential, false);
+        assert.equal("agentName" in write.credential, false);
         const principal = await credentialActor(
           new Request(`${process.env.MILL_BASE_URL}/api/boards`, {
             headers: { Authorization: `Bearer ${write.token}` },
           }),
         );
-        assert.equal(principal?.agentId, undefined);
+        assert.equal("agentId" in principal!, false);
         assert.equal(principal?.userId, user.id);
         assert.equal(principal?.name, user.name);
         assert.equal(principal?.kind, "human");
@@ -161,7 +142,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
               cookie,
               body: {
                 name: "Unbounded",
-                agentId: agent.id,
                 scopes: ["read"],
                 expiresInDays: 366,
               },
@@ -211,7 +191,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
           "/api/auth/sessions",
           "/api/auth/members",
           "/api/credentials",
-          "/api/agents?manage=true",
         ])
           assert.equal(
             (await request(path, { token: write.token })).status,
@@ -222,15 +201,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           (await request("/mcp", { token: write.token, body: {} })).status,
           403,
         );
-        assert.equal(
-          (
-            await request("/api/agents", {
-              token: write.token,
-              body: { name: "No implicit Agent", scope: "personal" },
-            })
-          ).status,
-          403,
-        );
+
         for (const options of [{ cookie }, { token: write.token }]) {
           assert.equal((await request("/api/export", options)).status, 404);
           assert.equal(
@@ -254,13 +225,11 @@ test("External credentials and actual MCP task workflows enforce current permiss
         assert(address && typeof address !== "string");
         const previous = process.env.MILL_BASE_URL;
         process.env.MILL_BASE_URL = `http://127.0.0.1:${address.port}`;
-        const write = await setupOAuthAgent(cookie, {
-          agentId: agent.id,
+        const write = await setupOAuth(cookie, {
           scopes: ["read", "write"],
           boardIds: [first.board.id],
         });
-        const read = await setupOAuthAgent(cookie, {
-          agentId: agent.id,
+        const read = await setupOAuth(cookie, {
           scopes: ["read"],
           boardIds: [first.board.id],
         });
@@ -282,8 +251,10 @@ test("External credentials and actual MCP task workflows enforce current permiss
           assert(listed.tools.some((tool) => tool.name === "create_task"));
           assert(!listed.tools.some((tool) => tool.name === "create_board"));
           assert(!listed.tools.some((tool) => tool.name === "list_members"));
-          assert(listed.tools.some((tool) => tool.name === "list_agents"));
+          assert(!listed.tools.some((tool) => tool.name === "list_agents"));
           for (const name of [
+            "list_agents",
+            "get_agent",
             "create_agent",
             "update_agent",
             "delete_agent",
@@ -303,12 +274,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
               name,
             );
           }
-          const availableAgents = await result<{ items: { id: string }[] }>(
-            client,
-            "list_agents",
-            {},
-          );
-          assert(availableAgents.items.some((item) => item.id === agent.id));
           for (const name of ["create_task", "update_task", "list_tasks"]) {
             const schema = listed.tools.find((tool) => tool.name === name)!
               .inputSchema.properties!;
@@ -324,6 +289,14 @@ test("External credentials and actual MCP task workflows enforce current permiss
               "parentId",
             ])
               assert(!(field in schema), `${name}.${field}`);
+          }
+          for (const name of ["create_task", "update_task"]) {
+            const schema = listed.tools.find((tool) => tool.name === name)!
+              .inputSchema.properties!;
+            assert.deepEqual((schema.type as { enum: string[] }).enum, [
+              "task",
+              "bug",
+            ]);
           }
           const boardSchema = listed.tools.find(
             (tool) => tool.name === "update_board",
@@ -370,36 +343,43 @@ test("External credentials and actual MCP task workflows enforce current permiss
           boardState = await result<BoardResult>(client, "update_board", {
             boardId: first.board.id,
             version: boardState.board.version,
-            name: "Agents working",
+            name: "Connected work",
           });
           assert.equal(boardState.board.version, 2);
           const args = {
             boardId: first.board.id,
             title: "Actual MCP task",
+            type: "bug",
             assigneeId: user.id,
-            agentId: agent.id,
             description: "**Markdown** task",
             priority: "high",
+            startDate: "2026-09-30",
             dueDate: "2026-10-01",
             idempotencyKey: "mcp-create-retry-0001",
           };
           let task = await result<TaskResult>(client, "create_task", args);
           assert.equal(task.task.status, "todo");
-          assert.equal(task.task.agentId, agent.id);
-          assert.equal(task.task.agentName, agent.name);
+          assert.equal(task.task.type, "bug");
+          assert.equal(task.task.startDate, "2026-09-30");
+          assert.equal("agentId" in task.task, false);
+          assert.equal("agentName" in task.task, false);
           assert.equal(task.task.assigneeId, user.id);
           const withoutHuman = await result<TaskResult>(client, "create_task", {
             ...args,
-            title: "Agent without human",
+            title: "Unassigned OAuth task",
+            type: undefined,
+            startDate: undefined,
             assigneeId: null,
-            idempotencyKey: "mcp-agent-without-human",
+            idempotencyKey: "mcp-unassigned-task",
           });
           assert.equal(withoutHuman.task.assigneeId, null);
-          assert.equal(withoutHuman.task.agentId, agent.id);
+          assert.equal(withoutHuman.task.type, "task");
+          assert.equal(withoutHuman.task.startDate, null);
+          assert.equal("agentId" in withoutHuman.task, false);
           const assigned = await result<{ items: TaskResult["task"][] }>(
             client,
             "list_tasks",
-            { boardId: first.board.id, agentId: agent.id },
+            { boardId: first.board.id },
           );
           assert.deepEqual(
             assigned.items.map((item) => item.id),
@@ -408,8 +388,9 @@ test("External credentials and actual MCP task workflows enforce current permiss
           const detail = await result<TaskResult>(client, "get_task", {
             taskId: task.task.id,
           });
-          assert.equal(detail.task.agentId, agent.id);
-          assert.equal(detail.task.agentName, agent.name);
+          assert.equal("agentId" in detail.task, false);
+          assert.equal(detail.task.startDate, "2026-09-30");
+          assert.equal("agentName" in detail.task, false);
           for (const [name, arguments_] of [
             [
               "update_board",
@@ -452,6 +433,14 @@ test("External credentials and actual MCP task workflows enforce current permiss
             ).isError,
             true,
           );
+          for (const startDate of ["2026-02-29", "2026-10-01T00:00:00Z"]) {
+            const invalid = await client.callTool({
+              name: "create_task",
+              arguments: { ...args, startDate },
+            });
+            assert.equal(invalid.isError, true);
+            assert.match(JSON.stringify(invalid.content), /Invalid arguments/);
+          }
           const retry = await result<TaskResult>(client, "create_task", args);
           assert.equal(retry.task.id, task.task.id);
           const [count] =
@@ -461,9 +450,14 @@ test("External credentials and actual MCP task workflows enforce current permiss
             taskId: task.task.id,
             version: task.task.version,
             title: "Actual MCP task edited",
+            startDate: "2028-02-29",
+            type: "task",
             status: "in_progress",
           });
           assert.equal(task.task.title, "Actual MCP task edited");
+          assert.equal(task.task.startDate, "2028-02-29");
+          assert.equal(task.task.dueDate, "2026-10-01");
+          assert.equal(task.task.type, "task");
           assert.equal(task.task.status, "in_progress");
           const stale = await client.callTool({
             name: "update_task",
@@ -471,6 +465,8 @@ test("External credentials and actual MCP task workflows enforce current permiss
               taskId: task.task.id,
               version: 1,
               title: "Stale update",
+              startDate: "2026-10-02",
+              type: "bug",
             },
           });
           assert.equal(stale.isError, true);
@@ -489,6 +485,9 @@ test("External credentials and actual MCP task workflows enforce current permiss
             { parentId: outside.task.id },
             { position: 1 },
             { status: "custom_review" },
+            { type: "feature" },
+            { startDate: "2026-02-29" },
+            { startDate: "2026-10-01T00:00:00Z" },
           ]) {
             const invalid = await client.callTool({
               name: "update_task",
@@ -506,6 +505,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
             { label: "integration" },
             { sort: "position" },
             { status: "custom_review" },
+            { type: "feature" },
           ])
             assert.equal(
               (
@@ -516,6 +516,13 @@ test("External credentials and actual MCP task workflows enforce current permiss
               ).isError,
               true,
             );
+          task = await result<TaskResult>(client, "update_task", {
+            taskId: task.task.id,
+            version: task.task.version,
+            startDate: null,
+          });
+          assert.equal(task.task.startDate, null);
+          assert.equal(task.task.dueDate, "2026-10-01");
           const reviewArguments = {
             taskId: task.task.id,
             status: "in_review",
@@ -560,8 +567,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           assert(
             activity.items.some(
               (entry) =>
-                entry.actorKind === "agent" &&
-                entry.actorName === `${agent.name} via ${user.name}`,
+                entry.actorKind === "oauth" && entry.actorName === user.name,
             ),
           );
           const filter = await result<{ items: { id: string }[] }>(

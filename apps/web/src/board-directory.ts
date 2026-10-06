@@ -41,7 +41,7 @@ function validDirectoryPage(value: unknown) {
       : value.nextCursor === null)
   );
 }
-export function useBoardDirectory(requestKey: string | null = "agents") {
+export function useBoardDirectory(requestKey: string | null = "boards") {
   const generation = useRef(0);
   const [state, setState] = useState<DirectoryState>({
     key: requestKey,

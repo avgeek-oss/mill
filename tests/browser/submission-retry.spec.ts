@@ -113,19 +113,29 @@ test("a committed board retries with the original key after a lost response", as
 }) => {
   await open(page);
   const attempts = await interruptFirstResponse(page, "/boards");
+  await page.goto("/boards");
   await page.getByRole("button", { name: "Create board", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Create a board" });
   const name = `Lost board response ${randomBytes(3).toString("hex")}`;
+  const description = "Release planning\nScope, owners, and delivery notes.";
   await dialog.getByLabel("Board name", { exact: true }).fill(name);
+  await dialog.getByLabel("Description", { exact: true }).fill(description);
   await dialog
     .getByLabel("Task prefix", { exact: true })
     .fill(`BR${randomBytes(3).toString("hex").toUpperCase()}`);
   await dialog
     .getByRole("button", { name: "Create board", exact: true })
     .click();
-  await expect(dialog.getByRole("alert")).toContainText("could not be reached");
+  await expect(
+    page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "could not be reached" }),
+  ).toContainText("could not be reached");
   await expect(dialog.getByLabel("Board name", { exact: true })).toHaveValue(
     name,
+  );
+  await expect(dialog.getByLabel("Description", { exact: true })).toHaveValue(
+    description,
   );
   await dialog
     .getByRole("button", { name: "Create board", exact: true })
@@ -140,6 +150,25 @@ test("a committed board retries with the original key after a lost response", as
   expect(
     boards.items.filter((b: { name: string }) => b.name === name),
   ).toHaveLength(1);
+  const saved = await page.request
+    .get(`/api/boards/${attempts[1].body.board.id}`)
+    .then((response) => response.json());
+  expect(saved.board.description).toBe(description);
+  await page.reload();
+  await page.getByRole("button", { name: "Board actions" }).click();
+  await page.getByRole("menuitem", { name: "Board settings" }).click();
+  await expect(
+    page
+      .getByRole("dialog", { name: "Board settings" })
+      .getByLabel("Description"),
+  ).toHaveValue(description);
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
+  await page.goto("/boards");
+  await page.getByRole("button", { name: "Create board", exact: true }).click();
+  await expect(dialog.getByLabel("Description", { exact: true })).toHaveValue(
+    "",
+  );
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
 });
 
 test("task retries reuse a committed operation and fresh submissions receive new keys", async ({
@@ -154,9 +183,11 @@ test("task retries reuse a committed operation and fresh submissions receive new
   await page.getByRole("button", { name: "New task", exact: true }).click();
   await page.getByLabel("Title", { exact: true }).fill(title);
   await page.getByRole("button", { name: "Create task", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "could not be reached",
-  );
+  await expect(
+    page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "could not be reached" }),
+  ).toContainText("could not be reached");
   await expect(page.getByLabel("Title", { exact: true })).toHaveValue(title);
   await page.getByRole("button", { name: "Create task", exact: true }).click();
   await expect(
@@ -198,9 +229,11 @@ test("changing a failed task draft starts a distinct operation", async ({
   await page.getByRole("button", { name: "New task", exact: true }).click();
   await page.getByLabel("Title", { exact: true }).fill(title);
   await page.getByRole("button", { name: "Create task", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "could not be reached",
-  );
+  await expect(
+    page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "could not be reached" }),
+  ).toContainText("could not be reached");
   await page.getByLabel("Title", { exact: true }).fill(`${title} revised`);
   await page.getByRole("button", { name: "Create task", exact: true }).click();
   await expect(
@@ -237,15 +270,24 @@ test("reverting an unresolved draft reuses its original committed operation", as
   const submit = page.getByRole("button", { name: "Create task", exact: true });
   await input.fill(title);
   await submit.click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "could not be reached",
-  );
+  await expect(
+    page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "could not be reached" }),
+  ).toContainText("could not be reached");
+  const failureToast = page
+    .locator('[data-slot="toast"]')
+    .filter({ hasText: "could not be reached" });
+  await failureToast.locator('[data-slot="toast-close"]').click();
+  await expect(failureToast).toHaveCount(0);
   await input.fill(`${title} changed`);
   await submit.click();
   await expect(submit).toBeEnabled();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText(
-    "could not be reached",
-  );
+  await expect(
+    page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "could not be reached" }),
+  ).toContainText("could not be reached");
   await input.fill(title);
   await submit.click();
   await expect(
@@ -287,7 +329,16 @@ for (const failure of ["connection", "truncated", "empty"] as const) {
     });
     await input.fill(text);
     await submit.click();
-    await expect(page.getByRole("alert")).toContainText(
+    await expect(
+      page.locator('[data-slot="toast"]').filter({
+        hasText:
+          failure === "connection"
+            ? "could not be reached"
+            : failure === "empty"
+              ? "response was incomplete"
+              : "response could not be read",
+      }),
+    ).toContainText(
       failure === "connection"
         ? "could not be reached"
         : failure === "empty"
@@ -347,10 +398,16 @@ test("an immediately saved title recovers a lost acknowledgement without a dupli
   const input = modal.getByLabel("Title", { exact: true });
   await input.fill(title);
   await input.press("Tab");
-  await expect(modal.getByRole("alert")).toContainText("could not be reached");
+  await expect(
+    page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "could not be reached" }),
+  ).toContainText("could not be reached");
   await expect(input).toHaveValue(title);
   await modal.getByRole("button", { name: "Retry", exact: true }).click();
-  await expect(modal.getByRole("alert")).toHaveCount(0);
+  await expect(
+    modal.getByRole("button", { name: "Retry", exact: true }),
+  ).toHaveCount(0);
   await modal.getByRole("button", { name: "Close", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: title, exact: true }),

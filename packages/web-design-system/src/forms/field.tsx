@@ -2,6 +2,7 @@
 
 import type { ComponentProps } from "react";
 import { cn } from "../utils.js";
+import { useErrorToast } from "../feedback/toast-feedback.js";
 
 export function Field({ className, ...props }: ComponentProps<"div">) {
   return <div className={cn("grid w-full gap-1.5", className)} {...props} />;
@@ -39,14 +40,9 @@ export function FieldDescription({ className, ...props }: ComponentProps<"p">) {
     />
   );
 }
-export function FieldError({ className, ...props }: ComponentProps<"p">) {
-  return (
-    <p
-      role="alert"
-      className={cn("text-danger-soft-foreground text-sm", className)}
-      {...props}
-    />
-  );
+export function FieldError({ children }: ComponentProps<"p">) {
+  useErrorToast(children);
+  return null;
 }
 export function FieldContent({ className, ...props }: ComponentProps<"div">) {
   return <div className={cn("grid gap-1", className)} {...props} />;

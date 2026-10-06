@@ -7,9 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { flushSync } from "react-dom";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { BotIcon } from "@hugeicons/core-free-icons";
+import { createPortal, flushSync } from "react-dom";
 import {
   Button,
   Avatar,
@@ -30,6 +28,7 @@ import {
   TypographyHeading,
   Chip,
   Pagination,
+  QueryLoading,
   PortalProvider,
   SuspendedAppProvider,
   useAppSuspended,
@@ -44,6 +43,7 @@ import {
   Trash2,
 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
+import { BoardFilters } from "./board-filters.js";
 import type {
   Board,
   Member,
@@ -61,7 +61,7 @@ import { boardUrl, parseBoardUrl, type BoardUrlState } from "./board-url.js";
 import { hasOkResponse } from "./responses.js";
 import { PriorityChip, priorityOptions } from "./task-priority.js";
 import { StatusChip, statusOptions } from "./task-status.js";
-import { useAgentDirectory } from "./agents-settings.js";
+import { TaskTypeIndicator } from "./task-type.js";
 const CreateTaskDialog = lazy(() =>
   import("./create-task-dialog.js").then((m) => ({
     default: m.CreateTaskDialog,
@@ -69,6 +69,28 @@ const CreateTaskDialog = lazy(() =>
 );
 import { ErrorPage, errorPageCode } from "./error-page.js";
 type Page = { items: Task[]; total: number; page: number; revision: string };
+
+function TaskIdentity({ name, email = "" }: { name?: string; email?: string }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2">
+      {name && (
+        <Avatar
+          email={email}
+          name={name}
+          size="sm"
+          className="size-5 rounded-full"
+        />
+      )}
+      <TooltipText
+        className={`block min-w-0 flex-1 truncate${name ? "" : " text-muted"}`}
+        tooltip={name || "Unassigned"}
+      >
+        {name || "Unassigned"}
+      </TooltipText>
+    </span>
+  );
+}
+
 export function BoardPage({
   boardId,
   boards,
@@ -78,6 +100,8 @@ export function BoardPage({
   onBoardLoaded,
   path,
   sessionRevision,
+  filterContainer,
+  onOpenFilters,
 }: {
   boardId: string;
   boards: Board[];
@@ -87,6 +111,8 @@ export function BoardPage({
   onBoardLoaded: (board: Board) => void;
   path: string;
   sessionRevision: number;
+  filterContainer?: HTMLElement | null;
+  onOpenFilters?: () => void;
 }) {
   const listState = useMemo(() => parseBoardUrl(path), [path]);
   const q = listState.q;
@@ -104,7 +130,6 @@ export function BoardPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [taskListChanged, setTaskListChanged] = useState(false);
-  const [mobileFilters, setMobileFilters] = useState(false);
   const [query, setQuery] = useState(q);
   const [creatingTask, setCreatingTask] = useState(false);
   const [confirmBoard, setConfirmBoard] = useState(false);
@@ -126,7 +151,6 @@ export function BoardPage({
   const paginationFooter = useRef<HTMLDivElement | null>(null);
   const paginationOpener = useRef<HTMLElement | null>(null);
   const retryTasksButton = useRef<HTMLButtonElement | null>(null);
-  const agentFilter = useRef<HTMLDivElement | null>(null);
   const newTaskButton = useRef<HTMLButtonElement | null>(null);
   const boardActionsButton = useRef<HTMLButtonElement | null>(null);
   const boardDialogWasOpen = useRef(false);
@@ -148,7 +172,6 @@ export function BoardPage({
     window.history.replaceState(nextState, "", window.location.href);
     target.focus({ preventScroll: true });
   }, [board, loading, accessDenied]);
-  const agentDirectory = useAgentDirectory(`${user.id}:${user.role}`);
   function changeList(changes: Partial<BoardUrlState>, replace = false) {
     if (window.location.pathname !== `/boards/${boardId}`) return;
     const next = boardUrl(
@@ -193,7 +216,7 @@ export function BoardPage({
       sort: filters.sort,
     });
     if (q) params.set("q", q);
-    for (const key of ["assigneeId", "agentId", "priority", "status"] as const)
+    for (const key of ["assigneeId", "priority", "status"] as const)
       if (filters[key]) params.set(key, filters[key]);
     if (page) params.set("page", String(page));
     if (revision) params.set("revision", revision);
@@ -292,7 +315,6 @@ export function BoardPage({
     boardId,
     q,
     filters.assigneeId,
-    filters.agentId,
     filters.priority,
     filters.status,
     filters.sort,
@@ -509,8 +531,8 @@ export function BoardPage({
       setConfirmBoard(false);
       setSettings(false);
       onBoardsChanged(board.id);
-      const nextBoard = boards.find((item) => item.id !== board.id);
-      navigate(nextBoard ? `/boards/${nextBoard.id}` : "/");
+      toast.success("Board deleted.");
+      navigate("/boards");
     } catch (e) {
       setSettingsError(errorText(e));
     } finally {
@@ -520,7 +542,6 @@ export function BoardPage({
   const hasFilters = !!(
     q ||
     filters.assigneeId ||
-    filters.agentId ||
     filters.priority ||
     filters.status
   );
@@ -530,7 +551,6 @@ export function BoardPage({
       q: "",
       page: 1,
       assigneeId: "",
-      agentId: "",
       priority: "",
       status: "",
       sort: "createdAt",
@@ -585,12 +605,15 @@ export function BoardPage({
     return (
       <ErrorPage
         code={errorPageCode(errorStatus)}
+        description={error}
+        pending={loading}
         onRetry={() => void load(requestedPage.current, true)}
       />
     );
   const accessFailure = (
     <ErrorPage
       code={errorPageCode(errorStatus)}
+      pending={loading}
       title={
         errorStatus === 403 ? "Board access required" : "Board unavailable"
       }
@@ -613,10 +636,12 @@ export function BoardPage({
         hidden={accessDenied}
         inert={accessDenied}
         aria-hidden={accessDenied}
+        aria-busy={loading}
       >
         <SuspendedAppProvider value={appSuspended || accessDenied}>
           <PortalProvider getContainer={() => boardContent.current}>
             <PageHeading
+              truncateTitle
               title={
                 board?.name ??
                 boards.find((item) => item.id === boardId)?.name ??
@@ -624,24 +649,7 @@ export function BoardPage({
               }
               icon={<List />}
               actions={
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="w-36 min-w-0">
-                    <Choice
-                      variant="secondary"
-                      label="Sort"
-                      hideLabel
-                      value={filters.sort}
-                      onChange={(v) => changeList({ sort: v, page: 1 })}
-                      items={[
-                        { id: "createdAt", name: "Newest first" },
-                        { id: "title", name: "Title" },
-                        { id: "updatedAt", name: "Recently updated" },
-                        { id: "dueDate", name: "Due date" },
-                        { id: "priority", name: "Priority" },
-                        { id: "status", name: "Status" },
-                      ]}
-                    />
-                  </div>
+                <div className="flex shrink-0 items-center gap-2">
                   {writable && (
                     <Button ref={newTaskButton} onPress={openCreation}>
                       <Plus />
@@ -684,6 +692,7 @@ export function BoardPage({
                               id="delete"
                               textValue="Delete board"
                               variant="danger"
+                              className="text-danger-soft-foreground [&_svg]:text-danger-soft-foreground"
                             >
                               <Trash2 />
                               Delete board
@@ -696,13 +705,11 @@ export function BoardPage({
                 </div>
               }
             />
-            <div
-              className={`board-toolbar ${mobileFilters ? "filters-open" : ""}`}
-            >
+            <div className="mb-4 flex min-w-0 items-center gap-3">
               <SearchField
                 aria-label="Search tasks"
                 variant="secondary"
-                className="board-search"
+                className="min-w-0 flex-1 lg:max-w-sm"
                 value={query}
                 onChange={setQuery}
               >
@@ -716,116 +723,39 @@ export function BoardPage({
                   <SearchField.ClearButton aria-label="Clear task search" />
                 </SearchField.Group>
               </SearchField>
-              <Button
-                className="mobile-filter-trigger"
-                variant="secondary"
-                aria-expanded={mobileFilters}
-                onPress={() => setMobileFilters(!mobileFilters)}
-              >
-                <Settings2 />
-                Filters
-              </Button>
-              <div className="board-filter-slot">
-                <Choice
+              {onOpenFilters && (
+                <Button
+                  className="shrink-0 lg:hidden"
                   variant="secondary"
-                  label="Assignee filter"
-                  hideLabel
-                  value={filters.assigneeId}
-                  onChange={(v) => changeList({ assigneeId: v, page: 1 })}
-                  items={[
-                    { id: "", name: "All assignees" },
-                    { id: "unassigned", name: "Unassigned", muted: true },
-                    ...members.map((member) => ({
-                      id: member.id,
-                      name: member.name,
-                      startContent: (
-                        <Avatar
-                          className="size-5"
-                          email={member.email}
-                          name={member.name}
-                          size="sm"
-                        />
-                      ),
-                    })),
-                  ]}
-                  search
-                />
-              </div>
-              <div className="board-filter-slot" ref={agentFilter}>
-                <Choice
-                  variant="secondary"
-                  label="Agent filter"
-                  hideLabel
-                  value={filters.agentId}
-                  onChange={(value) => changeList({ agentId: value, page: 1 })}
-                  items={[
-                    { id: "", name: "All agents" },
-                    { id: "unassigned", name: "Unassigned", muted: true },
-                    ...agentDirectory.items.map((agent) => ({
-                      id: agent.id,
-                      name: agent.name,
-                      startContent: (
-                        <HugeiconsIcon
-                          icon={BotIcon}
-                          size={16}
-                          aria-hidden="true"
-                          className="shrink-0 text-muted"
-                        />
-                      ),
-                    })),
-                  ]}
-                  search
-                />
-              </div>
-              <div className="board-filter-slot">
-                <Choice
-                  variant="secondary"
-                  label="Priority filter"
-                  hideLabel
-                  value={filters.priority}
-                  onChange={(v) => changeList({ priority: v, page: 1 })}
-                  items={[
-                    { id: "", name: "All priorities" },
-                    ...priorityOptions,
-                  ]}
-                />
-              </div>
-              <div className="board-filter-slot">
-                <Choice
-                  variant="secondary"
-                  label="Status filter"
-                  hideLabel
-                  value={filters.status}
-                  onChange={(v) => changeList({ status: v, page: 1 })}
-                  items={[{ id: "", name: "All statuses" }, ...statusOptions]}
-                />
-              </div>
-              {hasFilters && (
-                <div className="board-clear-slot">
-                  <Button variant="secondary" onPress={clearFilters}>
-                    Clear filters
-                  </Button>
-                </div>
+                  onPress={onOpenFilters}
+                >
+                  <Settings2 />
+                  Filters
+                </Button>
               )}
             </div>
-            <ErrorMessage>{agentDirectory.error}</ErrorMessage>
-            {agentDirectory.error && (
-              <div>
-                <Button
-                  variant="secondary"
-                  isDisabled={agentDirectory.pending}
-                  onPress={() => {
-                    agentFilter.current
-                      ?.querySelector<HTMLElement>("button")
-                      ?.focus({ preventScroll: true });
-                    void agentDirectory.reload();
-                  }}
+            {filterContainer &&
+              !appSuspended &&
+              !accessDenied &&
+              createPortal(
+                <PortalProvider
+                  getContainer={() =>
+                    filterContainer.closest('[role="dialog"]')
+                      ? filterContainer
+                      : boardContent.current
+                  }
                 >
-                  Retry loading agents
-                </Button>
-              </div>
-            )}
-            <ErrorMessage>{error}</ErrorMessage>
+                  <BoardFilters
+                    filters={filters}
+                    members={members}
+                    hasFilters={hasFilters}
+                    onChange={changeList}
+                    onClear={clearFilters}
+                  />
+                </PortalProvider>,
+                filterContainer,
+              )}
+            <ErrorMessage>{accessDenied ? "" : error}</ErrorMessage>
             {error && board && (
               <div>
                 <Button
@@ -841,7 +771,9 @@ export function BoardPage({
                 </Button>
               </div>
             )}
-            {loading && !tasks.length ? null : !tasks.length ? (
+            {loading && !tasks.length ? (
+              <QueryLoading label="Loading tasks…" />
+            ) : !tasks.length ? (
               emptyTasks()
             ) : (
               <div ref={taskList} className="space-y-4" aria-busy={loading}>
@@ -874,12 +806,14 @@ export function BoardPage({
                           }
                         >
                           <Table.Header>
+                            <Table.Column className="hidden sm:table-cell">
+                              Task ID
+                            </Table.Column>
                             <Table.Column isRowHeader>Task</Table.Column>
                             <Table.Column className="w-36">Status</Table.Column>
                             <Table.Column className="w-40">
                               Assignee
                             </Table.Column>
-                            <Table.Column className="w-28">Agent</Table.Column>
                             <Table.Column className="w-32">
                               Priority
                             </Table.Column>
@@ -891,6 +825,22 @@ export function BoardPage({
                                 id={task.id}
                                 data-task-id={task.id}
                               >
+                                <Table.Cell className="hidden sm:table-cell">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <TaskTypeIndicator type={task.type} />
+                                    <Link
+                                      href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                                      className="block shrink-0 whitespace-nowrap rounded-lg font-mono text-sm text-muted outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                                    >
+                                      <TooltipText
+                                        className="block"
+                                        tooltip={task.identifier}
+                                      >
+                                        {task.identifier}
+                                      </TooltipText>
+                                    </Link>
+                                  </div>
+                                </Table.Cell>
                                 <Table.Cell>
                                   <Link
                                     href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
@@ -903,8 +853,18 @@ export function BoardPage({
                                       >
                                         {task.title}
                                       </TooltipText>
-                                      <TableCellDescription className="font-mono">
-                                        {task.identifier}
+                                      <TableCellDescription className="flex items-center gap-2 font-mono sm:hidden">
+                                        <TaskTypeIndicator
+                                          type={task.type}
+                                          focusable={false}
+                                        />
+                                        <TooltipText
+                                          className="shrink-0 whitespace-nowrap"
+                                          tooltip={task.identifier}
+                                          tabIndex={-1}
+                                        >
+                                          {task.identifier}
+                                        </TooltipText>
                                       </TableCellDescription>
                                     </TableCellStack>
                                   </Link>
@@ -913,26 +873,18 @@ export function BoardPage({
                                   <StatusChip status={task.status} />
                                 </Table.Cell>
                                 <Table.Cell>
-                                  <TooltipText
-                                    className={`block truncate${task.assigneeId ? "" : " text-muted"}`}
-                                    tooltip={
+                                  <TaskIdentity
+                                    name={
                                       members.find(
                                         (m) => m.id === task.assigneeId,
-                                      )?.name ?? "Unassigned"
+                                      )?.name
                                     }
-                                  >
-                                    {members.find(
-                                      (m) => m.id === task.assigneeId,
-                                    )?.name ?? "Unassigned"}
-                                  </TooltipText>
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <TooltipText
-                                    className={`block truncate${task.agentName ? "" : " text-muted"}`}
-                                    tooltip={task.agentName || "Unassigned"}
-                                  >
-                                    {task.agentName || "Unassigned"}
-                                  </TooltipText>
+                                    email={
+                                      members.find(
+                                        (m) => m.id === task.assigneeId,
+                                      )?.email
+                                    }
+                                  />
                                 </Table.Cell>
                                 <Table.Cell>
                                   <PriorityChip priority={task.priority} />
@@ -1025,16 +977,14 @@ export function BoardPage({
                 }}
                 title="Board settings"
                 footer={
-                  <div className="grid w-full gap-2">
-                    <ErrorMessage>{settingsError}</ErrorMessage>
-                    {busy && (
-                      <TypographyText textRole="supporting" role="status">
-                        Saving…
-                      </TypographyText>
-                    )}
-                  </div>
+                  busy && (
+                    <TypographyText textRole="supporting" role="status">
+                      Saving…
+                    </TypographyText>
+                  )
                 }
               >
+                <ErrorMessage>{settingsError}</ErrorMessage>
                 <form
                   className="content-grid min-w-0"
                   onSubmit={(e) => {
@@ -1071,7 +1021,7 @@ export function BoardPage({
                     disabled={!writable}
                     className="min-w-0 w-full"
                   />
-                  <div>
+                  <div className="flex">
                     <Button
                       type="submit"
                       isPending={busy}
@@ -1110,7 +1060,7 @@ export function BoardPage({
                   </>
                 }
               >
-                <TypographyParagraph className="text-xs">
+                <TypographyParagraph size="sm">
                   Permanently delete “{board.name}” and all of its tasks and
                   comments? This cannot be undone. There is no restore.
                 </TypographyParagraph>

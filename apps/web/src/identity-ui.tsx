@@ -61,7 +61,7 @@ export function AuthFrame({
                 <TypographyHeading elementType="h1" level={2}>
                   {title}
                 </TypographyHeading>
-                <TypographyParagraph color="muted" size="xs">
+                <TypographyParagraph color="muted" size="sm">
                   {description}
                 </TypographyParagraph>
               </div>
@@ -191,16 +191,16 @@ export function ChallengeFields({
               Cancel passkey request
             </Button>
           )}
-          <FieldDescription>
+          <TypographyParagraph size="sm" color="muted">
             {passkeySupported()
               ? "Use the device or password manager where you saved your passkey."
               : "Passkeys require a supported browser on HTTPS or localhost. Open Mill on a device where your passkey is available."}
-          </FieldDescription>
+          </TypographyParagraph>
           {alternatives.length === 0 && (
-            <FieldDescription>
+            <TypographyParagraph size="sm" color="muted">
               If your passkey is unavailable, contact the person who runs your
               Mill installation for help recovering access.
-            </FieldDescription>
+            </TypographyParagraph>
           )}
         </div>
       )}

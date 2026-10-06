@@ -72,14 +72,19 @@ async function remaining(path: string, cookie: string, first: Page) {
   return ids;
 }
 
-test("credential pages retain stable ordering and expose older active access for revocation", async () => {
+test("credential pages exclude revoked rows before pagination and retain expired access", async () => {
   const { cookie, user } = await setupUser();
   const older = await credential(cookie);
+  const expired = await credential(cookie, "Expired access");
   await sql`UPDATE credentials SET created_at='2020-01-01T00:00:00Z' WHERE id=${older.credential.id}`;
-  await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT ${user.id},'History '||sequence,gen_random_uuid()::text,'mill_fixture','{}'::text[],timestamptz '2026-01-01T00:00:00Z'+(sequence/3)*interval '1 microsecond',now()+interval '1 day',now() FROM generate_series(1,207) sequence`;
+  await sql`UPDATE credentials SET created_at='2024-01-01T00:00:00Z',expires_at=now()-interval '1 day' WHERE id=${expired.credential.id}`;
+  await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at) SELECT ${user.id},'Active '||sequence,gen_random_uuid()::text,'mill_fixture','{}'::text[],timestamptz '2025-01-01T00:00:00Z'+(sequence/3)*interval '1 microsecond',now()+interval '1 day' FROM generate_series(1,207) sequence`;
+  await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at,revoked_at) SELECT ${user.id},'Revoked '||sequence,gen_random_uuid()::text,'mill_fixture','{}'::text[],timestamptz '2026-01-01T00:00:00Z'+(sequence/3)*interval '1 microsecond',now()+interval '1 day',now() FROM generate_series(1,417) sequence`;
   const expected = (
-    await sql`SELECT id FROM credentials WHERE user_id=${user.id} ORDER BY created_at DESC,id DESC`
+    await sql`SELECT id FROM credentials WHERE user_id=${user.id} AND revoked_at IS NULL ORDER BY created_at DESC,id DESC`
   ).map((row) => row.id);
+  assert.equal(expected.length, 209);
+  assert.ok(expected.includes(expired.credential.id));
   const first: Page = await json(await request("/api/credentials", { cookie }));
   assert.equal(first.items.length, 200);
   assert.equal(first.hasMore, true);
@@ -102,7 +107,7 @@ test("credential pages retain stable ordering and expose older active access for
     await request("/api/credentials?limit=53", { cookie }),
   );
   const currentExpected = (
-    await sql`SELECT id FROM credentials WHERE user_id=${user.id} ORDER BY created_at DESC,id DESC`
+    await sql`SELECT id FROM credentials WHERE user_id=${user.id} AND revoked_at IS NULL ORDER BY created_at DESC,id DESC`
   ).map((row) => row.id);
   assert.deepEqual(
     await remaining("/api/credentials?limit=53", cookie, smallFirst),
@@ -124,6 +129,49 @@ test("credential pages retain stable ordering and expose older active access for
   assert.equal(
     await credentialActor(new Request(resource, { headers: authorization })),
     null,
+  );
+  const [revoked] =
+    await sql`SELECT revoked_at FROM credentials WHERE id=${older.credential.id}`;
+  assert.ok(revoked.revokedAt);
+  const reloaded = await json(
+    await request("/api/credentials?limit=53", { cookie }),
+  );
+  assert.deepEqual(
+    await remaining("/api/credentials?limit=53", cookie, reloaded),
+    currentExpected.filter((id) => id !== older.credential.id),
+  );
+});
+
+test("credential pagination continues after its owned cursor is revoked", async () => {
+  const { cookie, user } = await setupUser();
+  await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at) SELECT ${user.id},'Active '||sequence,gen_random_uuid()::text,'mill_fixture','{}'::text[],timestamptz '2025-01-01T00:00:00Z'+sequence*interval '1 microsecond',now()+interval '1 day' FROM generate_series(1,5) sequence`;
+  const expected = (
+    await sql`SELECT id FROM credentials WHERE user_id=${user.id} ORDER BY created_at DESC,id DESC`
+  ).map((row) => row.id);
+  const first: Page = await json(
+    await request("/api/credentials?limit=2", { cookie }),
+  );
+  assert.deepEqual(
+    first.items.map((item) => item.id),
+    expected.slice(0, 2),
+  );
+  assert.equal(first.nextCursor, expected[1]);
+  await json(
+    await request(`/api/credentials/${first.nextCursor}`, {
+      cookie,
+      method: "DELETE",
+    }),
+  );
+  assert.deepEqual(
+    await remaining("/api/credentials?limit=2", cookie, first),
+    expected,
+  );
+  const reloaded = await json(
+    await request("/api/credentials?limit=2", { cookie }),
+  );
+  assert.deepEqual(
+    await remaining("/api/credentials?limit=2", cookie, reloaded),
+    expected.filter((id) => id !== first.nextCursor),
   );
 });
 

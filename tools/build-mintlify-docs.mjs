@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { format } from "prettier";
@@ -6,13 +6,56 @@ import { format } from "prettier";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const source = resolve(root, "docs");
 const output = resolve(source, "mintlify");
+const { version } = JSON.parse(
+  await readFile(resolve(root, "package.json"), "utf8"),
+);
+const screenshots = JSON.parse(
+  await readFile(resolve(root, "tools/docs-screenshots.json"), "utf8"),
+);
+const screenshotTitles = {
+  setup: "Workspace setup",
+  boards: "Boards",
+  board: "Task list",
+  task: "Task details and comments",
+  "task-activity": "Task activity",
+  "create-task": "Create a task",
+  "board-settings": "Board settings",
+  "empty-board": "An empty board",
+  people: "People",
+  "api-keys": "Personal API keys",
+  account: "Profile",
+  preferences: "Preferences",
+  "email-password": "Email & Password",
+  sessions: "Sessions",
+  "mcp-guide": "MCP Guide",
+  security: "Two-factor Auth",
+  team: "Team settings: General",
+  notifications: "Notifications",
+  "sign-in": "Sign in",
+  "not-found": "A missing page",
+  "server-error": "A page loading error",
+};
+
+function screenshotFrame(entry, device) {
+  const dimensions = screenshots.devices[device];
+  const suffix = device === "mobile" ? "-mobile" : "";
+  const images = screenshots.themes.map(
+    (theme) =>
+      `<div className="mill-product-${theme}"><img src="/assets/screenshots/release-v1/${entry.name}${suffix}-${theme}.png" alt="${screenshotTitles[entry.name]} in Mill." width="${dimensions.width}" height="${dimensions.height}" loading="lazy" /></div>`,
+  );
+  return `<Frame><div className="mill-guide-screenshot${device === "mobile" ? " mill-guide-screenshot-mobile" : ""}">${images.join("\n")}</div></Frame>`;
+}
+
+function guideScreenshots(route) {
+  const entries = screenshots.screenshots.filter((entry) =>
+    entry.guides.includes(route),
+  );
+  if (!entries.length) return "";
+  return `\n\n## In the app\n\n${entries.map((entry) => `### ${screenshotTitles[entry.name]}\n\n<Tabs>\n<Tab title="Desktop">\n${screenshotFrame(entry, "desktop")}\n</Tab>\n<Tab title="Mobile">\n${screenshotFrame(entry, "mobile")}\n</Tab>\n</Tabs>`).join("\n\n")}\n`;
+}
 
 const pages = [
-  [
-    "overview",
-    "Mill",
-    "A self-hosted task list for people and external agents.",
-  ],
+  ["overview", "Mill", "A self-hosted task list for teams."],
   [
     "installation",
     "Installation",
@@ -34,9 +77,9 @@ const pages = [
     "Invitations, sessions, passkeys, recovery, and access boundaries.",
   ],
   [
-    "agents",
-    "REST clients and MCP Agents",
-    "Connect external clients with personal API keys or Agent OAuth.",
+    "clients",
+    "REST and MCP clients",
+    "Connect external clients with personal API keys or OAuth.",
   ],
   [
     "api",
@@ -71,18 +114,26 @@ const pages = [
   [
     "troubleshooting",
     "Troubleshooting",
-    "Resolve common installation, sign-in, and agent access errors.",
+    "Resolve common installation, sign-in, and client access errors.",
   ],
   [
     "release-notes",
-    "Beta release notes",
-    "Changes and upgrade notes for the proposed first beta.",
+    "Release notes",
+    "Changes and upgrade notes for the proposed first release.",
   ],
 ];
 
 const slug = (name) => (name === "api" ? "rest-reference" : name);
 const included = new Set(pages.map(([name]) => name));
 await mkdir(resolve(output, "assets"), { recursive: true });
+await rm(resolve(output, "agents.md"), { force: true });
+await cp(resolve(source, "home.mdx"), resolve(output, "index.mdx"));
+await cp(resolve(source, "home.css"), resolve(output, "style.css"));
+await cp(
+  resolve(source, "screenshots/release-v1"),
+  resolve(output, "assets/screenshots/release-v1"),
+  { recursive: true },
+);
 
 for (const [name, title, description] of pages) {
   let body = await readFile(resolve(source, `${name}.md`), "utf8");
@@ -96,7 +147,12 @@ for (const [name, title, description] of pages) {
     },
   );
   const metadata = `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\n---\n\n`;
-  await writeFile(resolve(output, `${slug(name)}.md`), metadata + body);
+  await writeFile(
+    resolve(output, `${slug(name)}.md`),
+    await format(metadata + body + guideScreenshots(slug(name)), {
+      parser: "mdx",
+    }),
+  );
 }
 
 await cp(
@@ -120,7 +176,7 @@ const config = {
   $schema: "https://mintlify.com/docs.json",
   theme: "mint",
   name: "Mill",
-  description: "Self-hosted task lists for people and external agents.",
+  description: "Self-hosted task lists for teams.",
   logo: {
     light: "/assets/mill-lockup-light.svg",
     dark: "/assets/mill-lockup-dark.svg",
@@ -129,27 +185,96 @@ const config = {
   favicon: "/assets/mill-favicon.png",
   colors: { primary: "#704628", light: "#704628", dark: "#c89b6d" },
   appearance: { default: "system" },
+  icons: { library: "lucide" },
+  styling: { eyebrows: "breadcrumbs", codeblocks: "system" },
+  interaction: { drilldown: false },
   navigation: {
-    groups: [
+    dropdowns: [
       {
-        group: "Start",
-        pages: ["overview", "installation", "getting-started"],
-      },
-      { group: "Use Mill", pages: ["workflows", "authentication", "agents"] },
-      {
-        group: "Reference",
-        pages: ["rest-reference", "configuration", "security"],
+        dropdown: "Introduction",
+        icon: "book-open",
+        groups: [
+          { group: "Get started", pages: ["overview", "getting-started"] },
+        ],
       },
       {
-        group: "Operate",
-        pages: ["operations", "backup", "upgrades", "troubleshooting"],
+        dropdown: "Using Mill",
+        icon: "clipboard-list",
+        groups: [
+          { group: "Tasks and people", pages: ["workflows", "authentication"] },
+        ],
       },
-      { group: "Release", pages: ["release-notes"] },
+      {
+        dropdown: "Self-hosting",
+        icon: "server",
+        groups: [
+          {
+            group: "Install and configure",
+            pages: ["installation", "configuration", "security"],
+          },
+          {
+            group: "Operate Mill",
+            pages: [
+              "operations",
+              "backup",
+              "upgrades",
+              "troubleshooting",
+              "release-notes",
+            ],
+          },
+        ],
+      },
+      {
+        dropdown: "API and MCP",
+        icon: "plug",
+        groups: [
+          { group: "Connect a client", pages: ["clients", "rest-reference"] },
+        ],
+      },
     ],
+  },
+  navbar: {
+    links: [
+      { label: `v${version}`, href: "/release-notes" },
+      { type: "github", href: "https://github.com/avgeek-inc/mill" },
+    ],
+    primary: { type: "button", label: "Docs", href: "/overview" },
+  },
+  footer: {
+    socials: { github: "https://github.com/avgeek-inc/mill" },
+    links: [
+      {
+        header: "Documentation",
+        items: [
+          { label: "Your first board", href: "/getting-started" },
+          { label: "Install Mill", href: "/installation" },
+          { label: "REST and MCP", href: "/clients" },
+        ],
+      },
+      {
+        header: "Project",
+        items: [
+          { label: "GitHub", href: "https://github.com/avgeek-inc/mill" },
+          { label: "Release notes", href: "/release-notes" },
+          { label: "Security", href: "/security" },
+        ],
+      },
+    ],
+  },
+  contextual: { options: ["copy", "view", "chatgpt", "claude"] },
+  seo: {
+    organization: {
+      name: "Mill",
+      url: "https://mill.fyi",
+      logo: "https://mill.fyi/assets/mill-mark.png",
+      sameAs: ["https://github.com/avgeek-inc/mill"],
+    },
   },
 };
 await writeFile(
   resolve(output, "docs.json"),
   await format(JSON.stringify(config), { parser: "json", tabWidth: 2 }),
 );
-console.log(`Prepared ${pages.length} Mintlify pages in docs/mintlify`);
+console.log(
+  `Prepared homepage and ${pages.length} Mintlify guides in docs/mintlify`,
+);

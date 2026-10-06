@@ -33,7 +33,9 @@ export function DatePickerField({
       </DateField.Group>
       {value && !disabled ? (
         <Button
+          slot={null}
           variant="secondary"
+          aria-label={`Clear ${label.toLowerCase()}`}
           className="mt-1 w-fit"
           onPress={() => onChange(null)}
         >

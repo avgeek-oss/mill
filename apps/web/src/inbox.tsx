@@ -264,7 +264,7 @@ export function NotificationsPopover({
         <ErrorMessage>{markError.message}</ErrorMessage>
         <Button
           variant="secondary"
-          className="min-h-11 justify-self-start"
+          className="justify-self-start"
           isPending={marking === target}
           isDisabled={!!marking && marking !== target}
           onPress={() => void mark(target, markError.href)}
@@ -287,19 +287,9 @@ export function NotificationsPopover({
       {state.loading && state.items.length === 0 ? null : state.error &&
         state.items.length === 0 ? (
         <EmptyState>
-          <EmptyState.Header>
-            <EmptyState.Title>
-              Notifications could not be loaded
-            </EmptyState.Title>
-            <EmptyState.Description>
-              <span role="alert">{state.error}</span>
-            </EmptyState.Description>
-          </EmptyState.Header>
+          <ErrorMessage>{state.error}</ErrorMessage>
           <EmptyState.Content>
-            <Button
-              className="min-h-11"
-              onPress={() => void load(attemptedCursor.current)}
-            >
+            <Button onPress={() => void load(attemptedCursor.current)}>
               Retry notifications
             </Button>
           </EmptyState.Content>
@@ -402,7 +392,7 @@ export function NotificationsPopover({
         <div className="grid gap-3 border-t border-separator p-4">
           <ErrorMessage>{state.error}</ErrorMessage>
           <Button
-            className="min-h-11 justify-self-start"
+            className="justify-self-start"
             variant="secondary"
             onPress={() => void load(attemptedCursor.current)}
           >
@@ -416,7 +406,6 @@ export function NotificationsPopover({
           <div className="border-t border-separator px-4 py-3">
             <Button
               variant="secondary"
-              className="min-h-11"
               isDisabled={state.loading || !!marking}
               onPress={() => {
                 dialog.current?.focus();
@@ -434,14 +423,14 @@ export function NotificationsPopover({
       <Popover.Trigger
         aria-label="Open notifications"
         aria-describedby={unreadCount > 0 ? unreadDescriptionId : undefined}
-        className="notification-center__trigger relative isolate grid size-8 shrink-0 cursor-pointer touch-manipulation place-items-center rounded-full bg-default text-muted outline-none transition-[color,background-color,transform] hover:bg-default/80 hover:text-foreground active:scale-[0.96] focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none pointer-coarse:size-11"
+        className="notification-center__trigger relative isolate grid size-8 shrink-0 cursor-pointer touch-manipulation place-items-center rounded-full bg-default text-muted outline-none transition-[color,background-color] hover:bg-default/80 hover:text-foreground focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none"
       >
         <HugeiconsIcon aria-hidden="true" icon={Notification02Icon} size={18} />
         {unreadCount > 0 && (
           <span
             aria-hidden="true"
             aria-label={`${unreadCount} unread notifications`}
-            className="absolute end-0.5 top-0.5 grid min-h-4 min-w-4 place-items-center rounded-full bg-danger px-1 font-mono text-[0.625rem] leading-4 font-medium text-danger-foreground"
+            className="absolute -end-0.5 -top-0.5 grid min-h-4 min-w-4 place-items-center rounded-full bg-danger px-1 font-mono text-[0.625rem] leading-4 font-medium text-danger-foreground"
           >
             {Math.min(unreadCount, 9)}
           </span>
@@ -468,8 +457,8 @@ export function NotificationsPopover({
               className="widget__header--notification"
               endContent={
                 <Button
-                  variant="secondary"
-                  className="min-h-8 shrink-0 px-2 text-xs pointer-coarse:min-h-11"
+                  variant="ghost"
+                  className="min-h-8 min-w-0 shrink-0 rounded-sm bg-transparent! px-0 text-xs font-normal text-muted underline decoration-muted/30 decoration-dashed underline-offset-4 hover:bg-transparent! hover:text-foreground hover:decoration-foreground/45 focus-visible:decoration-foreground/45"
                   isPending={marking === "all"}
                   isDisabled={
                     (!!marking && marking !== "all") ||

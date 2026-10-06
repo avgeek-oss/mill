@@ -1,6 +1,6 @@
 {
   "name": "mill",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -25,6 +25,10 @@
     "restore": "bash tools/restore.sh",
     "recover-account": "node --env-file=.env --import tsx apps/api/src/auth/recovery-cli.ts",
     "docs:check": "node tools/docs-check.mjs",
+    "docs:build": "node tools/build-mintlify-docs.mjs",
+    "docs:dev": "pnpm docs:build && cd docs/mintlify && npx --yes mint@4.2.970 dev --port 4174",
+    "docs:screenshots": "node tools/capture-docs-screenshots.mjs",
+    "docs:screenshots:check": "node tools/capture-docs-screenshots.mjs --check",
     "test:operations": "node --test tools/*.test.mjs",
     "verify:production": "node tools/production-verify.mjs"
   },

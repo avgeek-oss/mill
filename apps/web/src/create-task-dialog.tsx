@@ -11,6 +11,14 @@ import {
 } from "@mill/web-design-system";
 import { api, createRetryKey, errorText, type User } from "./api.js";
 import { hasTaskResponse } from "./responses.js";
+import { taskTypeOptions } from "./task-type.js";
+import { priorityOptions } from "./task-priority.js";
+import { statusOptions } from "./task-status.js";
+
+export type DuplicateTaskSource = Pick<
+  Task,
+  "title" | "description" | "type" | "priority"
+>;
 
 export function CreateTaskDialog({
   boardId,
@@ -19,6 +27,7 @@ export function CreateTaskDialog({
   open,
   onClose,
   onCreated,
+  duplicateSource,
 }: {
   boardId: string;
   members: Member[];
@@ -26,11 +35,15 @@ export function CreateTaskDialog({
   open: boolean;
   onClose: () => void;
   onCreated: (task: Task) => void;
+  duplicateSource?: DuplicateTaskSource;
 }) {
   const formId = useId();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [type, setType] = useState<Task["type"]>("task");
+  const [priority, setPriority] = useState<Task["priority"]>("none");
+  const [status, setStatus] = useState<Task["status"]>("backlog");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [retryKey] = useState(createRetryKey);
@@ -42,15 +55,18 @@ export function CreateTaskDialog({
     requestGeneration.current++;
     inFlight.current = false;
     setPending(false);
-    setTitle("");
-    setDescription("");
+    setTitle(duplicateSource ? `[Copy] ${duplicateSource.title}` : "");
+    setDescription(duplicateSource?.description ?? "");
     setAssigneeId("");
+    setType(duplicateSource?.type ?? "task");
+    setPriority(duplicateSource?.priority ?? "none");
+    setStatus("backlog");
     setError("");
     retryKey.reset();
     return () => {
       requestGeneration.current++;
     };
-  }, [boardId, open, user.id, retryKey]);
+  }, [boardId, open, user.id, retryKey, duplicateSource]);
 
   function close() {
     if (!inFlight.current) onClose();
@@ -58,12 +74,17 @@ export function CreateTaskDialog({
 
   async function create() {
     if (!open || !writable || inFlight.current) return;
+    setError("");
     if (!title.trim()) {
-      setError("Enter a title.");
+      toast.danger("Enter a title.");
+      return;
+    }
+    if (title.trim().length > 300) {
+      toast.danger("Use 300 characters or fewer for the title.");
       return;
     }
     if (assigneeId && !members.some((member) => member.id === assigneeId)) {
-      setError("Choose an available assignee.");
+      toast.danger("Choose an available assignee.");
       return;
     }
     const generation = requestGeneration.current;
@@ -72,6 +93,10 @@ export function CreateTaskDialog({
       title: title.trim(),
       description,
       assigneeId: assigneeId || null,
+      type,
+      ...(duplicateSource
+        ? { priority, status, startDate: null, dueDate: null }
+        : {}),
     };
     inFlight.current = true;
     setPending(true);
@@ -104,7 +129,7 @@ export function CreateTaskDialog({
       open
       wide
       data-create-task-dialog
-      title="New task"
+      title={duplicateSource ? "Duplicate task" : "New task"}
       onClose={close}
       isDismissDisabled={pending}
       footer={
@@ -162,6 +187,31 @@ export function CreateTaskDialog({
           disabled={!writable || pending}
           className="min-w-0 w-full max-md:text-base!"
         />
+        <Choice
+          label="Type"
+          value={type}
+          onChange={(value) => setType(value as Task["type"])}
+          disabled={!writable || pending}
+          items={taskTypeOptions}
+        />
+        {duplicateSource && (
+          <>
+            <Choice
+              label="Status"
+              value={status}
+              onChange={(value) => setStatus(value as Task["status"])}
+              disabled={!writable || pending}
+              items={statusOptions}
+            />
+            <Choice
+              label="Priority"
+              value={priority}
+              onChange={(value) => setPriority(value as Task["priority"])}
+              disabled={!writable || pending}
+              items={priorityOptions}
+            />
+          </>
+        )}
         <Choice
           label="Assignee"
           value={assigneeId}

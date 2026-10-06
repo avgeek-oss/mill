@@ -12,7 +12,8 @@ import {
 } from "../../../packages/database/src/index.js";
 import { clientAddress, requireRole, type Env } from "./http.js";
 import { config } from "./config.js";
-import { lockAgentAuthority, requireAgentAccess } from "./agents.js";
+import { lockAuthority } from "./authority.js";
+import { mcpResource } from "./external/protocol.js";
 class RetryTransactionRollback extends Error {}
 function encryptResponse(value: unknown) {
   const iv = randomBytes(12);
@@ -77,7 +78,6 @@ export const rateLimit: MiddlewareHandler<Env> = async (c, next) => {
 function responseResources(path: string, response: unknown) {
   const boardIds = new Set<string>();
   const taskIds = new Set<string>();
-  const agentIds = new Set<string>();
   const validId = (value: unknown): value is string =>
     typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -87,8 +87,6 @@ function responseResources(path: string, response: unknown) {
   const taskId = path.match(/^\/api\/tasks\/([^/]+)/)?.[1];
   if (validId(boardId)) boardIds.add(boardId);
   if (validId(taskId)) taskIds.add(taskId);
-  const agentId = path.match(/^\/api\/agents\/([^/]+)/)?.[1];
-  if (validId(agentId)) agentIds.add(agentId);
   function visit(value: unknown, parent?: string) {
     if (Array.isArray(value)) {
       for (const item of value) visit(item, parent);
@@ -96,11 +94,9 @@ function responseResources(path: string, response: unknown) {
       for (const [key, item] of Object.entries(value)) {
         if (key === "boardId" && validId(item)) boardIds.add(item);
         if (key === "taskId" && validId(item)) taskIds.add(item);
-        if (key === "agentId" && validId(item)) agentIds.add(item);
         if (key === "id" && validId(item)) {
           if (parent === "board" || parent === "boards") boardIds.add(item);
           if (parent === "task" || parent === "tasks") taskIds.add(item);
-          if (parent === "agent" || parent === "agents") agentIds.add(item);
         }
         if (key === "boardIds" && Array.isArray(item))
           for (const id of item) if (validId(id)) boardIds.add(id);
@@ -112,7 +108,6 @@ function responseResources(path: string, response: unknown) {
   return {
     boardIds: [...boardIds],
     taskIds: [...taskIds],
-    agentIds: [...agentIds],
   };
 }
 export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
@@ -138,7 +133,7 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
     )
     .digest("hex");
   return withDatabaseTransaction(async () => {
-    await sql.begin(lockAgentAuthority);
+    await sql.begin(lockAuthority);
     await currentAuthority(c);
     await sql`DELETE FROM api_idempotency WHERE created_at < now()-interval '24 hours'`;
     const rows =
@@ -164,8 +159,25 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
               existing.invalidationReason === "deleted"
                 ? "This work was permanently deleted. Its changes cannot be retried."
                 : existing.invalidationReason === "access"
-                  ? "Agent access changed. Reload Mill before making a new change."
+                  ? "Connection access changed. Reload Mill before making a new change."
                   : "This retry was invalidated by an upgrade. Reload Mill before making a new change.",
+            code: "retry_invalidated",
+          },
+          410,
+        );
+      const current = c.get("actor");
+      const allowedBoardIds = current.boardIds;
+      if (
+        current.kind === "oauth" &&
+        allowedBoardIds &&
+        existing.boardIds.some(
+          (boardId: string) => !allowedBoardIds.includes(boardId),
+        )
+      )
+        return c.json(
+          {
+            error:
+              "Connection board access changed. Reload Mill before making a new change.",
             code: "retry_invalidated",
           },
           410,
@@ -181,6 +193,21 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
       .catch(() => null);
     if (c.res.status >= 400) throw new RetryTransactionRollback();
     const resources = responseResources(c.req.path, response);
+    if (c.req.method === "PATCH" && c.req.path === "/api/notifications") {
+      const input = (await c.req.json()) as { ids?: string[] };
+      const current = c.get("actor");
+      const affected = await sql<{ boardId: string }[]>`
+        SELECT DISTINCT tasks.board_id FROM notifications JOIN tasks ON tasks.id=notifications.task_id
+        WHERE notifications.user_id=${current.userId}
+          ${input.ids ? sql`AND notifications.id=ANY(${input.ids}::uuid[])` : sql``}
+          ${current.boardIds ? sql`AND tasks.board_id=ANY(${current.boardIds}::uuid[])` : sql``}`;
+      resources.boardIds = [
+        ...new Set([
+          ...resources.boardIds,
+          ...affected.map((row) => row.boardId),
+        ]),
+      ];
+    }
     const consentId = c.req.path.match(
       /^\/api\/oauth\/consent\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
     )?.[1];
@@ -194,18 +221,15 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
       typeof response.redirectTo === "string"
     ) {
       const [grant] = await sql<
-        { agentId: string; boardIds: string[] | null }[]
-      >`SELECT agent_id,board_ids FROM oauth_requests WHERE id=${consentId} AND user_id=${actor.userId} AND code_hash IS NOT NULL AND agent_id IS NOT NULL`;
+        { boardIds: string[] | null }[]
+      >`SELECT board_ids FROM oauth_requests WHERE id=${consentId} AND user_id=${actor.userId} AND code_hash IS NOT NULL`;
       if (grant) {
-        resources.agentIds = [
-          ...new Set([...resources.agentIds, grant.agentId]),
-        ];
         resources.boardIds = [
           ...new Set([...resources.boardIds, ...(grant.boardIds ?? [])]),
         ];
       }
     }
-    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds},agent_ids=${resources.agentIds} WHERE actor_key=${actorKey} AND key=${key}`;
+    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds} WHERE actor_key=${actorKey} AND key=${key}`;
   }).catch((error) => {
     if (!(error instanceof RetryTransactionRollback)) throw error;
   });
@@ -215,7 +239,7 @@ async function currentAuthority(c: Context<Env>) {
   const a = c.get("actor");
   if (a.credentialId) {
     const [row] =
-      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at,c.agent_id,c.token_type,c.scopes,c.board_ids FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId} AND u.id=${a.userId} FOR SHARE OF u,c`;
+      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at,c.token_type,c.resource,c.scopes,c.board_ids FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId} AND u.id=${a.userId} FOR SHARE OF u,c`;
     if (
       !row ||
       row.disabledAt ||
@@ -225,34 +249,25 @@ async function currentAuthority(c: Context<Env>) {
       throw new HTTPException(401, {
         message: "This credential is no longer valid",
       });
-    if (row.tokenType === "oauth" && a.kind === "agent" && row.agentId)
-      await sql.begin((tx) => requireAgentAccess(tx, a.userId, row.agentId));
-    else if (
+    if (
+      row.tokenType === "oauth" &&
+      a.kind === "oauth" &&
+      row.resource === mcpResource()
+    ) {
+      c.set("actor", {
+        ...a,
+        boardIds: row.boardIds ?? undefined,
+        scopes: row.scopes,
+      });
+    } else if (
       row.tokenType !== "api-key" ||
       a.kind !== "human" ||
-      row.agentId ||
       row.boardIds !== null ||
       row.scopes.length
     )
       throw new HTTPException(401, {
         message: "This credential is no longer valid",
       });
-    if (row.tokenType === "api-key") {
-      const domainMutation =
-        (c.req.method === "POST" &&
-          /^\/api\/boards(?:\/[^/]+\/tasks)?$/.test(c.req.path)) ||
-        (["PATCH", "DELETE"].includes(c.req.method) &&
-          /^\/api\/(?:boards|tasks|comments)\/[^/]+$/.test(c.req.path)) ||
-        (c.req.method === "POST" &&
-          /^\/api\/tasks\/[^/]+\/comments$/.test(c.req.path));
-      if (domainMutation)
-        requireRole(
-          c,
-          c.req.method === "DELETE" && /^\/api\/boards\/[^/]+$/.test(c.req.path)
-            ? "admin"
-            : "member",
-        );
-    }
     if (row.role !== a.role)
       throw new HTTPException(403, {
         message: "Your permissions changed. Reload Mill before trying again.",
@@ -280,6 +295,41 @@ async function currentAuthority(c: Context<Env>) {
         message: "Your permissions changed. Reload Mill before trying again.",
       });
   }
+  const current = c.get("actor");
+  const domainMutation =
+    (c.req.method === "POST" &&
+      /^\/api\/boards(?:\/[^/]+\/tasks)?$/.test(c.req.path)) ||
+    (["PATCH", "DELETE"].includes(c.req.method) &&
+      /^\/api\/(?:boards|tasks|comments)\/[^/]+$/.test(c.req.path)) ||
+    (c.req.method === "POST" &&
+      /^\/api\/tasks\/[^/]+\/comments$/.test(c.req.path));
+  if (domainMutation)
+    requireRole(
+      c,
+      c.req.method === "DELETE" && /^\/api\/boards\/[^/]+$/.test(c.req.path)
+        ? "admin"
+        : "member",
+    );
+  if (
+    current.kind === "oauth" &&
+    c.req.method === "POST" &&
+    c.req.path === "/api/boards" &&
+    current.boardIds !== undefined
+  )
+    throw new HTTPException(403, {
+      message: "A board-restricted credential cannot create boards",
+    });
+  if (
+    current.kind === "oauth" &&
+    c.req.method === "PATCH" &&
+    c.req.path === "/api/notifications" &&
+    !current.scopes.includes("write")
+  )
+    throw new HTTPException(403, {
+      message: "This credential does not permit notification changes",
+    });
+  if (c.req.method === "PATCH" && c.req.path === "/api/workspace")
+    requireRole(c, "admin");
 }
 export const mutationAuthority: MiddlewareHandler<Env> = async (c, next) => {
   if (
@@ -289,11 +339,20 @@ export const mutationAuthority: MiddlewareHandler<Env> = async (c, next) => {
   )
     return next();
   return withDatabaseTransaction(async () => {
-    await sql.begin(lockAgentAuthority);
+    await sql.begin(lockAuthority);
     await next();
     if (c.res.status >= 400) throw new RetryTransactionRollback();
     await currentAuthority(c);
   }).catch((error) => {
     if (!(error instanceof RetryTransactionRollback)) throw error;
+  });
+};
+
+export const readAuthority: MiddlewareHandler<Env> = async (c, next) => {
+  if (!c.get("actor") || !["GET", "HEAD"].includes(c.req.method)) return next();
+  return withDatabaseTransaction(async () => {
+    await sql`SELECT id FROM workspace FOR SHARE`;
+    await currentAuthority(c);
+    await next();
   });
 };

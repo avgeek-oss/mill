@@ -1,0 +1,506 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
+import postgres from "postgres";
+
+type Layout = Record<string, unknown>;
+type Receipt = {
+  applied: boolean;
+  schema: string;
+  archivedSchema?: string;
+  counts: Record<string, number>;
+  baseline: string;
+  baselineChecksum?: string;
+};
+const { schemaLayout, rebasePrelaunch } = (await import(
+  new URL("../tools/rebase-prelaunch.mjs", import.meta.url).href
+)) as {
+  schemaLayout: (sql: postgres.Sql, schema: string) => Promise<Layout>;
+  rebasePrelaunch: (
+    sql: postgres.Sql,
+    input: {
+      schema: string;
+      baseline: string;
+      expectedLegacy: Layout;
+      apply?: boolean;
+    },
+  ) => Promise<Receipt>;
+};
+const execFileAsync = promisify(execFile);
+const baseline = await readFile(
+  new URL("../packages/database/migrations/001_initial.sql", import.meta.url),
+  "utf8",
+);
+const knownLegacy = JSON.parse(
+  await readFile(
+    new URL("../tools/prelaunch-legacy-layout.json", import.meta.url),
+    "utf8",
+  ),
+) as {
+  tables: Record<
+    string,
+    {
+      name: string;
+      type: string;
+      udt: string;
+      nullable: boolean;
+      default: string | null;
+    }[]
+  >;
+};
+const databaseUrl =
+  process.env.DATABASE_URL ??
+  "postgres://mill:mill-test-disposable@127.0.0.1:55432/mill";
+async function fixture(
+  run: (
+    sql: postgres.Sql,
+    layout: Layout,
+    ids: Record<string, string>,
+  ) => Promise<void>,
+) {
+  const database = `rebase_${randomUUID().replaceAll("-", "")}`;
+  const admin = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  await admin.unsafe(`CREATE DATABASE "${database}"`);
+  const url = new URL(databaseUrl);
+  url.pathname = `/${database}`;
+  const sql = postgres(url.href, { max: 1, onnotice: () => {} });
+  try {
+    await sql.unsafe(baseline);
+    await sql`ALTER TABLE tasks DROP COLUMN type`;
+    await sql`ALTER TABLE tasks DROP COLUMN start_date`;
+    await sql`CREATE TABLE mill_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`;
+    await sql`INSERT INTO mill_migrations VALUES('011_task_status_age.sql','known-fixture-checksum',now())`;
+    await sql`CREATE TABLE agents(id uuid PRIMARY KEY,name text NOT NULL,scope text NOT NULL,creator_id uuid NOT NULL REFERENCES users(id),all_members boolean NOT NULL DEFAULT false,version integer NOT NULL DEFAULT 1,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now())`;
+    await sql`CREATE TABLE agent_members(agent_id uuid REFERENCES agents(id),user_id uuid REFERENCES users(id),PRIMARY KEY(agent_id,user_id))`;
+    await sql`CREATE TABLE retired_task_checklists(task_id uuid PRIMARY KEY REFERENCES tasks(id),items jsonb NOT NULL)`;
+    await sql`ALTER TABLE tasks ADD COLUMN agent_id uuid REFERENCES agents(id)`;
+    await sql`ALTER TABLE credentials ADD COLUMN agent_id uuid REFERENCES agents(id)`;
+    await sql`ALTER TABLE oauth_requests ADD COLUMN agent_id uuid REFERENCES agents(id)`;
+    await sql`DROP TABLE api_idempotency`;
+    const retryColumns = knownLegacy.tables.api_idempotency;
+    const retryDefinitions = retryColumns.map(
+      (column) =>
+        `"${column.name}" ${column.type === "ARRAY" ? column.udt.slice(1) + "[]" : column.udt}${column.nullable ? "" : " NOT NULL"}${column.default ? " DEFAULT " + column.default : ""}`,
+    );
+    await sql.unsafe(
+      `CREATE TABLE api_idempotency (${retryDefinitions.join(",")}, PRIMARY KEY(actor_key,key))`,
+    );
+    const observedRetryColumns =
+      await sql`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='api_idempotency' ORDER BY ordinal_position`;
+    assert.deepEqual(
+      observedRetryColumns.map((column) => column.column_name),
+      retryColumns.map((column) => column.name),
+    );
+    await sql`ALTER TABLE activity DROP CONSTRAINT activity_actor_kind_check`;
+    await sql`ALTER TABLE activity ADD CONSTRAINT activity_actor_kind_check CHECK(actor_kind IN ('human','agent'))`;
+    const ids = Object.fromEntries(
+      [
+        "workspace",
+        "admin",
+        "member",
+        "board",
+        "other",
+        "personal",
+        "team",
+        "restricted",
+        "task",
+      ].map((key) => [key, randomUUID()]),
+    );
+    await sql`INSERT INTO workspace(id,name) VALUES(${ids.workspace},'Retained workspace')`;
+    await sql`INSERT INTO users(id,workspace_id,name,email,role,password_hash) VALUES(${ids.admin},${ids.workspace},'Admin','admin@rebase.test','admin','retained-admin-hash'),(${ids.member},${ids.workspace},'Member','member@rebase.test','member','retained-member-hash')`;
+    await sql`INSERT INTO boards(id,workspace_id,name,prefix) VALUES(${ids.board},${ids.workspace},'Work','WORK'),(${ids.other},${ids.workspace},'Other','OTHER')`;
+    await sql`INSERT INTO agents(id,name,scope,creator_id,all_members) VALUES(${ids.personal},'Personal helper','personal',${ids.admin},false),(${ids.team},'Team helper','team',${ids.admin},true),(${ids.restricted},'Restricted helper','team',${ids.admin},false)`;
+    await sql`INSERT INTO agent_members VALUES(${ids.restricted},${ids.admin})`;
+    await sql`INSERT INTO tasks(id,board_id,identifier,title,description,assignee_id,agent_id,created_by,status,status_changed_at) VALUES(${ids.task},${ids.board},'WORK-1','Retained task','Retained description',${ids.member},${ids.team},${ids.admin},'done',now()-interval '2 days')`;
+    await sql`INSERT INTO comments(task_id,author_id,body) VALUES(${ids.task},${ids.member},'Retained comment')`;
+    await sql`INSERT INTO retired_task_checklists VALUES(${ids.task},'[{"text":"Old private checklist","done":true}]')`;
+    await run(sql, await schemaLayout(sql, "public"), ids);
+  } finally {
+    await sql.end();
+    await admin.unsafe(`DROP DATABASE "${database}"`);
+    await admin.end();
+  }
+}
+
+test("prelaunch conversion accepts the real historical retry-column order, preserves data and exact approved scopes, normalizes attribution, and retains source archive", async () => {
+  await fixture(async (sql, _layout, ids) => {
+    const personalCredential = randomUUID(),
+      teamCredential = randomUUID(),
+      emptyCredential = randomUUID(),
+      forbiddenCredential = randomUUID(),
+      revokedCredential = randomUUID();
+    for (const [id, agent, user, boards, revoked] of [
+      [personalCredential, ids.personal, ids.admin, null, null],
+      [teamCredential, ids.team, ids.member, [ids.board], null],
+      [emptyCredential, ids.team, ids.member, [], null],
+      [forbiddenCredential, ids.restricted, ids.member, [ids.other], null],
+      [
+        revokedCredential,
+        ids.team,
+        ids.member,
+        [ids.board],
+        "2026-01-01T00:00:00Z",
+      ],
+    ] as const)
+      await sql`INSERT INTO credentials(id,user_id,agent_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at,revoked_at) VALUES(${id},${user},${agent},'Retained connection',${id},'prefix',ARRAY['read'],'oauth',${boards ? sql.array([...boards], 2950) : null},now()+interval '1 day',${revoked})`;
+    const request = randomUUID(),
+      forbiddenRequest = randomUUID();
+    for (const [id, agent] of [
+      [request, ids.team],
+      [forbiddenRequest, ids.restricted],
+    ])
+      await sql`INSERT INTO oauth_requests(id,client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,agent_id,board_ids,code_hash,expires_at) VALUES(${id},'client','Retained client','unverified','https://example.test/callback','https://example.test/mcp','read','challenge',${ids.member},${agent},ARRAY[${ids.board}::uuid],${id},now()+interval '1 day')`;
+    await sql`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail) VALUES(${ids.task},${ids.board},${ids.member},'Team helper via Member','agent','task.updated','{"fields":["description","agentId","title"],"agentId":"legacy","kept":true}')`;
+    await sql`INSERT INTO notifications(user_id,task_id,kind,actor_name) VALUES(${ids.admin},${ids.task},'mention','Team helper via Member'),(${ids.admin},${ids.task},'mention','Retired helper via Someone')`;
+    await sql`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,board_ids,task_ids,agent_ids) VALUES('credential','retry','hash','{"agentId":"legacy"}',201,ARRAY[${ids.board}::uuid],ARRAY[${ids.task}::uuid],ARRAY[${ids.team}::uuid])`;
+    const beforeTasks =
+      await sql`SELECT id,board_id,title,description,assignee_id,status,status_changed_at,version,created_at,updated_at FROM tasks`;
+    const layout = await schemaLayout(sql, "public");
+    const dry = await rebasePrelaunch(sql, {
+      schema: "public",
+      baseline,
+      expectedLegacy: layout,
+    });
+    assert.equal(dry.applied, false);
+    assert.deepEqual(await schemaLayout(sql, "public"), layout);
+    const result = await rebasePrelaunch(sql, {
+      schema: "public",
+      baseline,
+      expectedLegacy: layout,
+      apply: true,
+    });
+    assert.equal(result.applied, true);
+    assert.equal((await sql`SELECT type FROM tasks`)[0].type, "task");
+    assert.ok(result.archivedSchema);
+    assert.deepEqual(
+      await sql`SELECT id,board_id,title,description,assignee_id,status,status_changed_at,version,created_at,updated_at FROM tasks`,
+      beforeTasks,
+    );
+    assert.equal(
+      (await sql`SELECT body FROM comments`)[0].body,
+      "Retained comment",
+    );
+    assert.deepEqual(
+      (
+        await sql`SELECT board_ids,scopes,revoked_at FROM credentials WHERE id=${personalCredential}`
+      )[0],
+      { board_ids: null, scopes: ["read"], revoked_at: null },
+    );
+    assert.deepEqual(
+      (
+        await sql`SELECT board_ids,scopes,revoked_at FROM credentials WHERE id=${teamCredential}`
+      )[0],
+      { board_ids: [ids.board], scopes: ["read"], revoked_at: null },
+    );
+    assert.deepEqual(
+      (
+        await sql`SELECT board_ids FROM credentials WHERE id=${emptyCredential}`
+      )[0].board_ids,
+      [],
+    );
+    assert.ok(
+      (
+        await sql`SELECT revoked_at FROM credentials WHERE id=${forbiddenCredential}`
+      )[0].revoked_at,
+    );
+    assert.equal(
+      (
+        await sql`SELECT revoked_at FROM credentials WHERE id=${revokedCredential}`
+      )[0].revoked_at.toISOString(),
+      "2026-01-01T00:00:00.000Z",
+    );
+    assert.equal(
+      (await sql`SELECT consumed_at FROM oauth_requests WHERE id=${request}`)[0]
+        .consumed_at,
+      null,
+    );
+    assert.ok(
+      (
+        await sql`SELECT consumed_at FROM oauth_requests WHERE id=${forbiddenRequest}`
+      )[0].consumed_at,
+    );
+    assert.deepEqual(
+      (
+        await sql`SELECT actor_id,actor_name,actor_kind,detail FROM activity`
+      )[0],
+      {
+        actor_id: ids.member,
+        actor_name: "Member",
+        actor_kind: "oauth",
+        detail: { fields: ["description", "title"], kept: true },
+      },
+    );
+    assert.deepEqual(
+      (await sql`SELECT actor_name FROM notifications ORDER BY actor_name`).map(
+        (r) => r.actor_name,
+      ),
+      ["Member", "Workspace member"],
+    );
+    assert.deepEqual(
+      (
+        await sql`SELECT response,status,invalidation_reason FROM api_idempotency`
+      )[0],
+      { response: null, status: 410, invalidation_reason: "upgrade" },
+    );
+    assert.equal(
+      (
+        await sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'agent%'`
+      ).length,
+      0,
+    );
+    assert.equal(
+      (
+        await sql`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND column_name LIKE 'agent%'`
+      ).length,
+      0,
+    );
+    const archive = result.archivedSchema!;
+    assert.equal(
+      (
+        await sql.unsafe(
+          `SELECT count(*)::int AS count FROM "${archive}".agents`,
+        )
+      )[0].count,
+      3,
+    );
+    assert.equal(
+      (
+        await sql.unsafe(
+          `SELECT items FROM "${archive}".retired_task_checklists`,
+        )
+      )[0].items[0].text,
+      "Old private checklist",
+    );
+    assert.equal(
+      (await sql.unsafe(`SELECT actor_name FROM "${archive}".activity`))[0]
+        .actor_name,
+      "Team helper via Member",
+    );
+    const functions =
+      await sql`SELECT n.nspname,p.proconfig FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname IN ('public',${archive})`;
+    assert.ok(functions.length);
+    for (const row of functions)
+      assert.ok(
+        row.proconfig.some((value: string) => value.includes(row.nspname)),
+      );
+    await assert.rejects(
+      rebasePrelaunch(sql, {
+        schema: "public",
+        baseline,
+        expectedLegacy: layout,
+        apply: true,
+      }),
+      /known prelaunch/,
+    );
+  });
+});
+test("prelaunch conversion rejects active clients, checksum drift, unknown source layout and failed data copy without modifying the source", async () => {
+  await fixture(async (sql, layout) => {
+    await assert.rejects(
+      rebasePrelaunch(sql, {
+        schema: "public",
+        baseline: baseline + "\n-- changed",
+        expectedLegacy: layout,
+        apply: true,
+      }),
+      /baseline differs/,
+    );
+    await assert.rejects(
+      rebasePrelaunch(sql, {
+        schema: "public",
+        baseline,
+        expectedLegacy: { ...layout, migrations: [] },
+        apply: true,
+      }),
+      /known prelaunch/,
+    );
+    const [db] = await sql`SELECT current_database() AS name`;
+    const url = new URL(databaseUrl);
+    url.pathname = `/${db.name}`;
+    const client = postgres(url.href, { max: 1 });
+    await client`SELECT 1`;
+    try {
+      await assert.rejects(
+        rebasePrelaunch(sql, {
+          schema: "public",
+          baseline,
+          expectedLegacy: layout,
+          apply: true,
+        }),
+        /Stop every application/,
+      );
+    } finally {
+      await client.end();
+    }
+    assert.deepEqual(await schemaLayout(sql, "public"), layout);
+    await sql`ALTER TABLE tasks DROP CONSTRAINT tasks_title_check`;
+    await sql`UPDATE tasks SET title=repeat('x',301)`;
+    const changed = await schemaLayout(sql, "public");
+    await assert.rejects(
+      rebasePrelaunch(sql, {
+        schema: "public",
+        baseline,
+        expectedLegacy: changed,
+        apply: true,
+      }),
+      { code: "23514" },
+    );
+    assert.deepEqual(await schemaLayout(sql, "public"), changed);
+    assert.equal(
+      (await sql`SELECT length(title) AS length FROM tasks`)[0].length,
+      301,
+    );
+    assert.equal(
+      (
+        await sql`SELECT nspname FROM pg_namespace WHERE nspname LIKE 'mill_prelaunch_%'`
+      ).length,
+      0,
+    );
+  });
+});
+
+for (const source of [
+  {
+    name: "preceding clean baseline",
+    file: "prelaunch-task-type-layout.json",
+    hasType: false,
+  },
+  {
+    name: "Task and Bug baseline",
+    file: "prelaunch-start-date-layout.json",
+    hasType: true,
+  },
+])
+  test(`${source.name} gains nullable start dates without changing retained task data, credentials or attribution`, async () => {
+    const database = `type_rebase_${randomUUID().replaceAll("-", "")}`;
+    const admin = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+    await admin.unsafe(`CREATE DATABASE "${database}"`);
+    const url = new URL(databaseUrl);
+    url.pathname = `/${database}`;
+    const sql = postgres(url.href, { max: 1, onnotice: () => {} });
+    try {
+      const expected = JSON.parse(
+        await readFile(
+          new URL(`../tools/${source.file}`, import.meta.url),
+          "utf8",
+        ),
+      );
+      const sourceBaseline = baseline.replace("  start_date date,\n", "");
+      await sql.unsafe(
+        source.hasType
+          ? sourceBaseline
+          : sourceBaseline.replace(
+              "  type text NOT NULL DEFAULT 'task' CHECK (type IN ('task','bug')),\n",
+              "",
+            ),
+      );
+      await sql`CREATE TABLE mill_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`;
+      await sql`INSERT INTO mill_migrations(name,checksum) VALUES('001_initial.sql',${expected.migrations[0].checksum})`;
+      const workspace = randomUUID(),
+        user = randomUUID(),
+        board = randomUUID(),
+        task = randomUUID();
+      await sql`INSERT INTO workspace(id,name) VALUES(${workspace},'Preserved workspace')`;
+      await sql`INSERT INTO users(id,workspace_id,name,email,password_hash,role) VALUES(${user},${workspace},'Owner','owner@example.test','hash','admin')`;
+      await sql`INSERT INTO boards(id,workspace_id,name,prefix) VALUES(${board},${workspace},'Preserved board','KEEP')`;
+      await sql`INSERT INTO tasks(id,board_id,identifier,title,description,created_by,assignee_id,priority,status,version,status_changed_at) VALUES(${task},${board},'KEEP-1','Preserved task','All original content',${user},${user},'urgent','done',9,now()-interval '3 days')`;
+      if (source.hasType)
+        await sql`UPDATE tasks SET type='bug' WHERE id=${task}`;
+      await sql`UPDATE tasks SET due_date='2026-10-11' WHERE id=${task}`;
+      await sql`INSERT INTO comments(task_id,author_id,body) VALUES(${task},${user},'Preserved discussion')`;
+      await sql`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail) VALUES(${task},${board},${user},'Historical owner name','oauth','task.updated','{"fields":["title"]}')`;
+      await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at) VALUES(${user},'Existing connection','retained-hash','prefix',ARRAY['read','write'],'oauth',ARRAY[${board}::uuid],now()+interval '1 day')`;
+      await sql`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,board_ids,task_ids) VALUES('owner','retry','retained-request','{"task":{"title":"cached old task"}}',201,ARRAY[${board}::uuid],ARRAY[${task}::uuid])`;
+      const before = [...(await sql`SELECT * FROM tasks`)];
+      const credentials = [...(await sql`SELECT * FROM credentials`)];
+      const activity = [...(await sql`SELECT * FROM activity`)];
+      const comments = [...(await sql`SELECT * FROM comments`)];
+      const layout = await schemaLayout(sql, "public");
+      assert.deepEqual(layout, expected);
+      const inspection = await execFileAsync(
+        process.execPath,
+        [
+          fileURLToPath(
+            new URL("../tools/rebase-prelaunch.mjs", import.meta.url),
+          ),
+          "--schema",
+          "public",
+        ],
+        { env: { ...process.env, DATABASE_URL: url.href } },
+      );
+      assert.equal(JSON.parse(inspection.stdout).applied, false);
+      assert.equal(JSON.parse(inspection.stdout).counts.tasks, 1);
+      assert.deepEqual(await schemaLayout(sql, "public"), layout);
+      const dry = await rebasePrelaunch(sql, {
+        schema: "public",
+        baseline,
+        expectedLegacy: expected,
+      });
+      assert.equal(dry.applied, false);
+      assert.deepEqual(await schemaLayout(sql, "public"), layout);
+      await sql`ALTER TABLE tasks ADD COLUMN unexpected text`;
+      await assert.rejects(
+        rebasePrelaunch(sql, {
+          schema: "public",
+          baseline,
+          expectedLegacy: expected,
+          apply: true,
+        }),
+        /does not match/,
+      );
+      await sql`ALTER TABLE tasks DROP COLUMN unexpected`;
+      const converted = await rebasePrelaunch(sql, {
+        schema: "public",
+        baseline,
+        expectedLegacy: expected,
+        apply: true,
+      });
+      assert.equal(converted.applied, true);
+      const tasks = [...(await sql`SELECT * FROM tasks`)];
+      assert.equal(tasks[0].type, source.hasType ? "bug" : "task");
+      assert.equal(tasks[0].start_date, null);
+      const { start_date: _startDate, ...retained } = tasks[0];
+      if (!source.hasType) delete retained.type;
+      assert.deepEqual(retained, before[0]);
+      assert.deepEqual(
+        [...(await sql`SELECT * FROM credentials`)],
+        credentials,
+      );
+      assert.deepEqual([...(await sql`SELECT * FROM activity`)], activity);
+      assert.deepEqual([...(await sql`SELECT * FROM comments`)], comments);
+      assert.deepEqual(
+        [
+          ...(await sql.unsafe(
+            `SELECT * FROM "${converted.archivedSchema}".tasks`,
+          )),
+        ],
+        before,
+      );
+      assert.deepEqual(
+        [
+          ...(await sql`SELECT response,status,invalidation_reason,key,request_hash FROM api_idempotency`),
+        ],
+        [
+          {
+            response: null,
+            status: 410,
+            invalidation_reason: "upgrade",
+            key: "retry",
+            request_hash: "retained-request",
+          },
+        ],
+      );
+      assert.deepEqual(
+        [...(await sql`SELECT name,checksum FROM mill_migrations`)],
+        [{ name: "001_initial.sql", checksum: converted.baselineChecksum }],
+      );
+    } finally {
+      await sql.end();
+      await admin.unsafe(`DROP DATABASE "${database}"`);
+      await admin.end();
+    }
+  });

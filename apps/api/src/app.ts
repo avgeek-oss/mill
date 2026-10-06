@@ -16,6 +16,7 @@ import {
   rateLimit,
   idempotency,
   mutationAuthority,
+  readAuthority,
 } from "./middleware.js";
 import type { Env } from "./http.js";
 export const app = new Hono<Env>();
@@ -75,7 +76,7 @@ app.get("/health/ready", async (c) => {
         }, 3000);
       }),
     ]);
-    return c.json({ status: "ready", version: "1.0.0-beta.1" });
+    return c.json({ status: "ready", version: "1.0.0" });
   } catch {
     return c.json({ status: "unavailable" }, 503);
   } finally {
@@ -100,7 +101,14 @@ app.use("/api/*", async (c, next) => {
   c.header("Pragma", "no-cache");
   await next();
 });
-app.use("/api/*", trustedOrigin, rateLimit, idempotency, mutationAuthority);
+app.use(
+  "/api/*",
+  trustedOrigin,
+  rateLimit,
+  readAuthority,
+  idempotency,
+  mutationAuthority,
+);
 app.use("/mcp", rateLimit);
 app.use("/oauth/*", rateLimit);
 app.route("/api/auth", authRoutes);

@@ -10,7 +10,7 @@ test("curated installed guides retain commands, resolve every local link and exc
     stylesheets: ["assets/index-guide.css"],
   });
   assert.equal(guides.size, 14);
-  assert.ok(guides.get("guides/agents.html").includes("/mcp"));
+  assert.ok(guides.get("guides/clients.html").includes("/mcp"));
   assert.ok(guides.get("guides/backup.html").includes("tools/backup.sh"));
   assert.ok(
     guides.get("guides/operations.html").includes('id="account-recovery"'),

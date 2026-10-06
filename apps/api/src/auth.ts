@@ -52,6 +52,7 @@ authRoutes.post("/setup", async (c) => {
   );
   const passwordHash = await hashPassword(input.password);
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     await tx`SELECT pg_advisory_xact_lock(78127001)`;
     const [existing] = await tx`SELECT id FROM workspace`;
     if (existing) conflict("Mill is already set up. Sign in to continue.");
@@ -106,6 +107,7 @@ authRoutes.post("/login", async (c) => {
       message: "The email address or password is incorrect",
     });
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [current] = await tx<
       UserRow[]
     >`SELECT * FROM users WHERE id=${user.id} AND disabled_at IS NULL FOR UPDATE`;
@@ -130,6 +132,7 @@ authRoutes.post("/reauth", async (c) => {
   if (!(await verifyPassword(input.password, user.passwordHash)))
     throw new HTTPException(401, { message: "The password is incorrect" });
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [current] = await tx<
       UserRow[]
     >`SELECT * FROM users WHERE id=${user.id} AND disabled_at IS NULL FOR UPDATE`;
@@ -222,6 +225,7 @@ authRoutes.post("/password", async (c) => {
   const passwordHash = await hashPassword(input.password);
   const current = await currentSession(c);
   await sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [locked] = await tx<
       UserRow[]
     >`SELECT * FROM users WHERE id=${user.id} AND disabled_at IS NULL FOR UPDATE`;

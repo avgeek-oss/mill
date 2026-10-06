@@ -1,8 +1,12 @@
+import { version } from "../../../package.json";
+
+export const millVersion = version;
+
 export const millBrand = {
   mark: "/brand/mill-mark.png",
   themeColor: {
-    light: "#faf6f3",
-    dark: "#120d0b",
+    light: "#f7f7f6",
+    dark: "#060605",
   },
 } as const;
 

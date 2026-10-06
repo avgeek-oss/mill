@@ -56,7 +56,7 @@ async function protectLastAdmin(user: UserRow, db: Db) {
 }
 teamRoutes.get("/members", async (c) => {
   const who = requireRole(c, "viewer");
-  if (who.kind === "agent" && who.boardIds)
+  if (who.kind === "oauth" && who.boardIds)
     throw new HTTPException(403, {
       message: "This credential cannot read the team directory",
     });
@@ -141,7 +141,7 @@ teamRoutes.get("/invitations", async (c) => {
   if (cursor && !anchor)
     badRequest("This invitation cursor does not belong to the workspace");
   const rows =
-    await sql`SELECT i.id,i.email,i.role,i.created_at,i.expires_at,i.accepted_at,i.revoked_at FROM invitations i JOIN users inviter ON inviter.id=i.invited_by WHERE inviter.workspace_id=(SELECT workspace_id FROM users WHERE id=${who.userId}) ${anchor ? sql`AND (i.created_at,i.id)<(SELECT created_at,id FROM invitations WHERE id=${anchor.id})` : sql``} ORDER BY i.created_at DESC,i.id DESC LIMIT ${limit + 1}`;
+    await sql`SELECT i.id,i.email,i.role,i.created_at,i.expires_at,i.accepted_at,i.revoked_at FROM invitations i JOIN users inviter ON inviter.id=i.invited_by WHERE inviter.workspace_id=(SELECT workspace_id FROM users WHERE id=${who.userId}) AND i.expires_at>now() ${anchor ? sql`AND (i.created_at,i.id)<(SELECT created_at,id FROM invitations WHERE id=${anchor.id})` : sql``} ORDER BY i.created_at DESC,i.id DESC LIMIT ${limit + 1}`;
   const items = rows.slice(0, limit);
   const hasMore = rows.length > limit;
   return c.json({
@@ -267,14 +267,14 @@ teamRoutes.delete("/members/:id", async (c) => {
     await protectLastAdmin(user, tx);
     const cleared = await tx<
       { id: string; boardId: string }[]
-    >`SELECT id,board_id FROM tasks WHERE assignee_id=${id} AND agent_id IS NOT NULL`;
+    >`SELECT id,board_id FROM tasks WHERE assignee_id=${id}`;
     await tx`UPDATE users SET disabled_at=now(),security_epoch=security_epoch+1,updated_at=now() WHERE id=${id}`;
     for (const task of cleared)
       await recordActivity(
         tx,
         { ...who, name: operator.name, role: operator.role },
         "task.updated",
-        { fields: ["agentId"] },
+        { fields: ["assigneeId"] },
         task.boardId,
         task.id,
       );

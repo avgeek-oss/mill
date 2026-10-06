@@ -5,8 +5,7 @@ import {
   callMcpTool,
   request,
   resetDatabase,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   setupUser,
   sql,
 } from "./support.js";
@@ -96,6 +95,227 @@ async function createTask(
     )
   ).task;
 }
+
+test("task types persist with defaulting, validation, activity, permissions and version conflicts", async () => {
+  const { cookie, board } = await fixture();
+  const ordinary = await createTask(cookie, board.id);
+  assert.equal(ordinary.type, "task");
+  const bug = await createTask(cookie, board.id, "A reported bug", {
+    type: "bug",
+    status: "backlog",
+  });
+  assert.equal(bug.type, "bug");
+  const detail = await json(await request(`/api/tasks/${bug.id}`, { cookie }));
+  assert.equal(detail.task.type, "bug");
+  assert.equal(detail.activity[0].detail.type, "bug");
+  const listed = await json(
+    await request(`/api/boards/${board.id}/tasks`, { cookie }),
+  );
+  assert.equal(
+    listed.items.find((row: { id: string }) => row.id === bug.id).type,
+    "bug",
+  );
+  for (const type of ["feature", "Bug", "", null]) {
+    assert.equal(
+      (
+        await request(`/api/boards/${board.id}/tasks`, {
+          cookie,
+          body: { title: "Invalid type", type },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await request(`/api/tasks/${bug.id}`, {
+          cookie,
+          method: "PATCH",
+          body: { version: bug.version, type },
+        })
+      ).status,
+      400,
+    );
+  }
+  await assert.rejects(
+    sql`UPDATE tasks SET type='feature' WHERE id=${bug.id}`,
+    { code: "23514" },
+  );
+  await assert.rejects(sql`UPDATE tasks SET type=NULL WHERE id=${bug.id}`, {
+    code: "23502",
+  });
+  const viewer = await member(cookie, "type-viewer@example.test", "viewer");
+  assert.equal(
+    (
+      await request(`/api/tasks/${bug.id}`, {
+        cookie: viewer.cookie,
+        method: "PATCH",
+        body: { version: bug.version, type: "task" },
+      })
+    ).status,
+    403,
+  );
+  const writes = await Promise.all([
+    request(`/api/tasks/${bug.id}`, {
+      cookie,
+      method: "PATCH",
+      body: { version: bug.version, type: "task" },
+    }),
+    request(`/api/tasks/${bug.id}`, {
+      cookie,
+      method: "PATCH",
+      body: { version: bug.version, title: "Concurrent title" },
+    }),
+  ]);
+  assert.deepEqual(
+    writes.map((response) => response.status).sort(),
+    [200, 409],
+  );
+  const current = (
+    await json(await request(`/api/tasks/${bug.id}`, { cookie }))
+  ).task;
+  const updated = (
+    await json(
+      await request(`/api/tasks/${bug.id}`, {
+        cookie,
+        method: "PATCH",
+        body: { version: current.version, type: "task" },
+      }),
+    )
+  ).task;
+  assert.equal(updated.type, "task");
+  assert.equal(updated.identifier, bug.identifier);
+  assert.equal(updated.statusChangedAt, bug.statusChangedAt);
+  assert.equal(updated.version, bug.version + 2);
+  const activity = await json(
+    await request(`/api/tasks/${bug.id}/activity`, { cookie }),
+  );
+  assert(
+    activity.items.some(
+      (entry: { action: string; detail: { fields?: string[] } }) =>
+        entry.action === "task.updated" &&
+        entry.detail.fields?.includes("type"),
+    ),
+  );
+});
+
+test("start dates persist as nullable calendar dates with validation, permissions and independent versioned updates", async () => {
+  const { cookie, board } = await fixture();
+  const ordinary = await createTask(cookie, board.id);
+  assert.equal(ordinary.startDate, null);
+  let item = await createTask(cookie, board.id, "Calendar date task", {
+    startDate: "2028-02-29",
+    dueDate: "2028-02-28",
+  });
+  assert.equal(item.startDate, "2028-02-29");
+  assert.equal(item.dueDate, "2028-02-28");
+  assert.equal(
+    (await json(await request(`/api/tasks/${item.id}`, { cookie }))).task
+      .startDate,
+    "2028-02-29",
+  );
+  const listed = await json(
+    await request(`/api/boards/${board.id}/tasks`, { cookie }),
+  );
+  assert.equal(
+    listed.items.find((row: { id: string }) => row.id === item.id).startDate,
+    "2028-02-29",
+  );
+  for (const startDate of [
+    "2026-02-29",
+    "2026-02-31",
+    "2026-10-01T00:00:00Z",
+    "",
+    1,
+  ]) {
+    assert.equal(
+      (
+        await request(`/api/boards/${board.id}/tasks`, {
+          cookie,
+          body: { title: "Invalid calendar date", startDate },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (
+        await request(`/api/tasks/${item.id}`, {
+          cookie,
+          method: "PATCH",
+          body: { version: item.version, startDate },
+        })
+      ).status,
+      400,
+    );
+  }
+  const viewer = await member(cookie, "date-viewer@example.test", "viewer");
+  assert.equal(
+    (
+      await request(`/api/tasks/${item.id}`, {
+        cookie: viewer.cookie,
+        method: "PATCH",
+        body: { version: item.version, startDate: null },
+      })
+    ).status,
+    403,
+  );
+  const before = item;
+  item = (
+    await json(
+      await request(`/api/tasks/${item.id}`, {
+        cookie,
+        method: "PATCH",
+        body: { version: item.version, startDate: "2026-10-01" },
+      }),
+    )
+  ).task;
+  assert.equal(item.startDate, "2026-10-01");
+  assert.equal(item.dueDate, before.dueDate);
+  assert.equal(item.identifier, before.identifier);
+  assert.equal(item.statusChangedAt, before.statusChangedAt);
+  assert.equal(item.version, before.version + 1);
+  assert.equal(
+    (
+      await request(`/api/tasks/${item.id}`, {
+        cookie,
+        method: "PATCH",
+        body: { version: before.version, startDate: "2026-10-02" },
+      })
+    ).status,
+    409,
+  );
+  item = (
+    await json(
+      await request(`/api/tasks/${item.id}`, {
+        cookie,
+        method: "PATCH",
+        body: { version: item.version, title: "Preserves date" },
+      }),
+    )
+  ).task;
+  assert.equal(item.startDate, "2026-10-01");
+  item = (
+    await json(
+      await request(`/api/tasks/${item.id}`, {
+        cookie,
+        method: "PATCH",
+        body: { version: item.version, startDate: null },
+      }),
+    )
+  ).task;
+  assert.equal(item.startDate, null);
+  assert.equal(item.dueDate, before.dueDate);
+  const activity = await json(
+    await request(`/api/tasks/${item.id}/activity`, { cookie }),
+  );
+  assert.equal(
+    activity.items.filter(
+      (entry: { action: string; detail: { fields?: string[] } }) =>
+        entry.action === "task.updated" &&
+        entry.detail.fields?.includes("startDate"),
+    ).length,
+    2,
+  );
+});
 
 test("task lifecycle persists identifiers, edits, status and permanent deletion", async () => {
   const { cookie, board } = await fixture();
@@ -223,7 +443,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
     201,
   );
   assert.equal(personal.credential.userId, user.id);
-  assert.equal(personal.credential.agentId, null);
+  assert.equal("agentId" in personal.credential, false);
   assert.equal(personal.credential.boardIds, null);
   assert.deepEqual(personal.credential.scopes, []);
   assert.deepEqual(
@@ -244,7 +464,6 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
     ["/api/credentials", "POST", { name: "Nested key" }],
     ["/api/workspace", "GET", undefined],
     ["/api/workspace", "PATCH", { name: "Denied" }],
-    ["/api/agents", "POST", { name: "Denied Agent", scope: "personal" }],
   ] as const)
     assert.equal(
       (await request(path, { token: personal.token, method, body })).status,
@@ -284,9 +503,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
       403,
       path,
     );
-  const agent = await setupAgent(cookie, { name: "Board agent" });
-  const credential = await setupOAuthAgent(cookie, {
-    agentId: agent.id,
+  const credential = await setupOAuth(cookie, {
     scopes: ["read", "write"],
     boardIds: [board.id],
   });
@@ -347,8 +564,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
     "This tool is unavailable with your credential and current role",
   );
   assert.equal((await request(`/api/tasks/${item.id}`, { token })).status, 403);
-  const readCredential = await setupOAuthAgent(cookie, {
-    agentId: agent.id,
+  const readCredential = await setupOAuth(cookie, {
     scopes: ["read"],
     boardIds: [board.id],
   });
@@ -382,10 +598,9 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
     1,
   );
   await json(
-    await request(`/api/agents/${agent.id}`, {
+    await request(`/api/credentials/${credential.credential.id}`, {
       cookie,
       method: "DELETE",
-      body: { version: agent.version },
     }),
   );
   assert.equal(
@@ -611,8 +826,7 @@ test("assignments and mentions respect preferences and notifications remain priv
   await createTask(teammate.cookie, other.id, "Admin private assignment", {
     assigneeId: user.id,
   });
-  const credential = await setupOAuthAgent(cookie, {
-    agentId: (await setupAgent(cookie)).id,
+  const credential = await setupOAuth(cookie, {
     scopes: ["read", "write"],
     boardIds: [board.id],
   });

@@ -11,7 +11,7 @@ export type BreadcrumbItem = {
 
 export function BreadcrumbTrail({ items }: { items: BreadcrumbItem[] }) {
   return (
-    <nav aria-label="Breadcrumb" className="min-w-0">
+    <nav aria-label="Breadcrumb" className="min-w-0" data-slot="breadcrumb">
       <ol className="flex min-w-0 items-center gap-2 whitespace-nowrap text-sm">
         {items.map((item, index) => {
           const current = index === items.length - 1;

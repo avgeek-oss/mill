@@ -30,8 +30,22 @@ export const sql = new Proxy(connection, {
   get(target, key) {
     const tx = transactions.getStore();
     if (tx && key === "begin")
-      return (callback: (tx: postgres.TransactionSql) => Promise<unknown>) =>
-        tx.savepoint(callback);
+      return (
+        optionsOrCallback:
+          string | ((nested: postgres.TransactionSql) => Promise<unknown>),
+        callback?: (nested: postgres.TransactionSql) => Promise<unknown>,
+      ) => {
+        const run =
+          typeof optionsOrCallback === "function"
+            ? optionsOrCallback
+            : callback;
+        if (!run)
+          throw new TypeError("A nested transaction requires a callback");
+        // Isolation belongs to the outer transaction; its authority lock protects nested reads.
+        return tx.savepoint((nested) =>
+          transactions.run(nested, () => run(nested)),
+        );
+      };
     const source = tx && key !== "end" ? tx : target;
     const value = Reflect.get(source, key);
     return typeof value === "function" ? value.bind(source) : value;

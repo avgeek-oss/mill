@@ -14,6 +14,7 @@ import {
   Choice,
   Dialog,
   EmptyState,
+  QueryLoading,
   ErrorMessage,
   Table,
   TableCellStack,
@@ -39,7 +40,7 @@ import type { Member, Role } from "../../../packages/contracts/src/index.js";
 import { ApiError, api, errorText, type Session } from "./api.js";
 import { Trash2 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
-import { RelativeDateTime } from "./relative-date-time.js";
+import { RelativeDateTime, useCurrentTime } from "./relative-date-time.js";
 
 type Invitation = {
   id: string;
@@ -55,9 +56,21 @@ const roleNames: Record<Role, string> = {
   member: "Member",
   viewer: "Viewer",
 };
+const roleIcons = {
+  admin: CrownIcon,
+  member: UserShield01Icon,
+  viewer: EyeIcon,
+} satisfies Record<Role, typeof CrownIcon>;
 const roleOptions = Object.entries(roleNames).map(([id, name]) => ({
   id,
   name,
+  startContent: (
+    <HugeiconsIcon
+      icon={roleIcons[id as Role]}
+      className="size-4 shrink-0"
+      aria-hidden="true"
+    />
+  ),
 }));
 type ListState<T> = {
   items: T[];
@@ -164,20 +177,7 @@ function PeopleSection({
 }
 function RoleChip({ role }: { role: Role }) {
   return (
-    <Chip
-      variant="secondary"
-      icon={
-        <HugeiconsIcon
-          icon={
-            role === "admin"
-              ? CrownIcon
-              : role === "member"
-                ? UserShield01Icon
-                : EyeIcon
-          }
-        />
-      }
-    >
+    <Chip variant="secondary" icon={<HugeiconsIcon icon={roleIcons[role]} />}>
       {roleNames[role]}
     </Chip>
   );
@@ -238,12 +238,6 @@ function invitationStatus(invitation: Invitation) {
       variant: "secondary" as const,
       icon: InformationCircleIcon,
     };
-  if (Date.parse(invitation.expiresAt) <= Date.now())
-    return {
-      label: "Expired",
-      variant: "secondary" as const,
-      icon: InformationCircleIcon,
-    };
   return { label: "Pending", variant: "warning" as const, icon: Clock01Icon };
 }
 
@@ -256,6 +250,10 @@ export function PeopleSettings({
 }) {
   const members = usePeopleList<Member>("/auth/members");
   const invitations = usePeopleList<Invitation>("/auth/invitations");
+  const now = useCurrentTime();
+  const visibleInvitations = invitations.items.filter(
+    (invitation) => Date.parse(invitation.expiresAt) > now,
+  );
   const [inviteOpen, setInviteOpen] = useState(false);
   const inviteTrigger = useRef<HTMLButtonElement>(null);
   const inviteWasOpened = useRef(false);
@@ -331,6 +329,9 @@ export function PeopleSettings({
       />
       <div className="content-grid min-w-0">
         <PeopleSection label="Workspace members" busy={members.loading}>
+          {members.loading && !members.items.length && (
+            <QueryLoading label="Loading people" />
+          )}
           <ErrorMessage>{members.error}</ErrorMessage>
           {members.error && (
             <div>
@@ -464,7 +465,7 @@ export function PeopleSettings({
           )}
           {!members.error && members.hasMore && members.nextCursor && (
             <div className="grid justify-items-start gap-2">
-              <p className="text-xs text-muted">
+              <p className="text-sm text-muted">
                 Load the full directory before changing roles or removing
                 people.
               </p>
@@ -479,6 +480,9 @@ export function PeopleSettings({
           )}
         </PeopleSection>
         <PeopleSection label="Invitations" busy={invitations.loading}>
+          {invitations.loading && !invitations.items.length && (
+            <QueryLoading label="Loading invitations" />
+          )}
           <ErrorMessage>{invitations.error}</ErrorMessage>
           {invitations.error && (
             <div>
@@ -493,7 +497,8 @@ export function PeopleSettings({
           )}
           {!invitations.loading &&
             !invitations.error &&
-            !invitations.items.length && (
+            !visibleInvitations.length &&
+            !invitations.hasMore && (
               <EmptyState>
                 <EmptyState.Header>
                   <EmptyState.Title>No invitations yet</EmptyState.Title>
@@ -503,7 +508,7 @@ export function PeopleSettings({
                 </EmptyState.Header>
               </EmptyState>
             )}
-          {!!invitations.items.length && (
+          {!!visibleInvitations.length && (
             <Table>
               <Table.ScrollContainer>
                 <Table.Content
@@ -523,36 +528,44 @@ export function PeopleSettings({
                     </Table.Column>
                   </Table.Header>
                   <Table.Body>
-                    {invitations.items.map((invitation) => {
+                    {visibleInvitations.map((invitation) => {
                       const status = invitationStatus(invitation);
                       return (
                         <Table.Row key={invitation.id} id={invitation.id}>
                           <Table.Cell className="whitespace-normal!">
-                            <TableCellStack
-                              as="div"
-                              className="whitespace-normal"
-                            >
-                              <span className="break-all">
-                                {invitation.email}
-                              </span>
-                              <RelativeDateTime
-                                value={invitation.expiresAt}
-                                timeZone={session.user.timeZone}
-                                label="Invitation expires"
-                                prefix="Expires"
-                                compact
-                                className="text-muted"
+                            <div className="flex min-w-0 items-start gap-3">
+                              <Avatar
+                                email={invitation.email}
+                                size="sm"
+                                className="shrink-0"
                               />
-                              <div className="flex flex-wrap gap-1 pt-1 md:hidden">
-                                <RoleChip role={invitation.role} />
-                                <Chip
-                                  variant={status.variant}
-                                  icon={<HugeiconsIcon icon={status.icon} />}
-                                >
-                                  {status.label}
-                                </Chip>
-                              </div>
-                            </TableCellStack>
+                              <TableCellStack
+                                as="div"
+                                className="whitespace-normal"
+                              >
+                                <span className="break-all">
+                                  {invitation.email}
+                                </span>
+                                <RelativeDateTime
+                                  value={invitation.expiresAt}
+                                  timeZone={session.user.timeZone}
+                                  label="Invitation expires"
+                                  prefix="Expires"
+                                  showAbsolute={false}
+                                  compact
+                                  className="text-muted"
+                                />
+                                <div className="flex flex-wrap gap-1 pt-1 md:hidden">
+                                  <RoleChip role={invitation.role} />
+                                  <Chip
+                                    variant={status.variant}
+                                    icon={<HugeiconsIcon icon={status.icon} />}
+                                  >
+                                    {status.label}
+                                  </Chip>
+                                </div>
+                              </TableCellStack>
+                            </div>
                           </Table.Cell>
                           <Table.Cell className="hidden align-middle md:table-cell">
                             <RoleChip role={invitation.role} />
@@ -653,7 +666,20 @@ function InvitePersonDialog({
     setBusy(true);
     setError("");
     try {
-      setResult(await api("/auth/invitations", { email, role }));
+      const invitation = await api<{
+        inviteUrl: string;
+        emailDelivery: "unavailable" | "sent" | "failed";
+      }>("/auth/invitations", { email, role });
+      setResult(invitation);
+      toast.success(
+        invitation.emailDelivery === "sent"
+          ? "Invitation created and email sent."
+          : "Invitation created.",
+      );
+      if (invitation.emailDelivery === "failed")
+        toast.danger(
+          "The invitation email could not be sent. Share the link directly.",
+        );
       onCreated();
     } catch (error) {
       setError(errorText(error));
@@ -663,12 +689,13 @@ function InvitePersonDialog({
     }
   }
   async function copy() {
+    setError("");
     try {
       await navigator.clipboard.writeText(result!.inviteUrl);
       toast.success("Invitation link copied.");
       setError("");
     } catch {
-      setError(
+      toast.danger(
         "The link could not be copied. Select the invitation link and copy it manually.",
       );
     }
@@ -676,7 +703,7 @@ function InvitePersonDialog({
   return (
     <Dialog
       open
-      title={result ? "Invitation created" : "Invite a person"}
+      title={result ? "Invitation link" : "Invite a person"}
       onClose={onClose}
       isDismissDisabled={busy}
       size="sm"
@@ -705,7 +732,7 @@ function InvitePersonDialog({
         <ErrorMessage>{error}</ErrorMessage>
         {result ? (
           <>
-            <p className="text-xs">
+            <p className="text-sm">
               Share this private link with {email}. It expires after seven days.
             </p>
             <TextField
@@ -714,13 +741,12 @@ function InvitePersonDialog({
               readOnly
               onFocus={(event) => event.currentTarget.select()}
             />
-            <p className="text-xs text-muted">
-              {result.emailDelivery === "sent"
-                ? "Invitation email sent."
-                : result.emailDelivery === "failed"
-                  ? "The invitation email could not be sent. Share the link directly."
-                  : "Email delivery is not configured. Copy the link to share it directly."}
-            </p>
+            {result.emailDelivery === "unavailable" && (
+              <p className="text-sm text-muted">
+                Email delivery is not configured. Copy the link to share it
+                directly.
+              </p>
+            )}
           </>
         ) : (
           <form
@@ -754,7 +780,7 @@ function InvitePersonDialog({
               can manage access.
             </p>
             {busy && (
-              <p role="status" className="text-xs text-muted">
+              <p role="status" className="text-sm text-muted">
                 Creating the invitation…
               </p>
             )}
@@ -865,14 +891,14 @@ function PeopleActionDialog({
             />
           </>
         ) : (
-          <p className="text-xs">
+          <p className="text-sm">
             {action.kind === "remove"
               ? `${action.member.name} will lose workspace access. Their comments and activity stay in the history.`
               : "This invitation will no longer grant workspace access."}
           </p>
         )}
         {busy && (
-          <p role="status" className="text-xs text-muted">
+          <p role="status" className="text-sm text-muted">
             {action.kind === "role"
               ? "Updating the role…"
               : action.kind === "remove"

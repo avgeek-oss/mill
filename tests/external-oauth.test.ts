@@ -3,7 +3,6 @@ import {
   request,
   resetDatabase,
   setupUser,
-  setupAgent,
   sql,
 } from "./support.js";
 import assert from "node:assert/strict";
@@ -39,7 +38,6 @@ async function ok<T>(response: Response): Promise<T> {
 test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) => {
   await resetDatabase();
   const { cookie, user } = await setupUser();
-  const agent = await setupAgent(cookie, { name: "OAuth Agent" });
   const redirect = "http://127.0.0.1:4182/callback";
   const register = async (extra: Record<string, unknown> = {}) =>
     ok<{ client_id: string; client_secret?: string }>(
@@ -93,7 +91,6 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         cookie,
         body: {
           allow: true,
-          agentId: agent.id,
           ...(boardIds ? { boardIds } : {}),
         },
       }),
@@ -290,7 +287,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (
             await request(`/api/oauth/consent/${begun.id}`, {
               cookie,
-              body: { allow: true, agentId: agent.id },
+              body: { allow: true },
               headers: { Origin: "https://attacker.example" },
             })
           ).status,
@@ -315,7 +312,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (
             await request(`/api/oauth/consent/${begun.id}`, {
               cookie,
-              body: { allow: true, agentId: agent.id },
+              body: { allow: true },
             })
           ).status,
           400,
@@ -457,7 +454,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (
             await request(`/api/oauth/consent/${begun.id}`, {
               cookie,
-              body: { allow: true, agentId: agent.id },
+              body: { allow: true },
             })
           ).status,
           403,
@@ -514,7 +511,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (
             await request("/api/oauth/consent/" + (await start()).id, {
               token: issued.access_token,
-              body: { allow: true, agentId: agent.id },
+              body: { allow: true },
             })
           ).status,
           403,
@@ -599,7 +596,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
                   Origin: process.env.MILL_BASE_URL!,
                   "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ allow: true, agentId: agent.id }),
+                body: JSON.stringify({ allow: true }),
               },
             ),
           );
@@ -671,7 +668,6 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
               boardId: board.board.id,
               title: "OAuth SDK task",
               assigneeId: user.id,
-              agentId: agent.id,
               status: "in_review",
               idempotencyKey: "oauth-sdk-task-0001",
             },

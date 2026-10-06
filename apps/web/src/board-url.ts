@@ -1,7 +1,6 @@
 export type BoardUrlState = {
   q: string;
   assigneeId: string;
-  agentId: string;
   priority: string;
   status: string;
   sort: string;
@@ -51,7 +50,6 @@ export function parseBoardUrl(path: string): BoardUrlState {
   return {
     q: (params.get("q") ?? "").slice(0, 200),
     assigneeId: identity("assigneeId"),
-    agentId: identity("agentId"),
     priority: priorities.has(priority) ? priority : "",
     status: statuses.has(status) ? status : "",
     sort: sorts.has(sort) ? sort : "createdAt",
@@ -65,13 +63,8 @@ export function parseBoardUrl(path: string): BoardUrlState {
 
 export function boardUrl(boardId: string, state: BoardUrlState, search = "") {
   const params = new URLSearchParams(search);
-  for (const key of [
-    "q",
-    "assigneeId",
-    "agentId",
-    "priority",
-    "status",
-  ] as const) {
+  params.delete("agentId");
+  for (const key of ["q", "assigneeId", "priority", "status"] as const) {
     params.delete(key);
     if (state[key]) params.set(key, state[key]);
   }

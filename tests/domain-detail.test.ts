@@ -5,8 +5,7 @@ import {
   callMcpTool,
   request,
   resetDatabase,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   setupUser,
   sql,
 } from "./support.js";
@@ -122,8 +121,7 @@ test("task detail, comments and activity resolve permissions through the owning 
     }),
     201,
   );
-  const { token } = await setupOAuthAgent(cookie, {
-    agentId: (await setupAgent(cookie)).id,
+  const { token } = await setupOAuth(cookie, {
     scopes: ["read"],
     boardIds: [allowed.id],
   });

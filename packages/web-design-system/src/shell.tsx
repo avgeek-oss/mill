@@ -59,7 +59,7 @@ function Content({
   return (
     <div
       className={cn(
-        "mx-auto min-h-full w-full min-w-0 px-4 py-3 sm:px-6 sm:py-6 lg:px-8",
+        "mx-auto min-h-full w-full min-w-0 px-4 py-3 sm:py-6",
         widths[variant ?? contentWidth],
         className,
       )}
@@ -166,6 +166,46 @@ export function AppLayout({
     isDesktopViewport,
     serverViewport,
   );
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  const previousSidebarOpen = useRef(sidebarOpen);
+  const [presented, setPresented] = useState({
+    path,
+    sidebar,
+    secondarySidebar,
+    navbar,
+    children,
+  });
+  // Route-owned filter portals must stay mounted until the drawer has left.
+  const holdNavigation = !isDesktop && drawerMounted && presented.path !== path;
+  const visible = holdNavigation
+    ? presented
+    : { path, sidebar, secondarySidebar, navbar, children };
+  const trackDrawer = useCallback((element: HTMLDivElement | null) => {
+    setDrawerMounted(!!element);
+  }, []);
+
+  useLayoutEffect(() => {
+    const reopened = sidebarOpen && !previousSidebarOpen.current;
+    previousSidebarOpen.current = sidebarOpen;
+    if (holdNavigation && !reopened) return;
+    setPresented((previous) =>
+      previous.path === path &&
+      previous.sidebar === sidebar &&
+      previous.secondarySidebar === secondarySidebar &&
+      previous.navbar === navbar &&
+      previous.children === children
+        ? previous
+        : { path, sidebar, secondarySidebar, navbar, children },
+    );
+  }, [
+    children,
+    holdNavigation,
+    navbar,
+    path,
+    secondarySidebar,
+    sidebar,
+    sidebarOpen,
+  ]);
   const focusNavigationToggle = useCallback(() => {
     layout.current
       ?.querySelector<HTMLButtonElement>(".navigation-toggle")
@@ -182,7 +222,7 @@ export function AppLayout({
     }
   }, [focusNavigationToggle, isDesktop, sidebarOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const routeChanged = previousPath.current !== path;
     previousPath.current = path;
     if (routeChanged && !isDesktopViewport()) onSidebarOpenChange(false);
@@ -203,7 +243,7 @@ export function AppLayout({
   return (
     <NavigationContext.Provider
       value={{
-        path,
+        path: visible.path,
         navigate,
         sidebarOpen,
         focusNavigationToggle,
@@ -226,27 +266,27 @@ export function AppLayout({
               inert={!sidebarOpen}
               className="application-sidebar-panel h-full w-60 overflow-hidden border-r border-separator bg-background"
             >
-              {sidebar}
+              {visible.sidebar}
             </aside>
           </div>
         ) : null}
         <div className="grid min-h-dvh min-w-0 grid-cols-1 grid-rows-[auto_1fr]">
-          {navbar}
+          {visible.navbar}
           <main
             id="main-content"
             className={cn(
               "min-w-0",
-              secondarySidebar &&
+              visible.secondarySidebar &&
                 "lg:grid lg:grid-cols-[16.5rem_minmax(0,1fr)]",
             )}
             tabIndex={-1}
           >
-            {secondarySidebar && isDesktop ? (
+            {visible.secondarySidebar && isDesktop ? (
               <aside className="sticky top-16 h-[calc(100dvh-4rem)] min-w-0 self-start overflow-hidden border-r border-separator bg-background">
-                {secondarySidebar}
+                {visible.secondarySidebar}
               </aside>
             ) : null}
-            <div className="min-w-0">{children}</div>
+            <div className="min-w-0">{visible.children}</div>
           </main>
         </div>
       </div>
@@ -258,32 +298,33 @@ export function AppLayout({
           <Drawer.Dialog
             id="application-navigation"
             aria-label="Workspace navigation"
-            data-secondary-navigation={!!secondarySidebar}
+            data-secondary-navigation={!!visible.secondarySidebar}
             className="application-navigation-drawer grid max-w-[calc(100vw-1rem)] overflow-hidden bg-background p-0"
           >
             <div
+              ref={trackDrawer}
               className="relative h-full min-h-0 min-w-0"
               data-slot="drawer-body"
             >
-              {sidebar}
-              {!secondarySidebar && (
+              {visible.sidebar}
+              {!visible.secondarySidebar && (
                 <Drawer.CloseTrigger
                   autoFocus
                   aria-label="Close navigation"
-                  className="end-3 top-2.5 size-11 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
+                  className="end-3 top-4 size-8 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
                 />
               )}
             </div>
-            {secondarySidebar && (
+            {visible.secondarySidebar && (
               <div className="flex h-full min-h-0 min-w-0 flex-col border-l border-separator">
                 <div className="relative min-h-16 shrink-0 border-b border-separator">
                   <Drawer.CloseTrigger
                     autoFocus
                     aria-label="Close navigation"
-                    className="end-3 top-2.5 size-11 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
+                    className="end-3 top-4 size-8 bg-transparent hover:bg-transparent data-[hovered=true]:bg-transparent"
                   />
                 </div>
-                <div className="min-h-0 flex-1">{secondarySidebar}</div>
+                <div className="min-h-0 flex-1">{visible.secondarySidebar}</div>
               </div>
             )}
           </Drawer.Dialog>
@@ -318,6 +359,7 @@ export type SidebarGroupConfig = {
 export type SidebarConfig = {
   accessibleLabel: string;
   brand: { title: string; logo: ReactNode };
+  brandVersion?: string;
   homeHref: string;
   groups: SidebarGroupConfig[];
   footerContent?: ReactNode;
@@ -358,13 +400,31 @@ function RoutedLink({
   );
 }
 
+// Adapted from Towbar's secondary sidebar section composition.
+export function SecondarySection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section data-secondary-menu className="grid min-w-0 gap-1">
+      <h2 className="px-2 py-1.5 text-xs font-medium text-muted">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 export function SecondarySidebar({
   title,
+  hideTitle = false,
   items,
   actions,
   children,
 }: {
   title: string;
+  hideTitle?: boolean;
   items: ShellLinkConfig[];
   actions?: ReactNode;
   children?: ReactNode;
@@ -372,31 +432,39 @@ export function SecondarySidebar({
   return (
     <nav
       aria-label={`${title} navigation`}
-      className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto overscroll-contain px-3 py-4"
+      className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto overscroll-contain px-3 py-4"
     >
-      <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 ps-2">
-        <h2 className="text-xs font-medium text-muted">{title}</h2>
-        {actions}
-      </div>
+      {!hideTitle && (
+        <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 ps-2">
+          <h2 className="text-xs font-medium text-muted">{title}</h2>
+          {actions}
+        </div>
+      )}
       {children}
-      <div className="grid gap-0.5">
-        {items.map((item) => (
-          <RoutedLink
-            key={item.id}
-            item={item}
-            className={cn(
-              "flex min-h-9 min-w-0 items-center gap-3 rounded-2xl px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus pointer-coarse:min-h-11",
-              item.active
-                ? "bg-default font-medium text-foreground"
-                : "font-normal text-foreground hover:bg-default/60",
-            )}
-          >
-            {item.icon}
-            <span className="min-w-0 flex-1 break-words">{item.label}</span>
-          </RoutedLink>
-        ))}
-      </div>
+      <SecondaryLinks items={items} />
     </nav>
+  );
+}
+
+export function SecondaryLinks({ items }: { items: ShellLinkConfig[] }) {
+  return (
+    <div className="grid gap-0.5">
+      {items.map((item) => (
+        <RoutedLink
+          key={item.id}
+          item={item}
+          className={cn(
+            "flex min-h-9 min-w-0 items-center gap-3 rounded-2xl px-2 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-focus pointer-coarse:min-h-11",
+            item.active
+              ? "bg-default font-medium text-foreground"
+              : "font-normal text-foreground hover:bg-default/60",
+          )}
+        >
+          {item.icon}
+          <span className="min-w-0 flex-1 break-words">{item.label}</span>
+        </RoutedLink>
+      ))}
+    </div>
   );
 }
 
@@ -418,8 +486,18 @@ export function ApplicationSidebar({ config }: { config: SidebarConfig }) {
           >
             {config.brand.logo}
           </span>
-          <span className="truncate text-base font-medium">
-            {config.brand.title}
+          <span className="flex min-w-0 flex-col gap-0.5 lg:flex-row lg:items-baseline lg:gap-2.5">
+            <span className="truncate text-base font-medium">
+              {config.brand.title}
+            </span>
+            {config.brandVersion && (
+              <span
+                aria-label={`Version ${config.brandVersion}`}
+                className="shrink-0 font-mono text-xs font-normal text-muted"
+              >
+                v{config.brandVersion}
+              </span>
+            )}
           </span>
         </span>
       </RoutedLink>
@@ -516,7 +594,7 @@ export function Navbar({
   onSidebarToggle,
 }: NavbarProps) {
   return (
-    <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-5 border-b border-separator bg-background/90 px-4 backdrop-blur">
+    <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-5 border-b border-separator bg-background/90 pl-2 pr-4 backdrop-blur">
       <div className="flex min-w-0 items-center gap-2">
         <Button
           aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
@@ -591,6 +669,7 @@ export type FooterIdentityProps = {
   email: string;
   workspaceName: string;
   onLogout: () => void;
+  children?: ReactNode;
 };
 
 export function FooterIdentity({
@@ -598,6 +677,7 @@ export function FooterIdentity({
   email,
   workspaceName,
   onLogout,
+  children,
 }: FooterIdentityProps) {
   const { navigate, close, sidebarOpen, focusNavigationToggle } =
     useContext(NavigationContext);
@@ -634,7 +714,7 @@ export function FooterIdentity({
         </span>
       </Dropdown.Trigger>
       <Dropdown.Popover
-        className="w-60 max-w-[calc(100vw-2rem)] rounded-2xl border border-separator"
+        className="max-h-[calc(100dvh-2rem)] w-60 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-separator"
         placement="top start"
       >
         <div className="grid gap-0.25 border-b border-separator px-3 py-3">
@@ -650,24 +730,26 @@ export function FooterIdentity({
             close();
           }}
         >
-          <Dropdown.Section aria-label="Account">
-            <Dropdown.Item id="profile" textValue="Profile">
-              <HugeiconsIcon
-                aria-hidden="true"
-                className="size-4 text-muted"
-                icon={UserAccountIcon}
-              />
-              Profile
-            </Dropdown.Item>
-            <Dropdown.Item id="security" textValue="Account security">
-              <HugeiconsIcon
-                aria-hidden="true"
-                className="size-4 text-muted"
-                icon={SecurityCheckIcon}
-              />
-              Account security
-            </Dropdown.Item>
-          </Dropdown.Section>
+          {children ?? (
+            <Dropdown.Section aria-label="Account">
+              <Dropdown.Item id="profile" textValue="Profile">
+                <HugeiconsIcon
+                  aria-hidden="true"
+                  className="size-4 text-muted"
+                  icon={UserAccountIcon}
+                />
+                Profile
+              </Dropdown.Item>
+              <Dropdown.Item id="security" textValue="Account security">
+                <HugeiconsIcon
+                  aria-hidden="true"
+                  className="size-4 text-muted"
+                  icon={SecurityCheckIcon}
+                />
+                Account security
+              </Dropdown.Item>
+            </Dropdown.Section>
+          )}
           <Dropdown.Section
             aria-label="Session"
             className="mt-1.5 w-full border-t border-separator pt-1.5"

@@ -4,7 +4,6 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
   setupUser,
   sql,
 } from "./support.js";
@@ -193,14 +192,13 @@ for (const winner of ["delete", "issuance"] as const) {
     );
     const { credential, token } = await issued.json();
     const [stored] =
-      await sql`SELECT user_id,agent_id,board_ids,scopes,token_type,revoked_at FROM credentials WHERE id=${credential.id}`;
+      await sql`SELECT user_id,board_ids,scopes,token_type,revoked_at FROM credentials WHERE id=${credential.id}`;
     assert.equal(stored.userId, user.id);
-    assert.equal(stored.agentId, null);
+    assert.equal("agentId" in stored, false);
     assert.equal(stored.boardIds, null);
     assert.deepEqual(stored.scopes, []);
     assert.equal(stored.tokenType, "api-key");
     assert.equal(stored.revokedAt, null);
-    assert.equal((await sql`SELECT * FROM agents`).length, 0);
     const directory = await json(await request("/api/boards", { token }));
     assert.deepEqual(directory.items, []);
     const { board: subsequent } = await json(
@@ -226,7 +224,6 @@ for (const winner of ["delete", "issuance"] as const) {
 }
 
 async function oauth(cookie: string, boardId: string) {
-  const agent = await setupAgent(cookie);
   const redirect = "http://127.0.0.1:4182/callback";
   const client = await json(
     await request("/oauth/register", {
@@ -249,7 +246,7 @@ async function oauth(cookie: string, boardId: string) {
   const consent = () =>
     request(`/api/oauth/consent/${grantId}`, {
       cookie,
-      body: { allow: true, agentId: agent.id, boardIds: [boardId] },
+      body: { allow: true, boardIds: [boardId] },
     });
   const exchange = async (code: string) =>
     app.request("/oauth/token", {

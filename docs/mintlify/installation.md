@@ -51,3 +51,58 @@ If your reverse proxy runs in a separate container, connect it to the Mill Compo
 Sign in, create a board and task, and reload. Check [readiness](/operations), then take your first [backup](/backup). Save an encrypted copy of `.env` alongside your recovery plan. The same `MILL_SECRET` is needed to decrypt authenticators and other protected values after a full restore.
 
 Before upgrades, read [upgrades](/upgrades). For configuration options see [configuration](/configuration), and for common installation errors see [troubleshooting](/troubleshooting).
+
+## In the app
+
+### Workspace setup
+
+<Tabs>
+  <Tab title="Desktop">
+    <Frame>
+      <div className="mill-guide-screenshot">
+        <div className="mill-product-light">
+          <img
+            src="/assets/screenshots/release-v1/setup-light.png"
+            alt="Workspace setup in Mill."
+            width="1280"
+            height="900"
+            loading="lazy"
+          />
+        </div>
+        <div className="mill-product-dark">
+          <img
+            src="/assets/screenshots/release-v1/setup-dark.png"
+            alt="Workspace setup in Mill."
+            width="1280"
+            height="900"
+            loading="lazy"
+          />
+        </div>
+      </div>
+    </Frame>
+  </Tab>
+  <Tab title="Mobile">
+    <Frame>
+      <div className="mill-guide-screenshot mill-guide-screenshot-mobile">
+        <div className="mill-product-light">
+          <img
+            src="/assets/screenshots/release-v1/setup-mobile-light.png"
+            alt="Workspace setup in Mill."
+            width="390"
+            height="844"
+            loading="lazy"
+          />
+        </div>
+        <div className="mill-product-dark">
+          <img
+            src="/assets/screenshots/release-v1/setup-mobile-dark.png"
+            alt="Workspace setup in Mill."
+            width="390"
+            height="844"
+            loading="lazy"
+          />
+        </div>
+      </div>
+    </Frame>
+  </Tab>
+</Tabs>

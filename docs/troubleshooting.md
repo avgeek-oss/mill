@@ -22,19 +22,17 @@ Passkeys are bound to the registration origin. If you changed domains, use your 
 
 ## Send an invitation or recover an account
 
-Mill B1 has in-app notifications; email delivery is unavailable. Administrators share an invitation link privately with the intended recipient. The server operator handles [local account recovery](operations.md#account-recovery) when a person loses access. Neither procedure requires an email provider.
+Mill has in-app notifications; email delivery is unavailable. Administrators share an invitation link privately with the intended recipient. The server operator handles [local account recovery](operations.md#account-recovery) when a person loses access. Neither procedure requires an email provider.
 
 ## A task save reports a conflict
 
-Another person or agent changed the task or its status after you opened it. Reload the current task and apply your change to that version. Mill checks row versions so one edit does not silently replace another. API clients must also send the current version and handle HTTP 409.
+Another person or client changed the task or its status after you opened it. Reload the current task and apply your change to that version. Mill checks row versions so one edit does not silently replace another. API clients must also send the current version and handle HTTP 409.
 
-## An agent gets permission denied
+## A client gets permission denied
 
-For a personal REST key, check the human owner's current membership and role, then the key's expiry and revocation state. There is no Agent, scope, or board binding. A Viewer-owned key cannot write, and personal keys cannot use MCP or human-only management routes. Migration 009 revokes old API keys; create a replacement through **API keys** using Name and Expiry instead of retrying the old token.
+For a personal REST key, check the human owner's current membership and role, then the key's expiry and revocation state. A Viewer-owned key cannot write. Personal keys cannot use MCP or human-only management routes.
 
-For MCP OAuth, also check access to the selected Agent, approved scopes, and approved boards. If the selector is empty, create a personal Agent in the human interface or ask an administrator for individual or all-members team access. Disabling All team members leaves the active creator and individual grants; a person who loses access must obtain a new connection after access is restored. Existing eligible OAuth connections are preserved by migration 009. See [the connection guide](agents.md) and [access security](authentication.md#external-credential-boundaries).
-
-An Agent can be assigned without a human assignee. The acting person needs access to that Agent when changing the binding; any selected human assignee also needs access. Setting the Agent does not start an external job.
+For MCP OAuth, check the connection owner's active membership, current role, approved scopes and approved boards. A board-restricted connection cannot create boards or list the team directory. If its last approved board is deleted, the connection is revoked; reconnect and review the new access request. See [the connection guide](clients.md) and [access security](authentication.md#external-credential-boundaries).
 
 ## A restore is rejected
 

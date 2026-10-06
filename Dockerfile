@@ -13,7 +13,7 @@ RUN pnpm --filter mill deploy --prod --legacy /prod/mill
 FROM base AS runtime
 ARG SOURCE_COMMIT=development
 LABEL org.opencontainers.image.title="Mill" \
-      org.opencontainers.image.description="Self-hosted task board for people and agents" \
+      org.opencontainers.image.description="Self-hosted task board for teams" \
       org.opencontainers.image.source="https://github.com/avgeek-inc/mill" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.revision="${SOURCE_COMMIT}"

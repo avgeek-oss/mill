@@ -166,7 +166,8 @@ export function Auth({
     event.preventDefault();
     if (busy) return;
     if (creating && form.password !== form.confirmation) {
-      setError("The passwords do not match.");
+      setError("");
+      toast.danger("The passwords do not match.");
       return;
     }
     setBusy(true);
@@ -254,7 +255,7 @@ export function Auth({
   return (
     <AuthFrame title={title} description={description}>
       {mode === "invite" && invitationState === "pending" && (
-        <p role="status" className="text-xs text-muted">
+        <p role="status" className="text-sm text-muted">
           Checking your invitation…
         </p>
       )}
@@ -269,7 +270,7 @@ export function Auth({
               Retry invitation lookup
             </Button>
           )}
-          <p className="text-xs text-muted">
+          <p className="text-sm text-muted">
             Ask your workspace administrator for a new invitation if this link
             has expired or was revoked.
           </p>

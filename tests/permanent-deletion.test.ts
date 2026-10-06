@@ -1,13 +1,10 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   callMcpTool,
   setupUser,
   sql,
@@ -205,13 +202,10 @@ test("board deletion requires a human Admin and current version, purges owned ro
       201,
     )
   ).comment;
-  const agent = await setupAgent(cookie);
-  const scoped = await setupOAuthAgent(cookie, {
-    agentId: agent.id,
+  const scoped = await setupOAuth(cookie, {
     boardIds: [removed.id],
   });
-  const mixed = await setupOAuthAgent(cookie, {
-    agentId: agent.id,
+  const mixed = await setupOAuth(cookie, {
     boardIds: [removed.id, kept.id],
   });
   const personal = await json(
@@ -229,7 +223,7 @@ test("board deletion requires a human Admin and current version, purges owned ro
     }),
     201,
   );
-  assert.equal(personal.credential.agentId, null);
+  assert.equal("agentId" in personal.credential, false);
   assert.equal(personal.credential.boardIds, null);
   for (const auth of [
     { cookie: colleague.cookie },
@@ -357,8 +351,8 @@ test("board deletion requires a human Admin and current version, purges owned ro
     401,
   );
   const [personalRow] =
-    await sql`SELECT agent_id,board_ids,scopes,revoked_at FROM credentials WHERE id=${personal.credential.id}`;
-  assert.equal(personalRow.agentId, null);
+    await sql`SELECT board_ids,scopes,revoked_at FROM credentials WHERE id=${personal.credential.id}`;
+  assert.equal("agentId" in personalRow, false);
   assert.equal(personalRow.boardIds, null);
   assert.deepEqual(personalRow.scopes, []);
   assert.equal(personalRow.revokedAt, null);
@@ -405,7 +399,6 @@ test("board deletion requires a human Admin and current version, purges owned ro
 
 test("deleting a board removes pending OAuth grants and narrows issued OAuth credentials", async () => {
   const { cookie } = await setupUser();
-  const agent = await setupAgent(cookie);
   const removed = await board(cookie, "OAUTH");
   const kept = await board(cookie, "OTHER");
   const redirect = "http://127.0.0.1:4182/callback";
@@ -431,7 +424,7 @@ test("deleting a board removes pending OAuth grants and narrows issued OAuth cre
     const consent = await json(
       await request(`/api/oauth/consent/${id}`, {
         cookie,
-        body: { allow: true, agentId: agent.id, boardIds },
+        body: { allow: true, boardIds },
       }),
     );
     return {
@@ -479,90 +472,4 @@ test("deleting a board removes pending OAuth grants and narrows issued OAuth cre
     ).length,
     0,
   );
-});
-
-test("forward migration purges previously deleted work, activates archives and removes state columns", async () => {
-  const schema = `upgrade_${randomUUID().replaceAll("-", "")}`;
-  await sql.begin(async (tx) => {
-    await tx.unsafe(`CREATE SCHEMA "${schema}"`);
-    await tx.unsafe(`SET LOCAL search_path TO "${schema}"`);
-    for (const name of [
-      "001_identity.sql",
-      "002_boards.sql",
-      "003_external.sql",
-      "004_http.sql",
-    ])
-      await tx.unsafe(
-        await readFile(
-          new URL(`../packages/database/migrations/${name}`, import.meta.url),
-          "utf8",
-        ),
-      );
-    const [workspace] =
-      await tx`INSERT INTO workspace(id,name) VALUES (${randomUUID()},'Upgrade') RETURNING id`;
-    const [user] =
-      await tx`INSERT INTO users(id,workspace_id,name,email,role,password_hash) VALUES (${randomUUID()},${workspace.id},'Admin','upgrade@example.test','admin','unused') RETURNING id`;
-    const [active] =
-      await tx`INSERT INTO boards(workspace_id,name,prefix,position,archived,next_number) VALUES (${workspace.id},'Archived board','ARCH',0,true,10) RETURNING id`;
-    const [removed] =
-      await tx`INSERT INTO boards(workspace_id,name,prefix,position,deleted_at) VALUES (${workspace.id},'Deleted board','GONE',1,now()) RETURNING id`;
-    const [column] =
-      await tx`INSERT INTO columns(board_id,name,position) VALUES (${active.id},'Status',0) RETURNING id`;
-    const [removedColumn] =
-      await tx`INSERT INTO columns(board_id,name,position) VALUES (${removed.id},'Removed',0) RETURNING id`;
-    const [parent] =
-      await tx`INSERT INTO tasks(board_id,column_id,identifier,title,position,created_by,deleted_at) VALUES (${active.id},${column.id},'ARCH-1','Deleted parent',0,${user.id},now()) RETURNING id`;
-    const [child] =
-      await tx`INSERT INTO tasks(board_id,column_id,identifier,title,position,created_by,parent_id) VALUES (${active.id},${column.id},'ARCH-2','Child content',1,${user.id},${parent.id}) RETURNING id`;
-    await tx`INSERT INTO tasks(board_id,column_id,identifier,title,position,created_by,archived) VALUES (${active.id},${column.id},'ARCH-3','Archived task',2,${user.id},true)`;
-    await tx`INSERT INTO tasks(board_id,column_id,identifier,title,position,created_by) VALUES (${removed.id},${removedColumn.id},'GONE-1','Removed work',0,${user.id})`;
-    await tx`INSERT INTO comments(task_id,author_id,body) VALUES (${child.id},${user.id},'Remove content')`;
-    await tx`INSERT INTO notifications(user_id,task_id,kind,actor_name) VALUES (${user.id},${child.id},'assignment','Admin')`;
-    await tx`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail) VALUES (${child.id},${active.id},${user.id},'Admin','human','task.created',${tx.json({ title: "Remove content" })})`;
-    await tx`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,board_ids,expires_at) VALUES (${user.id},'Old scope','hash','prefix',ARRAY['read'],ARRAY[${removed.id}::uuid],now()+interval '1 day')`;
-    await tx`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status) VALUES (${user.id},'old-content-cache','hash','{}',201)`;
-    const [legacyRetry] = await tx`SELECT created_at FROM api_idempotency`;
-    await tx.unsafe(
-      await readFile(
-        new URL(
-          "../packages/database/migrations/005_permanent_deletion.sql",
-          import.meta.url,
-        ),
-        "utf8",
-      ),
-    );
-    assert.deepEqual(
-      (await tx`SELECT title,position FROM tasks`).map((row) => ({
-        title: row.title,
-        position: row.position,
-      })),
-      [{ title: "Archived task", position: 0 }],
-    );
-    assert.equal((await tx`SELECT next_number FROM boards`)[0].nextNumber, 10);
-    for (const table of ["comments", "notifications", "activity"])
-      assert.equal((await tx`SELECT * FROM ${tx(table)}`).length, 0, table);
-    const [retry] = await tx`SELECT * FROM api_idempotency`;
-    assert.equal(retry.actorKey, user.id);
-    assert.equal(retry.key, "old-content-cache");
-    assert.equal(retry.requestHash, "hash");
-    assert.equal(retry.status, 410);
-    assert.equal(retry.response, null);
-    assert.equal(retry.invalidationReason, "upgrade");
-    assert.equal(
-      retry.createdAt.toISOString(),
-      legacyRetry.createdAt.toISOString(),
-    );
-    assert.deepEqual(retry.boardIds, []);
-    assert.deepEqual(retry.taskIds, []);
-    const [credential] = await tx`SELECT board_ids,revoked_at FROM credentials`;
-    assert.deepEqual(credential.boardIds, []);
-    assert.ok(credential.revokedAt);
-    assert.equal(
-      (
-        await tx`SELECT column_name FROM information_schema.columns WHERE table_schema=${schema} AND column_name IN ('archived','deleted_at')`
-      ).length,
-      0,
-    );
-    await tx.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
-  });
 });

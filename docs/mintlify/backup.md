@@ -3,7 +3,7 @@ title: "Backup and recovery"
 description: "Back up PostgreSQL and test a full restore."
 ---
 
-A full PostgreSQL backup preserves accounts, sessions, authenticators, boards, tasks, retired checklist data from earlier revisions, comments, members, explicit Agents and their access grants, task Agent bindings, attributed task history, in-app notifications, and API key/OAuth records. This is the supported recovery method. Mill v1 does not offer portable work export/import.
+A full PostgreSQL backup preserves accounts, sessions, authenticators, boards, tasks, comments, members, attributed task history, in-app notifications, and API key/OAuth records. A retained prelaunch archive is also included in a full-database backup when present. This is the supported recovery method. Mill v1 does not offer portable work export/import.
 
 ## Create a full backup
 
@@ -30,7 +30,7 @@ curl --fail http://127.0.0.1:4322/health/ready
 
 The restore command validates the archive before stopping Mill. It rejects a target with existing tables unless `--replace` is explicitly supplied. It restores in one PostgreSQL transaction and starts Mill only after the restore succeeds. A failed restore leaves the application stopped for investigation.
 
-Sign in at the recovery URL and verify a task, comment, member, Agent/access grant, task Agent binding, and notification. Password sign-in works at the changed origin; physical passkeys remain bound to the original origin. To test production passkeys, restore behind the original HTTPS origin in a controlled recovery environment.
+Sign in at the recovery URL and verify a task, comment, member, notification and usable OAuth connection. Password sign-in works at the changed origin; physical passkeys remain bound to the original origin. To test production passkeys, restore behind the original HTTPS origin in a controlled recovery environment.
 
 When the recovery check is complete, remove only that project:
 

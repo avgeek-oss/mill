@@ -13,6 +13,7 @@ function refreshClock() {
 function subscribe(listener: () => void) {
   listeners.add(listener);
   if (listeners.size === 1) {
+    now = Date.now();
     timer = setInterval(refreshClock, 30_000);
     document.addEventListener("visibilitychange", refreshClock);
   }
@@ -32,6 +33,13 @@ function clockSnapshot() {
 
 function serverClockSnapshot() {
   return 0;
+}
+
+export function useCurrentTime() {
+  return (
+    useSyncExternalStore(subscribe, clockSnapshot, serverClockSnapshot) ||
+    Date.now()
+  );
 }
 
 function relativeDate(value: number, current: number) {
@@ -99,6 +107,7 @@ export function RelativeDateTime({
   prefix,
   compact = false,
   inline = false,
+  showAbsolute = true,
   className = "",
 }: {
   value: string;
@@ -107,13 +116,10 @@ export function RelativeDateTime({
   prefix?: string;
   compact?: boolean;
   inline?: boolean;
+  showAbsolute?: boolean;
   className?: string;
 }) {
-  const current = useSyncExternalStore(
-    subscribe,
-    clockSnapshot,
-    serverClockSnapshot,
-  );
+  const current = useCurrentTime();
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return <span>—</span>;
   const absolute = absoluteDate(date, timeZone);
@@ -122,13 +128,13 @@ export function RelativeDateTime({
     <time
       dateTime={value}
       title={absolute}
-      aria-label={`${label ? `${label}: ` : ""}${relative}, ${absolute}`}
+      aria-label={`${label ? `${label}: ` : ""}${relative}${showAbsolute ? `, ${absolute}` : ""}`}
       className={`${inline ? "inline-flex items-baseline gap-2 whitespace-nowrap" : "grid min-w-0 gap-0.5"} font-normal tabular-nums ${className}`}
     >
       <span className={compact ? "text-xs/4" : "text-sm/5"}>
         {prefix ? `${prefix} ${relative}` : relative}
       </span>
-      <span className="text-xs/4 text-muted">{absolute}</span>
+      {showAbsolute && <span className="text-xs/4 text-muted">{absolute}</span>}
     </time>
   );
 }

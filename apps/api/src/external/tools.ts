@@ -18,19 +18,19 @@ const version = z.number().int().positive();
 const board = { boardId: id };
 const task = { taskId: id };
 const taskFields = {
+  type: domainTaskFields.type.optional(),
   title: domainTaskFields.title,
   description: domainTaskFields.description.optional(),
   assigneeId: domainTaskFields.assigneeId.optional(),
-  agentId: domainTaskFields.agentId.optional(),
   priority: domainTaskFields.priority.optional(),
   status: z.enum(TASK_STATUSES).optional(),
+  startDate: domainTaskFields.startDate.optional(),
   dueDate: domainTaskFields.dueDate.optional(),
 };
 const query = {
   q: z.string().max(300).optional(),
   status: z.enum(TASK_STATUSES).optional(),
   assigneeId: z.union([id, z.literal("unassigned")]).optional(),
-  agentId: z.union([id, z.literal("unassigned")]).optional(),
   priority: z.enum(["none", "low", "medium", "high", "urgent"]).optional(),
   sort: z
     .enum(["createdAt", "updatedAt", "dueDate", "priority", "status", "title"])
@@ -110,7 +110,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_tasks",
-    "Search and filter tasks in one board. Combine q, status, assigneeId, agentId, priority and sort. Tasks are newest first by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists.",
+    "Search and filter tasks in one board. Combine q, status, assigneeId, priority and sort. Without a status filter, done and wont_do tasks are hidden after 24 hours in that status. Set status explicitly to include older tasks in that status. Tasks are newest first by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists.",
     "GET",
     "/api/boards/:boardId/tasks",
     { ...board, ...query },
@@ -128,14 +128,14 @@ export const tools: Tool[] = [
   ),
   tool(
     "create_task",
-    "Create a task, optionally with a fixed status, human assignee, Agent, priority and due date. An Agent can be assigned without a human assignee. You must have access to the Agent, and any selected human assignee must also have access. Status defaults to todo. Reuse idempotencyKey on retries.",
+    "Create a task, optionally with type task or bug, a fixed status, assignee, priority and due date. Type defaults to task and status to todo. Reuse idempotencyKey on retries.",
     "POST",
     "/api/boards/:boardId/tasks",
     { ...board, ...taskFields, ...retry },
   ),
   tool(
     "update_task",
-    "Edit a task or change its fixed status using the current version. agentId and assigneeId can be set independently; you and any selected human assignee must have access to the Agent when changing the binding. A stale version returns a conflict.",
+    "Edit a task, including type task or bug, or change its fixed status using the current version. A stale version returns a conflict.",
     "PATCH",
     "/api/tasks/:taskId",
     {
@@ -191,7 +191,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "get_activity",
-    "Read task activity, including human and agent attribution.",
+    "Read task activity, including who made each change.",
     "GET",
     "/api/tasks/:taskId/activity",
     {
@@ -221,16 +221,6 @@ export const tools: Tool[] = [
       all: z.literal(true).optional(),
       read: z.boolean().optional(),
       ...retry,
-    },
-  ),
-  tool(
-    "list_agents",
-    "List existing Agents available to your human credential owner, to resolve task agentId assignments. Agents are created and managed only by people in Mill. Use the returned cursor to continue.",
-    "GET",
-    "/api/agents",
-    {
-      limit: z.number().int().min(1).max(100).optional(),
-      cursor: z.string().max(1000).optional(),
     },
   ),
   tool(

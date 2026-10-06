@@ -16,13 +16,8 @@ import {
 } from "@mill/web-design-system";
 import { DatePickerField } from "@mill/web-design-system/date-picker-field";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  ArrowLeft01Icon,
-  BotIcon,
-  PencilEdit02Icon,
-} from "@hugeicons/core-free-icons";
+import { Copy01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import type {
-  Agent,
   Board,
   Member,
   Task,
@@ -37,7 +32,6 @@ import {
   type NavigationRequest,
   type User,
 } from "./api.js";
-import { useAgentDirectory } from "./agents-settings.js";
 import {
   hasBoardResponse,
   hasOkResponse,
@@ -48,7 +42,12 @@ import { LinkIcon, MoreHorizontal, Trash2 } from "./icons.js";
 import { Markdown } from "./markdown.js";
 import { priorityOptions } from "./task-priority.js";
 import { statusOptions } from "./task-status.js";
+import { taskTypeOptions } from "./task-type.js";
 import { TaskDiscussion } from "./task-discussion.js";
+import {
+  CreateTaskDialog,
+  type DuplicateTaskSource,
+} from "./create-task-dialog.js";
 import {
   useTaskEditor,
   type TaskEditor,
@@ -65,26 +64,20 @@ function FieldFeedback({
   const status = editor.fields[field];
   if (status?.state !== "error") return null;
   return (
-    <div className="grid gap-2" id={`task-${field}-error`}>
-      <ErrorMessage>{status.message}</ErrorMessage>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="secondary" onPress={() => editor.retryField(field)}>
-          {status.conflict ? "Keep my change" : "Retry"}
-        </Button>
-        <Button variant="secondary" onPress={() => editor.discardField(field)}>
-          Use saved value
-        </Button>
-      </div>
+    <div
+      className="flex flex-wrap items-center gap-2"
+      id={`task-${field}-error`}
+    >
+      <ErrorMessage key={status.feedbackRevision}>
+        {status.message}
+      </ErrorMessage>
+      <Button variant="secondary" onPress={() => editor.retryField(field)}>
+        {status.conflict ? "Keep my change" : "Retry"}
+      </Button>
+      <Button variant="secondary" onPress={() => editor.discardField(field)}>
+        Use saved value
+      </Button>
     </div>
-  );
-}
-
-function agentAvailable(agent: Agent, assigneeId: string | null) {
-  return (
-    !assigneeId ||
-    (agent.scope === "personal"
-      ? agent.creatorId === assigneeId
-      : agent.allMembers || agent.memberIds.includes(assigneeId))
   );
 }
 
@@ -110,8 +103,9 @@ export function TaskPage({
   const editor = useTaskEditor(taskId);
   const { task, values } = editor;
   const writable = user.role !== "viewer";
-  const directory = useAgentDirectory(`${user.id}:${user.role}`);
   const [editDetailsOpen, setEditDetailsOpen] = useState(false);
+  const [duplicateSource, setDuplicateSource] =
+    useState<DuplicateTaskSource | null>(null);
   const [closingDetails, setClosingDetails] = useState(false);
   const [boardError, setBoardError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -210,21 +204,7 @@ export function TaskPage({
 
   function changeAssignee(assigneeId: string | null) {
     if (!values || assigneeId === values.assigneeId) return;
-    const assignedAgent = directory.items.find(
-      (agent) => agent.id === values.agentId,
-    );
-    if (
-      values.agentId &&
-      assignedAgent &&
-      !agentAvailable(assignedAgent, assigneeId)
-    ) {
-      editor.updateAssignment({ assigneeId, agentId: null });
-      toast.warning(
-        "Agent cleared because it isn't available to this assignee.",
-      );
-    } else {
-      editor.updateField("assigneeId", assigneeId);
-    }
+    editor.updateField("assigneeId", assigneeId);
   }
   async function closeEditDetails() {
     if (closingDetails) return;
@@ -294,6 +274,7 @@ export function TaskPage({
   const loadFailure = (
     <ErrorPage
       code={errorPageCode(editor.loadErrorStatus)}
+      pending={editor.loading}
       title={
         editor.loadErrorStatus === 403
           ? "Task access required"
@@ -333,39 +314,6 @@ export function TaskPage({
       ),
     })),
   ];
-  const eligibleAgents = directory.items.filter((agent) =>
-    agentAvailable(agent, values?.assigneeId ?? null),
-  );
-  const agentOptions = [
-    { id: "", name: "Unassigned", muted: true },
-    ...eligibleAgents.map((agent) => ({
-      id: agent.id,
-      name: agent.name,
-      startContent: (
-        <HugeiconsIcon
-          aria-hidden
-          className="size-4 text-muted"
-          icon={BotIcon}
-        />
-      ),
-    })),
-    ...(values?.agentId &&
-    !eligibleAgents.some((agent) => agent.id === values.agentId)
-      ? [
-          {
-            id: values.agentId,
-            name: task?.agentName ?? "Unavailable agent",
-            startContent: (
-              <HugeiconsIcon
-                aria-hidden
-                className="size-4 text-muted"
-                icon={BotIcon}
-              />
-            ),
-          },
-        ]
-      : []),
-  ];
 
   return (
     <>
@@ -385,23 +333,35 @@ export function TaskPage({
             >
               {boardError && <ErrorMessage>{boardError}</ErrorMessage>}
               {task && values && (
-                <div className="task-page-layout">
-                  <div className="task-page-main">
-                    <header className="flex flex-wrap items-center justify-between gap-3">
-                      <Button
-                        variant="ghost"
-                        className="task-back-button"
-                        onPress={() => navigate(returnHref)}
-                        isDisabled={deleting || leaving}
+                <section
+                  aria-label="Task details"
+                  className="content-grid min-w-0 items-start pt-5 min-[701px]:grid-cols-[minmax(0,1fr)_20rem] min-[701px]:gap-x-8"
+                >
+                  <header className="task-page-header col-span-full grid min-w-0">
+                    <Button
+                      variant="ghost"
+                      className="task-back-button"
+                      onPress={() => navigate(returnHref)}
+                      isDisabled={deleting || leaving}
+                    >
+                      Back to board
+                    </Button>
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <section
+                        className="min-w-0 flex-1"
+                        aria-label="Task title"
                       >
-                        <HugeiconsIcon
-                          aria-hidden
-                          className="size-4"
-                          icon={ArrowLeft01Icon}
-                        />
-                        Back to board
-                      </Button>
-                      <div className="flex flex-wrap items-center gap-3">
+                        <TypographyHeading
+                          ref={heading}
+                          tabIndex={-1}
+                          elementType="h1"
+                          level={2}
+                          className="task-page-title min-w-0 break-words text-lg font-medium leading-snug outline-none"
+                        >
+                          {values.title || task.identifier}
+                        </TypographyHeading>
+                      </section>
+                      <div className="flex shrink-0 items-center gap-3">
                         <span className="sr-only" role="status">
                           {leaving || editor.pending ? "Saving changes…" : ""}
                         </span>
@@ -415,7 +375,6 @@ export function TaskPage({
                           >
                             <HugeiconsIcon
                               aria-hidden
-                              className="size-4"
                               icon={PencilEdit02Icon}
                             />
                           </Button>
@@ -461,12 +420,33 @@ export function TaskPage({
                                     )
                                       openConfirmation();
                                   }
+                                  if (key === "duplicate" && writable) {
+                                    setDuplicateSource({
+                                      title: values.title,
+                                      description: values.description,
+                                      type: values.type,
+                                      priority: values.priority,
+                                    });
+                                  }
                                 }}
                               >
                                 <Dropdown.Item id="copy" textValue="Copy link">
                                   <LinkIcon />
                                   Copy link
                                 </Dropdown.Item>
+                                {writable && (
+                                  <Dropdown.Item
+                                    id="duplicate"
+                                    textValue="Duplicate task"
+                                    isDisabled={disabled}
+                                  >
+                                    <HugeiconsIcon
+                                      icon={Copy01Icon}
+                                      size={16}
+                                    />
+                                    Duplicate task
+                                  </Dropdown.Item>
+                                )}
                                 {writable && (
                                   <Dropdown.Item
                                     id="delete"
@@ -485,19 +465,10 @@ export function TaskPage({
                           </Dropdown>
                         )}
                       </div>
-                    </header>
-                    <section className="mb-1 mt-2" aria-label="Task title">
-                      <TypographyHeading
-                        ref={heading}
-                        tabIndex={-1}
-                        elementType="h1"
-                        level={2}
-                        className="task-page-title min-w-0 break-words text-lg font-medium leading-snug outline-none"
-                      >
-                        {values.title || task.identifier}
-                      </TypographyHeading>
-                    </section>
-                    <div className="task-page-content grid min-w-0 gap-8">
+                    </div>
+                  </header>
+                  <div className="task-page-main contents min-w-0 min-[701px]:block">
+                    <div className="task-page-content col-start-1 row-start-2 grid min-w-0 gap-8">
                       <section
                         className="grid min-w-0 gap-3"
                         aria-label="Description"
@@ -513,7 +484,7 @@ export function TaskPage({
                         </div>
                       </section>
                     </div>
-                    <section className="task-page-discussion mt-6 min-w-0 pt-6">
+                    <section className="task-page-discussion col-start-1 row-start-4 min-w-0 pt-6">
                       <TaskDiscussion
                         taskId={taskId}
                         user={user}
@@ -525,9 +496,21 @@ export function TaskPage({
                     </section>
                   </div>
                   <aside
-                    className="task-page-properties grid min-w-0 gap-5"
+                    className="task-page-properties col-start-1 row-start-3 grid min-w-0 grid-cols-2 gap-4 min-[701px]:col-start-2 min-[701px]:row-start-2 min-[701px]:grid-cols-1 min-[701px]:gap-5"
                     aria-label="Task properties"
                   >
+                    <div className="grid gap-2">
+                      <Choice
+                        label="Type"
+                        value={values.type}
+                        items={taskTypeOptions}
+                        disabled={disabled}
+                        onChange={(value) =>
+                          editor.updateField("type", value as Task["type"])
+                        }
+                      />
+                      <FieldFeedback editor={editor} field="type" />
+                    </div>
                     <div className="grid gap-2">
                       <Choice
                         label="Status"
@@ -553,30 +536,6 @@ export function TaskPage({
                     </div>
                     <div className="grid gap-2">
                       <Choice
-                        label="Agent"
-                        value={values.agentId ?? ""}
-                        items={agentOptions}
-                        disabled={disabled || directory.pending}
-                        search
-                        onChange={(value) =>
-                          editor.updateField("agentId", value || null)
-                        }
-                      />
-                      <FieldFeedback editor={editor} field="agentId" />
-                      {directory.error && (
-                        <>
-                          <ErrorMessage>{directory.error}</ErrorMessage>
-                          <Button
-                            variant="secondary"
-                            onPress={() => void directory.reload()}
-                          >
-                            Retry loading agents
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                    <div className="grid gap-2">
-                      <Choice
                         label="Priority"
                         value={values.priority}
                         items={priorityOptions}
@@ -592,6 +551,17 @@ export function TaskPage({
                     </div>
                     <div className="grid gap-2">
                       <DatePickerField
+                        label="Start date"
+                        value={values.startDate?.slice(0, 10) ?? null}
+                        disabled={disabled}
+                        onChange={(value) =>
+                          editor.updateField("startDate", value)
+                        }
+                      />
+                      <FieldFeedback editor={editor} field="startDate" />
+                    </div>
+                    <div className="grid gap-2">
+                      <DatePickerField
                         label="Due date"
                         value={values.dueDate?.slice(0, 10) ?? null}
                         disabled={disabled}
@@ -602,7 +572,7 @@ export function TaskPage({
                       <FieldFeedback editor={editor} field="dueDate" />
                     </div>
                   </aside>
-                </div>
+                </section>
               )}
               <Dialog
                 open={editDetailsOpen}
@@ -634,11 +604,6 @@ export function TaskPage({
                         }
                         onBlur={() => void editor.flushField("title")}
                         aria-invalid={editor.fields.title?.state === "error"}
-                        aria-describedby={
-                          editor.fields.title?.state === "error"
-                            ? "task-title-error"
-                            : undefined
-                        }
                       />
                       <FieldFeedback editor={editor} field="title" />
                     </div>
@@ -657,17 +622,28 @@ export function TaskPage({
                         aria-invalid={
                           editor.fields.description?.state === "error"
                         }
-                        aria-describedby={
-                          editor.fields.description?.state === "error"
-                            ? "task-description-error"
-                            : undefined
-                        }
                       />
                       <FieldFeedback editor={editor} field="description" />
                     </div>
                   </div>
                 )}
               </Dialog>
+              {duplicateSource && (
+                <CreateTaskDialog
+                  boardId={boardId}
+                  members={members}
+                  user={user}
+                  open
+                  duplicateSource={duplicateSource}
+                  onClose={() => setDuplicateSource(null)}
+                  onCreated={(created) => {
+                    setDuplicateSource(null);
+                    navigate(
+                      `/boards/${boardId}/tasks/${created.id}${window.location.search}`,
+                    );
+                  }}
+                />
+              )}
               <Dialog
                 open={confirmDelete}
                 onClose={() => setConfirmDelete(false)}

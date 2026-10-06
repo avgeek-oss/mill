@@ -54,7 +54,7 @@ const presentation: Record<
   },
 };
 
-function StatusIcon({ status }: { status: TaskStatus }) {
+export function StatusIcon({ status }: { status: TaskStatus }) {
   return (
     <HugeiconsIcon
       icon={presentation[status].icon}

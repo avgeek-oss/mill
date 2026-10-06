@@ -125,7 +125,7 @@ function inbox(page: Page) {
   return page.getByRole("dialog", { name: "Notifications", exact: true });
 }
 function taskPage(page: Page) {
-  return page.locator(".task-page-layout");
+  return page.getByRole("region", { name: "Task details", exact: true });
 }
 function rows(page: Page) {
   return inbox(page).getByRole("listitem");
@@ -474,7 +474,7 @@ test("opening an unread task marks its notification read and read links do not m
   expect(marks).toBe(2);
 });
 
-test("failed task opening retains its row error and retries the original mark before navigating", async ({
+test("failed task opening toasts its error and retries the original mark before navigating", async ({
   page,
 }) => {
   const who = await account("Open retry Inbox");
@@ -486,7 +486,12 @@ test("failed task opening retains its row error and retries the original mark be
   );
   const latest = row(page, "Open retry Inbox teammate 2");
   await latest.getByRole("link").click();
-  await expect(latest.getByRole("alert")).toContainText("could not be reached");
+  await expect(
+    page
+      .locator('[data-slot="toast"]:not([data-exiting="true"])')
+      .filter({ hasText: "could not be reached" })
+      .first(),
+  ).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   await expect(taskPage(page)).toHaveCount(0);
   const [unchanged] =
@@ -673,9 +678,12 @@ test("pending, pagination failure and mark failure retain their owning retry sta
   await inbox(page)
     .getByRole("button", { name: "Load older notifications", exact: true })
     .click();
-  await expect(inbox(page).getByRole("alert")).toContainText(
-    "could not be reached",
-  );
+  await expect(
+    page
+      .locator('[data-slot="toast"]:not([data-exiting="true"])')
+      .filter({ hasText: "could not be reached" })
+      .first(),
+  ).toBeVisible();
   await expect(rows(page)).toHaveCount(100);
   await page.unroute("**/api/notifications?**");
   await inbox(page)
@@ -688,9 +696,12 @@ test("pending, pagination failure and mark failure retain their owning retry sta
   await inbox(page)
     .getByRole("button", { name: "Mark all read", exact: true })
     .click();
-  await expect(inbox(page).getByRole("alert")).toContainText(
-    "could not be reached",
-  );
+  await expect(
+    page
+      .locator('[data-slot="toast"]:not([data-exiting="true"])')
+      .filter({ hasText: "could not be reached" })
+      .first(),
+  ).toBeVisible();
   const [unchanged] =
     await database`SELECT count(*)::int AS unread FROM notifications WHERE user_id=${who.id} AND read_at IS NULL`;
   expect(unchanged.unread).toBe(120);
@@ -740,9 +751,12 @@ test("pending, pagination failure and mark failure retain their owning retry sta
   await inbox(page)
     .getByRole("button", { name: "Mark all read", exact: true })
     .click();
-  await expect(inbox(page).getByRole("alert")).toContainText(
-    "could not be confirmed",
-  );
+  await expect(
+    page
+      .locator('[data-slot="toast"]:not([data-exiting="true"])')
+      .filter({ hasText: "could not be confirmed" })
+      .first(),
+  ).toBeVisible();
   const [committed] =
     await database`SELECT read_at FROM notifications WHERE user_id=${who.id} AND task_id=${unconfirmed.task.id}`;
   expect(committed.readAt).not.toBeNull();
@@ -762,7 +776,10 @@ test("pending, pagination failure and mark failure retain their owning retry sta
   await page.reload();
   await openNotifications(page);
   await expect(
-    inbox(page).getByText("Notifications could not be loaded", { exact: true }),
+    page
+      .locator('[data-slot="toast"]:not([data-exiting="true"])')
+      .filter({ hasText: "Mill could not be reached" })
+      .first(),
   ).toBeVisible();
   await expect(
     inbox(page).getByText("No notifications yet", { exact: true }),
@@ -969,7 +986,19 @@ test("notification popover full-row links fit desktop and phone in both themes",
         theme,
       );
       await page.reload();
-      await openNotifications(page);
+      await expect(trigger).toBeVisible();
+      const bell = (await trigger.boundingBox())!;
+      await page.mouse.move(bell.x + bell.width / 2, bell.y + bell.height / 2);
+      await page.mouse.down();
+      try {
+        await expect(trigger).toHaveCSS("scale", "none");
+        await expect(trigger).toHaveCSS("transform", "none");
+        expect((await trigger.boundingBox())!.width).toBe(32);
+        expect((await trigger.boundingBox())!.height).toBe(32);
+      } finally {
+        await page.mouse.up();
+      }
+      await expect(inbox(page)).toBeVisible();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       await expect(rows(page)).toHaveCount(2);
       const headerAction = inbox(page).getByRole("button", {
@@ -1040,6 +1069,16 @@ test("notification popover full-row links fit desktop and phone in both themes",
         fullPage: true,
         animations: "disabled",
       });
+      await page.keyboard.press("Escape");
+      await expect(trigger).toBeFocused();
+      await page.keyboard.down("Space");
+      try {
+        await expect(trigger).toHaveCSS("scale", "none");
+        await expect(trigger).toHaveCSS("transform", "none");
+      } finally {
+        await page.keyboard.up("Space");
+      }
+      await expect(inbox(page)).toBeVisible();
     }
   await page.setViewportSize({ width: 375, height: 844 });
   await page.evaluate(() => localStorage.setItem("mill:theme", "light"));
@@ -1089,10 +1128,10 @@ test("notification popover full-row links fit desktop and phone in both themes",
   await expect(trigger).toBeFocused();
   await openNotifications(page);
   await expect(
-    inbox(page).getByRole("heading", {
-      name: "Notifications could not be loaded",
-      exact: true,
-    }),
+    page
+      .locator('[data-slot="toast"]:not([data-exiting="true"])')
+      .filter({ hasText: "Mill could not be reached" })
+      .first(),
   ).toBeVisible();
   await expect(inbox(page).locator('[data-slot="widget"]')).toHaveCount(1);
   await page.screenshot({
@@ -1146,7 +1185,7 @@ test.describe("touch notifications", () => {
       ).toBeGreaterThanOrEqual(44);
       await expect
         .poll(async () => (await trigger.boundingBox())?.height ?? 0)
-        .toBe(44);
+        .toBe(32);
       await expect(trigger.locator("svg")).toHaveAttribute("width", "18");
       const markAll = inbox(page).getByRole("button", {
         name: "Mark all read",
@@ -1154,7 +1193,7 @@ test.describe("touch notifications", () => {
       });
       await expect
         .poll(async () => (await markAll.boundingBox())?.height ?? 0)
-        .toBe(44);
+        .toBe(32);
       await expect(trigger).toHaveAccessibleDescription(
         "2 unread notifications",
       );

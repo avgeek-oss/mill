@@ -16,8 +16,9 @@ import type { Board, Member } from "../../../packages/contracts/src/index.js";
 import { api, errorText, type Session } from "./api.js";
 import { AccountSettings } from "./account-settings.js";
 import { PeopleSettings } from "./people-settings.js";
-import { AgentSettings } from "./agent-settings.js";
-import { AgentsSettings } from "./agents-settings.js";
+import { ApiKeySettings } from "./api-key-settings.js";
+import { isAccountSection, settingsTitles } from "./settings-navigation.js";
+import { McpGuide } from "./mcp-guide.js";
 
 export function SettingsPage({
   section,
@@ -33,20 +34,10 @@ export function SettingsPage({
 }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const title =
-    (
-      {
-        profile: "Profile",
-        security: "Account security",
-        members: "People",
-        agents: "Agents",
-        "api-keys": "API keys",
-        workspace: "Team settings",
-      } as Record<string, string>
-    )[section] ?? "Settings";
+  const title = settingsTitles[section] ?? "Settings";
   useEffect(() => {
     document.title = `${title} · Mill`;
-  }, [section]);
+  }, [title]);
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError("");
@@ -60,7 +51,7 @@ export function SettingsPage({
       setBusy(false);
     }
   }
-  if (section === "profile" || section === "security")
+  if (isAccountSection(section) && !["api-keys", "mcp"].includes(section))
     return (
       <AccountSettings
         key={section}
@@ -91,21 +82,14 @@ export function SettingsPage({
     );
   if (section === "members")
     return <PeopleSettings session={session} onRefresh={onRefresh} />;
-  if (section === "agents") return <AgentsSettings session={session} />;
   if (section === "api-keys")
     return (
-      <AgentSettings session={session} boards={boards} onRefresh={onRefresh} />
+      <ApiKeySettings session={session} boards={boards} onRefresh={onRefresh} />
     );
+  if (section === "mcp") return <McpGuide />;
   return (
     <section className="settings-page">
-      {section === "workspace" ? (
-        <PageHeading title={title} icon={<Settings2 />} />
-      ) : (
-        <header>
-          <h1>{title}</h1>
-          <p className="muted">Manage your workspace and account.</p>
-        </header>
-      )}
+      <PageHeading title={title} icon={<Settings2 />} />
       <ErrorMessage>{error}</ErrorMessage>
       {section === "workspace" && (
         <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
@@ -128,7 +112,7 @@ export function SettingsPage({
                 <FieldGroup>
                   <div className="grid w-full gap-1.5">
                     <FieldLabel htmlFor="workspace-name" isRequired>
-                      Name
+                      Team name
                     </FieldLabel>
                     <Input
                       id="workspace-name"

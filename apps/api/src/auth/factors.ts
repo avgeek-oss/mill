@@ -121,6 +121,7 @@ securityRoutes.post("/second-factor", async (c) => {
   );
   await rateLimit(`factor:${input.challengeId}`, 5, 300);
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [challenge] =
       await tx`SELECT * FROM auth_challenges WHERE token_hash=${hashToken(input.challengeId)} AND purpose IN ('login','reauth') AND expires_at>now() FOR UPDATE`;
     if (!challenge) badRequest("Verification expired. Sign in again.");
@@ -198,6 +199,7 @@ securityRoutes.post("/passkeys/register/verify", async (c) => {
   );
   await rateLimit(`passkey-register-verify:${input.challengeId}`, 5, 300);
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [challenge] =
       await tx`SELECT * FROM auth_challenges WHERE token_hash=${hashToken(input.challengeId)} AND user_id=${human(c).userId} AND session_id=${current.id} AND purpose='registration' AND expires_at>now() FOR UPDATE`;
     if (!challenge) badRequest("Passkey setup expired. Try again.");
@@ -231,6 +233,7 @@ securityRoutes.delete("/passkeys/:id", async (c) => {
   const current = await recentSession(c);
   const who = human(c);
   await sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     await tx`SELECT id FROM users WHERE id=${who.userId} FOR UPDATE`;
     await currentSession(c, tx);
     const [deleted] =
@@ -289,6 +292,7 @@ securityRoutes.post("/passkeys/authenticate/verify", async (c) => {
   );
   await rateLimit(`passkey-verify:${input.challengeId}`, 5, 300);
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [challenge] =
       await tx`SELECT * FROM auth_challenges WHERE token_hash=${hashToken(input.challengeId)} AND purpose IN ('login','reauth','passkey') AND expires_at>now() FOR UPDATE`;
     if (!challenge?.challenge)
@@ -337,6 +341,7 @@ securityRoutes.post("/totp/setup", async (c) => {
   const user = await activeUser(human(c).userId);
   await rateLimit(`totp-setup:${user.id}`, 10);
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     await tx`SELECT id FROM users WHERE id=${user.id} FOR UPDATE`;
     const [existing] =
       await tx`SELECT verified FROM authenticators WHERE user_id=${user.id}`;
@@ -354,6 +359,7 @@ securityRoutes.post("/totp/verify", async (c) => {
   const input = await body(c, z.object({ code: codeSchema }));
   await rateLimit(`totp-settings:${user.id}`, 5, 300);
   return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     await tx`SELECT id FROM users WHERE id=${user.id} FOR UPDATE`;
     const [existing] =
       await tx`SELECT verified FROM authenticators WHERE user_id=${user.id} FOR UPDATE`;
@@ -375,6 +381,7 @@ for (const action of ["disable", "recovery-codes"] as const)
     const input = await body(c, z.object({ code: codeSchema }));
     await rateLimit(`totp-settings:${user.id}`, 5, 300);
     return sql.begin(async (tx) => {
+      await tx`SELECT id FROM workspace FOR UPDATE`;
       await tx`SELECT id FROM users WHERE id=${user.id} FOR UPDATE`;
       await validateTotp(user.id, input.code, tx);
       if (action === "disable") {

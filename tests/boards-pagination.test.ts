@@ -6,8 +6,7 @@ const {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   callMcpTool,
   setupUser,
   sql,
@@ -144,7 +143,7 @@ test("board cursors preserve alphabetical case and identifier ties and reject in
   assert.deepEqual(ids, [before.id, ...expected, after.id]);
 });
 
-test("OAuth Agent board pagination keeps restrictions on every page", async () => {
+test("OAuth board pagination keeps restrictions on every page", async () => {
   const { cookie, user } = await setupUser();
   await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Filtered '||sequence,'F'||sequence FROM users CROSS JOIN generate_series(1,9) sequence WHERE users.id=${user.id}`;
   const boards =
@@ -155,8 +154,7 @@ test("OAuth Agent board pagination keeps restrictions on every page", async () =
     boards[4]!.id,
     boards[6]!.id,
   ];
-  const credential = await setupOAuthAgent(cookie, {
-    agentId: (await setupAgent(cookie)).id,
+  const credential = await setupOAuth(cookie, {
     scopes: ["read"],
     boardIds: allowedIds,
   });
@@ -359,7 +357,7 @@ test("personal API key directory pages cover current and future boards and rejec
     }),
     201,
   );
-  assert.equal(personal.credential.agentId, null);
+  assert.equal("agentId" in personal.credential, false);
   assert.equal(personal.credential.boardIds, null);
   assert.deepEqual(personal.credential.scopes, []);
   const path = "/api/boards?directory=true&limit=1";
@@ -451,13 +449,10 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
     new Client({ name: "mill-scoped-board-pagination", version: "1.0.0" }),
   ];
   try {
-    const agent = await setupAgent(cookie);
-    const read = await setupOAuthAgent(cookie, {
-      agentId: agent.id,
+    const read = await setupOAuth(cookie, {
       scopes: ["read"],
     });
-    const restricted = await setupOAuthAgent(cookie, {
-      agentId: agent.id,
+    const restricted = await setupOAuth(cookie, {
       scopes: ["read"],
       boardIds: restrictedIds,
     });

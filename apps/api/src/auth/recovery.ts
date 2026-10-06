@@ -9,6 +9,7 @@ export const recoveryRoutes = new Hono<Env>();
 export async function createOperatorRecovery(email: string, resetMfa = false) {
   const token = secretToken();
   await sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [user] =
       await tx`SELECT * FROM users WHERE email=${email.trim().toLowerCase()} AND disabled_at IS NULL FOR UPDATE`;
     if (!user) throw new Error("Active member not found");
@@ -28,6 +29,7 @@ recoveryRoutes.post("/recovery/reset", async (c) => {
   await rateLimit(`account-recovery:${clientAddress(c)}`, 10);
   const passwordHash = await hashPassword(input.password);
   await sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
     const [recovery] =
       await tx`SELECT * FROM account_recovery WHERE token_hash=${hashToken(input.token)} AND expires_at>now() FOR UPDATE`;
     if (!recovery) badRequest("The recovery link is invalid or expired");

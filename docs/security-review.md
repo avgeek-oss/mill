@@ -4,13 +4,7 @@ This document records the current security model and keeps earlier review receip
 
 ## Current boundaries and focused evidence
 
-People create Agents in Mill. Personal Agents belong to their creator; administrators manage team Agents. Team access comes from selected active people or the all-members policy, and an active team Agent creator retains an individual grant even when all-members access is disabled. An Admin role alone does not grant Agent use. External clients cannot create or manage Agent identities.
-
-Personal REST API keys are human credentials with a name and expiry. They follow their owner's current role across accessible boards and have no Agent, scope or board selections. MCP OAuth selects an eligible existing Agent with approved read/write scopes and optional board restrictions. Grant loss revokes affected OAuth access; a personal REST key is independent of Agent grants.
-
-Task `agentId` is separate from human `assigneeId`. An Agent can be assigned without a human assignee. Setting or changing an Agent binding requires the actor's access, and any selected human assignee must also have access. Unrelated edits preserve an existing valid binding; attribution does not start a job or contact an external client. Migration 010 moves existing nonempty checklist content into the private `retired_task_checklists` table and removes the active field. Comment editing is absent from UI, REST and MCP; comment posting and deletion remain.
-
-The [current feature audit](current-feature-audit.md) maps source and regression coverage for permissions, direct IDs, revocation, conflicts, retries and deletion. Its focused disposable-PostgreSQL run passed **16/16** tests, including a forward 001–010 migration exercise, a 1,006-person REST/MCP directory traversal, and the security-review cases. OAuth credentials still return 403 on direct REST requests; a signed-in person and personal REST key receive 404 from the removed comment PATCH route. These focused checks do not replace final `pnpm verify`, browser, packaged upgrade/restore or hosted CI on the reviewed commit.
+The October 5 scope removes Agents completely. Clients use personal REST keys or human-owned OAuth connections with scopes and optional board restrictions. Tasks have optional human assignees. Fresh permission, concurrency, migration/conversion and SDK verification is required for this revision; the Agent receipts below are historical.
 
 ## Historical explicit-Agent review before migration 010
 

@@ -1,6 +1,6 @@
-# Current feature audit: API, contracts and persistence
+# Historical feature audit: October 2 API, contracts and persistence
 
-Audited on 2026-10-02. This document maps the current B1 implementation to local evidence; it is not a public-release acceptance receipt. The source and native production runs below used a modified working tree. The native runner recorded base revision `2c947eeeb8db70f114b8b4a53519153409a43d97` and its working-tree state, so these results must stay separate from hosted CI on the eventual clean review commit.
+Audited on 2026-10-02. The October 5 Agent removal and initial schema replace the model described below. These historical receipts do not verify the current revision. This document maps the current B1 implementation to local evidence; it is not a public-release acceptance receipt. The source and native production runs below used a modified working tree. The native runner recorded base revision `2c947eeeb8db70f114b8b4a53519153409a43d97` and its working-tree state, so these results must stay separate from hosted CI on the eventual clean review commit.
 
 ## Executed local gates
 

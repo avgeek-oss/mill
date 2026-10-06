@@ -16,7 +16,6 @@ import {
   ApplicationSidebar,
   Button,
   Dialog,
-  EmptyState,
   ErrorMessage,
   FooterIdentity,
   Navbar,
@@ -29,27 +28,32 @@ import {
   type ShellLinkConfig,
 } from "@mill/web-design-system";
 import {
-  Add01Icon,
   ClipboardListIcon,
-  Key01Icon,
-  Settings01Icon,
+  UserAccountIcon,
   UserGroupIcon,
-  BotIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
   Board,
+  BoardSummary,
   Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
 import { ErrorPage } from "./error-page.js";
-import { AppBreadcrumbs, settingsTitles } from "./app-breadcrumbs.js";
-import { MillMark, millBrand } from "./brand.js";
+import { AppBreadcrumbs } from "./app-breadcrumbs.js";
+import { AccountMenuItems } from "./account-menu.js";
+import {
+  SettingsNavigation,
+  isAccountSection,
+  settingsTitles,
+} from "./settings-navigation.js";
+import { MillMark, millBrand, millVersion } from "./brand.js";
 import {
   isFrontendLoadError,
   reloadOutdatedFrontend,
 } from "./frontend-load.js";
-import { hasBoardResponse, hasBoardsResponse } from "./responses.js";
+import { hasBoardResponse, hasBoardSummariesResponse } from "./responses.js";
+import { BoardsPage } from "./boards-page.js";
 import { compareBoardNames } from "./board-directory.js";
 import { loadMemberDirectory } from "./member-directory.js";
 import {
@@ -80,11 +84,8 @@ function iconComponent(icon: ComponentProps<typeof HugeiconsIcon>["icon"]) {
   };
 }
 const BoardIcon = iconComponent(ClipboardListIcon);
-const Plus = iconComponent(Add01Icon);
-const Settings = iconComponent(Settings01Icon);
+const AccountIcon = iconComponent(UserAccountIcon);
 const Users = iconComponent(UserGroupIcon);
-const KeyRound = iconComponent(Key01Icon);
-const AgentIcon = iconComponent(BotIcon);
 const Auth = lazy(() => import("./auth.js").then((m) => ({ default: m.Auth })));
 const BoardPage = lazy(() =>
   import("./board.js").then((m) => ({ default: m.BoardPage })),
@@ -182,10 +183,12 @@ export function App() {
   const [error, setError] = useState("");
   const [expired, setExpired] = useState(false);
   const [sessionRevision, setSessionRevision] = useState(0);
-  const [boards, setBoards] = useState<Board[]>([]);
+  const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [boardsPending, setBoardsPending] = useState(false);
   const [boardsError, setBoardsError] = useState("");
-  const [lastUsedBoardId, setLastUsedBoardId] = useState<string | null>(null);
+  const [filterContainer, setFilterContainer] = useState<HTMLElement | null>(
+    null,
+  );
   const [routeBoard, setRouteBoard] = useState<Board | null>(null);
   const [routeTask, setRouteTask] = useState<Pick<
     Task,
@@ -196,6 +199,7 @@ export function App() {
   const sidebarState = usePersistentAppSidebar();
   const [newBoard, setNewBoard] = useState(false);
   const [boardName, setBoardName] = useState("");
+  const [boardDescription, setBoardDescription] = useState("");
   const [boardPrefix, setBoardPrefix] = useState("");
   const [createError, setCreateError] = useState("");
   const [boardCreateKey] = useState(createRetryKey);
@@ -208,7 +212,7 @@ export function App() {
   );
   const lastBoardsRequest = useRef(0);
   const lastRefreshRequest = useRef(0);
-  const recentlyCreatedBoard = useRef<Board | null>(null);
+  const recentlyCreatedBoard = useRef<BoardSummary | null>(null);
   const latestLoadedBoard = useRef<Board | null>(null);
   const appContainer = useRef<HTMLDivElement>(null);
   const suspendedFocus = useRef<HTMLElement | null>(null);
@@ -223,13 +227,15 @@ export function App() {
       const current = previous.find((item) => item.id === board.id);
       if (!current || current.version > board.version) return previous;
       return previous
-        .map((item) => (item.id === board.id ? board : item))
+        .map((item) => (item.id === board.id ? { ...item, ...board } : item))
         .sort(compareBoardNames);
     });
   }, []);
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    document.documentElement.dataset.theme = theme;
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    root.classList.add("theme-changing");
+    root.classList.toggle("dark", theme === "dark");
+    root.dataset.theme = theme;
     document
       .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
       ?.setAttribute(
@@ -239,6 +245,15 @@ export function App() {
           : millBrand.themeColor.light,
       );
     localStorage.setItem("mill:theme", theme);
+    // Commit the new colors while transitions are paused, before the next paint.
+    getComputedStyle(root).getPropertyValue("color");
+    const frame = requestAnimationFrame(() => {
+      root.classList.remove("theme-changing");
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      root.classList.remove("theme-changing");
+    };
   }, [theme]);
   async function initial() {
     setReady(false);
@@ -262,6 +277,7 @@ export function App() {
   }
   async function refresh() {
     const request = ++lastRefreshRequest.current;
+    setError("");
     try {
       const [me, people, notification] = await Promise.all([
         api<Session>("/auth/me"),
@@ -284,7 +300,7 @@ export function App() {
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const directory = new Map<string, Board>();
+          const directory = new Map<string, BoardSummary>();
           const cursors = new Set<string>();
           let cursor: string | null = null;
           do {
@@ -294,11 +310,11 @@ export function App() {
             });
             if (cursor) params.set("cursor", cursor);
             const result = await api<{
-              items: Board[];
+              items: BoardSummary[];
               hasMore: boolean;
               nextCursor: string | null;
             }>(`/boards?${params}`, undefined, "GET", {
-              validateResponse: hasBoardsResponse,
+              validateResponse: hasBoardSummariesResponse,
             });
             if (request !== lastBoardsRequest.current) return;
             for (const board of result.items) {
@@ -306,7 +322,7 @@ export function App() {
               directory.set(
                 board.id,
                 latest?.id === board.id && latest.version > board.version
-                  ? latest
+                  ? { ...board, ...latest }
                   : board,
               );
             }
@@ -376,7 +392,6 @@ export function App() {
   useEffect(() => {
     if (session && !expired) {
       void refresh();
-      void loadBoards();
       const timer = setInterval(
         () =>
           void api<{ unreadCount: number }>("/notifications?limit=1")
@@ -399,46 +414,19 @@ export function App() {
       const section = path.split("/").pop() ?? "";
       document.title = `${settingsTitles[section] ?? "Settings"} · Mill`;
     }
-    if (session && path === "/") document.title = "Boards · Mill";
+    if (session && (path === "/" || path === "/boards"))
+      document.title = "Boards · Mill";
   }, [path, session?.user.id]);
+  const overview = path === "/boards" || path === "/";
   useEffect(() => {
-    if (!session) {
-      setLastUsedBoardId(null);
-      return;
-    }
-    try {
-      setLastUsedBoardId(
-        localStorage.getItem(`mill:last-board:${session.user.id}`),
-      );
-    } catch {
-      setLastUsedBoardId(null);
-    }
-  }, [session?.user.id]);
+    if (session && !expired) void loadBoards();
+  }, [session?.user.id, expired, overview, sessionRevision]);
   useEffect(() => {
-    if (
-      !session ||
-      !activeBoardId ||
-      !boards.some((b) => b.id === activeBoardId)
-    )
-      return;
-    setLastUsedBoardId(activeBoardId);
-    try {
-      localStorage.setItem(`mill:last-board:${session.user.id}`, activeBoardId);
-    } catch {
-      // The current session still remembers the selected board.
+    if (session && (path === "/" || path === "/notifications")) {
+      window.history.replaceState(window.history.state, "", "/boards");
+      window.dispatchEvent(new Event("mill:navigate"));
     }
-  }, [session?.user.id, activeBoardId, boards]);
-  useEffect(() => {
-    if (
-      session &&
-      (path === "/" || path === "/notifications") &&
-      !boardsPending &&
-      boards.length
-    ) {
-      const board = boards.find((b) => b.id === lastUsedBoardId) ?? boards[0];
-      navigate(`/boards/${board.id}`);
-    }
-  }, [session, path, boards, boardsPending, lastUsedBoardId]);
+  }, [session?.user.id, path]);
   function acceptSession(next: Session) {
     suspensionActive.current = false;
     const changedPerson =
@@ -475,6 +463,7 @@ export function App() {
     const perform = () => {
       if (logoutPending.current) return;
       logoutPending.current = true;
+      setError("");
       void api("/auth/logout", {})
         .then(() => {
           lastBoardsRequest.current++;
@@ -503,9 +492,9 @@ export function App() {
   const authView = (
     <>
       {expired && (
-        <div role="status" className="session-banner">
+        <ErrorMessage>
           Your session expired. Sign in again to continue.
-        </div>
+        </ErrorMessage>
       )}
       <Suspense fallback={null}>
         <Auth setup={setup} onSession={acceptSession} focusEmail={expired} />
@@ -539,14 +528,7 @@ export function App() {
       </Suspense>
     );
   const settingsSection = path.match(/^\/settings\/([^/]+)/)?.[1];
-  const knownSettings = [
-    "profile",
-    "security",
-    "members",
-    "agents",
-    "api-keys",
-    "workspace",
-  ];
+  const knownSettings = Object.keys(settingsTitles);
   function nav(label: string, url: string, icon: ReactNode): ShellLinkConfig {
     return {
       id: url,
@@ -557,64 +539,27 @@ export function App() {
     };
   }
   const admin = session.user.role === "admin";
-  const preferredBoardId =
-    boards.find((board) => board.id === lastUsedBoardId)?.id ?? boards[0]?.id;
-  const boardsHref = preferredBoardId
-    ? `/boards/${preferredBoardId}${preferredBoardId === activeBoardId ? window.location.search : ""}`
-    : "/";
+  const boardsHref = "/boards";
   const secondarySidebar =
-    activeBoardId || path === "/" ? (
-      <SecondarySidebar
-        title="Boards"
-        actions={
-          session.user.role !== "viewer" && (
-            <Button
-              aria-label="Create board"
-              variant="secondary"
-              isIconOnly
-              className="board-create-button size-8 text-muted"
-              onPress={() => {
-                if (!window.matchMedia("(min-width: 64rem)").matches)
-                  sidebarState.onSidebarOpenChange(false);
-                setCreateError("");
-                setNewBoard(true);
-              }}
-            >
-              <Plus />
-            </Button>
-          )
-        }
-        items={boards.map((board) => ({
-          id: board.id,
-          href: `/boards/${board.id}${board.id === activeBoardId ? window.location.search : ""}`,
-          label: board.name,
-          icon: <BoardIcon />,
-          active: activeBoardId === board.id,
-        }))}
-      >
-        {boardsError && (
-          <div className="grid min-w-0 gap-2">
-            <ErrorMessage>{boardsError}</ErrorMessage>
-            <Button
-              variant="secondary"
-              isDisabled={boardsPending}
-              onPress={() => void loadBoards()}
-            >
-              Retry loading boards
-            </Button>
-          </div>
-        )}
+    activeBoardId && !activeTaskId ? (
+      <SecondarySidebar title="Filters" hideTitle items={[]}>
+        <div ref={setFilterContainer} className="min-w-0" />
       </SecondarySidebar>
+    ) : settingsSection &&
+      knownSettings.includes(settingsSection) &&
+      (isAccountSection(settingsSection) || admin) ? (
+      <SettingsNavigation section={settingsSection} />
     ) : undefined;
   const sidebar = (
     <ApplicationSidebar
       config={{
         accessibleLabel: "Workspace navigation",
-        homeHref: "/",
+        homeHref: "/boards",
         brand: {
           title: "Mill",
           logo: <MillMark />,
         },
+        brandVersion: millVersion,
         groups: [
           {
             id: "operate",
@@ -625,19 +570,31 @@ export function App() {
                 href: boardsHref,
                 label: "Boards",
                 icon: <BoardIcon />,
-                active: !!activeBoardId || path === "/",
+                active: !!activeBoardId || overview,
               },
             ],
           },
           {
-            id: "workspace",
-            label: "Workspace",
+            id: "settings",
+            label: "Settings",
             items: [
-              ...(admin ? [nav("People", "/settings/members", <Users />)] : []),
-              nav("Agents", "/settings/agents", <AgentIcon />),
-              nav("API keys", "/settings/api-keys", <KeyRound />),
+              {
+                ...nav(
+                  "Account settings",
+                  "/settings/profile",
+                  <AccountIcon />,
+                ),
+                active: isAccountSection(settingsSection),
+              },
               ...(admin
-                ? [nav("Team settings", "/settings/workspace", <Settings />)]
+                ? [
+                    {
+                      ...nav("Team settings", "/settings/workspace", <Users />),
+                      active: ["workspace", "members"].includes(
+                        settingsSection ?? "",
+                      ),
+                    },
+                  ]
                 : []),
             ],
           },
@@ -648,7 +605,9 @@ export function App() {
             email={session.user.email}
             workspaceName={session.workspace.name}
             onLogout={signOut}
-          />
+          >
+            <AccountMenuItems />
+          </FooterIdentity>
         ),
       }}
     />
@@ -668,8 +627,8 @@ export function App() {
     : settingsSection && knownSettings.includes(settingsSection)
       ? settingsTitles[settingsSection]
       : path === "/oauth/consent"
-        ? "Connect an agent"
-        : path === "/"
+        ? "Connect to Mill"
+        : overview
           ? "Boards"
           : "Page not found";
   const navbarContent = (
@@ -700,7 +659,7 @@ export function App() {
           aria-hidden={expired}
         >
           <PortalProvider getContainer={() => appContainer.current}>
-            <AppShell contentWidth="full">
+            <AppShell contentWidth="broad">
               <a
                 href="#main-content"
                 className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-background focus:px-4 focus:py-2 focus:ring-2 focus:ring-focus"
@@ -739,7 +698,6 @@ export function App() {
                         </Suspense>
                         <ThemeSwitcher
                           size="small"
-                          className="pointer-coarse:size-11"
                           theme={theme}
                           onThemeChange={setTheme}
                         />
@@ -748,7 +706,10 @@ export function App() {
                   />
                 }
               >
-                <AppShell.Content>
+                <AppShell.Content
+                  variant="broad"
+                  className="pt-0 pb-20 sm:pt-0 sm:pb-20"
+                >
                   <Suspense fallback={null}>
                     {error && <ErrorMessage>{error}</ErrorMessage>}
                     {activeBoardId && activeTaskId ? (
@@ -770,9 +731,16 @@ export function App() {
                         onBoardLoaded={(board) => {
                           rememberLoadedBoard(board);
                           if (recentlyCreatedBoard.current?.id === board.id)
-                            recentlyCreatedBoard.current = board;
+                            recentlyCreatedBoard.current = {
+                              ...recentlyCreatedBoard.current,
+                              ...board,
+                            };
                         }}
                         boards={boards}
+                        filterContainer={filterContainer}
+                        onOpenFilters={() =>
+                          sidebarState.onSidebarOpenChange(true)
+                        }
                         user={session.user}
                         members={members}
                         sessionRevision={sessionRevision}
@@ -813,50 +781,18 @@ export function App() {
                           void loadBoards();
                         }}
                       />
-                    ) : path === "/" && boardsPending ? null : path === "/" &&
-                      boardsError ? (
-                      <EmptyState>
-                        <EmptyState.Header>
-                          <EmptyState.Title>
-                            Boards could not be loaded
-                          </EmptyState.Title>
-                          <EmptyState.Description>
-                            {boardsError}
-                          </EmptyState.Description>
-                        </EmptyState.Header>
-                        <EmptyState.Content>
-                          <Button onPress={() => void loadBoards()}>
-                            Retry loading boards
-                          </Button>
-                        </EmptyState.Content>
-                      </EmptyState>
-                    ) : path === "/" ? (
-                      <EmptyState>
-                        <EmptyState.Media>
-                          <BoardIcon size={32} />
-                        </EmptyState.Media>
-                        <EmptyState.Header>
-                          <EmptyState.Title>
-                            Your work starts here
-                          </EmptyState.Title>
-                          <EmptyState.Description>
-                            Create a board, give it a few tasks, and make the
-                            next step clear.
-                          </EmptyState.Description>
-                        </EmptyState.Header>
-                        <EmptyState.Content>
-                          {session.user.role !== "viewer" ? (
-                            <Button onPress={() => setNewBoard(true)}>
-                              <Plus />
-                              Create your first board
-                            </Button>
-                          ) : (
-                            <p className="text-sm text-muted">
-                              Ask a member or administrator to create a board.
-                            </p>
-                          )}
-                        </EmptyState.Content>
-                      </EmptyState>
+                    ) : overview ? (
+                      <BoardsPage
+                        boards={boards}
+                        pending={boardsPending}
+                        error={boardsError}
+                        canCreate={session.user.role !== "viewer"}
+                        onRetry={() => void loadBoards()}
+                        onCreate={() => {
+                          setCreateError("");
+                          setNewBoard(true);
+                        }}
+                      />
                     ) : (
                       <ErrorPage code="404" />
                     )}
@@ -899,6 +835,7 @@ export function App() {
                     setCreateError("");
                     const payload = {
                       name: boardName,
+                      description: boardDescription,
                       ...(boardPrefix ? { prefix: boardPrefix } : {}),
                     };
                     void api<{ board: Board }>("/boards", payload, "POST", {
@@ -912,9 +849,16 @@ export function App() {
                     })
                       .then((result) => {
                         boardCreateKey.reset();
-                        recentlyCreatedBoard.current = result.board;
+                        recentlyCreatedBoard.current = {
+                          ...result.board,
+                          backlogCount: 0,
+                          activeCount: 0,
+                          inProgressCount: 0,
+                          todoCount: 0,
+                        };
                         setNewBoard(false);
                         setBoardName("");
+                        setBoardDescription("");
                         setBoardPrefix("");
                         void loadBoards();
                         navigate(`/boards/${result.board.id}`);
@@ -930,6 +874,14 @@ export function App() {
                     required
                     autoFocus={!window.matchMedia("(pointer: coarse)").matches}
                     maxLength={100}
+                  />
+                  <TextField
+                    label="Description"
+                    value={boardDescription}
+                    onChange={(e) => setBoardDescription(e.target.value)}
+                    multiline
+                    maxLength={10000}
+                    className="min-w-0 w-full"
                   />
                   <TextField
                     label="Task prefix"

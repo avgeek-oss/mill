@@ -9,6 +9,15 @@ import {
   type Page,
 } from "@playwright/test";
 
+function feedbackToast(page: Page, message: string) {
+  return page
+    .locator(
+      '[data-slot="toast"]:not([data-exiting="true"]):not([data-hidden="true"])',
+    )
+    .filter({ hasText: message })
+    .last();
+}
+
 // Invitation links must not enter automatic traces or failure screenshots.
 test.use({ trace: "off", screenshot: "off" });
 test.describe.configure({ mode: "serial" });
@@ -60,7 +69,7 @@ async function login(page: Page, path = "/settings/members") {
   await page.goto(path);
   await expect(
     page.getByRole("heading", {
-      name: path.endsWith("workspace") ? "Team settings" : "People",
+      name: path.endsWith("workspace") ? "General" : "People",
       exact: true,
       level: 1,
     }),
@@ -78,7 +87,15 @@ async function openSettings(page: Page, section: "People" | "Team settings") {
     return;
   }
   if (await openNavigation.isVisible()) await openNavigation.click();
-  await page.getByRole("link", { name: section, exact: true }).click();
+  await page.getByRole("link", { name: "Team settings", exact: true }).click();
+  if (section === "People")
+    await page
+      .getByRole("navigation", {
+        name: "Team settings navigation",
+        exact: true,
+      })
+      .getByRole("link", { name: "Members", exact: true })
+      .click();
 }
 async function database() {
   if (!process.env.DATABASE_URL) process.loadEnvFile(".env");
@@ -136,7 +153,10 @@ test("People lists load independently, show separate recovery and protect the la
     await gate;
     await route.fulfill({ response });
   });
-  await page.getByRole("link", { name: "People", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Team settings navigation", exact: true })
+    .getByRole("link", { name: "Members", exact: true })
+    .click();
   const members = page.getByRole("region", {
     name: "Workspace members",
     exact: true,
@@ -146,11 +166,14 @@ test("People lists load independently, show separate recovery and protect the la
     exact: true,
   });
   try {
-    await expect(members.getByRole("alert")).toContainText(
-      "People are temporarily unavailable",
-    );
+    await expect(
+      feedbackToast(page, "People are temporarily unavailable"),
+    ).toBeVisible();
     await expect(invitations).toHaveAttribute("aria-busy", "true");
-    await expect(invitations.getByText(/Loading invitations/)).toHaveCount(0);
+    await expect(invitations.getByRole("status")).toContainText(
+      "Loading invitations",
+    );
+    await expect(invitations.getByRole("status")).toHaveClass("sr-only");
     await expect(
       invitations.getByText("No invitations yet", { exact: true }),
     ).toHaveCount(0);
@@ -225,10 +248,15 @@ test("People lists load independently, show separate recovery and protect the la
   }
 });
 
-test("invitation creation keeps pending, failure, copy and reveal inside its modal, then role changes persist", async ({
+test("invitation creation keeps the draft modal open after a failure toast, reveals the link and persists role changes", async ({
   page,
   context,
 }, testInfo) => {
+  const avatarRequests = new Set<string>();
+  await page.route("https://www.gravatar.com/avatar/**", async (route) => {
+    avatarRequests.add(route.request().url());
+    await route.fulfill({ status: 404, body: "" });
+  });
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await login(page);
   await page
@@ -258,9 +286,9 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
   await dialog
     .getByRole("button", { name: "Create invitation", exact: true })
     .click();
-  await expect(dialog.getByRole("alert")).toContainText(
-    "Try creating the invitation again",
-  );
+  await expect(
+    feedbackToast(page, "Try creating the invitation again"),
+  ).toBeVisible();
   await page.screenshot({
     path: testInfo.outputPath("invite-error.png"),
     animations: "disabled",
@@ -290,7 +318,7 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
     });
     release();
     const reveal = page.getByRole("dialog", {
-      name: "Invitation created",
+      name: "Invitation link",
       exact: true,
     });
     const inviteUrl = await reveal
@@ -299,9 +327,7 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
     await reveal
       .getByRole("button", { name: "Copy invitation link", exact: true })
       .click();
-    await expect(
-      page.getByText("Invitation link copied.", { exact: true }),
-    ).toBeVisible();
+    await expect(feedbackToast(page, "Invitation link copied.")).toBeVisible();
     expect(
       (await page.evaluate(() => navigator.clipboard.readText())) === inviteUrl,
       "Clipboard contains the exact invitation link",
@@ -313,6 +339,13 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
     await expect(
       page.getByLabel("Invitation link", { exact: true }),
     ).toHaveCount(0);
+    const inviteeAvatar = page
+      .getByRole("region", { name: "Invitations", exact: true })
+      .getByRole("img", { name: teammate.email, exact: true });
+    await expect(inviteeAvatar).toBeVisible();
+    await expect(inviteeAvatar.getByText("PJ", { exact: true })).toBeVisible();
+    const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(teammate.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
+    await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
     const temporary = await request.newContext({ baseURL: origin });
     try {
       memberId = (
@@ -344,9 +377,7 @@ test("invitation creation keeps pending, failure, copy and reveal inside its mod
       .getByRole("button", { name: "Update role", exact: true })
       .click();
     await expect(roleDialog).toHaveCount(0);
-    await expect(
-      page.getByText("Role updated.", { exact: true }),
-    ).toBeVisible();
+    await expect(feedbackToast(page, "Role updated.")).toBeVisible();
     expect(
       (await json(admin, "/auth/members")).items.find(
         (person: { id: string }) => person.id === memberId,
@@ -377,17 +408,15 @@ test("team settings persist without backup or portable data surfaces", async ({
     page.getByLabel("Choose Mill export", { exact: true }),
   ).toHaveCount(0);
   await page
-    .getByRole("textbox", { name: /^Name/ })
+    .getByRole("textbox", { name: /^Team name/ })
     .fill("Admin workspace verification");
   await page.getByRole("button", { name: "Update", exact: true }).click();
-  await expect(
-    page.getByText("Team settings updated.", { exact: true }),
-  ).toBeVisible();
+  await expect(feedbackToast(page, "Team settings updated.")).toBeVisible();
   expect((await json(admin, "/auth/me")).workspace.name).toBe(
     "Admin workspace verification",
   );
   await page.reload();
-  await expect(page.getByRole("textbox", { name: /^Name/ })).toHaveValue(
+  await expect(page.getByRole("textbox", { name: /^Team name/ })).toHaveValue(
     "Admin workspace verification",
   );
   await page.goto("/settings/data");
@@ -412,7 +441,7 @@ test("team settings persist without backup or portable data surfaces", async ({
   ).toBe(404);
   await page.goto("/settings/workspace");
   await expect(
-    page.getByRole("heading", { name: "Team settings", exact: true, level: 1 }),
+    page.getByRole("heading", { name: "General", exact: true, level: 1 }),
   ).toBeVisible();
   await expect(page.getByText("Backups", { exact: true })).toHaveCount(0);
   await expect(
@@ -470,7 +499,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
       if (await switcher.isVisible()) await switcher.click();
       await expect(
         page.getByRole("heading", {
-          name: name === "people" ? "People" : "Team settings",
+          name: name === "people" ? "People" : "General",
           exact: true,
           level: 1,
         }),
@@ -517,7 +546,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
         ).toBeVisible();
       } else {
         await expect(
-          page.getByRole("textbox", { name: /^Name/ }),
+          page.getByRole("textbox", { name: /^Team name/ }),
         ).toBeVisible();
         await expect(
           page.getByRole("button", { name: "Update", exact: true }),
@@ -618,8 +647,8 @@ test("People and team settings layouts remain usable in both themes at desktop a
           exact: true,
         });
         const hintBounds = await protectedRemoval.boundingBox();
-        expect(hintBounds!.width).toBeGreaterThanOrEqual(44);
-        expect(hintBounds!.height).toBeGreaterThanOrEqual(44);
+        expect(hintBounds!.width).toBe(34);
+        expect(hintBounds!.height).toBe(34);
         await protectedRemoval.click();
         await expect(touch.getByRole("tooltip")).toContainText(
           "Make another person an administrator before removing access",
@@ -636,8 +665,8 @@ test("People and team settings layouts remain usable in both themes at desktop a
           .getByRole("button")
           .all()) {
           const bounds = await button.boundingBox();
-          expect(bounds!.width).toBeGreaterThanOrEqual(44);
-          expect(bounds!.height).toBeGreaterThanOrEqual(44);
+          expect(bounds!.width).toBeGreaterThanOrEqual(34);
+          expect(bounds!.height).toBe(34);
         }
         await edit.focus();
         await expect(edit).toBeFocused();
@@ -697,7 +726,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
     await openSettings(touch, "Team settings");
     await expect(
       touch.getByRole("heading", {
-        name: "Team settings",
+        name: "General",
         exact: true,
         level: 1,
       }),
@@ -761,9 +790,12 @@ test("invitation pagination reaches and revokes an older active invitation beyon
     await invitations
       .getByRole("button", { name: "Load more invitations", exact: true })
       .click();
-    await expect(invitations.getByRole("alert")).toContainText(
-      "The next invitation page is temporarily unavailable",
-    );
+    await expect(
+      feedbackToast(
+        page,
+        "The next invitation page is temporarily unavailable",
+      ),
+    ).toBeVisible();
     await expect(
       page
         .getByRole("region", { name: "Workspace members", exact: true })
@@ -789,9 +821,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       .getByRole("button", { name: "Revoke invitation", exact: true })
       .click();
     await expect(dialog).toHaveCount(0);
-    await expect(
-      page.getByText("Invitation revoked.", { exact: true }),
-    ).toBeVisible();
+    await expect(feedbackToast(page, "Invitation revoked.")).toBeVisible();
     expect(
       (await sql`SELECT revoked_at FROM invitations WHERE id=${oldId}`)[0]
         .revoked_at,
@@ -842,7 +872,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
     await page.keyboard.press("Escape");
     await expect(removal).toBeVisible();
     releaseRemoval!();
-    await expect(removal.getByRole("alert")).toContainText("Too many requests");
+    await expect(feedbackToast(page, "Too many requests")).toBeVisible();
     await expect(
       removal.getByRole("button", { name: "Cancel", exact: true }),
     ).toBeEnabled();
@@ -870,7 +900,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
     expect(removalAttempts).toBe(2);
     await expect(removal).toHaveCount(0);
     await expect(
-      page.getByText("Workspace access removed.", { exact: true }),
+      feedbackToast(page, "Workspace access removed."),
     ).toBeVisible();
     const inviteAction = page.getByRole("button", {
       name: "Invite a person",
@@ -895,3 +925,66 @@ test("invitation pagination reaches and revokes an older active invitation beyon
     await sql.end();
   }
 });
+
+for (const width of [1280, 390]) {
+  for (const theme of ["light", "dark"]) {
+    test(`invitation expiry is relative only and expired rows disappear at ${width}px in ${theme}`, async ({
+      page,
+    }, testInfo) => {
+      const { sql, schema } = await database();
+      const suffix = `${width}-${theme}`;
+      const activeEmail = `active-expiry-${suffix}@example.test`;
+      const expiringEmail = `soon-expired-${suffix}@example.test`;
+      const expiredEmail = `already-expired-${suffix}@example.test`;
+      const emails = [activeEmail, expiringEmail, expiredEmail];
+      try {
+        await sql.unsafe(`SET search_path TO "${schema}",public`);
+        const now = Date.now();
+        for (const [index, email] of emails.entries()) {
+          await sql`INSERT INTO invitations(id,email,role,token_hash,invited_by,expires_at)
+            VALUES(${randomUUID()},${email},'viewer',${randomUUID()},${userId},${new Date(now + [86400000, 60000, -60000][index]!).toISOString()})`;
+        }
+        await page.setViewportSize({ width, height: 844 });
+        await page.addInitScript(
+          (theme) => localStorage.setItem("mill:theme", theme),
+          theme,
+        );
+        await page.clock.install({ time: now });
+        await login(page);
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+        const invitations = page.getByRole("region", {
+          name: "Invitations",
+          exact: true,
+        });
+        const active = invitations
+          .getByRole("row")
+          .filter({ hasText: activeEmail });
+        await expect(active).toBeVisible();
+        await expect(active.locator("time")).toHaveText(/^Expires in .+$/);
+        await expect(active.locator("time > span")).toHaveCount(1);
+        await expect(
+          invitations.getByText(expiringEmail, { exact: true }),
+        ).toBeVisible();
+        await expect(
+          invitations.getByText(expiredEmail, { exact: true }),
+        ).toHaveCount(0);
+        await testInfo.attach(`invitation-${suffix}`, {
+          body: await active.screenshot(),
+          contentType: "image/png",
+        });
+        await page.clock.fastForward(61000);
+        await expect(
+          invitations.getByText(expiringEmail, { exact: true }),
+        ).toHaveCount(0);
+        await expect(active).toBeVisible();
+        expect(
+          (await sql`SELECT id FROM invitations WHERE email=${expiringEmail}`)
+            .length,
+        ).toBe(1);
+      } finally {
+        await sql`DELETE FROM invitations WHERE email IN ${sql(emails)}`;
+        await sql.end();
+      }
+    });
+  }
+}

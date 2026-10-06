@@ -4,6 +4,7 @@ import { sql } from "../../../packages/database/src/index.js";
 import type {
   Actor,
   Activity,
+  BoardSummary,
   Comment,
 } from "../../../packages/contracts/src/index.js";
 import { TASK_STATUSES } from "../../../packages/contracts/src/index.js";
@@ -35,10 +36,7 @@ import {
   type TaskRow,
 } from "./domain/helpers.js";
 
-import { agentRoutes, validateTaskAgent } from "./agents.js";
-
 export const domainRoutes = new Hono<Env>();
-domainRoutes.route("/", agentRoutes);
 const boardCreate = z
   .object({
     name: z.string().trim().min(1).max(100),
@@ -83,7 +81,7 @@ function previewPage<T extends { id: string }>(rows: T[], limit: number) {
 
 function administrative(c: Parameters<typeof actor>[0], write = false): Actor {
   const a = requireRole(c, "admin");
-  if (a.kind === "agent" || (write && !a.scopes.includes("write")))
+  if (a.kind === "oauth" || (write && !a.scopes.includes("write")))
     badRequest("This action requires a workspace administrator session");
   return a;
 }
@@ -146,8 +144,20 @@ domainRoutes.get("/boards", async (c) => {
         badRequest(
           "This board cursor does not belong to the accessible board list",
         );
-      const rows =
-        await tx`SELECT * FROM boards WHERE ${filters} ${cursor ? tx`AND (lower(name),name,id)>(lower(${cursor.name}),${cursor.name},${cursor.id}::uuid)` : tx``} ORDER BY lower(name),name,id LIMIT ${limit + 1}`;
+      const rows = await tx<BoardSummary[]>`
+        SELECT boards.*, task_counts.backlog_count, task_counts.active_count,
+          task_counts.in_progress_count, task_counts.todo_count
+        FROM boards
+        CROSS JOIN LATERAL (
+          SELECT count(*) FILTER (WHERE status='backlog')::int AS backlog_count,
+            count(*) FILTER (WHERE status IN ('todo','in_progress','in_review'))::int AS active_count,
+            count(*) FILTER (WHERE status='in_progress')::int AS in_progress_count,
+            count(*) FILTER (WHERE status='todo')::int AS todo_count
+          FROM tasks WHERE tasks.board_id=boards.id
+        ) task_counts
+        WHERE ${filters}
+          ${cursor ? tx`AND (lower(name),name,id)>(lower(${cursor.name}),${cursor.name},${cursor.id}::uuid)` : tx``}
+        ORDER BY lower(name),name,id LIMIT ${limit + 1}`;
       const items = rows.slice(0, limit);
       const hasMore = rows.length > limit;
       const last = items.at(-1);
@@ -189,7 +199,8 @@ domainRoutes.post("/boards", async (c) => {
   const result = await sql.begin(async (tx) => {
     const [workspace] = await tx`SELECT id FROM workspace FOR UPDATE`;
     if (!workspace) missing("Complete workspace setup first");
-    await revalidateAuthority(c, tx, "member");
+    const current = await revalidateAuthority(c, tx, "member");
+    if (current.boardIds) return null;
     let prefix =
       input.prefix ??
       input.name
@@ -210,6 +221,11 @@ domainRoutes.post("/boards", async (c) => {
       await tx`INSERT INTO boards (workspace_id,name,prefix,description) VALUES (${workspace.id},${input.name},${prefix},${input.description}) RETURNING *`;
     return created;
   });
+  if (!result)
+    return c.json(
+      { error: "A board-restricted credential cannot create boards" },
+      403,
+    );
   return c.json({ board: result }, 201);
 });
 domainRoutes.get("/boards/:id", async (c) => {
@@ -278,15 +294,12 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     !TASK_STATUSES.includes(status as (typeof TASK_STATUSES)[number])
   )
     badRequest("Choose a valid status");
-  for (const removed of ["columnId", "label", "parentId"])
+  for (const removed of ["columnId", "label", "parentId", "agentId"])
     if (c.req.query(removed) !== undefined)
       badRequest(`${removed} is no longer supported`);
   const assigneeRaw = c.req.query("assigneeId");
   const assigneeId =
     assigneeRaw && assigneeRaw !== "unassigned" ? id(assigneeRaw) : null;
-  const agentRaw = c.req.query("agentId");
-  const agentId = agentRaw && agentRaw !== "unassigned" ? id(agentRaw) : null;
-  if (agentRaw === "") badRequest("Choose a valid agent");
   const priority = c.req.query("priority");
   if (priority && !priorities.includes(priority as (typeof priorities)[number]))
     badRequest("Choose a valid priority");
@@ -312,18 +325,21 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     q,
     status,
     assigneeRaw,
-    agentRaw,
     priority,
     sort,
   });
   const cursor = decodeCursor(cursorRaw, cursorSchema);
   if (cursor && cursor.fingerprint !== filterKey)
     badRequest("This cursor belongs to a different search");
+  const visibleByStatusAge =
+    status !== undefined
+      ? sql`true`
+      : sql`(tasks.status NOT IN ('done','wont_do') OR tasks.status_changed_at >= now() - interval '24 hours')`;
   const filters = sql`tasks.board_id=${boardId}
+    AND ${visibleByStatusAge}
     ${q ? sql`AND (tasks.title ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.description ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.identifier ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"})` : sql``}
     ${status ? sql`AND tasks.status=${status}` : sql``}
     ${assigneeRaw === "unassigned" ? sql`AND tasks.assignee_id IS NULL` : assigneeId ? sql`AND tasks.assignee_id=${assigneeId}` : sql``}
-    ${agentRaw === "unassigned" ? sql`AND tasks.agent_id IS NULL` : agentId ? sql`AND tasks.agent_id=${agentId}` : sql``}
     ${priority ? sql`AND tasks.priority=${priority}` : sql``}`;
   const result = await sql.begin(
     "isolation level repeatable read read only",
@@ -331,7 +347,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
       await board(c, boardId, "viewer", tx);
       const [collection] = await tx<
         { revision: string; total: number }[]
-      >`SELECT md5(COALESCE(string_agg(id::text||':'||version::text,',' ORDER BY id),'')) AS revision,
+      >`SELECT md5(COALESCE(string_agg(id::text||':'||version::text||':'||(${visibleByStatusAge})::text,',' ORDER BY id),'')) AS revision,
         count(*) FILTER (WHERE ${filters})::int AS total FROM tasks WHERE board_id=${boardId}`;
       if (
         (cursor && cursor.revision !== collection.revision) ||
@@ -353,7 +369,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
       }
       const rows = await tx<
         (TaskRow & { sortKey: string })[]
-      >`SELECT tasks.*,agents.name AS agent_name,${sortKey} AS sort_key FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE ${filters}
+      >`SELECT tasks.*,${sortKey} AS sort_key FROM tasks WHERE ${filters}
       ${cursor ? (descending ? sql`AND (${sortKey},tasks.id)<(${cursor.key},${cursor.id}::uuid)` : sql`AND (${sortKey},tasks.id)>(${cursor.key},${cursor.id}::uuid)`) : sql``}
       ORDER BY ${sortKey} ${descending ? sql`DESC` : sql`ASC`},tasks.id ${descending ? sql`DESC` : sql`ASC`} LIMIT ${limit + 1}
       ${pageRaw !== undefined ? sql`OFFSET ${offset}` : sql``}`;
@@ -398,29 +414,26 @@ domainRoutes.post("/boards/:id/tasks", async (c) => {
     const row = await lockBoard(c, tx, boardId);
     await validateAssignee(tx, input.assigneeId);
     const a = requireRole(c, "member", boardId);
-    const selectedAgent = await validateTaskAgent(
-      tx,
-      a.userId,
-      input.agentId ?? null,
-      input.assigneeId ?? null,
-      true,
-    );
     const [created] = await tx<
       TaskRow[]
-    >`INSERT INTO tasks (board_id,status,identifier,title,description,assignee_id,agent_id,priority,due_date,created_by) VALUES (${boardId},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.agentId ?? null},${input.priority ?? "none"},${input.dueDate ?? null},${a.userId}) RETURNING *`;
+    >`INSERT INTO tasks (board_id,type,status,identifier,title,description,assignee_id,priority,start_date,due_date,created_by) VALUES (${boardId},${input.type ?? "task"},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.priority ?? "none"},${input.startDate ?? null},${input.dueDate ?? null},${a.userId}) RETURNING *`;
     await tx`UPDATE boards SET next_number=next_number+1 WHERE id=${boardId}`;
     await recordActivity(
       tx,
       a,
       "task.created",
-      { title: created.title, identifier: created.identifier },
+      {
+        title: created.title,
+        identifier: created.identifier,
+        type: created.type,
+      },
       boardId,
       created.id,
     );
     if (created.assigneeId)
       await notify(tx, a, created.id, created.assigneeId, "assignment");
     await mentionNotifications(tx, a, created.id, created.description);
-    return { ...created, agentName: selectedAgent?.name ?? null };
+    return created;
   });
   return c.json({ task: result }, 201);
 });
@@ -457,21 +470,10 @@ domainRoutes.patch("/tasks/:id", async (c) => {
     const row = await lockedTask(c, tx, taskId, input.version);
     const a = requireRole(c, "member", row.boardId);
     await validateAssignee(tx, input.assigneeId);
-    const effectiveAssignee =
-      input.assigneeId === undefined ? row.assigneeId : input.assigneeId;
-    const effectiveAgent =
-      input.agentId === undefined ? row.agentId : input.agentId;
-    await validateTaskAgent(
-      tx,
-      a.userId,
-      effectiveAgent,
-      effectiveAssignee,
-      effectiveAgent !== row.agentId || effectiveAssignee !== row.assigneeId,
-    );
-    await tx`UPDATE tasks SET status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},agent_id=${effectiveAgent},priority=${input.priority ?? row.priority},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},version=version+1,updated_at=now() WHERE id=${taskId}`;
+    await tx`UPDATE tasks SET type=${input.type ?? row.type},status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},priority=${input.priority ?? row.priority},start_date=${input.startDate === undefined ? row.startDate : input.startDate},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},version=version+1,updated_at=now() WHERE id=${taskId}`;
     const [updated] = await tx<
       TaskRow[]
-    >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId}`;
+    >`SELECT tasks.* FROM tasks WHERE tasks.id=${taskId}`;
     const fields = Object.keys(input).filter(
       (key) => key !== "version" && key !== "status",
     );
@@ -544,7 +546,7 @@ domainRoutes.post("/tasks/:id/comments", async (c) => {
     await lockBoard(c, tx, row.boardId);
     const [fresh] = await tx<
       TaskRow[]
-    >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId}`;
+    >`SELECT tasks.* FROM tasks WHERE tasks.id=${taskId}`;
     if (!fresh) missing("Task not found");
     const a = requireRole(c, "member", row.boardId);
     const [created] =
@@ -658,7 +660,7 @@ domainRoutes.get("/notifications", async (c) => {
 });
 domainRoutes.patch("/notifications", async (c) => {
   const a = requireRole(c);
-  if (a.kind === "agent" && !a.scopes.includes("write"))
+  if (a.kind === "oauth" && !a.scopes.includes("write"))
     return c.json(
       { error: "This credential does not permit notification changes" },
       403,
@@ -680,7 +682,7 @@ domainRoutes.patch("/notifications", async (c) => {
   const rows = await sql.begin(async (tx) => {
     await revalidateAuthority(c, tx, "viewer");
     const current = actor(c);
-    if (current.kind === "agent" && !current.scopes.includes("write"))
+    if (current.kind === "oauth" && !current.scopes.includes("write"))
       return null;
     const permitted =
       await tx`SELECT notifications.id FROM notifications JOIN tasks ON tasks.id=notifications.task_id WHERE notifications.user_id=${current.userId} ${current.boardIds ? (current.boardIds.length ? tx`AND tasks.board_id IN ${tx(current.boardIds)}` : tx`AND false`) : tx``} ${input.ids ? tx`AND notifications.id IN ${tx(input.ids)}` : tx``} FOR UPDATE OF notifications`;
@@ -694,7 +696,7 @@ domainRoutes.patch("/notifications", async (c) => {
 });
 domainRoutes.get("/workspace", async (c) => {
   const a = requireRole(c);
-  if (a.kind === "agent")
+  if (a.kind === "oauth")
     return c.json(
       { error: "Workspace settings require a member session" },
       403,

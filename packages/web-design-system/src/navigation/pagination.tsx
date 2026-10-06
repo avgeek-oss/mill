@@ -34,7 +34,7 @@ export function Pagination({
           <Button
             variant="secondary"
             aria-label="Previous page"
-            className="max-sm:size-11 max-sm:p-0"
+            className="max-sm:w-[34px] max-sm:p-0 pointer-fine:max-sm:w-8"
             isDisabled={isDisabled || page === 1}
             onPress={() => onPageChange(page - 1)}
           >
@@ -67,7 +67,7 @@ export function Pagination({
           <Button
             variant="secondary"
             aria-label="Next page"
-            className="max-sm:size-11 max-sm:p-0"
+            className="max-sm:w-[34px] max-sm:p-0 pointer-fine:max-sm:w-8"
             isDisabled={isDisabled || page === totalPages}
             onPress={() => onPageChange(page + 1)}
           >

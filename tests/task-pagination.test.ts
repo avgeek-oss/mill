@@ -338,7 +338,7 @@ test("a personal API key reads future-board task pages and restarts after its hu
     }),
     201,
   );
-  assert.equal(key.credential.agentId, null);
+  assert.equal("agentId" in key.credential, false);
   assert.equal(key.credential.boardIds, null);
   const future = await createBoard(cookie, "Created after key", "FUTURE");
   const items: Task[] = [];
@@ -364,7 +364,7 @@ test("a personal API key reads future-board task pages and restarts after its hu
       body: { version: items[2]!.version, title: "AA" },
     }),
   );
-  assert.equal(changed.task.agentId, null);
+  assert.equal("agentId" in changed.task, false);
   const stale = await json(
     await request(`${path}&cursor=${first.nextCursor}`, { token: key.token }),
     409,

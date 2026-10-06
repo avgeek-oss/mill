@@ -6,7 +6,6 @@ import {
   type ReactNode,
 } from "react";
 import {
-  Alert,
   Autocomplete,
   Input,
   Label,
@@ -18,6 +17,7 @@ import {
 } from "@heroui/react";
 import { Field, FieldDescription } from "./forms/field.js";
 import { cn } from "./utils.js";
+import { useErrorToast } from "./feedback/toast-feedback.js";
 
 const SuspendedAppContext = createContext(false);
 export const SuspendedAppProvider = SuspendedAppContext.Provider;
@@ -97,6 +97,7 @@ export type ChoiceProps = Omit<
     id: string;
     name: string;
     startContent?: ReactNode;
+    endContent?: string;
     description?: string;
     muted?: boolean;
   }[];
@@ -123,7 +124,9 @@ export function Choice({
           key={item.id}
           id={item.id}
           aria-label={item.name}
-          textValue={[item.name, item.description].filter(Boolean).join(" ")}
+          textValue={[item.name, item.description, item.endContent]
+            .filter(Boolean)
+            .join(" ")}
         >
           {item.startContent ? (
             <span aria-hidden="true" className="inline-flex shrink-0">
@@ -140,6 +143,11 @@ export function Choice({
               </span>
             ) : null}
           </span>
+          {item.endContent ? (
+            <span className="shrink-0 text-sm/5 font-normal text-muted tabular-nums">
+              {item.endContent}
+            </span>
+          ) : null}
           <ListBox.ItemIndicator />
         </ListBox.Item>
       ))}
@@ -154,7 +162,15 @@ export function Choice({
       onSelectionChange={(key) => typeof key === "string" && onChange(key)}
       isDisabled={disabled ?? props.isDisabled}
     >
-      <Label className={hideLabel ? "sr-only" : undefined}>{label}</Label>
+      <Label
+        className={
+          hideLabel
+            ? "sr-only"
+            : "[[data-secondary-menu]_&]:pl-2 [[data-secondary-menu]_&]:text-xs [[data-secondary-menu]_&]:text-muted"
+        }
+      >
+        {label}
+      </Label>
       <Select.Trigger className="min-w-0">
         <Select.Value className="flex min-w-0 flex-1 items-center gap-2 [&_[data-slot=avatar]]:size-5">
           {selected?.startContent ? (
@@ -163,10 +179,19 @@ export function Choice({
             </span>
           ) : null}
           <span
-            className={selected?.muted ? "truncate text-muted" : "truncate"}
+            className={
+              selected?.muted
+                ? "min-w-0 flex-1 truncate text-muted"
+                : "min-w-0 flex-1 truncate"
+            }
           >
             {selected?.name ?? "Choose…"}
           </span>
+          {selected?.endContent ? (
+            <span className="shrink-0 text-sm/5 font-normal text-muted tabular-nums">
+              {selected.endContent}
+            </span>
+          ) : null}
         </Select.Value>
         <Select.Indicator />
       </Select.Trigger>
@@ -241,12 +266,12 @@ export function Dialog({
           {...props}
           className={cn(wide && "mill-dialog wide", className)}
         >
-          <Modal.CloseTrigger
-            aria-label="Close dialog"
-            isDisabled={isDismissDisabled}
-          />
           <Modal.Header>
             <Modal.Heading>{title}</Modal.Heading>
+            <Modal.CloseTrigger
+              aria-label="Close dialog"
+              isDisabled={isDismissDisabled}
+            />
           </Modal.Header>
           <Modal.Body>{children}</Modal.Body>
           {footer && <Modal.Footer>{footer}</Modal.Footer>}
@@ -256,15 +281,9 @@ export function Dialog({
   );
 }
 
-export function ErrorMessage({ children, ...props }: ComponentProps<"div">) {
-  return children ? (
-    <Alert status="danger" role="alert" {...props}>
-      <Alert.Indicator />
-      <Alert.Content>
-        <Alert.Description>{children}</Alert.Description>
-      </Alert.Content>
-    </Alert>
-  ) : null;
+export function ErrorMessage({ children }: ComponentProps<"div">) {
+  useErrorToast(children);
+  return null;
 }
 
 export function Drawer({

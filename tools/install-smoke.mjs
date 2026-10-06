@@ -75,30 +75,13 @@ async function removedRoute(path, method = "GET", data) {
   });
   assert.equal(response.status, 404, `${method} ${path} is removed`);
 }
-function apiRecord(record) {
-  return Object.fromEntries(
-    Object.entries(record).map(([name, value]) => [
-      name.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()),
-      name.endsWith("_at") && value !== null
-        ? new Date(value).toISOString()
-        : value,
-    ]),
-  );
-}
-function preservedRecord(actual, expected) {
-  const fields = apiRecord(expected);
-  assert.ok(actual, "Preserved record exists through the real API");
-  assert.deepEqual(
-    Object.fromEntries(Object.keys(fields).map((name) => [name, actual[name]])),
-    fields,
-  );
-}
 async function mcpRequest(
   token,
   transport,
   method,
   params,
   notification = false,
+  expectedStatus = 200,
 ) {
   const id = notification ? undefined : ++transport.id;
   const response = await fetch(`${origin}/mcp`, {
@@ -125,7 +108,15 @@ async function mcpRequest(
     assert.equal(await response.text(), "");
     return;
   }
-  assert.equal(response.status, 200, `${method} MCP request succeeds`);
+  assert.equal(
+    response.status,
+    expectedStatus,
+    `${method} MCP request succeeds`,
+  );
+  if (expectedStatus !== 200) {
+    await response.arrayBuffer();
+    return;
+  }
   const type = response.headers.get("content-type") ?? "";
   const body = await response.text();
   let message;
@@ -276,399 +267,253 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
   });
 }
 const owner = (await request("/api/auth/me")).user;
-const legacyAgentState =
-  process.env.MILL_VERIFY_AGENT_UPGRADE_STATE ??
-  process.env.MILL_VERIFY_AGENT_RESTORE_STATE;
-if (legacyAgentState) {
-  const legacy = JSON.parse(await readFile(legacyAgentState, "utf8"));
-  for (const field of [
-    "legacyApiCredentialId",
-    "legacyOAuthCredentialId",
-    "legacyOAuthRequestId",
-  ])
-    assert.match(
-      legacy[field],
-      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,
-    );
-  if (process.env.MILL_VERIFY_AGENT_UPGRADE_STATE)
-    assert.equal(
-      (await request("/api/agents")).items.length,
-      legacy.policyAgentIds?.length ?? 0,
-      "The upgrade does not invent Agents",
-    );
-  for (const token of [
-    process.env.MILL_VERIFY_LEGACY_API_TOKEN,
-    process.env.MILL_VERIFY_LEGACY_OAUTH_TOKEN,
-  ]) {
-    assert.ok(
-      typeof token === "string" && /^mill_[A-Za-z0-9_-]{43}$/.test(token),
-      "Supply disposable legacy bearer tokens through environment variables",
-    );
-    await request("/api/boards", "GET", undefined, 401, new Map(), {
-      Authorization: `Bearer ${token}`,
-    });
-    const response = await fetch(`${origin}/mcp`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json, text/event-stream",
-      },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-11-25",
-          capabilities: {},
-          clientInfo: { name: "legacy-agent-upgrade", version: "1" },
-        },
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    assert.equal(
-      response.status,
-      401,
-      "Legacy unbound credentials cannot initialize MCP",
-    );
-  }
-  const existing = await request("/api/credentials");
-  for (const id of [
-    legacy.legacyApiCredentialId,
-    legacy.legacyOAuthCredentialId,
-  ]) {
-    const credential = existing.items.find((item) => item.id === id);
-    assert.ok(
-      credential?.revokedAt,
-      "Legacy credential metadata remains as a revoked record",
-    );
-    assert.equal(credential.agentId, null);
-  }
-  await request(
-    `/api/oauth/consent/${legacy.legacyOAuthRequestId}`,
-    "GET",
-    undefined,
-    400,
-  );
-  assert.ok(
-    typeof legacy.retryKey === "string" &&
-      legacy.retryKey.length >= 8 &&
-      legacy.retryKey.length <= 128,
-    "Supply the existing logical retry key in public fixture metadata",
-  );
-  async function boardIds() {
-    const ids = [];
-    let cursor = null;
-    do {
-      const page = await request(
-        `/api/boards?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-      );
-      ids.push(...page.items.map((board) => board.id));
-      cursor = page.nextCursor;
-    } while (cursor);
-    return ids;
-  }
-  const before = await boardIds();
-  const retry = await fetch(`${origin}/api/boards`, {
-    method: "POST",
-    headers: {
-      Origin: origin,
-      "Content-Type": "application/json",
-      Cookie: [...cookies]
-        .map(([name, value]) => `${name}=${value}`)
-        .join("; "),
-      "Idempotency-Key": legacy.retryKey,
-    },
-    body: JSON.stringify({
-      name: "Earlier Agent installation",
-      prefix: "INST",
-    }),
-    signal: AbortSignal.timeout(15000),
-    redirect: "error",
-  });
-  assert.equal(retry.status, 410, "The exact legacy retry remains terminal");
-  assert.equal(retry.headers.get("Idempotency-Replayed"), "true");
-  assert.equal((await retry.json()).code, "retry_invalidated");
-  assert.deepEqual(
-    await boardIds(),
-    before,
-    "The invalidated retry creates no board",
-  );
-  if (legacy.policyAgentIds) {
-    const agents = (await request("/api/agents")).items;
-    assert.equal(legacy.policyAgentIds.length, 2);
-    for (const id of legacy.policyAgentIds) {
-      const agent = agents.find((item) => item.id === id);
-      assert.ok(agent, "An existing Agent survives the policy migration");
-      assert.equal(agent.allMembers, false);
-      if (agent.scope === "team")
-        assert.ok(
-          agent.memberIds.includes(agent.creatorId),
-          "The team creator retains a pinned grant",
-        );
-    }
-    const apiToken = process.env.MILL_VERIFY_POLICY_API_TOKEN;
-    const oauthToken = process.env.MILL_VERIFY_POLICY_OAUTH_TOKEN;
-    for (const token of [apiToken, oauthToken])
-      assert.ok(
-        typeof token === "string" && /^mill_[A-Za-z0-9_-]{43}$/.test(token),
-        "Supply policy checkpoint tokens through private environment variables",
-      );
-    await request("/api/boards", "GET", undefined, 401, new Map(), {
-      Authorization: `Bearer ${apiToken}`,
-    });
-    await request("/mcp", "POST", {}, 401, new Map(), {
-      Authorization: `Bearer ${apiToken}`,
-    });
-    await request("/api/boards", "GET", undefined, 403, new Map(), {
-      Authorization: `Bearer ${oauthToken}`,
-    });
-    const policyCredentials = (await request("/api/credentials")).items;
-    const oldApi = policyCredentials.find(
-      (item) => item.id === legacy.policyApiCredentialId,
-    );
-    assert.ok(oldApi?.revokedAt, "The existing bound personal key is revoked");
-    assert.equal(oldApi.agentId, null);
-    assert.equal(oldApi.boardIds, null);
-    assert.deepEqual(oldApi.scopes, []);
-    const oldOAuth = policyCredentials.find(
-      (item) => item.id === legacy.policyOAuthCredentialId,
-    );
-    assert.equal(oldOAuth?.tokenType, "oauth");
-    assert.equal(oldOAuth?.agentId, legacy.policyAgentId);
-    assert.equal(oldOAuth?.revokedAt, null);
-    const policyTransport = { id: 0, protocolVersion: undefined };
-    const initialization = await mcpRequest(
-      oauthToken,
-      policyTransport,
-      "initialize",
-      {
-        protocolVersion: "2025-11-25",
-        capabilities: {},
-        clientInfo: { name: "policy-checkpoint", version: "1" },
-      },
-    );
-    policyTransport.protocolVersion = initialization.protocolVersion;
-    await mcpRequest(
-      oauthToken,
-      policyTransport,
-      "notifications/initialized",
-      undefined,
-      true,
-    );
-    const taskId = legacy.policyTaskId ?? state.taskId;
-    const read = await mcpRequest(oauthToken, policyTransport, "tools/call", {
-      name: "get_task",
-      arguments: { taskId },
-    });
-    assert.equal(
-      read.isError,
-      false,
-      "An existing selected-Agent OAuth connection remains usable through MCP",
-    );
-    assert.equal(read.structuredContent.task.id, taskId);
-    pass(
-      "Existing Agents and selected OAuth remain usable; legacy bound personal keys stay revoked and unbound",
-    );
-  }
-  if (process.env.MILL_VERIFY_AGENT_UPGRADE_STATE)
-    assert.equal(
-      (await request("/api/agents")).items.length,
-      legacy.policyAgentIds?.length ?? 0,
-      "Rejected legacy credentials and consent cannot create Agents",
-    );
-  pass("Legacy Agent credentials, consent and cached retries remain terminal");
-}
-if (!state.agentId) {
-  const { agent } = await request(
-    "/api/agents",
-    "POST",
-    { name: "Installation personal Agent", scope: "personal" },
-    201,
-  );
-  const { agent: team } = await request(
-    "/api/agents",
-    "POST",
-    {
-      name: "Installation team Agent",
-      scope: "team",
-      memberIds: [owner.id, state.memberId],
-    },
-    201,
-  );
-  const detail = await request(`/api/tasks/${state.taskId}`);
-  await request(`/api/tasks/${state.taskId}`, "PATCH", {
-    version: detail.task.version,
-    assigneeId: owner.id,
-    agentId: agent.id,
-  });
-  state.agentId = agent.id;
-  state.teamAgentId = team.id;
-  state.ownerId = owner.id;
+async function saveState() {
   await writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
 }
-if (!state.allMembersAgentId) {
-  const { agent } = await request(
-    "/api/agents",
+state.ownerId ??= owner.id;
+const currentTask = (await request(`/api/tasks/${state.taskId}`)).task;
+if (currentTask.assigneeId !== owner.id)
+  await request(`/api/tasks/${state.taskId}`, "PATCH", {
+    version: currentTask.version,
+    assigneeId: owner.id,
+  });
+if (!state.futureBoardId) {
+  const { board } = await request(
+    "/api/boards",
     "POST",
-    {
-      name: "Installation all-members Agent",
-      scope: "team",
-      allMembers: true,
-      memberIds: [owner.id],
-    },
+    { name: "Future board", prefix: "FUTURE" },
     201,
+    cookies,
+    { "Idempotency-Key": "install-future-board" },
   );
+  state.futureBoardId = board.id;
+  await saveState();
+}
+const futureCookies = new Map();
+if (!state.futureMemberId) {
   const invitation = await request(
     "/api/auth/invitations",
     "POST",
-    {
-      email: "install-future-member@example.invalid",
-      role: "member",
-    },
+    { email: "install-future-member@example.invalid", role: "member" },
     201,
   );
-  const futureCookies = new Map();
   const accepted = await request(
     "/api/auth/accept-invitation",
     "POST",
     {
-      token: invitation.token,
+      token: invitation.token ?? invitation.invitation?.token,
       name: "Install future member",
       password,
     },
     201,
     futureCookies,
   );
-  const directory = await request(
-    "/api/agents",
-    "GET",
-    undefined,
+  state.futureMemberId = accepted.user.id;
+  await saveState();
+} else {
+  await request(
+    "/api/auth/login",
+    "POST",
+    { email: "install-future-member@example.invalid", password },
     200,
     futureCookies,
   );
-  const accessible = directory.items.find((item) => item.id === agent.id);
-  assert.equal(accessible?.allMembers, true);
-  assert.ok(
-    !accessible.memberIds.includes(accepted.user.id),
-    "Future team access does not require an individual grant",
-  );
+}
+if (!state.futureTaskId) {
   const { task } = await request(
-    `/api/boards/${state.boardId}/tasks`,
+    `/api/boards/${state.futureBoardId}/tasks`,
     "POST",
     {
-      title: "Persist future member all-members assignment",
-      assigneeId: accepted.user.id,
-      agentId: agent.id,
+      title: "Persist future member assignment",
+      assigneeId: state.futureMemberId,
     },
     201,
     futureCookies,
+    { "Idempotency-Key": "install-future-member-task" },
   );
-  assert.equal(task.agentId, agent.id);
-  state.allMembersAgentId = agent.id;
-  state.futureMemberId = accepted.user.id;
-  state.futureAgentTaskId = task.id;
-  await writeFile(stateFile, JSON.stringify(state, null, 2), { mode: 0o600 });
-  pass(
-    "An all-members team Agent gives a future accepted human member current access without an individual grant",
-  );
+  state.futureTaskId = task.id;
+  await saveState();
 }
-const availableAgents = await request("/api/agents");
-const personalAgent = availableAgents.items.find(
-  (item) => item.id === state.agentId,
-);
-const teamAgent = availableAgents.items.find(
-  (item) => item.id === state.teamAgentId,
-);
-assert.equal(personalAgent?.scope, "personal");
-assert.equal(personalAgent?.creatorId, state.ownerId);
-assert.equal(teamAgent?.scope, "team");
-assert.deepEqual(
-  new Set(teamAgent.memberIds),
-  new Set([state.ownerId, state.memberId]),
-);
-const allMembersAgent = availableAgents.items.find(
-  (item) => item.id === state.allMembersAgentId,
-);
-assert.equal(allMembersAgent?.allMembers, true);
-assert.ok(!allMembersAgent.memberIds.includes(state.futureMemberId));
-const futureTask = await request(`/api/tasks/${state.futureAgentTaskId}`);
-assert.equal(futureTask.task.agentId, state.allMembersAgentId);
+const futureTask = await request(`/api/tasks/${state.futureTaskId}`);
+assert.equal(futureTask.task.boardId, state.futureBoardId);
 assert.equal(futureTask.task.assigneeId, state.futureMemberId);
 assert.ok(
   (await request("/api/auth/members")).items.some(
     (member) => member.id === state.futureMemberId && member.role === "member",
   ),
 );
-pass("Explicit personal and team Agents with current human grants persist");
+pass("Future boards and members retain human task assignments");
+const statuses = [
+  "backlog",
+  "todo",
+  "in_progress",
+  "in_review",
+  "done",
+  "wont_do",
+];
+state.statusTaskIds ??= {};
+for (const status of statuses) {
+  if (!state.statusTaskIds[status]) {
+    const { task } = await request(
+      `/api/boards/${state.boardId}/tasks`,
+      "POST",
+      { title: `Persist ${status} task`, status },
+      201,
+      cookies,
+      { "Idempotency-Key": `install-status-${status}` },
+    );
+    state.statusTaskIds[status] = task.id;
+    await saveState();
+  }
+  const { task } = await request(`/api/tasks/${state.statusTaskIds[status]}`);
+  assert.equal(task.status, status);
+  const filtered = await request(
+    `/api/boards/${state.boardId}/tasks?status=${status}&limit=100`,
+  );
+  assert.ok(filtered.items.some((item) => item.id === task.id));
+  assert.ok(filtered.items.every((item) => item.status === status));
+}
+pass(
+  "All six fixed statuses persist and explicit status filters remain accurate",
+);
+if (!state.deletedBoardId) {
+  const { board } = await request(
+    "/api/boards",
+    "POST",
+    { name: "Disposable deletion evidence", prefix: "DELSMOKE" },
+    201,
+    cookies,
+    { "Idempotency-Key": "install-deleted-board" },
+  );
+  const { task } = await request(
+    `/api/boards/${board.id}/tasks`,
+    "POST",
+    { title: "Deleted board task" },
+    201,
+  );
+  const { comment } = await request(
+    `/api/tasks/${task.id}/comments`,
+    "POST",
+    { body: "Deleted with its board." },
+    201,
+  );
+  await request(`/api/boards/${board.id}`, "DELETE", {
+    version: board.version,
+  });
+  state.deletedBoardId = board.id;
+  state.deletedTaskId = task.id;
+  state.deletedCommentId = comment.id;
+  await saveState();
+}
+for (const path of [
+  `/api/boards/${state.deletedBoardId}`,
+  `/api/tasks/${state.deletedTaskId}`,
+  `/api/tasks/${state.deletedTaskId}/comments`,
+])
+  await request(path, "GET", undefined, 404);
+const deletedRetry = await request(
+  "/api/boards",
+  "POST",
+  { name: "Disposable deletion evidence", prefix: "DELSMOKE" },
+  410,
+  cookies,
+  { "Idempotency-Key": "install-deleted-board" },
+);
+assert.equal(deletedRetry.code, "retry_invalidated");
+assert.ok(
+  !(await request("/api/boards?limit=100")).items.some(
+    (board) => board.id === state.deletedBoardId,
+  ),
+);
+pass(
+  "Board deletion removes task/comment work and its create retry remains terminal",
+);
 const { task, comments } = await request(`/api/tasks/${state.taskId}`);
-assert.equal(task.agentId, state.agentId);
-assert.equal(task.agentName, personalAgent.name);
 assert.equal(task.assigneeId, state.ownerId);
 if (state.oauthCredentialId) {
   const listed = await request("/api/credentials");
   const metadata = listed.items.find(
     (item) => item.id === state.oauthCredentialId,
   );
-  assert.equal(metadata?.agentId, state.agentId);
-  assert.equal(metadata?.agentName, personalAgent.name);
   assert.equal(metadata?.tokenType, "oauth");
   assert.equal(metadata?.oauthClientId, state.oauthClientId);
   assert.equal(metadata?.revokedAt, null);
+  assert.deepEqual(metadata?.boardIds, [state.boardId]);
+  assert.equal("agentId" in metadata, false);
+  assert.equal("agentName" in metadata, false);
 }
-if (state.agentTaskId) {
-  const persistedAgentTask = await request(`/api/tasks/${state.agentTaskId}`);
-  assert.equal(persistedAgentTask.task.agentId, state.agentId);
-  assert.equal(persistedAgentTask.task.assigneeId, state.ownerId);
-}
-if (state.agentOnlyTaskId) {
-  const persistedAgentOnlyTask = await request(
-    `/api/tasks/${state.agentOnlyTaskId}`,
+if (
+  process.env.MILL_VERIFY_MODE !== "fresh" &&
+  state.oauthCredentialId &&
+  process.env.MILL_VERIFY_OAUTH_TOKEN_FILE
+) {
+  const retainedToken = await readFile(
+    process.env.MILL_VERIFY_OAUTH_TOKEN_FILE,
+    "utf8",
   );
-  assert.equal(persistedAgentOnlyTask.task.agentId, state.agentId);
-  assert.equal(persistedAgentOnlyTask.task.assigneeId, null);
-  assert.equal("checklist" in persistedAgentOnlyTask.task, false);
-}
-if (state.restKeyTaskId) {
-  const persistedRestTask = await request(`/api/tasks/${state.restKeyTaskId}`);
-  assert.equal(persistedRestTask.task.agentId, null);
-  const events = await request(`/api/tasks/${state.restKeyTaskId}/activity`);
-  assert.ok(
-    events.items.some(
-      (event) => event.actorKind === "human" && event.actorName === owner.name,
-    ),
+  const retainedTransport = { id: 0, protocolVersion: undefined };
+  const retainedInit = await mcpRequest(
+    retainedToken,
+    retainedTransport,
+    "initialize",
+    {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "mill-restored-client", version: "1.0.0" },
+    },
+  );
+  retainedTransport.protocolVersion = retainedInit.protocolVersion;
+  await mcpRequest(
+    retainedToken,
+    retainedTransport,
+    "notifications/initialized",
+    undefined,
+    true,
+  );
+  const retainedRead = await mcpRequest(
+    retainedToken,
+    retainedTransport,
+    "tools/call",
+    {
+      name: "get_task",
+      arguments: { taskId: state.taskId },
+    },
+  );
+  assert.equal(retainedRead.isError, false);
+  assert.equal(retainedRead.structuredContent.task.id, state.taskId);
+  const retainedOutside = await mcpRequest(
+    retainedToken,
+    retainedTransport,
+    "tools/call",
+    {
+      name: "get_board",
+      arguments: { boardId: state.futureBoardId },
+    },
+  );
+  assert.equal(retainedOutside.isError, true);
+  pass(
+    "The existing OAuth token survives restart or backup restore at its original resource origin and retains its board restriction",
   );
 }
-const history = await request(`/api/tasks/${state.taskId}/activity`);
-assert.ok(
-  history.items.some(
-    (item) =>
-      item.action === "task.created" &&
-      item.actorKind === "human" &&
-      item.actorName === "Install verifier",
-  ),
-  "Persisted task creation history remains readable",
-);
-await removedRoute("/api/audit");
-pass(
-  "Task actions history remains readable and workspace Audit is unavailable",
-);
-const deepLink = await fetch(
-  `${origin}/boards/${state.boardId}/tasks/${state.taskId}`,
-  { signal: AbortSignal.timeout(10_000) },
-);
-assert.equal(deepLink.status, 200);
-assert.match(deepLink.headers.get("content-type") ?? "", /text\/html/);
-assert.match(
-  deepLink.headers.get("content-security-policy") ?? "",
-  /frame-ancestors/,
-);
-assert.equal(task.title, "Persist through restart and recovery");
-assert.equal(task.boardId, state.boardId);
-assert.equal(task.status, "todo");
-assert.equal(task.description, "A **real** task in the production container.");
-assert.equal(task.priority, "high");
-for (const name of ["columnId", "labels", "parentId", "position", "checklist"])
+if (state.mcpTaskId) {
+  const persisted = await request(`/api/tasks/${state.mcpTaskId}`);
+  assert.equal(persisted.task.assigneeId, state.ownerId);
+  const events = await request(`/api/tasks/${state.mcpTaskId}/activity`);
+  assert.ok(events.items.some((event) => event.actorKind === "oauth"));
+}
+if (state.mcpUnassignedTaskId) {
+  const persisted = await request(`/api/tasks/${state.mcpUnassignedTaskId}`);
+  assert.equal(persisted.task.assigneeId, null);
+}
+for (const name of [
+  "agentId",
+  "agentName",
+  "columnId",
+  "labels",
+  "parentId",
+  "position",
+  "checklist",
+])
   assert.equal(name in task, false, `Removed task field ${name} is absent`);
 assert.ok(
   comments.some(
@@ -691,14 +536,12 @@ assert.ok(
 pass(
   "Persisted task descriptions/comments and credential-free membership are readable",
 );
-if (
-  process.env.MILL_VERIFY_MODE === "fresh" ||
-  process.env.MILL_VERIFY_MODE === "agents" ||
-  process.env.MILL_VERIFY_AGENT_UPGRADE_STATE ||
-  process.env.MILL_VERIFY_AGENT_RESTORE_STATE ||
-  process.env.MILL_VERIFY_UPGRADE_STATE
-) {
+if (process.env.MILL_VERIFY_MODE === "fresh") {
   for (const [path, method, data] of [
+    ["/api/agents", "GET"],
+    ["/api/agents", "POST", { name: "Removed" }],
+    [`/api/agents/${state.taskId}`, "PATCH", { version: 1, name: "Removed" }],
+    [`/api/agents/${state.taskId}`, "DELETE", { version: 1 }],
     [
       `/api/comments/${state.commentId}`,
       "PATCH",
@@ -722,6 +565,7 @@ if (
   ])
     await removedRoute(path, method, data);
   for (const [field, value] of [
+    ["agentId", state.ownerId],
     ["columnId", state.taskId],
     ["labels", ["removed"]],
     ["parentId", state.taskId],
@@ -760,6 +604,7 @@ if (
     400,
   );
   for (const query of [
+    `agentId=${state.ownerId}`,
     `columnId=${state.taskId}`,
     "label=removed",
     `parentId=${state.taskId}`,
@@ -797,7 +642,8 @@ if (
     },
     201,
   );
-  assert.equal(external.credential.agentId, null);
+  assert.equal("agentId" in external.credential, false);
+  assert.equal("agentName" in external.credential, false);
   assert.equal(external.credential.boardIds, null);
   assert.deepEqual(external.credential.scopes, []);
   await request("/mcp", "POST", {}, 403, new Map(), {
@@ -842,9 +688,6 @@ if (
   const transport = { id: 0, protocolVersion: undefined };
   try {
     {
-      const agentsBefore = (await request("/api/agents")).items.map(
-        (item) => item.id,
-      );
       const redirect = `${origin}/installation-oauth-callback`;
       const resource = `${origin}/mcp`;
       const verifier = randomBytes(32).toString("base64url");
@@ -853,7 +696,7 @@ if (
         "/oauth/register",
         "POST",
         {
-          client_name: "Installation OAuth Agent",
+          client_name: "Installation OAuth client",
           redirect_uris: [redirect],
           token_endpoint_auth_method: "none",
         },
@@ -869,20 +712,30 @@ if (
       ).searchParams.get("request");
       assert.ok(requestId);
       const details = await request(`/api/oauth/consent/${requestId}`);
-      assert.equal(details.requiresAgent, true);
-      assert.ok(details.agents.some((agent) => agent.id === state.agentId));
+      assert.equal("requiresAgent" in details, false);
+      assert.equal("agents" in details, false);
+      assert.equal(details.clientName, "Installation OAuth client");
+      assert.equal(details.scope, "read write");
+      assert.equal(details.canApprove, true);
+      assert.ok(
+        (await request("/api/boards?limit=100")).items.some(
+          (board) => board.id === state.boardId,
+        ),
+      );
       await request(
         `/api/oauth/consent/${requestId}`,
         "POST",
-        { allow: true },
-        403,
+        {
+          allow: true,
+          agentId: state.ownerId,
+        },
+        400,
       );
       const decision = await request(
         `/api/oauth/consent/${requestId}`,
         "POST",
         {
           allow: true,
-          agentId: state.agentId,
           boardIds: [state.boardId],
         },
       );
@@ -905,7 +758,7 @@ if (
       assert.equal(
         response.status,
         200,
-        "Selected-Agent PKCE exchange succeeds",
+        "Human-authorized PKCE exchange succeeds",
       );
       const issued = await response.json();
       assert.ok(
@@ -938,19 +791,22 @@ if (
         { name: "get_task", arguments: { taskId: state.taskId } },
       );
       assert.equal(oauthRead.isError, false);
-      assert.equal(oauthRead.structuredContent.task.agentId, state.agentId);
+      assert.equal("agentId" in oauthRead.structuredContent.task, false);
       const metadata = (await request("/api/credentials")).items.find(
         (item) => item.oauthClientId === client.client_id,
       );
-      assert.equal(metadata?.agentId, state.agentId);
-      assert.equal(metadata?.agentName, personalAgent.name);
       assert.equal(metadata?.tokenType, "oauth");
-      assert.deepEqual(
-        (await request("/api/agents")).items.map((item) => item.id),
-        agentsBefore,
-        "OAuth never creates an Agent",
-      );
+      assert.deepEqual(metadata?.boardIds, [state.boardId]);
+      assert.deepEqual(metadata?.scopes, ["read", "write"]);
+      assert.equal("agentId" in metadata, false);
+      assert.equal("agentName" in metadata, false);
       mcpToken = issued.access_token;
+      if (process.env.MILL_VERIFY_OAUTH_TOKEN_FILE)
+        await writeFile(
+          process.env.MILL_VERIFY_OAUTH_TOKEN_FILE,
+          issued.access_token,
+          { mode: 0o600 },
+        );
       oauthCredentialId = metadata.id;
       if (!state.oauthCredentialId) {
         state.oauthCredentialId = metadata.id;
@@ -960,7 +816,7 @@ if (
         mode: 0o600,
       });
       pass(
-        "Actual selected-Agent OAuth consent, PKCE exchange and MCP retain bound metadata for backup",
+        "Human OAuth consent, PKCE exchange and MCP retain approved boards and client metadata for backup",
       );
     }
     const initialized = await mcpRequest(mcpToken, transport, "initialize", {
@@ -985,12 +841,13 @@ if (
     );
     const { tools } = await mcpRequest(mcpToken, transport, "tools/list", {});
     assert.ok(tools.some((item) => item.name === "update_task"));
-    assert.ok(tools.some((item) => item.name === "list_agents"));
     assert.ok(
       !tools.some((item) => item.name === "create_board"),
       "Board-restricted MCP cannot create workspace boards",
     );
     for (const name of [
+      "list_agents",
+      "get_agent",
       "create_agent",
       "update_agent",
       "delete_agent",
@@ -1012,7 +869,7 @@ if (
     for (const name of ["create_task", "update_task"]) {
       const tool = tools.find((item) => item.name === name);
       assert.ok(tool);
-      assert.ok("agentId" in tool.inputSchema.properties);
+      assert.equal("agentId" in tool.inputSchema.properties, false);
       assert.deepEqual(tool.inputSchema.properties.status.enum, [
         "backlog",
         "todo",
@@ -1037,55 +894,200 @@ if (
     });
     assert.ok(!read.isError);
     assert.equal(read.structuredContent.task.status, "todo");
-    assert.equal(read.structuredContent.task.agentId, state.agentId);
-    if (!state.agentTaskId) {
-      const createdAgentTask = await mcpRequest(
-        mcpToken,
-        transport,
+    assert.equal("agentId" in read.structuredContent.task, false);
+    for (const [field, title, assigneeId] of [
+      ["mcpTaskId", "Persist MCP human assignment", state.ownerId],
+      ["mcpUnassignedTaskId", "Persist unassigned MCP task", null],
+    ]) {
+      if (state[field]) continue;
+      const created = await mcpRequest(mcpToken, transport, "tools/call", {
+        name: "create_task",
+        arguments: {
+          boardId: state.boardId,
+          title,
+          assigneeId,
+          idempotencyKey: `install-${field}`,
+        },
+      });
+      assert.equal(created.isError, false);
+      assert.equal(created.structuredContent.task.assigneeId, assigneeId);
+      assert.equal("agentId" in created.structuredContent.task, false);
+      state[field] = created.structuredContent.task.id;
+      await saveState();
+    }
+    const visibleBoards = await mcpRequest(mcpToken, transport, "tools/call", {
+      name: "list_boards",
+      arguments: {},
+    });
+    assert.equal(visibleBoards.isError, false);
+    assert.deepEqual(
+      visibleBoards.structuredContent.items.map((item) => item.id),
+      [state.boardId],
+    );
+    const outside = await mcpRequest(mcpToken, transport, "tools/call", {
+      name: "get_board",
+      arguments: { boardId: state.futureBoardId },
+    });
+    assert.equal(
+      outside.isError,
+      true,
+      "The OAuth-approved board selection remains narrower than workspace access",
+    );
+    await request(
+      `/api/boards/${state.boardId}`,
+      "GET",
+      undefined,
+      403,
+      new Map(),
+      { Authorization: `Bearer ${mcpToken}` },
+    );
+    const outsideWrite = await mcpRequest(mcpToken, transport, "tools/call", {
+      name: "create_task",
+      arguments: {
+        boardId: state.futureBoardId,
+        title: "Rejected outside OAuth approval",
+      },
+    });
+    assert.equal(outsideWrite.isError, true);
+    const history = await request(`/api/tasks/${state.mcpTaskId}/activity`);
+    assert.ok(history.items.some((event) => event.actorKind === "oauth"));
+    pass(
+      "OAuth-approved boards restrict reads and writes; MCP retains human assignments and client attribution",
+    );
+    const readonlyRedirect = `${origin}/installation-readonly-callback`;
+    const readonlyClient = await request(
+      "/oauth/register",
+      "POST",
+      {
+        client_name: "Installation read-only client",
+        redirect_uris: [readonlyRedirect],
+        token_endpoint_auth_method: "none",
+      },
+      201,
+    );
+    const readonlyVerifier = randomBytes(32).toString("base64url");
+    const readonlyAuthorization = await fetch(
+      `${origin}/oauth/authorize?${new URLSearchParams({
+        client_id: readonlyClient.client_id,
+        redirect_uri: readonlyRedirect,
+        resource: `${origin}/mcp`,
+        response_type: "code",
+        scope: "read",
+        state: "readonly-install",
+        code_challenge_method: "S256",
+        code_challenge: createHash("sha256")
+          .update(readonlyVerifier)
+          .digest("base64url"),
+      })}`,
+      { redirect: "manual", signal: AbortSignal.timeout(15000) },
+    );
+    assert.equal(readonlyAuthorization.status, 302);
+    const readonlyRequestId = new URL(
+      readonlyAuthorization.headers.get("location"),
+    ).searchParams.get("request");
+    const readonlyDecision = await request(
+      `/api/oauth/consent/${readonlyRequestId}`,
+      "POST",
+      {
+        allow: true,
+        boardIds: [state.boardId],
+      },
+    );
+    const readonlyExchange = await fetch(`${origin}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: readonlyClient.client_id,
+        redirect_uri: readonlyRedirect,
+        resource: `${origin}/mcp`,
+        grant_type: "authorization_code",
+        code: new URL(readonlyDecision.redirectTo).searchParams.get("code"),
+        code_verifier: readonlyVerifier,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    assert.equal(readonlyExchange.status, 200);
+    const readonlyIssued = await readonlyExchange.json();
+    const readonlyMetadata = (await request("/api/credentials")).items.find(
+      (item) => item.oauthClientId === readonlyClient.client_id,
+    );
+    assert.deepEqual(readonlyMetadata.scopes, ["read"]);
+    const readonlyTransport = { id: 0, protocolVersion: undefined };
+    try {
+      const initializedReadonly = await mcpRequest(
+        readonlyIssued.access_token,
+        readonlyTransport,
+        "initialize",
+        {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "mill-install-readonly", version: "1.0.0" },
+        },
+      );
+      readonlyTransport.protocolVersion = initializedReadonly.protocolVersion;
+      await mcpRequest(
+        readonlyIssued.access_token,
+        readonlyTransport,
+        "notifications/initialized",
+        undefined,
+        true,
+      );
+      const readable = await mcpRequest(
+        readonlyIssued.access_token,
+        readonlyTransport,
+        "tools/call",
+        {
+          name: "get_task",
+          arguments: { taskId: state.taskId },
+        },
+      );
+      assert.equal(readable.isError, false);
+      const readonlyTools = await mcpRequest(
+        readonlyIssued.access_token,
+        readonlyTransport,
+        "tools/list",
+        {},
+      );
+      assert.equal(
+        readonlyTools.tools.some((item) => item.name === "create_task"),
+        false,
+      );
+      await mcpRequest(
+        readonlyIssued.access_token,
+        readonlyTransport,
         "tools/call",
         {
           name: "create_task",
           arguments: {
             boardId: state.boardId,
-            title: "Persist explicit MCP Agent assignment",
-            assigneeId: state.ownerId,
-            agentId: state.agentId,
-            idempotencyKey: "install-explicit-agent-task",
+            title: "Rejected read-only write",
           },
         },
+        false,
+        403,
       );
-      assert.equal(createdAgentTask.isError, false);
-      assert.equal(
-        createdAgentTask.structuredContent.task.agentId,
-        state.agentId,
-      );
-      assert.equal(
-        createdAgentTask.structuredContent.task.assigneeId,
-        state.ownerId,
-      );
-      state.agentTaskId = createdAgentTask.structuredContent.task.id;
-      await writeFile(stateFile, JSON.stringify(state, null, 2), {
-        mode: 0o600,
-      });
+    } finally {
+      await request(`/api/credentials/${readonlyMetadata.id}`, "DELETE");
     }
-    if (process.env.MILL_VERIFY_MODE === "agents" && !state.agentOnlyTaskId) {
-      const agentOnly = await mcpRequest(mcpToken, transport, "tools/call", {
-        name: "create_task",
-        arguments: {
-          boardId: state.boardId,
-          title: "Persist Agent-only MCP assignment",
-          agentId: state.agentId,
-          idempotencyKey: "install-agent-only-task",
-        },
-      });
-      assert.equal(agentOnly.isError, false);
-      assert.equal(agentOnly.structuredContent.task.agentId, state.agentId);
-      assert.equal(agentOnly.structuredContent.task.assigneeId, null);
-      state.agentOnlyTaskId = agentOnly.structuredContent.task.id;
-      await writeFile(stateFile, JSON.stringify(state, null, 2), {
-        mode: 0o600,
-      });
-    }
+    const revoked = await fetch(`${origin}/mcp`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${readonlyIssued.access_token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {},
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+    assert.equal(revoked.status, 401);
+    pass(
+      "Read-only OAuth omits mutation tools, rejects direct writes, and revocation invalidates the bearer token",
+    );
     const rejected = await mcpRequest(mcpToken, transport, "tools/call", {
       name: "create_task",
       arguments: {
@@ -1104,33 +1106,6 @@ if (
       ).isError,
       true,
     );
-    if (process.env.MILL_VERIFY_UPGRADE_STATE) {
-      const upgrade = JSON.parse(
-        await readFile(process.env.MILL_VERIFY_UPGRADE_STATE, "utf8"),
-      );
-      const outsideMcp = await mcpRequest(mcpToken, transport, "tools/call", {
-        name: "get_board",
-        arguments: { boardId: upgrade.archivedBoardId },
-      });
-      assert.equal(
-        outsideMcp.isError,
-        true,
-        "Scoped Agent MCP cannot read another board",
-      );
-      const outside = await fetch(
-        `${origin}/api/boards/${upgrade.archivedBoardId}`,
-        {
-          headers: { Authorization: `Bearer ${mcpToken}` },
-          signal: AbortSignal.timeout(15_000),
-          redirect: "error",
-        },
-      );
-      assert.equal(
-        outside.status,
-        403,
-        "Agent OAuth credentials cannot use public REST",
-      );
-    }
   } finally {
     await request(`/api/credentials/${external.credential.id}`, "DELETE");
     if (oauthCredentialId && oauthCredentialId !== state.oauthCredentialId)
@@ -1139,166 +1114,4 @@ if (
   pass(
     "Removed structure, ranking, import/export and email preferences are rejected; real scoped MCP advertises fixed statuses and rejects obsolete capabilities",
   );
-}
-if (process.env.MILL_VERIFY_UPGRADE_STATE) {
-  const upgrade = JSON.parse(
-    await readFile(process.env.MILL_VERIFY_UPGRADE_STATE, "utf8"),
-  );
-  for (const name of [
-    "archivedBoardId",
-    "deletedBoardId",
-    "archivedColumnId",
-    "deletedColumnId",
-    "archivedTaskId",
-    "deletedParentId",
-    "deletedChildId",
-    "deletedBoardTaskId",
-  ])
-    assert.match(
-      upgrade[name],
-      /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/,
-    );
-  const archivedBoard = await request(`/api/boards/${upgrade.archivedBoardId}`);
-  assert.equal(archivedBoard.board.name, "Legacy archived board");
-  assert.equal("position" in archivedBoard.board, false);
-  const archived = await request(`/api/tasks/${upgrade.archivedTaskId}`);
-  assert.equal(archived.task.title, "Legacy archived task");
-  assert.ok(
-    archived.comments.some(
-      (comment) => comment.body === "Legacy migration content",
-    ),
-  );
-  if (upgrade.taskHistory) {
-    assert.equal(upgrade.taskHistory.length, 3);
-    const migratedHistory = await request(
-      `/api/tasks/${upgrade.archivedTaskId}/activity?limit=100`,
-    );
-    for (const event of upgrade.taskHistory) {
-      assert.equal(event.task_id, upgrade.archivedTaskId);
-      assert.equal(event.board_id, upgrade.archivedBoardId);
-      assert.deepEqual(
-        migratedHistory.items.find((item) => item.id === event.id),
-        {
-          id: event.id,
-          taskId: event.task_id,
-          boardId: event.board_id,
-          actorId: event.actor_id,
-          actorName: event.actor_name,
-          actorKind: event.actor_kind,
-          action: event.action,
-          detail: event.detail,
-          createdAt: new Date(event.created_at).toISOString(),
-        },
-        "Task history preserves actor attribution, action, details and time",
-      );
-    }
-    assert.ok(
-      migratedHistory.items.some(
-        (item) =>
-          item.actorKind === "agent" &&
-          item.actorName === "Upgrade history agent",
-      ),
-    );
-    pass(
-      "Migrated human and agent task actions retain complete history through the API",
-    );
-  }
-  const deletedIds = [
-    upgrade.deletedParentId,
-    upgrade.deletedChildId,
-    upgrade.deletedBoardTaskId,
-  ];
-  for (const id of deletedIds) {
-    await request(`/api/tasks/${id}`, "GET", undefined, 404);
-    await request(`/api/tasks/${id}/comments`, "GET", undefined, 404);
-  }
-  await request(`/api/boards/${upgrade.deletedBoardId}`, "GET", undefined, 404);
-  assert.match(upgrade.legacyRetry.key, /^[A-Za-z0-9._:-]{8,128}$/);
-  assert.deepEqual(upgrade.legacyRetry.body, {
-    name: "Legacy deleted board",
-    prefix: "DELUP",
-  });
-  const retry = await request(
-    "/api/boards",
-    "POST",
-    upgrade.legacyRetry.body,
-    410,
-    cookies,
-    { "Idempotency-Key": upgrade.legacyRetry.key },
-  );
-  assert.equal(retry.code, "retry_invalidated");
-  const afterRetry = await request("/api/boards?limit=100");
-  assert.ok(!afterRetry.items.some((board) => board.prefix === "DELUP"));
-  pass(
-    "Migrated archived work remains usable; deleted work stays absent and its stale create retry returns terminal 410 without recreation",
-  );
-  if (upgrade.simplification) {
-    const simplified = upgrade.simplification;
-    assert.equal(simplified.tasks.length, 7);
-    const foundStatuses = new Set();
-    for (const expected of simplified.tasks) {
-      const details = await request(
-        `/api/tasks/${expected.id}?commentLimit=100&activityLimit=100`,
-      );
-      const { checklist: retiredChecklist, ...activeExpected } = expected;
-      assert.ok(
-        Array.isArray(retiredChecklist) && retiredChecklist.length > 0,
-        "Legacy checklist fixture is retained for private migration checks",
-      );
-      preservedRecord(details.task, activeExpected);
-      for (const field of [
-        "columnId",
-        "labels",
-        "parentId",
-        "position",
-        "checklist",
-      ])
-        assert.equal(field in details.task, false);
-      foundStatuses.add(details.task.status);
-      for (const comment of simplified.comments.filter(
-        (item) => item.task_id === expected.id,
-      ))
-        preservedRecord(
-          details.comments.find((item) => item.id === comment.id),
-          comment,
-        );
-      for (const event of simplified.activity.filter(
-        (item) => item.task_id === expected.id,
-      ))
-        preservedRecord(
-          details.activity.find((item) => item.id === event.id),
-          event,
-        );
-    }
-    assert.deepEqual(
-      [...foundStatuses].sort(),
-      ["backlog", "todo", "in_progress", "in_review", "done", "wont_do"].sort(),
-    );
-    const listed = await request(
-      `/api/boards/${simplified.boardId}/tasks?limit=100`,
-    );
-    assert.ok(
-      listed.items.some((item) => item.id === simplified.formerChildId),
-      "Former subtask is independently listed",
-    );
-    assert.equal(listed.items.length, 7);
-    assert.ok(listed.items.every((item) => !("checklist" in item)));
-    const obsoleteRetry = await request(
-      simplified.retry.path,
-      "POST",
-      simplified.retry.body,
-      410,
-      cookies,
-      { "Idempotency-Key": simplified.retry.key },
-    );
-    assert.equal(obsoleteRetry.code, "retry_invalidated");
-    assert.equal(
-      (await request(`/api/boards/${simplified.boardId}/tasks?limit=100`)).items
-        .length,
-      7,
-    );
-    pass(
-      "All six statuses, independent former subtasks and exact descriptions/comments/history survive; legacy task retries return terminal410",
-    );
-  }
 }

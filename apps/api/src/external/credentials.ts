@@ -4,14 +4,12 @@ import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest } from "../http.js";
 import { HTTPException } from "hono/http-exception";
 import type { Tx } from "../domain/helpers.js";
-import { findAccessibleAgent, lockAgentAuthority } from "../agents.js";
+import { lockAuthority } from "../authority.js";
 import { digest, mcpResource, secret } from "./protocol.js";
 
 export type Credential = {
   id: string;
   userId: string;
-  agentId: string | null;
-  agentName: string | null;
   name: string;
   tokenPrefix: string;
   scopes: string[];
@@ -43,7 +41,7 @@ export async function listCredentials(
     badRequest("This credential cursor does not belong to your account");
   const rows = await sql<
     Credential[]
-  >`SELECT c.id,c.user_id,c.agent_id,g.name AS agent_name,c.name,c.token_prefix,c.scopes,c.board_ids,c.token_type,c.oauth_client_id,c.created_at,c.expires_at,c.last_used_at,c.revoked_at FROM credentials c LEFT JOIN agents g ON g.id=c.agent_id WHERE c.user_id=${a.userId} ${anchor ? sql`AND (c.created_at,c.id)<(SELECT created_at,id FROM credentials WHERE id=${anchor.id} AND user_id=${a.userId})` : sql``} ORDER BY c.created_at DESC,c.id DESC LIMIT ${limit + 1}`;
+  >`SELECT c.id,c.user_id,c.name,c.token_prefix,c.scopes,c.board_ids,c.token_type,c.oauth_client_id,c.created_at,c.expires_at,c.last_used_at,c.revoked_at FROM credentials c WHERE c.user_id=${a.userId} AND c.revoked_at IS NULL ${anchor ? sql`AND (c.created_at,c.id)<(SELECT created_at,id FROM credentials WHERE id=${anchor.id} AND user_id=${a.userId})` : sql``} ORDER BY c.created_at DESC,c.id DESC LIMIT ${limit + 1}`;
   const items = rows.slice(0, limit);
   const hasMore = rows.length > limit;
   return { items, hasMore, nextCursor: hasMore ? items.at(-1)!.id : null };
@@ -57,7 +55,7 @@ export async function validateBoards(boardIds: string[] | undefined, tx: Tx) {
 }
 export async function createCredential(a: Actor, input: CredentialInput) {
   return sql.begin(async (tx) => {
-    await lockAgentAuthority(tx);
+    await lockAuthority(tx);
     const [owner] = await tx<
       { role: Role }[]
     >`SELECT role FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
@@ -68,9 +66,9 @@ export async function createCredential(a: Actor, input: CredentialInput) {
     const token = `mill_${secret()}`;
     const [credential] = await tx<
       Credential[]
-    >`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,expires_at) VALUES(${a.userId},${input.name},${digest(token)},${token.slice(0, 12)},'{}'::text[],${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,agent_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
+    >`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,expires_at) VALUES(${a.userId},${input.name},${digest(token)},${token.slice(0, 12)},'{}'::text[],${new Date(Date.now() + input.expiresInDays * 86400000)}) RETURNING id,user_id,name,token_prefix,scopes,board_ids,token_type,oauth_client_id,created_at,expires_at,last_used_at,revoked_at`;
 
-    return { credential: { ...credential!, agentName: null }, token };
+    return { credential: credential!, token };
   });
 }
 export async function revokeCredential(a: Actor, id: string) {
@@ -90,7 +88,6 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
       id: string;
       name: string;
       userId: string;
-      agentId: string | null;
       userName: string;
       role: Role;
       scopes: string[];
@@ -99,33 +96,21 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
       resource: string | null;
       lastUsedAt: Date | null;
     }[]
-  >`SELECT c.id,c.name,c.user_id,c.agent_id,u.name AS user_name,u.role,c.scopes,c.board_ids,c.token_type,c.resource,c.last_used_at FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.token_hash=${digest(token)} AND c.revoked_at IS NULL AND c.expires_at>now() AND u.disabled_at IS NULL`;
+  >`SELECT c.id,c.name,c.user_id,u.name AS user_name,u.role,c.scopes,c.board_ids,c.token_type,c.resource,c.last_used_at FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.token_hash=${digest(token)} AND c.revoked_at IS NULL AND c.expires_at>now() AND u.disabled_at IS NULL`;
   if (!principal) return null;
   const url = new URL(request.url);
   let result: Actor;
   if (principal.tokenType === "api-key") {
-    if (
-      principal.agentId ||
-      principal.boardIds !== null ||
-      principal.scopes.length
-    )
-      return null;
+    if (principal.boardIds !== null || principal.scopes.length) return null;
     if (url.pathname === "/mcp")
       throw new HTTPException(403, {
-        message:
-          "Personal API keys use REST. Connect an Agent with OAuth for MCP.",
+        message: "Personal API keys use REST. Connect with OAuth for MCP.",
       });
-    const agentDirectory =
-      url.pathname === "/api/agents" &&
-      request.method === "GET" &&
-      (!url.searchParams.has("manage") ||
-        url.searchParams.get("manage") === "false");
     if (
       /^\/api\/(?:auth|oauth|credentials|workspace)(?:\/|$)/.test(
         url.pathname,
       ) ||
-      url.pathname.startsWith("/oauth/") ||
-      (/^\/api\/agents(?:\/|$)/.test(url.pathname) && !agentDirectory)
+      url.pathname.startsWith("/oauth/")
     )
       throw new HTTPException(403, {
         message: "Use a signed-in account for this action",
@@ -140,30 +125,24 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
       credentialType: "api-key",
     };
   } else if (principal.tokenType === "oauth") {
-    if (!principal.agentId || principal.resource !== mcpResource()) return null;
-    const agent = await findAccessibleAgent(
-      principal.userId,
-      principal.agentId,
-    );
-    if (!agent) return null;
+    if (principal.resource !== mcpResource()) return null;
     if (
       url.pathname !== "/mcp" &&
       !mcpDispatchRequests.has(request) &&
       mcpDispatchTokens.getStore() !== digest(token)
     )
       throw new HTTPException(403, {
-        message: "Agent OAuth credentials use MCP",
+        message: "OAuth credentials use MCP",
       });
     result = {
       userId: principal.userId,
-      agentId: agent.id,
-      name: `${agent.name} via ${principal.userName}`,
+      name: principal.userName,
       role: principal.role,
-      kind: "agent",
+      kind: "oauth",
       scopes: principal.scopes,
       credentialId: principal.id,
       credentialType: "oauth",
-      ...(principal.boardIds ? { boardIds: principal.boardIds } : {}),
+      boardIds: principal.boardIds ?? undefined,
     };
   } else return null;
   // A token never holds permissions beyond its owner's current membership.

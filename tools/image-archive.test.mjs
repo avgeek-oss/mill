@@ -10,7 +10,7 @@ import { inspectImageArchive } from "./image-archive.mjs";
 test("release archives bind platform, non-root user, tag, and image revision to the reviewed source", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mill-image-metadata-"));
   const revision = "a".repeat(40);
-  const version = "1.0.0-beta.1";
+  const version = "1.0.0";
   const expected = { version, revision, platform: "linux/arm64" };
   try {
     const config = Buffer.from(

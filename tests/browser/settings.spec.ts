@@ -15,6 +15,15 @@ import {
 import { Secret, TOTP } from "otpauth";
 import { getBrowserBootstrap } from "../browser-fixture.js";
 
+function feedbackToast(page: Page, message: string) {
+  return page
+    .locator(
+      '[data-slot="toast"]:not([data-exiting="true"]):not([data-hidden="true"])',
+    )
+    .filter({ hasText: message })
+    .last();
+}
+
 // Secret reveal steps must not enter automatic failure artifacts.
 process.env.PLAYWRIGHT_NO_COPY_PROMPT = "1";
 test.use({ trace: "off", screenshot: "off" });
@@ -81,9 +90,15 @@ async function choose(
 }
 async function accountAction(
   page: Page,
-  action: "Profile" | "Account security" | "Sign out",
+  action:
+    "Profile" | "Preferences" | "Auth & Security" | "My API Keys" | "Sign out",
 ) {
-  await page.getByRole("button", { name: /^Account menu for / }).click();
+  const trigger = page.getByRole("button", { name: /^Account menu for / });
+  if (!(await trigger.isVisible()))
+    await page
+      .getByRole("button", { name: "Open navigation", exact: true })
+      .click();
+  await trigger.click();
   await page
     .getByRole("menu")
     .getByRole("menuitem", { name: action, exact: true })
@@ -143,7 +158,7 @@ test.afterAll(async () => {
 
 test("profile preferences persist, UTC remains selectable, and a wrong current password leaves the session intact", async ({
   page,
-}) => {
+}, testInfo) => {
   const avatarRequests = new Set<string>();
   await page.route("https://www.gravatar.com/avatar/**", async (route) => {
     avatarRequests.add(route.request().url());
@@ -153,20 +168,54 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   await accountAction(page, "Profile");
   const avatar = page
     .getByRole("region", { name: "Profile details", exact: true })
-    .getByRole("img", { name: admin.name, exact: true });
+    .getByRole("link", {
+      name: "Edit Gravatar image (opens in a new tab)",
+      exact: true,
+    })
+    .locator('[data-slot="avatar"]');
   await expect(avatar).toBeVisible();
   await expect(avatar.getByText("CS", { exact: true })).toBeVisible();
   const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(admin.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
   await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
   await page.getByLabel("Name", { exact: true }).click();
   await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
-  await choose(page, "Time zone", "UTC");
+  await page.getByLabel("Name", { exact: true }).fill("Casey Profile Updated");
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect(feedbackToast(page, "Profile saved.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
+    "Casey Profile Updated",
+  );
+  await page.getByLabel("Name", { exact: true }).fill(admin.name);
+  await page.getByRole("button", { name: "Save profile", exact: true }).click();
+  await expect
+    .poll(async () => (await json(page.request, "/auth/me")).user.name)
+    .toBe(admin.name);
+  await page.getByLabel("Name", { exact: true }).fill("Unsaved profile draft");
+  await accountAction(page, "Preferences");
+  await page.getByRole("button", { name: /Time zone$/ }).click();
+  await page
+    .getByRole("searchbox", { name: "Search time zone" })
+    .fill("+05:30");
+  const colombo = page.getByRole("option", {
+    name: "Asia/Colombo",
+    exact: true,
+  });
+  await expect(colombo).toContainText("+05:30");
+  await colombo.click();
+  await expect(page.getByRole("button", { name: /Time zone$/ })).toContainText(
+    "+05:30",
+  );
+  await page.getByRole("button", { name: /Time zone$/ }).click();
+  await page.getByRole("searchbox", { name: "Search time zone" }).fill("UTC");
+  await expect(
+    page.getByRole("option", { name: "UTC", exact: true }),
+  ).toContainText("+00:00");
+  await page.getByRole("option", { name: "UTC", exact: true }).click();
   await page
     .getByRole("button", { name: "Save preferences", exact: true })
     .click();
-  await expect(
-    page.getByText("Preferences saved.", { exact: true }),
-  ).toBeVisible();
+  await expect(feedbackToast(page, "Preferences saved.")).toBeVisible();
   await expect(page.getByRole("checkbox", { name: /email/i })).toHaveCount(0);
   await expect(
     page.getByText("Email delivery is unavailable for this installation.", {
@@ -183,17 +232,12 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   await expect(
     page.getByRole("checkbox", { name: "Mentions in comments", exact: true }),
   ).toBeChecked();
-  await page.getByLabel("Name", { exact: true }).fill("Unsaved profile draft");
   await page
     .getByRole("button", { name: "Save notifications", exact: true })
     .click();
-  await expect(
-    page.getByText("Notifications saved.", { exact: true }),
-  ).toBeVisible();
+  await expect(feedbackToast(page, "Notifications saved.")).toBeVisible();
   expect((await json(page.request, "/auth/me")).user.name).toBe(admin.name);
-  await expect(page.getByLabel("Name", { exact: true })).toHaveValue(
-    "Unsaved profile draft",
-  );
+  await expect(page.getByLabel("Name", { exact: true })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("button", { name: /Time zone$/ })).toContainText(
     "UTC",
@@ -207,7 +251,67 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
     mentions: true,
   });
   expect(profile.user.timeZone).toBe("UTC");
-  await accountAction(page, "Account security");
+  const notifications = page.getByRole("region", {
+    name: "Notifications",
+    exact: true,
+  });
+  const checkbox = notifications.getByRole("checkbox", {
+    name: "Task assignments",
+    exact: true,
+  });
+  const originalTheme = await page.locator("html").getAttribute("data-theme");
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ["light", "dark"]) {
+      if ((await page.locator("html").getAttribute("data-theme")) !== theme) {
+        await page
+          .getByRole("button", {
+            name: new RegExp(`Appearance: switch to ${theme}`),
+          })
+          .click();
+      }
+      await expect(checkbox).not.toBeChecked();
+      const control = notifications
+        .locator('[data-slot="checkbox-control"]')
+        .first();
+      await expect
+        .poll(() =>
+          control.evaluate((element) => {
+            const background = getComputedStyle(element).backgroundColor;
+            const surface = getComputedStyle(
+              element.closest(".widget__content")!,
+            ).backgroundColor;
+            return background !== surface && background !== "rgba(0, 0, 0, 0)";
+          }),
+        )
+        .toBe(true);
+      await checkbox.focus();
+      await checkbox.press("Space");
+      await expect(checkbox).toBeChecked();
+      await checkbox.press("Space");
+      await expect(checkbox).not.toBeChecked();
+      await notifications
+        .getByRole("heading", { name: "Notifications", exact: true })
+        .click();
+      await notifications.screenshot({
+        path: testInfo.outputPath(
+          `notification-checkbox-${width}-${theme}.png`,
+        ),
+        animations: "disabled",
+      });
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  if (
+    (await page.locator("html").getAttribute("data-theme")) !== originalTheme
+  ) {
+    await page
+      .getByRole("button", {
+        name: new RegExp(`Appearance: switch to ${originalTheme}`),
+      })
+      .click();
+  }
+  await accountAction(page, "Auth & Security");
   await page
     .getByLabel("Current password", { exact: true })
     .fill("An incorrect password");
@@ -220,13 +324,14 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
   await page
     .getByRole("button", { name: "Change password", exact: true })
     .click();
-  await expect(page.getByRole("alert")).toContainText(
-    "current password is incorrect",
-  );
+  await expect(
+    feedbackToast(page, "current password is incorrect"),
+  ).toBeVisible();
   expect((await page.request.get("/api/auth/me")).status()).toBe(200);
-  await expect(page.getByText("This device", { exact: true })).toBeVisible();
+  await page.goto("/settings/sessions");
+  await expect(page.getByText("This browser", { exact: true })).toBeVisible();
   await page.screenshot({
-    path: "docs/screenshots/account-security.png",
+    path: testInfo.outputPath("sessions-after-password-failure.png"),
     fullPage: true,
     animations: "disabled",
   });
@@ -256,10 +361,10 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
       },
     },
   );
-  await accountAction(page, "Account security");
+  await page.goto("/settings/two-factor");
   await page.getByRole("button", { name: "Add passkey", exact: true }).click();
   await confirmPassword(page);
-  await expect(page.getByText("Passkey added.", { exact: true })).toBeVisible();
+  await expect(feedbackToast(page, "Passkey added.")).toBeVisible();
   await expect(page.getByText("My passkey", { exact: false })).toBeVisible();
   const credentials = await cdp.send("WebAuthn.getCredentials", {
     authenticatorId,
@@ -274,8 +379,18 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     exact: true,
   });
   const secret = (
-    await authenticator.locator("code.secret").innerText()
+    await authenticator.locator(".secret code").innerText()
   ).trim();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await authenticator
+    .getByRole("button", { name: "Copy setup key", exact: true })
+    .click();
+  const copiedKey = await page.evaluate(() => navigator.clipboard.readText());
+  expect(
+    copiedKey === secret,
+    "The copied setup key matches the authenticator key",
+  ).toBe(true);
+  await page.context().clearPermissions();
   const totp = new TOTP({ issuer: "Mill", secret: Secret.fromBase32(secret) });
   await page
     .getByLabel("Six-digit code", { exact: true })
@@ -302,16 +417,18 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     browserContextId: target.targetInfo.browserContextId,
   });
   await recoveryDialog.getByRole("button", { name: "Copy codes" }).click();
-  await expect(recoveryDialog.getByRole("alert")).toContainText(
-    "Copy the codes manually",
-  );
+  await expect(feedbackToast(page, "Copy the codes manually")).toBeVisible();
+  await feedbackToast(page, "Copy the codes manually")
+    .locator('[data-slot="toast-close"]')
+    .click();
+  await expect(feedbackToast(page, "Copy the codes manually")).toHaveCount(0);
+  await recoveryDialog.getByRole("button", { name: "Copy codes" }).click();
+  await expect(feedbackToast(page, "Copy the codes manually")).toBeVisible();
   await context.grantPermissions(["clipboard-read", "clipboard-write"], {
     origin,
   });
   await recoveryDialog.getByRole("button", { name: "Copy codes" }).click();
-  await expect(
-    page.getByText("Recovery codes copied.", { exact: true }),
-  ).toBeVisible();
+  await expect(feedbackToast(page, "Recovery codes copied.")).toBeVisible();
   const copiedCodes = await page.evaluate(() => navigator.clipboard.readText());
   expect(copiedCodes.split("\n").length).toBe(10);
   expect(
@@ -319,9 +436,7 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
     "Clipboard exactly matches the generated recovery codes",
   ).toBe(true);
   await page.getByRole("button", { name: "I saved these codes" }).click();
-  await expect(
-    page.getByText("Recovery codes copied.", { exact: true }),
-  ).toHaveCount(0);
+  await expect(recoveryDialog).toHaveCount(0);
   await expect(
     page.getByText("Authenticator enabled", { exact: true }),
   ).toBeVisible();
@@ -348,9 +463,9 @@ test("real browser passkey enrollment and sign-in prefer the passkey with workin
   await expect(
     page.getByRole("heading", { name: "Verify your sign-in" }),
   ).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText(
-    "passkey could not be verified",
-  );
+  await expect(
+    feedbackToast(page, "passkey could not be verified"),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /Other verification method$/ }),
   ).toContainText("Authenticator code");
@@ -373,7 +488,11 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
   browser,
 }) => {
   await login(page, admin);
-  await page.getByRole("link", { name: "People", exact: true }).click();
+  await page.getByRole("link", { name: "Team settings", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Team settings navigation", exact: true })
+    .getByRole("link", { name: "Members", exact: true })
+    .click();
   async function invitation(email: string, role: string) {
     await page
       .getByRole("button", { name: "Invite a person", exact: true })
@@ -388,7 +507,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
       .getByRole("button", { name: "Create invitation", exact: true })
       .click();
     const created = page.getByRole("dialog", {
-      name: "Invitation created",
+      name: "Invitation link",
       exact: true,
     });
     await expect(created).toBeVisible();
@@ -422,6 +541,35 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
       await expect(
         person.getByRole("navigation", { name: "Workspace navigation" }),
       ).toBeVisible();
+      const personalNavigation = person.getByRole("navigation", {
+        name: "Workspace navigation",
+        exact: true,
+      });
+      await expect(
+        personalNavigation.getByRole("link", {
+          name: "Account settings",
+          exact: true,
+        }),
+      ).toBeVisible();
+      await expect(
+        personalNavigation.getByRole("link", {
+          name: "Team settings",
+          exact: true,
+        }),
+      ).toHaveCount(0);
+      await expect(
+        personalNavigation.getByRole("link", { name: "People", exact: true }),
+      ).toHaveCount(0);
+      await person.goto("/settings/profile");
+      await expect(
+        person.getByRole("heading", { name: "Profile", exact: true, level: 1 }),
+      ).toBeVisible();
+      await expect(
+        personalNavigation.getByRole("link", {
+          name: "Account settings",
+          exact: true,
+        }),
+      ).toHaveAttribute("aria-current", "page");
       await person.goto(`/boards/${board.id}`);
       await expect(
         person.getByRole("heading", { name: board.name, exact: true }),
@@ -488,9 +636,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
     .getByRole("button", { name: "Revoke invitation", exact: true })
     .click();
   await expect(revoke).toHaveCount(0);
-  await expect(
-    page.getByText("Invitation revoked.", { exact: true }),
-  ).toBeVisible();
+  await expect(feedbackToast(page, "Invitation revoked.")).toBeVisible();
   await expect(pending).toContainText("Revoked");
   await page.reload();
   await expect(
@@ -577,7 +723,7 @@ test("assignment and mention notifications open the correct task and preferences
     page.getByRole("button", { name: "Mark all read", exact: true }),
   ).toBeDisabled();
   await page.keyboard.press("Escape");
-  await accountAction(page, "Profile");
+  await accountAction(page, "Preferences");
   await expect(
     page.getByRole("checkbox", { name: "Task assignments", exact: true }),
   ).toBeChecked();
@@ -588,9 +734,7 @@ test("assignment and mention notifications open the correct task and preferences
   await page
     .getByRole("button", { name: "Save notifications", exact: true })
     .click();
-  await expect(
-    page.getByText("Notifications saved.", { exact: true }),
-  ).toBeVisible();
+  await expect(feedbackToast(page, "Notifications saved.")).toBeVisible();
   await json(adminApi, `/boards/${board.id}/tasks`, {
     status: "todo",
     title: "Assignment preference excludes this alert",
@@ -615,7 +759,7 @@ test("a personal API key uses current human permissions and loses access when re
   playwright,
 }) => {
   await login(page, admin);
-  await page.getByRole("link", { name: "API keys", exact: true }).click();
+  await accountAction(page, "My API Keys");
   await page
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
@@ -690,10 +834,8 @@ test("a personal API key uses current human permissions and loses access when re
       .getByRole("button", { name: "Revoke API key", exact: true })
       .click();
     await expect(revoke).toHaveCount(0);
-    await expect(
-      page.getByText("API key revoked.", { exact: true }),
-    ).toBeVisible();
-    await expect(row).toContainText("Revoked");
+    await expect(feedbackToast(page, "API key revoked.")).toBeVisible();
+    await expect(row).toHaveCount(0);
     expect((await key.get(`/api/boards/${board.id}/tasks`)).status()).toBe(401);
   } finally {
     await key.dispose();
@@ -709,14 +851,12 @@ test("team settings persist without backup or portable data surfaces", async ({
   ).toHaveCount(0);
   await page.getByRole("link", { name: "Team settings", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "Team settings", exact: true, level: 1 }),
+    page.getByRole("heading", { name: "General", exact: true, level: 1 }),
   ).toBeVisible();
-  const name = page.getByRole("textbox", { name: /^Name/ });
+  const name = page.getByRole("textbox", { name: /^Team name/ });
   await name.fill("Settings workspace verification");
   await page.getByRole("button", { name: "Update", exact: true }).click();
-  await expect(
-    page.getByText("Team settings updated.", { exact: true }),
-  ).toBeVisible();
+  await expect(feedbackToast(page, "Team settings updated.")).toBeVisible();
   expect((await json(page.request, "/auth/me")).workspace.name).toBe(
     "Settings workspace verification",
   );
@@ -767,7 +907,7 @@ test("session management revokes another browser without signing out the current
   const { context, page: other } = await contextPage(browser);
   try {
     await login(other, account);
-    await accountAction(page, "Account security");
+    await page.goto("/settings/sessions");
     const sessionSection = page.getByRole("region", {
       name: "Sessions",
       exact: true,
@@ -776,19 +916,30 @@ test("session management revokes another browser without signing out the current
     const current = sessions.items.find((s: { current: boolean }) => s.current);
     expect(current).toBeTruthy();
     await sessionSection
-      .getByRole("button", { name: "Sign out", exact: true })
+      .getByRole("button", { name: "Revoke", exact: true })
+      .and(page.locator(":enabled"))
       .first()
       .click();
-    await expect(
-      page.getByText("Session revoked.", { exact: true }),
-    ).toBeVisible();
+    await page
+      .getByRole("dialog", { name: "Revoke this session?" })
+      .getByRole("button", { name: "Revoke session", exact: true })
+      .click();
+    await expect(feedbackToast(page, "Session revoked.")).toBeVisible();
     await sessionSection
-      .getByRole("button", { name: "Sign out", exact: true })
+      .getByRole("button", { name: "Revoke", exact: true })
+      .and(page.locator(":enabled"))
       .first()
       .click();
+    await page
+      .getByRole("dialog", { name: "Revoke this session?" })
+      .getByRole("button", { name: "Revoke session", exact: true })
+      .click();
     await expect(
-      sessionSection.getByRole("button", { name: "Sign out", exact: true }),
-    ).toHaveCount(0);
+      sessionSection.getByRole("button", { name: "Revoke", exact: true }),
+    ).toHaveCount(1);
+    await expect(
+      sessionSection.getByRole("button", { name: "Revoke", exact: true }),
+    ).toBeDisabled();
     expect((await other.request.get("/api/auth/me")).status()).toBe(401);
     expect((await page.request.get("/api/auth/me")).status()).toBe(200);
     await other.reload();
@@ -839,7 +990,7 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
       },
     },
   );
-  await accountAction(page, "Account security");
+  await page.goto("/settings/two-factor");
   await page.getByRole("button", { name: "Add passkey", exact: true }).click();
   let dialog = page.getByRole("dialog", {
     name: "Confirm it’s you",
@@ -878,7 +1029,7 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
   expect(challenge.preferredMethod).toBe("passkey");
   const initialCeremony = await (await firstOptions).json();
   await dialog.getByRole("button", { name: "Cancel passkey request" }).click();
-  await expect(dialog.getByRole("alert")).toContainText("cancelled");
+  await expect(feedbackToast(page, "cancelled")).toBeVisible();
   await expect(
     dialog.getByRole("button", { name: /Verification method$/ }),
   ).toHaveCount(0);
@@ -911,7 +1062,7 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
   await expect(
     page
       .getByRole("region", { name: "Authenticator", exact: true })
-      .locator("code.secret"),
+      .locator(".secret code"),
   ).toBeVisible();
   await page
     .getByRole("region", { name: "Authenticator", exact: true })
@@ -931,9 +1082,7 @@ test("passkey-only reauthentication and sign-in cancel safely, retry fresh cerem
   await page.getByLabel("Password", { exact: true }).press("Enter");
   expect((await (await loginResponse).json()).methods).toEqual(["passkey"]);
   await page.getByRole("button", { name: "Cancel passkey request" }).click();
-  await expect(
-    page.getByRole("alert").filter({ hasText: "cancelled" }),
-  ).toContainText("cancelled");
+  await expect(feedbackToast(page, "cancelled")).toContainText("cancelled");
   await expect(page.getByLabel("Recovery code", { exact: true })).toHaveCount(
     0,
   );
@@ -970,7 +1119,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
     "DELETE",
   );
   await page.goto(invitation.inviteUrl);
-  await expect(page.getByRole("alert")).toContainText("invalid or expired");
+  await expect(feedbackToast(page, "invalid or expired")).toBeVisible();
   await expect(page.getByLabel("Your name", { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Password", { exact: true })).toHaveCount(0);
   await expect(
@@ -994,7 +1143,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
     .getByLabel("Confirm password", { exact: true })
     .fill("A different password");
   await page.getByLabel("Confirm password", { exact: true }).press("Enter");
-  await expect(page.getByRole("alert")).toContainText("passwords do not match");
+  await expect(feedbackToast(page, "passwords do not match")).toBeVisible();
   await page
     .getByRole("button", { name: "Show password", exact: true })
     .first()
@@ -1048,15 +1197,13 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
     page.getByRole("heading", { name: "Sign in to Mill" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("region", { name: "notification." }).getByRole("alert"),
+    feedbackToast(page, "Password reset. Sign in to continue."),
   ).toContainText("Password reset. Sign in to continue.");
   await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByLabel("Password", { exact: true }).press("Enter");
   await expect(
-    page
-      .getByRole("alert")
-      .filter({ hasText: "email address or password is incorrect" }),
+    feedbackToast(page, "email address or password is incorrect"),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Sign in to Mill" }),
@@ -1107,6 +1254,14 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
         () => document.documentElement.scrollWidth <= window.innerWidth,
       ),
     ).toBe(true);
+    await mobile.goto("/settings/preferences");
+    await expect(
+      mobile.getByRole("heading", {
+        name: "Preferences",
+        exact: true,
+        level: 1,
+      }),
+    ).toBeVisible();
     const labels = await mobile
       .locator('[data-slot="checkbox-content"]')
       .evaluateAll((elements) =>
@@ -1122,7 +1277,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
       labels.every((label) => label.height >= 44 && label.tick === 16),
     ).toBe(true);
     await mobile.screenshot({
-      path: testInfo.outputPath("profile-phone-dark.png"),
+      path: testInfo.outputPath("preferences-phone-dark.png"),
       fullPage: true,
       animations: "disabled",
     });
@@ -1130,12 +1285,12 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
       .getByRole("button", { name: /Appearance: switch to light/ })
       .click();
     await mobile.screenshot({
-      path: testInfo.outputPath("profile-phone-light.png"),
+      path: testInfo.outputPath("preferences-phone-light.png"),
       fullPage: true,
       animations: "disabled",
     });
     await mobile.screenshot({
-      path: "docs/screenshots/mobile-profile.png",
+      path: testInfo.outputPath("preferences-phone.png"),
       fullPage: true,
       animations: "disabled",
     });
@@ -1144,7 +1299,7 @@ test("invitation and recovery forms gate links, reveal passwords, require confir
   }
 });
 
-test("passkeys and sessions distinguish independent PostgreSQL pending and failure states and recover through their own retry action", async ({
+test("focused passkey and session pages distinguish PostgreSQL pending and failure states and recover through their own retry action", async ({
   page,
 }) => {
   const account = await createAccount(
@@ -1177,7 +1332,13 @@ test("passkeys and sessions distinguish independent PostgreSQL pending and failu
       await lockReleased;
     });
     await lockAcquired;
-    await accountAction(page, "Account security");
+    await page
+      .getByRole("navigation", {
+        name: "Account settings navigation",
+        exact: true,
+      })
+      .getByRole("link", { name: "Two-factor Auth", exact: true })
+      .click();
     const keys = page.getByRole("region", { name: "Passkeys", exact: true });
     const sessions = page.getByRole("region", {
       name: "Sessions",
@@ -1190,8 +1351,9 @@ test("passkeys and sessions distinguish independent PostgreSQL pending and failu
     await expect(
       keys.getByText("No passkeys added.", { exact: true }),
     ).toHaveCount(0);
+    await expect(sessions).toHaveCount(0);
     await expect(
-      sessions.getByText("This device", { exact: true }),
+      page.getByRole("region", { name: "Authenticator", exact: true }),
     ).toBeVisible();
     releaseLock!();
     await lockTransaction;
@@ -1204,13 +1366,23 @@ test("passkeys and sessions distinguish independent PostgreSQL pending and failu
       `ALTER TABLE "${schema}".passkeys RENAME TO passkeys_list_fault`,
     );
     renamedKeys = true;
-    await accountAction(page, "Account security");
-    await expect(keys.getByRole("alert")).toBeVisible();
+    await page
+      .getByRole("navigation", {
+        name: "Account settings navigation",
+        exact: true,
+      })
+      .getByRole("link", { name: "Two-factor Auth", exact: true })
+      .click();
+    await expect(
+      feedbackToast(page, "Mill could not complete this request"),
+    ).toBeVisible();
+    await expect(keys.getByRole("alert")).toHaveCount(0);
     await expect(
       keys.getByText("No passkeys added.", { exact: true }),
     ).toHaveCount(0);
+    await expect(sessions).toHaveCount(0);
     await expect(
-      sessions.getByText("This device", { exact: true }),
+      page.getByRole("region", { name: "Authenticator", exact: true }),
     ).toBeVisible();
     await database.unsafe(
       `ALTER TABLE "${schema}".passkeys_list_fault RENAME TO passkeys`,
@@ -1227,14 +1399,21 @@ test("passkeys and sessions distinguish independent PostgreSQL pending and failu
       `ALTER TABLE "${schema}".sessions RENAME COLUMN user_agent TO user_agent_list_fault`,
     );
     renamedAgent = true;
-    await accountAction(page, "Account security");
-    await expect(sessions.getByRole("alert")).toBeVisible();
+    await page
+      .getByRole("navigation", {
+        name: "Account settings navigation",
+        exact: true,
+      })
+      .getByRole("link", { name: "Sessions", exact: true })
+      .click();
+    await expect(
+      feedbackToast(page, "Mill could not complete this request"),
+    ).toBeVisible();
+    await expect(sessions.getByRole("alert")).toHaveCount(0);
     await expect(
       sessions.getByText("No active sessions.", { exact: true }),
     ).toHaveCount(0);
-    await expect(
-      keys.getByText("No passkeys added.", { exact: true }),
-    ).toBeVisible();
+    await expect(keys).toHaveCount(0);
     await database.unsafe(
       `ALTER TABLE "${schema}".sessions RENAME COLUMN user_agent_list_fault TO user_agent`,
     );
@@ -1243,7 +1422,7 @@ test("passkeys and sessions distinguish independent PostgreSQL pending and failu
       .getByRole("button", { name: "Retry sessions", exact: true })
       .click();
     await expect(
-      sessions.getByText("This device", { exact: true }),
+      sessions.getByText("This browser", { exact: true }),
     ).toBeVisible();
   } finally {
     releaseLock?.();

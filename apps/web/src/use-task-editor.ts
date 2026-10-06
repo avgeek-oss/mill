@@ -7,16 +7,18 @@ export type EditableTaskValues = Pick<
   Task,
   | "title"
   | "description"
+  | "type"
   | "status"
   | "assigneeId"
-  | "agentId"
   | "priority"
+  | "startDate"
   | "dueDate"
 >;
 export type TaskField = keyof EditableTaskValues;
 export type FieldSaveState = {
   state: "saving" | "saved" | "error";
   message?: string;
+  feedbackRevision?: number;
   conflict?: boolean;
   status?: number;
 };
@@ -31,14 +33,12 @@ type EditorSnapshot = {
   pending: boolean;
   hasUnsavedChanges: boolean;
 };
-export type TaskAssignment = Pick<EditableTaskValues, "assigneeId" | "agentId">;
 export type TaskEditor = EditorSnapshot & {
   needsFlush: () => boolean;
   updateField: <K extends TaskField>(
     field: K,
     value: EditableTaskValues[K],
   ) => void;
-  updateAssignment: (assignment: TaskAssignment) => void;
   textChange: (field: "title" | "description", value: string) => void;
   flushField: (field: TaskField) => Promise<boolean>;
   flushAll: () => Promise<boolean>;
@@ -46,7 +46,7 @@ export type TaskEditor = EditorSnapshot & {
   discardField: (field: TaskField) => void;
   reload: () => Promise<void>;
 };
-type UnitKey = TaskField | "assignment";
+type UnitKey = TaskField;
 type SaveUnit = {
   fields: TaskField[];
   baseline: EditableTaskValues;
@@ -57,10 +57,11 @@ type SaveUnit = {
 const editableFields: TaskField[] = [
   "title",
   "description",
+  "type",
   "status",
   "assigneeId",
-  "agentId",
   "priority",
+  "startDate",
   "dueDate",
 ];
 
@@ -68,10 +69,11 @@ function editable(task: Task): EditableTaskValues {
   return {
     title: task.title,
     description: task.description,
+    type: task.type,
     status: task.status,
     assigneeId: task.assigneeId,
-    agentId: task.agentId,
     priority: task.priority,
+    startDate: task.startDate?.slice(0, 10) ?? null,
     dueDate: task.dueDate?.slice(0, 10) ?? null,
   };
 }
@@ -98,6 +100,7 @@ function validTask(value: unknown, taskId: string) {
     (task.assigneeId === null ||
       (typeof task.assigneeId === "string" && task.assigneeId.length > 0)) &&
     (task.dueDate === null || typeof task.dueDate === "string") &&
+    (task.startDate === null || typeof task.startDate === "string") &&
     typeof task.priority === "string" &&
     ["none", "low", "medium", "high", "urgent"].includes(task.priority) &&
     typeof task.createdAt === "string" &&
@@ -116,6 +119,7 @@ class TaskEditorController {
   private loadErrorStatus = 0;
   private accessDenied = false;
   private fields: EditorSnapshot["fields"] = {};
+  private feedbackRevision = 0;
   private units = new Map<UnitKey, SaveUnit>();
   private queue = new Set<UnitKey>();
   private timers = new Map<UnitKey, ReturnType<typeof setTimeout>>();
@@ -189,10 +193,7 @@ class TaskEditorController {
     this.timers.delete(key);
   }
   private keyFor(field: TaskField): UnitKey {
-    return (field === "assigneeId" || field === "agentId") &&
-      this.units.has("assignment")
-      ? "assignment"
-      : field;
+    return field;
   }
   private mergeTask(task: Task) {
     const next = editable(task);
@@ -323,41 +324,6 @@ class TaskEditorController {
     }
     this.publish();
   };
-  updateAssignment = (assignment: TaskAssignment) => {
-    if (!this.active || !this.task || !this.values) return;
-    const previous = this.units.get("assignment");
-    const unit: SaveUnit = previous ?? {
-      fields: ["assigneeId", "agentId"],
-      baseline: editable(this.task),
-      sequence: 0,
-      ready: false,
-      blocked: false,
-    };
-    for (const field of unit.fields) {
-      const individual = this.units.get(field);
-      if (individual) {
-        Object.assign(unit.baseline, { [field]: individual.baseline[field] });
-        unit.blocked ||= individual.blocked;
-      }
-      this.units.delete(field);
-      this.queue.delete(field);
-      this.cancelTimer(field);
-    }
-    this.values = { ...this.values, ...assignment };
-    unit.sequence++;
-    this.units.set("assignment", unit);
-    if (
-      !this.changed(unit) &&
-      !unit.fields.some((field) => this.inFlight.includes(field))
-    ) {
-      this.units.delete("assignment");
-      this.queue.delete("assignment");
-      for (const field of unit.fields) delete this.fields[field];
-      this.publish();
-      return;
-    }
-    this.enqueue("assignment", unit);
-  };
   private enqueue(key: UnitKey, unit: SaveUnit) {
     this.cancelTimer(key);
     if (!this.active || this.units.get(key) !== unit || unit.blocked) {
@@ -390,6 +356,7 @@ class TaskEditorController {
     this.mark(unit, {
       state: "error",
       message: errorText(cause),
+      feedbackRevision: ++this.feedbackRevision,
       conflict,
       ...(cause instanceof ApiError ? { status: cause.status } : {}),
     });
@@ -618,7 +585,6 @@ export function useTaskEditor(taskId: string): TaskEditor {
     ...snapshot,
     needsFlush: controller.needsFlush,
     updateField: controller.updateField,
-    updateAssignment: controller.updateAssignment,
     textChange: controller.textChange,
     flushField: controller.flushField,
     flushAll: controller.flushAll,

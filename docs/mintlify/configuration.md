@@ -15,7 +15,7 @@ Start with `node tools/init-env.mjs`; the repository’s `.env.example` document
 | `MILL_BIND_ADDRESS`        | Compose binding, default 127.0.0.1. Keep private behind a reverse proxy.                                                                                             |
 | `PORT`                     | Server port for direct Node execution, default 4321. Compose fixes it to 4321.                                                                                       |
 | `NODE_ENV`                 | `development`, `test`, or `production`. Compose uses production.                                                                                                     |
-| `ALLOW_INSECURE_LOCALHOST` | Explicit loopback HTTP exception for local agent OAuth development. Never use it for a remote origin.                                                                |
+| `ALLOW_INSECURE_LOCALHOST` | Explicit loopback HTTP exception for local MCP OAuth development. Never use it for a remote origin.                                                                  |
 | `MILL_IMAGE`               | Local or immutable reviewed image reference used by Compose, default `mill:local`.                                                                                   |
 | `SOURCE_COMMIT`            | Build metadata identifying the image's source revision.                                                                                                              |
 | `MILL_MIGRATIONS_DIR`      | Override for the migration directory. The image uses `/app/packages/database/migrations`; operators normally do not change it.                                       |
@@ -33,3 +33,58 @@ For browser passkeys, use `localhost` during local development or an HTTPS DNS h
 Mill v1 uses in-app assignment and mention notifications; task email notifications are excluded. The account/invitation email provider is currently unavailable. Administrators share private invitation links and use the local account-recovery procedure described in [getting started](/getting-started).
 
 Environment files and full database backups need protected storage. Do not paste their contents into logs or screenshots.
+
+## In the app
+
+### Team settings: General
+
+<Tabs>
+  <Tab title="Desktop">
+    <Frame>
+      <div className="mill-guide-screenshot">
+        <div className="mill-product-light">
+          <img
+            src="/assets/screenshots/release-v1/team-light.png"
+            alt="Team settings: General in Mill."
+            width="1280"
+            height="900"
+            loading="lazy"
+          />
+        </div>
+        <div className="mill-product-dark">
+          <img
+            src="/assets/screenshots/release-v1/team-dark.png"
+            alt="Team settings: General in Mill."
+            width="1280"
+            height="900"
+            loading="lazy"
+          />
+        </div>
+      </div>
+    </Frame>
+  </Tab>
+  <Tab title="Mobile">
+    <Frame>
+      <div className="mill-guide-screenshot mill-guide-screenshot-mobile">
+        <div className="mill-product-light">
+          <img
+            src="/assets/screenshots/release-v1/team-mobile-light.png"
+            alt="Team settings: General in Mill."
+            width="390"
+            height="844"
+            loading="lazy"
+          />
+        </div>
+        <div className="mill-product-dark">
+          <img
+            src="/assets/screenshots/release-v1/team-mobile-dark.png"
+            alt="Team settings: General in Mill."
+            width="390"
+            height="844"
+            loading="lazy"
+          />
+        </div>
+      </div>
+    </Frame>
+  </Tab>
+</Tabs>

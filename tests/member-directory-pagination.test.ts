@@ -5,8 +5,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   setupUser,
   sql,
 } from "./support.js";
@@ -56,9 +55,7 @@ test("the member directory continues past 1000 people without hiding active acco
     );
     assert.equal(stale.status, 409);
     assert.equal((await stale.json()).code, "member_list_changed");
-
-    const agent = await setupAgent(admin.cookie);
-    const oauth = await setupOAuthAgent(admin.cookie, { agentId: agent.id });
+    const oauth = await setupOAuth(admin.cookie, {});
     const firstToolPage = await callMcpTool(oauth.token, "list_members", {
       limit: 1000,
     });

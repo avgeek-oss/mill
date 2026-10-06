@@ -25,7 +25,7 @@ export function requireRole(
       message: "You do not have permission for this action",
     });
   if (
-    a.kind === "agent" &&
+    a.kind === "oauth" &&
     (min === "admin" ||
       !a.scopes.includes(min === "viewer" ? "read" : "write") ||
       (boardId && a.boardIds && !a.boardIds.includes(boardId)))

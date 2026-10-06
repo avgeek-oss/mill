@@ -3,23 +3,11 @@ export type Actor = {
   userId: string;
   name: string;
   role: Role;
-  kind: "human" | "agent";
+  kind: "human" | "oauth";
   scopes: string[];
   credentialId?: string;
   credentialType?: "api-key" | "oauth";
-  agentId?: string;
   boardIds?: string[];
-};
-export type Agent = {
-  id: string;
-  name: string;
-  scope: "personal" | "team";
-  creatorId: string;
-  memberIds: string[];
-  allMembers: boolean;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
 };
 export type Board = {
   id: string;
@@ -27,6 +15,12 @@ export type Board = {
   prefix: string;
   description: string;
   version: number;
+};
+export type BoardSummary = Board & {
+  backlogCount: number;
+  activeCount: number;
+  inProgressCount: number;
+  todoCount: number;
 };
 export const TASK_STATUSES = [
   "backlog",
@@ -37,17 +31,20 @@ export const TASK_STATUSES = [
   "wont_do",
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
+export const TASK_TYPES = ["task", "bug"] as const;
+export type TaskType = (typeof TASK_TYPES)[number];
 export type Task = {
   id: string;
   boardId: string;
+  type: TaskType;
   status: TaskStatus;
+  statusChangedAt: string;
   identifier: string;
   title: string;
   description: string;
   assigneeId: string | null;
-  agentId: string | null;
-  agentName: string | null;
   priority: "none" | "low" | "medium" | "high" | "urgent";
+  startDate: string | null;
   dueDate: string | null;
   version: number;
   createdAt: string;
@@ -66,7 +63,7 @@ export type Activity = {
   boardId: string;
   actorId: string;
   actorName: string;
-  actorKind: "human" | "agent";
+  actorKind: "human" | "oauth";
   action: string;
   detail: unknown;
   createdAt: string;

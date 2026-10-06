@@ -55,6 +55,117 @@ a {
 }
 
 @layer components {
+  .toast:not([data-exiting="true"]) .toast__close-button {
+    pointer-events: auto;
+    opacity: 1;
+    width: 32px;
+    height: 32px;
+  }
+
+  [data-slot="breadcrumb"] :is(.dropdown__trigger, .select__trigger) {
+    transition-property: color, background-color, box-shadow;
+
+    &:focus-visible,
+    &[data-focus-visible="true"] {
+      outline: none;
+      box-shadow: none;
+      color: var(--foreground);
+    }
+
+    &:active,
+    &[data-pressed="true"] {
+      transform: none;
+    }
+  }
+
+  :is(.dropdown__popover, .select__popover).breadcrumb-popover {
+    animation: none;
+    transform: none;
+    opacity: 1;
+    transition: opacity 120ms ease-out;
+
+    &[data-entering="true"],
+    &[data-exiting="true"] {
+      animation: none;
+      transform: none;
+      opacity: 0;
+      will-change: opacity;
+    }
+
+    &[data-exiting="true"] {
+      transition-duration: 80ms;
+    }
+
+    :is(.menu-item, .list-box-item) {
+      transform: none;
+      transition-property: background-color, color, box-shadow;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
+  }
+
+  .button.navigation-toggle {
+    --button-bg-hover: transparent;
+
+    @media (hover: hover) {
+      &:hover {
+        --button-bg-hover: var(--default);
+      }
+    }
+  }
+
+  .modal__dialog,
+  .drawer__dialog,
+  .alert-dialog__dialog {
+    @apply p-5;
+  }
+
+  .modal__header + .modal__body,
+  .drawer__header + .drawer__body,
+  .alert-dialog__header + .alert-dialog__body,
+  .modal__header + .modal__footer,
+  .modal__body + .modal__footer,
+  .drawer__header + .drawer__footer,
+  .drawer__body + .drawer__footer,
+  .alert-dialog__header + .alert-dialog__footer,
+  .alert-dialog__body + .alert-dialog__footer {
+    @apply mt-4;
+  }
+
+  /* Keep titles and close controls in the same row, with other header content spanning both columns. */
+  :is(.modal__header, .drawer__header, .alert-dialog__header):has(
+    > :is(
+      .modal__close-trigger,
+      .drawer__close-trigger,
+      .alert-dialog__close-trigger
+    )
+  ) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: calc(var(--spacing) * 3);
+
+    > * {
+      min-width: 0;
+      grid-column: 1 / -1;
+    }
+
+    > :is(.modal__heading, .drawer__heading, .alert-dialog__heading) {
+      grid-column: 1;
+    }
+
+    > :is(
+      .modal__close-trigger,
+      .drawer__close-trigger,
+      .alert-dialog__close-trigger
+    ) {
+      position: static;
+      grid-column: 2;
+    }
+  }
+
   .select__trigger.breadcrumb-board-trigger {
     height: auto;
     min-height: 0;
@@ -147,7 +258,7 @@ a {
   .button.button--sm:is(.navigation-toggle, .board-create-button) {
     @apply size-8;
 
-    & svg {
+    & svg:not([data-slot="spinner"] svg, [data-slot="link-icon"] svg) {
       @apply size-4;
     }
   }
@@ -183,9 +294,23 @@ a {
     @apply min-h-11 px-3 py-2 text-base;
   }
 
+  .select,
+  .autocomplete {
+    @apply min-w-0 max-w-full;
+  }
+
   .select__trigger,
   .autocomplete__trigger {
-    @apply min-h-[34px] px-2.5 py-1;
+    @apply w-full min-w-0 max-w-full min-h-[34px] items-center px-2.5 py-1;
+  }
+
+  .select__value,
+  .autocomplete__value {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow-wrap: normal;
   }
 
   .select__value,
@@ -214,6 +339,8 @@ a {
   }
 
   .select__popover {
+    min-width: min(var(--trigger-width), 20rem, calc(100dvw - 2rem));
+    max-width: min(20rem, calc(100dvw - 2rem));
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -224,6 +351,7 @@ a {
   }
 
   .select__popover [data-slot="list-box"] {
+    width: 100%;
     min-height: 0;
     max-height: 20rem;
     overflow-y: auto;
@@ -416,17 +544,11 @@ a {
   }
 
   .widget__header--touch-targets :is(button, .button) {
-    @apply h-11! min-h-11!;
+    @apply h-8! min-h-8!;
   }
 
   .widget__header--notification :is(button, .button) {
     @apply h-8! min-h-8!;
-  }
-
-  @media (pointer: coarse) {
-    .widget__header--notification :is(button, .button) {
-      @apply h-11! min-h-11!;
-    }
   }
 
   .widget__title {
@@ -468,28 +590,11 @@ a {
     @apply text-muted text-xs;
   }
 
-  @media (pointer: coarse) {
-    .button.button--sm,
+  @media (pointer: coarse), (max-width: 700px) {
     .tabs__tab,
     .checkbox,
     .checkbox__content {
       min-height: 44px;
-    }
-
-    .button.button--sm.button--icon-only {
-      min-width: 44px;
-    }
-
-    [data-slot="theme-switcher"],
-    [data-slot="password-input-toggle"],
-    .modal__close-trigger,
-    .alert-dialog__close-trigger {
-      min-width: 44px;
-      min-height: 44px;
-    }
-
-    .widget__header :is(.button.button--sm, [data-slot="theme-switcher"]) {
-      min-height: 44px !important;
     }
   }
 }
@@ -499,6 +604,7 @@ pre {
   font-family: var(--font-mono);
 }
 
+.theme-changing,
 .theme-changing *,
 .theme-changing *::before,
 .theme-changing *::after {

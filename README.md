@@ -1,12 +1,12 @@
 # Mill
 
-Mill is a self-hosted task list for people and external agents, created by Avgeek, Inc. It runs one web/API service and PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
+Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs one web/API service and PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
 
-Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have stable identifiers, Markdown descriptions, optional human assignees and Agents, priorities, due dates, comments, and activity. Team members use Admin, Member, or Viewer access.
+Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, and activity. Team members use Admin, Member, or Viewer access.
 
-People and Agents are separate. Personal API keys use their human owner's current permissions for REST across all accessible boards. MCP OAuth requires an existing Agent created in the human interface: personal Agents belong to their creator, and team Agents serve selected people or all current and future team members. A task's Agent can be assigned without a human assignee and never runs work automatically. The server enforces current membership and permissions for every connection.
+Personal API keys use their owner's current permissions for REST. MCP clients connect through OAuth, with approved read/write scopes and optional board limits. Actions remain attributed to the signed-in person who authorized the connection.
 
-The repository and release artifacts remain private during B1 review, and `v1.0.0-beta.1` is the proposed tag. [B1 verification](docs/b1-verification.md) records source, browser, installation/restore, security and release requirements with their executed receipts. The private release PR records hosted checks and architecture packages for its exact head. Public publication, merge and deployment require separate approval.
+The repository and release artifacts remain private during v1 review, and `v1.0.0` is the proposed tag. [v1 verification](docs/b1-verification.md) records source, browser, installation/restore, security and release requirements with their executed receipts. The private release PR records hosted checks and architecture packages for its exact head. Public publication, merge and deployment require separate approval.
 
 ## Install locally
 
@@ -44,9 +44,9 @@ Run `pnpm dev:web` in a second terminal for the frontend development server at [
 
 - [Overview](docs/overview.md), [installation](docs/installation.md), [configuration](docs/configuration.md), and [first board](docs/getting-started.md)
 - [Team, tasks, and permissions](docs/workflows.md)
-- [REST API and MCP](docs/agents.md), [API reference](docs/api.md), and [access security](docs/authentication.md#external-credential-boundaries)
+- [REST API and MCP](docs/clients.md), [API reference](docs/api.md), and [access security](docs/authentication.md#external-credential-boundaries)
 - [Operations](docs/operations.md), [backup and recovery](docs/backup.md), and [upgrades](docs/upgrades.md)
-- [Troubleshooting](docs/troubleshooting.md), [security reporting](docs/security.md), and [B1 release notes](docs/release-notes.md)
+- [Troubleshooting](docs/troubleshooting.md), [security reporting](docs/security.md), and [v1 release notes](docs/release-notes.md)
 - [Contributing](CONTRIBUTING.md), [security reports](SECURITY.md), and [code of conduct](CODE_OF_CONDUCT.md)
 
 ## License

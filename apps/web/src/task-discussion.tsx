@@ -3,10 +3,12 @@ import {
   useEffect,
   useEffectEvent,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import type { KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { ArrowRight02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -16,12 +18,16 @@ import {
   Dialog,
   ErrorMessage,
   Tabs,
-  Table,
+  ResourceTable,
+  TableCellStack,
+  TableCellDescription,
+  QueryLoading,
   TextField,
   TooltipText,
   TypographyParagraph,
   TypographyText,
   toast,
+  useAppSuspended,
 } from "@mill/web-design-system";
 import type {
   Activity,
@@ -39,6 +45,7 @@ import {
 } from "./api.js";
 import { activityLabel } from "./activity-label.js";
 import { Markdown } from "./markdown.js";
+import { mentionPopupPosition, textareaCaretRect } from "./mention-caret.js";
 import { RelativeDateTime } from "./relative-date-time.js";
 import { hasCommentResponse, hasOkResponse } from "./responses.js";
 
@@ -161,7 +168,7 @@ function hasDiscussionPage(value: unknown, kind: DiscussionKind) {
           ? hasCommentResponse({ comment: item })
           : typeof item.actorId === "string" &&
             typeof item.actorName === "string" &&
-            (item.actorKind === "human" || item.actorKind === "agent") &&
+            (item.actorKind === "human" || item.actorKind === "oauth") &&
             typeof item.action === "string"),
     )
   )
@@ -317,6 +324,7 @@ function TaskDiscussionContent({
   sessionRevision,
   members,
 }: TaskDiscussionProps) {
+  const appSuspended = useAppSuspended();
   const comments = useDiscussionPages<Comment>(taskId, "comments");
   const activity = useDiscussionPages<Activity>(taskId, "activity");
   const [tab, setTab] = useState("comments");
@@ -326,7 +334,7 @@ function TaskDiscussionContent({
   const [commentError, setCommentError] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [deleteConflict, setDeleteConflict] = useState(false);
-  const [navigationNotice, setNavigationNotice] = useState("");
+  const [navigationNotice, setNavigationNotice] = useState(false);
   const [mention, setMention] = useState<MentionMatch | null>(null);
   const [activeMention, setActiveMention] = useState(0);
   const mentionListId = useId();
@@ -334,6 +342,10 @@ function TaskDiscussionContent({
   const [deleteKey] = useState(createRetryKey);
   const commentInput = useRef<HTMLTextAreaElement>(null);
   const mentionContainer = useRef<HTMLDivElement>(null);
+  const mentionPopup = useRef<HTMLDivElement>(null);
+  const [mentionPosition, setMentionPosition] = useState<ReturnType<
+    typeof mentionPopupPosition
+  > | null>(null);
   const selectedMentions = useRef<{ id: string; token: string }[]>([]);
   const currentDraft = useRef("");
   const mutationPending = useRef(false);
@@ -342,7 +354,7 @@ function TaskDiscussionContent({
   const generation = useRef(0);
   const previousRefreshKey = useRef(refreshKey);
   const previousSessionRevision = useRef(sessionRevision);
-  const writable = editable && user.role !== "viewer";
+  const writable = editable && user.role !== "viewer" && !appSuspended;
   const canSubmitComment =
     writable && !!draft.trim() && !busy && !comments.busy && comments.ready;
   const canChange = (item: Comment) =>
@@ -359,7 +371,12 @@ function TaskDiscussionContent({
 
   function updateMention(value: string, caret: number) {
     const match = mentionAtCaret(value, caret);
-    setMention(match);
+    const selected =
+      match &&
+      selectedMentions.current.some(
+        (item) => item.token === value.slice(match.start, match.end),
+      );
+    setMention(selected ? null : match);
     setActiveMention(0);
   }
 
@@ -369,7 +386,7 @@ function TaskDiscussionContent({
       selectedMentions.current.length >= 50 &&
       !selectedMentions.current.some((item) => item.id === member.id)
     ) {
-      setCommentError("A comment can mention up to 50 people.");
+      toast.danger("A comment can mention up to 50 people.");
       return;
     }
     const token = `@${member.name}`;
@@ -411,7 +428,7 @@ function TaskDiscussionContent({
       value.includes(item.token),
     );
     setDraft(value);
-    if (!value.trim()) setNavigationNotice("");
+    if (!value.trim()) setNavigationNotice(false);
   }
 
   function hasUnsentDraft() {
@@ -420,7 +437,8 @@ function TaskDiscussionContent({
 
   function warnAboutDraft() {
     setTab("comments");
-    setNavigationNotice(
+    setNavigationNotice(true);
+    toast.danger(
       "You have an unsent comment. Submit it or clear the draft before leaving this task.",
     );
     commentInput.current?.focus();
@@ -504,12 +522,76 @@ function TaskDiscussionContent({
     if (!mention) return;
     const closeOnOutsidePress = (event: PointerEvent) => {
       const container = mentionContainer.current;
-      if (!container?.contains(event.target as Node)) setMention(null);
+      if (
+        !container?.contains(event.target as Node) &&
+        !mentionPopup.current?.contains(event.target as Node)
+      )
+        setMention(null);
     };
     document.addEventListener("pointerdown", closeOnOutsidePress);
     return () =>
       document.removeEventListener("pointerdown", closeOnOutsidePress);
   }, [mention]);
+
+  useLayoutEffect(() => {
+    const input = commentInput.current;
+    if (!mention || !input || appSuspended) return;
+    const positionPopup = () => {
+      const caret = textareaCaretRect(input);
+      const viewport = window.visualViewport;
+      if (!caret.visible) {
+        setMentionPosition(null);
+        return;
+      }
+      setMentionPosition(
+        mentionPopupPosition(
+          caret,
+          {
+            left: viewport?.offsetLeft ?? 0,
+            top: viewport?.offsetTop ?? 0,
+            width: viewport?.width ?? window.innerWidth,
+            height: viewport?.height ?? window.innerHeight,
+          },
+          mentionPopup.current?.scrollHeight ?? 256,
+        ),
+      );
+    };
+    positionPopup();
+    const resize = new ResizeObserver(positionPopup);
+    resize.observe(input);
+    if (mentionPopup.current) resize.observe(mentionPopup.current);
+    input.addEventListener("scroll", positionPopup);
+    window.addEventListener("scroll", positionPopup, true);
+    window.addEventListener("resize", positionPopup);
+    window.visualViewport?.addEventListener("resize", positionPopup);
+    window.visualViewport?.addEventListener("scroll", positionPopup);
+    return () => {
+      resize.disconnect();
+      input.removeEventListener("scroll", positionPopup);
+      window.removeEventListener("scroll", positionPopup, true);
+      window.removeEventListener("resize", positionPopup);
+      window.visualViewport?.removeEventListener("resize", positionPopup);
+      window.visualViewport?.removeEventListener("scroll", positionPopup);
+    };
+  }, [mention, mentionCandidates.length, appSuspended]);
+
+  useLayoutEffect(() => {
+    if (!mention || appSuspended) return;
+    const popup = mentionPopup.current;
+    const active = document.getElementById(
+      `${mentionListId}-${mentionCandidates[activeMention]?.id}`,
+    );
+    if (!popup || !active) return;
+    if (active.offsetTop < popup.scrollTop) {
+      popup.scrollTop = active.offsetTop;
+    } else if (
+      active.offsetTop + active.offsetHeight >
+      popup.scrollTop + popup.clientHeight
+    ) {
+      popup.scrollTop =
+        active.offsetTop + active.offsetHeight - popup.clientHeight;
+    }
+  }, [mention, activeMention, mentionListId, mentionCandidates, appSuspended]);
 
   async function submitComment() {
     const body = currentDraft.current;
@@ -612,6 +694,7 @@ function TaskDiscussionContent({
     if (!deleting || mutationPending.current) return;
     const target = deleting;
     const requestGeneration = generation.current;
+    setDeleteError("");
     const items = await comments.refresh();
     if (!mounted.current || generation.current !== requestGeneration || !items)
       return;
@@ -679,9 +762,18 @@ function TaskDiscussionContent({
   }
 
   function mentionOptions() {
-    if (!mention) return null;
-    return (
-      <div className="popover absolute inset-x-0 top-full z-50 mt-1 max-h-64 overflow-y-auto overscroll-contain rounded-xl border border-separator bg-overlay p-1">
+    if (!mention || appSuspended) return null;
+    return createPortal(
+      <div
+        ref={mentionPopup}
+        className="popover fixed z-50 overflow-y-auto overscroll-contain rounded-xl border border-separator bg-overlay p-1"
+        style={
+          mentionPosition
+            ? mentionPosition
+            : { visibility: "hidden", width: 320, maxHeight: 256 }
+        }
+        onPointerDown={(event) => event.preventDefault()}
+      >
         <div id={mentionListId} role="listbox" aria-label="Mention a person">
           {mentionCandidates.length ? (
             mentionCandidates.map((member, index) => (
@@ -711,7 +803,8 @@ function TaskDiscussionContent({
             </TypographyParagraph>
           )}
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
 
@@ -726,18 +819,12 @@ function TaskDiscussionContent({
         className="min-w-0"
       >
         <Tabs.ListContainer className="w-fit max-w-full">
-          <Tabs.List aria-label="Task discussion" className="text-sm">
-            <Tabs.Tab
-              id="comments"
-              className="whitespace-nowrap px-3 text-sm font-medium"
-            >
+          <Tabs.List aria-label="Task discussion">
+            <Tabs.Tab id="comments" className="whitespace-nowrap">
               Comments{comments.ready ? ` (${comments.items.length})` : ""}
               <Tabs.Indicator />
             </Tabs.Tab>
-            <Tabs.Tab
-              id="activity"
-              className="whitespace-nowrap px-3 text-sm font-medium"
-            >
+            <Tabs.Tab id="activity" className="whitespace-nowrap">
               Activity
               <Tabs.Indicator />
             </Tabs.Tab>
@@ -809,29 +896,18 @@ function TaskDiscussionContent({
                   variant={canSubmitComment ? "primary" : "secondary"}
                   isIconOnly
                   aria-label="Send comment"
-                  className="size-9 min-w-9 shrink-0 self-start rounded-lg pointer-coarse:size-11 pointer-coarse:min-w-11"
+                  className="shrink-0 self-start rounded-lg"
                   isDisabled={!canSubmitComment}
                   isPending={busy && !deleting}
                 >
-                  <HugeiconsIcon
-                    aria-hidden
-                    className="size-4"
-                    icon={ArrowRight02Icon}
-                  />
+                  <HugeiconsIcon aria-hidden icon={ArrowRight02Icon} />
                 </Button>
               </div>
-              <ErrorMessage>
-                {commentError && (
-                  <span className="text-xs">{commentError}</span>
-                )}
-              </ErrorMessage>
+              <ErrorMessage>{commentError}</ErrorMessage>
             </form>
           )}
           {navigationNotice && (
-            <div className="grid gap-2">
-              <TypographyParagraph className="text-xs text-muted" role="status">
-                {navigationNotice}
-              </TypographyParagraph>
+            <div>
               <Button
                 variant="secondary"
                 className="w-fit"
@@ -849,9 +925,7 @@ function TaskDiscussionContent({
           {comments.error && (
             <div className="grid gap-2">
               <ErrorMessage>
-                <span className="text-xs">
-                  Unable to load comments. {comments.error}
-                </span>
+                {`Unable to load comments. ${comments.error}`}
               </ErrorMessage>
               <Button
                 variant="secondary"
@@ -875,47 +949,43 @@ function TaskDiscussionContent({
                   aria-label={`Comment by ${name}`}
                 >
                   <div className="flex min-w-0 items-start gap-3">
-                    {humanAvatar(item.authorId, name, "size-7")}
+                    {humanAvatar(item.authorId, name, "mt-0.5 size-7 shrink-0")}
                     <div className="grid min-w-0 flex-1 gap-0.5">
                       <div className="flex min-w-0 items-center gap-2">
-                        <TypographyText className="min-w-0 truncate text-sm font-medium">
+                        <TypographyText className="min-w-0 truncate text-sm/5 font-medium">
                           {name}
                         </TypographyText>
                         <CommentDate
                           value={item.createdAt}
                           timeZone={user.timeZone}
                         />
-                        {canChange(item) && (
-                          <Button
-                            variant="secondary"
-                            isIconOnly
-                            className="task-comment-delete ml-auto shrink-0"
-                            aria-label={`Delete comment by ${name}`}
-                            isDisabled={busy || comments.busy}
-                            onPress={() => {
-                              setDeleting(item);
-                              setDeleteError("");
-                              setDeleteConflict(false);
-                            }}
-                          >
-                            <HugeiconsIcon
-                              aria-hidden
-                              className="size-4"
-                              icon={Delete02Icon}
-                            />
-                          </Button>
-                        )}
                       </div>
                       <div className="min-w-0 break-words text-sm text-muted">
                         <Markdown>{item.body}</Markdown>
                       </div>
                     </div>
+                    {canChange(item) && (
+                      <Button
+                        variant="secondary"
+                        isIconOnly
+                        className="task-comment-delete shrink-0"
+                        aria-label={`Delete comment by ${name}`}
+                        isDisabled={busy || comments.busy}
+                        onPress={() => {
+                          setDeleting(item);
+                          setDeleteError("");
+                          setDeleteConflict(false);
+                        }}
+                      >
+                        <HugeiconsIcon aria-hidden icon={Delete02Icon} />
+                      </Button>
+                    )}
                   </div>
                 </article>
               );
             })}
             {comments.ready && !comments.items.length && (
-              <TypographyParagraph className="py-3 text-xs text-muted">
+              <TypographyParagraph size="sm" color="muted" className="py-3">
                 No comments yet.
               </TypographyParagraph>
             )}
@@ -939,9 +1009,7 @@ function TaskDiscussionContent({
           {activity.error && (
             <div className="grid gap-2">
               <ErrorMessage>
-                <span className="text-xs">
-                  Unable to load activity. {activity.error}
-                </span>
+                {`Unable to load activity. ${activity.error}`}
               </ErrorMessage>
               <Button
                 variant="secondary"
@@ -953,73 +1021,76 @@ function TaskDiscussionContent({
               </Button>
             </div>
           )}
-          <Table>
-            <Table.ScrollContainer>
-              <Table.Content
-                aria-label="Task activity"
-                className="min-w-[34rem]"
-              >
-                <Table.Header>
-                  <Table.Column isRowHeader>Action</Table.Column>
-                  <Table.Column className="w-28">Entity</Table.Column>
-                  <Table.Column className="w-44">Date</Table.Column>
-                </Table.Header>
-                <Table.Body>
-                  {activity.items.map((item) => (
-                    <Table.Row key={item.id} id={item.id}>
-                      <Table.Cell>
-                        <span className="grid gap-1">
-                          <span className="text-sm font-normal">
-                            {activityLabel(item.action).replace(
-                              /^./,
-                              (letter) => letter.toUpperCase(),
-                            )}
-                          </span>
-                          <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted">
-                            {item.actorKind === "human" &&
-                              humanAvatar(
-                                item.actorId,
-                                item.actorName,
-                                "size-[18px] rounded-[5px] [&_[data-slot=avatar-fallback]]:text-[8px]",
-                              )}
-                            <span className="min-w-0 break-words">
-                              {item.actorName}
-                            </span>
-                          </span>
+          {activity.busy && !activity.ready && (
+            <QueryLoading label="Loading activity" />
+          )}
+          {(activity.items.length > 0 ||
+            (activity.ready && !activity.error)) && (
+            <ResourceTable
+              ariaLabel="Task activity"
+              tableClassName="min-w-[34rem]"
+              getRowKey={(item) => item.id}
+              items={activity.items}
+              emptyTitle="No activity yet"
+              columns={[
+                {
+                  key: "action",
+                  header: "Action",
+                  isRowHeader: true,
+                  cell: (item) => (
+                    <TableCellStack>
+                      <span>
+                        {activityLabel(item.action).replace(/^./, (letter) =>
+                          letter.toUpperCase(),
+                        )}
+                      </span>
+                      <TableCellDescription className="flex min-w-0 items-center gap-1.5">
+                        {humanAvatar(
+                          item.actorId,
+                          item.actorName,
+                          "size-[18px] rounded-[5px] [&_[data-slot=avatar-fallback]]:text-[8px]",
+                        )}
+                        <span className="min-w-0 break-words">
+                          {item.actorName}
                         </span>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Chip
-                          variant={
-                            item.action.startsWith("comment.")
-                              ? "orange"
-                              : item.action.startsWith("task.")
-                                ? "info"
-                                : "secondary"
-                          }
-                          size="small"
-                        >
-                          {activityEntity(item.action)}
-                        </Chip>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <RelativeDateTime
-                          value={item.createdAt}
-                          timeZone={user.timeZone}
-                          label="Activity date"
-                          className="whitespace-nowrap"
-                        />
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table.Content>
-            </Table.ScrollContainer>
-          </Table>
-          {activity.ready && !activity.items.length && (
-            <TypographyParagraph className="py-3 text-xs text-muted">
-              No activity yet.
-            </TypographyParagraph>
+                      </TableCellDescription>
+                    </TableCellStack>
+                  ),
+                },
+                {
+                  key: "entity",
+                  header: "Entity",
+                  headerClassName: "w-28",
+                  cell: (item) => (
+                    <Chip
+                      variant={
+                        item.action.startsWith("comment.")
+                          ? "orange"
+                          : item.action.startsWith("task.")
+                            ? "info"
+                            : "secondary"
+                      }
+                      size="small"
+                    >
+                      {activityEntity(item.action)}
+                    </Chip>
+                  ),
+                },
+                {
+                  key: "date",
+                  header: "Date",
+                  headerClassName: "w-44",
+                  cell: (item) => (
+                    <RelativeDateTime
+                      value={item.createdAt}
+                      timeZone={user.timeZone}
+                      label="Activity date"
+                      className="whitespace-nowrap"
+                    />
+                  ),
+                },
+              ]}
+            />
           )}
           {activity.hasMore && (
             <Button
@@ -1064,9 +1135,7 @@ function TaskDiscussionContent({
           Permanently delete this comment from the task discussion? This cannot
           be undone.
         </TypographyParagraph>
-        <ErrorMessage>
-          {deleteError && <span className="text-sm">{deleteError}</span>}
-        </ErrorMessage>
+        <ErrorMessage>{deleteError}</ErrorMessage>
         {deleteConflict && (
           <Button
             variant="secondary"

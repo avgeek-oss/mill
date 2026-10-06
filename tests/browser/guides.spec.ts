@@ -19,18 +19,18 @@ for (const viewport of [
       await route.abort("connectionfailed");
     });
 
-    const response = await page.goto("/guides/agents.html");
+    const response = await page.goto("/guides/clients.html");
     expect(response?.status()).toBe(200);
     expect(response?.headers()["content-security-policy"]).toContain(
       "script-src 'self'",
     );
     await expect(
       page.getByRole("heading", {
-        name: "REST clients and MCP Agents",
+        name: "REST and MCP clients",
         exact: true,
       }),
     ).toBeVisible();
-    await expect(page.getByRole("main")).toContainText("Agents");
+    await expect(page.getByRole("main")).toContainText("MCP");
     await expect(page.getByRole("main")).toContainText("API keys");
     await expect(page.locator("script")).toHaveCount(0);
     expect(
@@ -54,7 +54,9 @@ for (const viewport of [
     await expect(
       page.getByRole("heading", { name: "REST API", exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole("main")).toContainText("agentId");
+    await expect(page.getByRole("main")).toContainText(
+      "There is no identity-selection step",
+    );
     for (const status of [
       "backlog",
       "todo",

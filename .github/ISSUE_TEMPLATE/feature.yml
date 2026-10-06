@@ -12,6 +12,6 @@ body:
     id: proposal
     attributes:
       label: Proposed behavior
-      description: Describe the user's resulting workflow, including permission and agent-access effects.
+      description: Describe the user's resulting workflow, including permission and client-access effects.
     validations:
       required: true

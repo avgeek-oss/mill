@@ -9,11 +9,15 @@ import type {
   Board,
   Task,
 } from "../../../../packages/contracts/src/index.js";
-import { TASK_STATUSES } from "../../../../packages/contracts/src/index.js";
+import {
+  TASK_STATUSES,
+  TASK_TYPES,
+} from "../../../../packages/contracts/src/index.js";
 import { badRequest, conflict, requireRole, type Env } from "../http.js";
 import { sessionToken } from "../auth/model.js";
 import { hashToken } from "../auth/security.js";
-import { lockAgentAuthority, requireAgentAccess } from "../agents.js";
+import { lockAuthority } from "../authority.js";
+import { mcpResource } from "../external/protocol.js";
 
 export type Tx = postgres.TransactionSql;
 export type BoardRow = Board & { workspaceId: string; nextNumber: number };
@@ -22,12 +26,13 @@ export const uuid = z.uuid();
 export const version = z.number().int().positive();
 export const priorities = ["none", "low", "medium", "high", "urgent"] as const;
 export const taskFields = {
+  type: z.enum(TASK_TYPES),
   title: z.string().trim().min(1).max(300),
   description: z.string().max(100000),
   assigneeId: uuid.nullable(),
-  agentId: uuid.nullable(),
   priority: z.enum(priorities),
   status: z.enum(TASK_STATUSES),
+  startDate: z.iso.date().nullable(),
   dueDate: z.iso.date().nullable(),
 };
 export async function body<T>(
@@ -78,7 +83,7 @@ export async function revalidateAuthority(
   min: "viewer" | "member" | "admin",
   boardId?: string,
 ) {
-  await lockAgentAuthority(tx);
+  await lockAuthority(tx);
   const existing = requireRole(c, min, boardId);
   const [member] = await tx<
     { role: Actor["role"]; name: string; securityEpoch: number }[]
@@ -92,10 +97,10 @@ export async function revalidateAuthority(
       {
         scopes: string[];
         boardIds: string[] | null;
-        agentId: string | null;
         tokenType: string;
+        resource: string | null;
       }[]
-    >`SELECT scopes,board_ids,agent_id,token_type FROM credentials WHERE id=${existing.credentialId} AND user_id=${existing.userId} AND revoked_at IS NULL AND expires_at>now() FOR SHARE`;
+    >`SELECT scopes,board_ids,token_type,resource FROM credentials WHERE id=${existing.credentialId} AND user_id=${existing.userId} AND revoked_at IS NULL AND expires_at>now() FOR SHARE`;
     if (!credential)
       throw new HTTPException(401, {
         message: "This credential expired or was revoked",
@@ -103,7 +108,6 @@ export async function revalidateAuthority(
     if (
       credential.tokenType === "api-key" &&
       existing.kind === "human" &&
-      !credential.agentId &&
       credential.boardIds === null &&
       credential.scopes.length === 0
     ) {
@@ -113,23 +117,16 @@ export async function revalidateAuthority(
         role: member.role,
         credentialType: "api-key",
         scopes: member.role === "viewer" ? ["read"] : ["read", "write"],
-        agentId: undefined,
         boardIds: undefined,
       });
     } else if (
       credential.tokenType === "oauth" &&
-      existing.kind === "agent" &&
-      credential.agentId
+      existing.kind === "oauth" &&
+      credential.resource === mcpResource()
     ) {
-      const selectedAgent = await requireAgentAccess(
-        tx,
-        existing.userId,
-        credential.agentId,
-      );
       c.set("actor", {
         ...existing,
-        name: `${selectedAgent.name} via ${member.name}`,
-        agentId: selectedAgent.id,
+        name: member.name,
         role: member.role,
         credentialType: "oauth",
         scopes: credential.scopes,
@@ -158,7 +155,7 @@ export async function lockBoard(
   boardId: string,
   min: "member" | "admin" = "member",
 ): Promise<BoardRow> {
-  await lockAgentAuthority(tx);
+  await lockAuthority(tx);
   requireRole(c, min, boardId);
   const [row] = await tx<
     BoardRow[]
@@ -177,7 +174,7 @@ export async function task(
   const db = tx ?? sql;
   const [row] = await db<
     TaskRow[]
-  >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId}`;
+  >`SELECT tasks.* FROM tasks WHERE tasks.id=${taskId}`;
   if (!row) missing("Task not found");
   await board(c, row.boardId, min, tx);
   return row;
@@ -192,7 +189,7 @@ export async function lockedTask(
   await lockBoard(c, tx, original.boardId);
   const [row] = await tx<
     TaskRow[]
-  >`SELECT tasks.*,agents.name AS agent_name FROM tasks LEFT JOIN agents ON agents.id=tasks.agent_id WHERE tasks.id=${taskId} FOR UPDATE OF tasks`;
+  >`SELECT tasks.* FROM tasks WHERE tasks.id=${taskId} FOR UPDATE OF tasks`;
   if (!row) missing("Task not found");
   assertVersion(row, expected);
   return row;

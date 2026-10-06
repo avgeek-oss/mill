@@ -1,6 +1,6 @@
 # Contributing
 
-Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before changing Mill. The task board is the product. Changes should work for people and agents without requiring private packages, cloud credentials, or another checkout.
+Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before changing Mill. The task board is the product. Changes should work for people and connected clients without requiring private packages, cloud credentials, or another checkout.
 
 ## Local setup
 
@@ -24,6 +24,12 @@ node tools/production-verify.mjs
 The production runner builds the image, creates an isolated Compose project, exercises setup and task persistence, verifies upgrade and full database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. All three gates are required in CI.
 
 When editing UI, review the running routes in light and dark themes, on desktop and phone widths. Include long titles, empty states, permission errors, keyboard movement, and scrolled selects inside dialogs. Preserve the shared components' keyboard, focus, and touch behavior.
+
+## Documentation
+
+Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and its styles in `docs/home.css`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated pages in `docs/mintlify` are replaced by the build.
+
+After a visible application change, follow the [screenshot refresh workflow](docs/screenshot-refresh.md). `pnpm docs:screenshots` refreshes every application section from an isolated example workspace; `pnpm docs:screenshots --docs-url http://localhost:4174` also captures every documentation page. Review the desktop and mobile images in both themes before including them in the docs.
 
 ## Changes and reviews
 

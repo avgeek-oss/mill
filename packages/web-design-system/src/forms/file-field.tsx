@@ -24,7 +24,7 @@ export function FileField({
   const descriptionId = `${id}-description`;
   const errorId = `${id}-error`;
   const describedBy =
-    [props["aria-describedby"], description && descriptionId, error && errorId]
+    [props["aria-describedby"], description && descriptionId]
       .filter(Boolean)
       .join(" ") || undefined;
   return (

@@ -6,8 +6,7 @@ const {
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   callMcpTool,
   setupUser,
   sql,
@@ -30,9 +29,7 @@ async function fixture(scopes: string[] = ["read", "write"]) {
       body: { name: "Allowed board", prefix: "ALLOW" },
     })
   ).json();
-  const agent = await setupAgent(cookie);
-  const oauth = await setupOAuthAgent(cookie, {
-    agentId: agent.id,
+  const oauth = await setupOAuth(cookie, {
     scopes: scopes as ("read" | "write")[],
     boardIds: [second.board.id],
   });
@@ -49,12 +46,11 @@ async function fixture(scopes: string[] = ["read", "write"]) {
     allowedBoard: second.board,
     token: oauth.token,
     restToken: personal.token,
-    agent,
   };
 }
 
-test("an OAuth board-restricted Agent cannot gain administration while personal keys use current human permissions", async () => {
-  const { cookie, token, restToken, allowedBoard, privateBoard, user, agent } =
+test("a board-restricted OAuth connection cannot gain administration while personal keys use current human permissions", async () => {
+  const { cookie, token, restToken, allowedBoard, privateBoard, user } =
     await fixture();
   const before = await sql`SELECT id,name,version FROM boards ORDER BY id`;
   const update = await callMcpTool(token, "update_board", {
@@ -134,16 +130,16 @@ test("an OAuth board-restricted Agent cannot gain administration while personal 
   assert.equal(humanEvent.actorId, user.id);
   assert.equal(humanEvent.actorName, user.name);
   assert.equal(humanEvent.actorKind, "human");
-  const agentTask = await callMcpTool(token, "create_task", {
+  const oauthTask = await callMcpTool(token, "create_task", {
     boardId: allowedBoard.id,
-    title: "OAuth Agent work",
+    title: "OAuth work",
   });
-  assert.equal(agentTask.result?.isError, false);
-  const [agentEvent] =
-    await sql`SELECT actor_id,actor_name,actor_kind FROM activity WHERE task_id=${(agentTask.result?.structuredContent?.task as { id: string }).id} AND action='task.created'`;
-  assert.equal(agentEvent.actorId, user.id);
-  assert.equal(agentEvent.actorName, `${agent.name} via ${user.name}`);
-  assert.equal(agentEvent.actorKind, "agent");
+  assert.equal(oauthTask.result?.isError, false);
+  const [oauthEvent] =
+    await sql`SELECT actor_id,actor_name,actor_kind FROM activity WHERE task_id=${(oauthTask.result?.structuredContent?.task as { id: string }).id} AND action='task.created'`;
+  assert.equal(oauthEvent.actorId, user.id);
+  assert.equal(oauthEvent.actorName, user.name);
+  assert.equal(oauthEvent.actorKind, "oauth");
 });
 
 test("removed status, subtask, move and portable routes cannot mutate the workspace", async () => {
@@ -229,14 +225,13 @@ test("mixed accessible and inaccessible notification IDs fail without any update
 });
 
 test("OAuth tokens must match the canonical MCP resource and cannot call REST directly", async () => {
-  const { cookie, user } = await setupUser();
-  const agent = await setupAgent(cookie);
+  const { user } = await setupUser();
   const baseUrl = new URL(process.env.MILL_BASE_URL!);
   const resource = new URL("/mcp", baseUrl).href;
   const restUrl = new URL("/api/boards", baseUrl);
   const token = `mill_${secret()}`;
   const [credential] =
-    await sql`INSERT INTO credentials(user_id,agent_id,name,token_hash,token_prefix,scopes,token_type,resource,expires_at) VALUES(${user.id},${agent.id},'Wrong audience',${digest(token)},${token.slice(0, 12)},${["read"]},'oauth','https://old.example.test/mcp',now()+interval '1 day') RETURNING id`;
+    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,resource,expires_at) VALUES(${user.id},'Wrong audience',${digest(token)},${token.slice(0, 12)},${["read"]},'oauth','https://old.example.test/mcp',now()+interval '1 day') RETURNING id`;
   const { credentialActor } =
     await import("../apps/api/src/external/credentials.js");
   const headers = { authorization: `Bearer ${token}` };
@@ -244,7 +239,7 @@ test("OAuth tokens must match the canonical MCP resource and cannot call REST di
   await sql`UPDATE credentials SET resource=${resource} WHERE id=${credential.id}`;
   assert.equal(
     (await credentialActor(new Request(resource, { headers })))?.kind,
-    "agent",
+    "oauth",
   );
   await assert.rejects(
     credentialActor(new Request(restUrl, { headers })),
@@ -252,7 +247,7 @@ test("OAuth tokens must match the canonical MCP resource and cannot call REST di
       error instanceof Error &&
       "status" in error &&
       error.status === 403 &&
-      error.message === "Agent OAuth credentials use MCP",
+      error.message === "OAuth credentials use MCP",
   );
 });
 

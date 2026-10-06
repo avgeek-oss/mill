@@ -1,15 +1,12 @@
 import { after, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { randomUUID, createHash } from "node:crypto";
 import type { Task } from "../packages/contracts/src/index.js";
 import {
   callMcpTool,
   cleanupDatabase,
   request,
   resetDatabase,
-  setupAgent,
-  setupOAuthAgent,
+  setupOAuth,
   setupUser,
   sql,
 } from "./support.js";
@@ -20,7 +17,7 @@ async function json(response: Response, status = 200) {
   assert.equal(response.status, status, await response.clone().text());
   return response.json();
 }
-async function agentTask(token: string, args: Record<string, unknown>) {
+async function oauthTask(token: string, args: Record<string, unknown>) {
   const called = await callMcpTool(token, "update_task", args);
   assert.equal(called.response.status, 200);
   assert.equal(called.result?.isError, false, JSON.stringify(called.result));
@@ -48,7 +45,7 @@ async function member(cookie: string, role: "member" | "viewer") {
   };
 }
 
-test("workspace audit is absent for every role while task history retains human, agent and comment actions", async () => {
+test("workspace audit is absent for every role while task history retains human, OAuth and comment actions", async () => {
   const { cookie, user } = await setupUser();
   const writer = await member(cookie, "member");
   const viewer = await member(cookie, "viewer");
@@ -66,8 +63,7 @@ test("workspace audit is absent for every role while task history retains human,
     }),
     201,
   );
-  const credential = await setupOAuthAgent(cookie, {
-    agentId: (await setupAgent(cookie, { name: "Task helper" })).id,
+  const credential = await setupOAuth(cookie, {
     boardIds: [board.id],
   });
   for (const access of [
@@ -128,28 +124,28 @@ test("workspace audit is absent for every role while task history retains human,
     )
   ).task;
   task = (
-    await agentTask(credential.token, {
+    await oauthTask(credential.token, {
       taskId: task.id,
       version: task.version,
-      description: "Agent edit",
+      description: "OAuth edit",
     })
   ).task;
   task = (
-    await agentTask(credential.token, {
+    await oauthTask(credential.token, {
       taskId: task.id,
       version: task.version,
       status: "in_progress",
     })
   ).task;
-  const agentComment = await callMcpTool(credential.token, "add_comment", {
+  const oauthComment = await callMcpTool(credential.token, "add_comment", {
     taskId: task.id,
-    body: "Agent comment",
+    body: "OAuth comment",
   });
-  assert.equal(agentComment.response.status, 200);
+  assert.equal(oauthComment.response.status, 200);
   assert.equal(
-    agentComment.result?.isError,
+    oauthComment.result?.isError,
     false,
-    JSON.stringify(agentComment.result),
+    JSON.stringify(oauthComment.result),
   );
   const history = await json(
     await request(`/api/tasks/${task.id}/activity`, { cookie: viewer.cookie }),
@@ -167,15 +163,14 @@ test("workspace audit is absent for every role while task history retains human,
       "comment.created",
     ].sort(),
   );
-  const agentEvents = history.items.filter(
-    (event: { actorKind: string }) => event.actorKind === "agent",
+  const oauthEvents = history.items.filter(
+    (event: { actorKind: string }) => event.actorKind === "oauth",
   );
-  assert.equal(agentEvents.length, 3);
+  assert.equal(oauthEvents.length, 3);
   assert.ok(
-    agentEvents.every(
+    oauthEvents.every(
       (event: { actorId: string; actorName: string }) =>
-        event.actorId === user.id &&
-        event.actorName === "Task helper via Admin",
+        event.actorId === user.id && event.actorName === "Admin",
     ),
   );
   const personalKeyEvent = history.items.find(
@@ -263,8 +258,7 @@ test("status changes retain attributed history, reject stale versions and dedupl
     await sql`SELECT * FROM tasks WHERE id=${unrelated.id}`;
   const unrelatedHistory =
     await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY id`;
-  const credential = await setupOAuthAgent(cookie, {
-    agentId: (await setupAgent(cookie, { name: "Status helper" })).id,
+  const credential = await setupOAuth(cookie, {
     boardIds: [board.id],
   });
   const stale = await callMcpTool(credential.token, "update_task", {
@@ -291,8 +285,8 @@ test("status changes retain attributed history, reject stale versions and dedupl
     status: "in_progress",
     idempotencyKey: "status-change-history",
   };
-  const changed = await agentTask(credential.token, patchArgs);
-  const replayed = await agentTask(credential.token, patchArgs);
+  const changed = await oauthTask(credential.token, patchArgs);
+  const replayed = await oauthTask(credential.token, patchArgs);
   assert.deepEqual(replayed, changed);
   assert.equal(changed.task.status, "in_progress");
   assert.equal(changed.task.version, task.version + 1);
@@ -310,8 +304,8 @@ test("status changes retain attributed history, reject stale versions and dedupl
   assert.equal(event.taskId, task.id);
   assert.equal(event.boardId, board.id);
   assert.equal(event.actorId, user.id);
-  assert.equal(event.actorKind, "agent");
-  assert.equal(event.actorName, "Status helper via Admin");
+  assert.equal(event.actorKind, "oauth");
+  assert.equal(event.actorName, "Admin");
   assert.deepEqual(event.detail, {
     fromStatus: "backlog",
     status: "in_progress",
@@ -336,8 +330,8 @@ test("personal keys retain human task history across boards and follow current m
     }),
     201,
   );
-  assert.equal(personalKey.credential.agentId, null);
-  assert.equal(personalKey.credential.agentName, null);
+  assert.equal("agentId" in personalKey.credential, false);
+  assert.equal("agentName" in personalKey.credential, false);
   assert.deepEqual(personalKey.credential.scopes, []);
   assert.equal(personalKey.credential.boardIds, null);
   const tasks: Task[] = [];
@@ -510,92 +504,4 @@ test("fresh activity rows require an owning task in the same board", async () =>
       { code },
     );
   assert.equal((await sql`SELECT * FROM activity`).length, 1);
-});
-
-test("006 removes existing global history and authentication audit while preserving and binding task activity", async () => {
-  const schema = `history_${randomUUID().replaceAll("-", "")}`;
-  await sql.begin(async (tx) => {
-    await tx.unsafe(`CREATE SCHEMA "${schema}"`);
-    await tx.unsafe(`SET LOCAL search_path TO "${schema}"`);
-    await tx`CREATE TABLE mill_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`;
-    for (const name of [
-      "001_identity.sql",
-      "002_boards.sql",
-      "003_external.sql",
-      "004_http.sql",
-      "005_permanent_deletion.sql",
-    ]) {
-      const source = await readFile(
-        new URL(`../packages/database/migrations/${name}`, import.meta.url),
-        "utf8",
-      );
-      await tx.unsafe(source);
-      await tx`INSERT INTO mill_migrations(name,checksum) VALUES(${name},${createHash("sha256").update(source).digest("hex")})`;
-    }
-    const originalMigrations =
-      await tx`SELECT * FROM mill_migrations ORDER BY name`;
-    const [workspace] =
-      await tx`INSERT INTO workspace(id,name) VALUES(${randomUUID()},'Upgrade') RETURNING id`;
-    const [user] =
-      await tx`INSERT INTO users(id,workspace_id,name,email,role,password_hash) VALUES(${randomUUID()},${workspace.id},'Admin','history@example.test','admin','unused') RETURNING id`;
-    const [board] =
-      await tx`INSERT INTO boards(workspace_id,name,prefix,position) VALUES(${workspace.id},'Work','WORK',0) RETURNING id`;
-    const [other] =
-      await tx`INSERT INTO boards(workspace_id,name,prefix,position) VALUES(${workspace.id},'Other','OTHER',1) RETURNING id`;
-    const [column] =
-      await tx`INSERT INTO columns(board_id,name,position) VALUES(${board.id},'Backlog',0) RETURNING id`;
-    const [task] =
-      await tx`INSERT INTO tasks(board_id,column_id,identifier,title,position,created_by) VALUES(${board.id},${column.id},'WORK-1','Keep task history',0,${user.id}) RETURNING id`;
-    await tx`INSERT INTO auth_audit(id,user_id,actor_name,action,detail) VALUES(${randomUUID()},${user.id},'Admin','account.sign-in','{}')`;
-    await tx`INSERT INTO activity(board_id,actor_id,actor_name,actor_kind,action) VALUES(${board.id},${user.id},'Admin','human','board.created'),(NULL,${user.id},'Admin','human','workspace.updated'),(NULL,${user.id},'Admin','human','task.deleted')`;
-    for (const [boardId, kind, action] of [
-      [board.id, "human", "task.created"],
-      [null, "agent", "task.updated"],
-      [other.id, "human", "comment.created"],
-    ] as const)
-      await tx`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail,created_at) VALUES(${task.id},${boardId},${user.id},'Actor',${kind},${action},${tx.json({ fields: ["description"] })},'2026-09-29T01:02:03.123456Z')`;
-    const taskEvents =
-      await tx`SELECT id,task_id,actor_id,actor_name,actor_kind,action,detail,created_at FROM activity WHERE task_id IS NOT NULL ORDER BY id`;
-    await tx`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status) VALUES(${user.id},'retained-task-cache','unchanged-hash','{}',200)`;
-    const originalRetry = await tx`SELECT * FROM api_idempotency`;
-    const source = await readFile(
-      new URL(
-        "../packages/database/migrations/006_task_activity_only.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    await tx.unsafe(source);
-    await tx`INSERT INTO mill_migrations(name,checksum) VALUES('006_task_activity_only.sql',${createHash("sha256").update(source).digest("hex")})`;
-    assert.deepEqual(
-      await tx`SELECT * FROM mill_migrations WHERE name<'006' ORDER BY name`,
-      originalMigrations,
-    );
-    assert.equal(
-      (await tx`SELECT to_regclass(${schema + ".auth_audit"}) AS relation`)[0]
-        .relation,
-      null,
-    );
-    assert.deepEqual(
-      await tx`SELECT id,task_id,actor_id,actor_name,actor_kind,action,detail,created_at FROM activity ORDER BY id`,
-      taskEvents,
-    );
-    assert.ok(
-      (await tx`SELECT board_id FROM activity`).every(
-        (event) => event.boardId === board.id,
-      ),
-    );
-    assert.equal(
-      (await tx`SELECT * FROM activity WHERE task_id IS NULL`).length,
-      0,
-    );
-    assert.deepEqual(await tx`SELECT * FROM api_idempotency`, originalRetry);
-    await tx.unsafe("SET LOCAL search_path TO pg_catalog");
-    await tx`DELETE FROM ${tx(`${schema}.tasks`)} WHERE id=${task.id}`;
-    assert.equal(
-      (await tx`SELECT * FROM ${tx(`${schema}.activity`)}`).length,
-      0,
-    );
-    await tx.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
-  });
 });

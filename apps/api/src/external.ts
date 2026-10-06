@@ -201,7 +201,6 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
   const parsed = z
     .object({
       allow: z.boolean(),
-      agentId: z.uuid().optional(),
       boardIds: z
         .array(z.uuid())
         .min(1)
@@ -220,7 +219,6 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
         a,
         parsed.data.allow,
         parsed.data.boardIds,
-        parsed.data.agentId,
       ),
     });
   } catch (error) {
@@ -279,7 +277,7 @@ externalRoutes.all("/mcp", async (c) => {
       "WWW-Authenticate",
       `Bearer resource_metadata="${resourceMetadataUrl()}"`,
     );
-    return c.json({ error: "A valid Agent OAuth credential is required" }, 401);
+    return c.json({ error: "A valid OAuth credential is required" }, 401);
   }
   return serveMcp(c);
 });

@@ -1,5 +1,6 @@
 import {
   Button,
+  ErrorMessage,
   TypographyHeading,
   TypographyParagraph,
 } from "@mill/web-design-system";
@@ -20,18 +21,28 @@ export function ErrorPage({
   title,
   description,
   showBoards = true,
+  pending = false,
 }: {
   code?: string;
   onRetry?: () => void;
   title?: string;
   description?: string;
   showBoards?: boolean;
+  pending?: boolean;
 }) {
   const missing = code === "404";
   const forbidden = code === "403";
   const unavailable = missing || forbidden;
+  const failureDescription =
+    description ??
+    (missing
+      ? "The link may be outdated or the page may have moved."
+      : forbidden
+        ? "Ask an administrator for access, or return to your boards."
+        : "Try again. If the problem continues, return to your boards.");
   return (
     <section className="grid min-h-[calc(100dvh-10rem)] place-items-center px-4 py-12">
+      <ErrorMessage>{pending ? "" : failureDescription}</ErrorMessage>
       <div className="flex max-w-md flex-col items-center text-center">
         <div className="mb-8 inline-flex items-center gap-2 text-sm font-medium text-foreground">
           <MillMark />
@@ -64,16 +75,16 @@ export function ErrorPage({
           align="center"
           className="mt-3 max-w-sm leading-6"
         >
-          {description ??
-            (missing
-              ? "The link may be outdated or the page may have moved."
-              : forbidden
-                ? "Ask an administrator for access, or return to your boards."
-                : "Try again. If the problem continues, return to your boards.")}
+          {onRetry || !unavailable
+            ? "Try again using the action below."
+            : "Use the navigation to return to your boards."}
         </TypographyParagraph>
         <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
           {(onRetry || !unavailable) && (
-            <Button onPress={onRetry ?? (() => window.location.reload())}>
+            <Button
+              isPending={pending}
+              onPress={onRetry ?? (() => window.location.reload())}
+            >
               {onRetry ? "Try again" : "Reload"}
             </Button>
           )}

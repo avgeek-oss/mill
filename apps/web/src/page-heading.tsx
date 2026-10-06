@@ -1,29 +1,29 @@
 import type { ReactNode } from "react";
-import {
-  TypographyHeading,
-  TypographyParagraph,
-  TooltipText,
-} from "@mill/web-design-system";
+import { TypographyHeading, TooltipText } from "@mill/web-design-system";
 
 // Adapted from Towbar's ApplicationPage and DashboardPage title composition.
 export function PageHeading({
   title,
   icon,
   actions,
-  description,
+  actionsPlacement = "end",
+  truncateTitle = false,
 }: {
   title: string;
   icon?: ReactNode;
   actions?: ReactNode;
-  description?: string;
+  actionsPlacement?: "inline" | "end";
+  truncateTitle?: boolean;
 }) {
   return (
-    <div className="pb-3">
-      <header className="flex flex-wrap items-center justify-between gap-5">
+    <div className="py-5">
+      <header
+        className={`flex items-center ${actionsPlacement === "inline" ? "flex-nowrap gap-2" : `justify-between ${truncateTitle ? "flex-nowrap gap-3" : "flex-wrap gap-5"}`}`}
+      >
         <TypographyHeading
           elementType="h1"
           level={3}
-          className="flex min-w-0 items-center text-xl font-medium"
+          className={`flex min-w-0 items-center text-xl font-medium${truncateTitle ? " flex-1" : ""}`}
         >
           <span className="inline-flex min-w-0 items-center gap-2">
             {icon && (
@@ -34,18 +34,13 @@ export function PageHeading({
                 {icon}
               </span>
             )}
-            <TooltipText className="truncate" tooltip={title}>
+            <TooltipText className="min-w-0 truncate" tooltip={title}>
               {title}
             </TooltipText>
           </span>
         </TypographyHeading>
         {actions}
       </header>
-      {description && (
-        <TypographyParagraph className="mt-2" color="muted">
-          {description}
-        </TypographyParagraph>
-      )}
     </div>
   );
 }

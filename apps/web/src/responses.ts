@@ -1,5 +1,8 @@
 import { hasResponseRecord, isResponseObject } from "./api.js";
-import { TASK_STATUSES } from "../../../packages/contracts/src/index.js";
+import {
+  TASK_STATUSES,
+  TASK_TYPES,
+} from "../../../packages/contracts/src/index.js";
 
 function record(value: unknown, key: string) {
   return hasResponseRecord(value, key) &&
@@ -36,32 +39,24 @@ export function hasBoardsResponse(value: unknown) {
       : value.nextCursor === null)
   );
 }
-export function hasAgentResponse(value: unknown) {
-  const agent = record(value, "agent");
+export function hasBoardSummariesResponse(value: unknown) {
   return (
-    !!agent &&
-    typeof agent.name === "string" &&
-    agent.name.length > 0 &&
-    (agent.scope === "personal" || agent.scope === "team") &&
-    typeof agent.creatorId === "string" &&
-    agent.creatorId.length > 0 &&
-    typeof agent.allMembers === "boolean" &&
-    Array.isArray(agent.memberIds) &&
-    agent.memberIds.every(
-      (memberId) => typeof memberId === "string" && memberId.length > 0,
-    ) &&
-    version(agent.version)
-  );
-}
-export function hasAgentsResponse(value: unknown) {
-  return (
+    hasBoardsResponse(value) &&
     isResponseObject(value) &&
     Array.isArray(value.items) &&
-    value.items.every((agent) => hasAgentResponse({ agent })) &&
-    typeof value.hasMore === "boolean" &&
-    (value.hasMore
-      ? typeof value.nextCursor === "string" && value.nextCursor.length > 0
-      : value.nextCursor === null)
+    value.items.every(
+      (board) =>
+        isResponseObject(board) &&
+        [
+          board.backlogCount,
+          board.activeCount,
+          board.inProgressCount,
+          board.todoCount,
+        ].every(
+          (count) =>
+            typeof count === "number" && Number.isInteger(count) && count >= 0,
+        ),
+    )
   );
 }
 export function hasTaskResponse(value: unknown) {
@@ -72,10 +67,7 @@ export function hasTaskResponse(value: unknown) {
       (key) => typeof task[key] === "string" && task[key].length > 0,
     ) &&
     TASK_STATUSES.some((status) => status === task.status) &&
-    (task.agentId === null ||
-      (typeof task.agentId === "string" && task.agentId.length > 0)) &&
-    (task.agentName === null ||
-      (typeof task.agentName === "string" && task.agentName.length > 0)) &&
+    TASK_TYPES.some((type) => type === task.type) &&
     version(task.version)
   );
 }
