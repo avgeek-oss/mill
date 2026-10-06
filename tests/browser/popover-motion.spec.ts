@@ -1,6 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { mkdir } from "node:fs/promises";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type APIRequestContext,
+  type Locator,
+  type Page,
+} from "@playwright/test";
 import {
   authenticateBrowserFixture,
   getBrowserBootstrap,
@@ -8,33 +14,50 @@ import {
 } from "../browser-fixture.js";
 
 let fixture: BrowserFixtureSession;
+let api: APIRequestContext;
 let taskPath: string;
 let secondBoardPath: string;
+const seededBoardIds: string[] = [];
 
 test.beforeAll(async ({ baseURL }) => {
   const bootstrap = await getBrowserBootstrap(baseURL!);
   fixture = bootstrap;
-  try {
-    const ids: string[] = [];
-    for (const name of ["Popover first board", "Popover second board"]) {
-      const response = await bootstrap.api.post("/api/boards", {
-        data: {
-          name,
-          prefix: `PM${randomBytes(3).toString("hex").toUpperCase()}`,
-        },
-      });
-      expect(response.status()).toBe(201);
-      ids.push((await response.json()).board.id);
-    }
-    secondBoardPath = `/boards/${ids[1]}`;
-    const task = await bootstrap.api.post(`/api/boards/${ids[0]}/tasks`, {
-      data: { title: "Popover motion verification" },
+  api = bootstrap.api;
+  const ids: string[] = [];
+  for (const name of ["Popover first board", "Popover second board"]) {
+    const response = await bootstrap.api.post("/api/boards", {
+      data: {
+        name,
+        prefix: `PM${randomBytes(3).toString("hex").toUpperCase()}`,
+      },
     });
-    expect(task.status()).toBe(201);
-    taskPath = `/boards/${ids[0]}/tasks/${(await task.json()).task.id}`;
-    await mkdir("tmp/popover-motion", { recursive: true });
+    expect(response.status()).toBe(201);
+    const id = (await response.json()).board.id;
+    ids.push(id);
+    seededBoardIds.push(id);
+  }
+  secondBoardPath = `/boards/${ids[1]}`;
+  const task = await bootstrap.api.post(`/api/boards/${ids[0]}/tasks`, {
+    data: { title: "Popover motion verification" },
+  });
+  expect(task.status()).toBe(201);
+  taskPath = `/boards/${ids[0]}/tasks/${(await task.json()).task.id}`;
+  await mkdir("tmp/popover-motion", { recursive: true });
+});
+
+test.afterAll(async () => {
+  try {
+    for (const id of seededBoardIds) {
+      const response = await api.get(`/api/boards/${id}`);
+      expect(response.status()).toBe(200);
+      const { board } = await response.json();
+      const removed = await api.delete(`/api/boards/${id}`, {
+        data: { version: board.version },
+      });
+      expect(removed.status()).toBe(200);
+    }
   } finally {
-    await bootstrap.api.dispose();
+    await api?.dispose();
   }
 });
 

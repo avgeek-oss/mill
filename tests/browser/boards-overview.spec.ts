@@ -11,6 +11,7 @@ let fixture: BrowserFixtureSession;
 let api: APIRequestContext;
 let boardId: string;
 let taskId: string;
+const seededBoardIds: string[] = [];
 const boardName =
   "Alpha release planning across teams and product documentation";
 test.beforeAll(async ({ baseURL }) => {
@@ -30,6 +31,7 @@ test.beforeAll(async ({ baseURL }) => {
     });
     expect(response.status()).toBe(201);
     const board = (await response.json()).board;
+    seededBoardIds.push(board.id);
     if (name === boardName) boardId = board.id;
   }
   for (const status of [
@@ -49,7 +51,19 @@ test.beforeAll(async ({ baseURL }) => {
   await mkdir("tmp/boards-layout-evidence", { recursive: true });
 });
 test.afterAll(async () => {
-  await api?.dispose();
+  try {
+    for (const id of seededBoardIds) {
+      const response = await api.get(`/api/boards/${id}`);
+      expect(response.status()).toBe(200);
+      const { board } = await response.json();
+      const removed = await api.delete(`/api/boards/${id}`, {
+        data: { version: board.version },
+      });
+      expect(removed.status()).toBe(200);
+    }
+  } finally {
+    await api?.dispose();
+  }
 });
 for (const width of [1280, 390])
   for (const theme of ["light", "dark"] as const) {
