@@ -14,11 +14,13 @@ import { McpGuide } from "./mcp-guide.js";
 export function SettingsPage({
   section,
   session,
+  emailDeliveryConfigured,
   boards,
   onRefresh,
 }: {
   section: string;
   session: Session;
+  emailDeliveryConfigured: boolean;
   members: Member[];
   boards: Board[];
   onRefresh: () => void;
@@ -30,9 +32,10 @@ export function SettingsPage({
   if (isAccountSection(section) && !["api-keys", "mcp"].includes(section))
     return (
       <AccountSettings
-        key={section}
+        key={`${section}:${session.user.id}`}
         section={section}
         session={session}
+        emailDeliveryConfigured={emailDeliveryConfigured}
         onRefresh={onRefresh}
       />
     );

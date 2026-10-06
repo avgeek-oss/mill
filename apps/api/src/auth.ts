@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import type { AuthStatus } from "../../../packages/contracts/src/index.js";
 import { sql } from "../../../packages/database/src/index.js";
 import { badRequest, clientAddress, conflict, type Env } from "./http.js";
 import {
@@ -34,6 +35,8 @@ import {
 } from "./auth/security.js";
 import { securityRoutes } from "./auth/factors.js";
 import { teamRoutes } from "./auth/team.js";
+import { emailRoutes } from "./auth/email.js";
+import { emailDeliveryConfigured } from "./auth/email-outbox.js";
 import { recoveryRoutes } from "./auth/recovery.js";
 
 export { sessionActor } from "./auth/model.js";
@@ -41,7 +44,10 @@ export const authRoutes = new Hono<Env>();
 authRoutes.get("/status", async (c) => {
   const [state] =
     await sql`SELECT EXISTS(SELECT 1 FROM workspace) AS configured`;
-  return c.json({ setupRequired: !state.configured });
+  return c.json({
+    setupRequired: !state.configured,
+    emailDeliveryConfigured: emailDeliveryConfigured(),
+  } satisfies AuthStatus);
 });
 authRoutes.post("/setup", async (c) => {
   await rateLimit(`setup:${clientAddress(c)}`, 20);
@@ -261,3 +267,5 @@ authRoutes.post("/password", async (c) => {
 authRoutes.route("/", securityRoutes);
 authRoutes.route("/", teamRoutes);
 authRoutes.route("/", recoveryRoutes);
+
+authRoutes.route("/", emailRoutes);

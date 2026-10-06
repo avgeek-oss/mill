@@ -7,8 +7,10 @@ import { migrate } from "../../../packages/database/src/migrate.js";
 import { closeDatabase } from "../../../packages/database/src/index.js";
 import { app, httpSecurity } from "./app.js";
 import { registerStaticRoutes } from "./static.js";
+import { startEmailWorker } from "./auth/email-outbox.js";
 const configuration = validateConfiguration();
 await migrate();
+const stopEmailWorker = startEmailWorker();
 const serverApp = new Hono<import("./http.js").Env>();
 serverApp.use("*", httpSecurity);
 serverApp.use("*", async (c, next) => {
@@ -39,6 +41,7 @@ const server = serve(
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () =>
     server.close(async () => {
+      await stopEmailWorker();
       await closeDatabase();
       process.exit(0);
     }),

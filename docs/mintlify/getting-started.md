@@ -25,7 +25,7 @@ Admins manage the team through **Team settings → Members** and **General**. Me
 
 Open **Account settings → Passkeys** to register a passkey and save its recovery codes. Password sign-in requires a registered passkey; a single-use recovery code can recover ordinary account access after password verification. Register your own device at the final HTTPS origin.
 
-Review active sessions and revoke a device you no longer use. Select your name at the bottom of the sidebar to choose your time zone and notification preferences. If you lose access, use your saved recovery code or ask the server administrator to follow the local account-recovery procedure in [operations](/operations). Full database recovery is separate from account recovery.
+Review active sessions and revoke a device you no longer use. Select your name at the bottom of the sidebar to choose your time zone and notification preferences. If you lose access, use your saved recovery code, request a password reset when SMTP is configured, or ask the server administrator to follow the local account-recovery procedure in [operations](/operations). Full database recovery is separate from account recovery.
 
 ## Connect an external client
 

@@ -35,6 +35,7 @@ import {
   ProfileImageSettings,
   PasskeySettings,
   EmailChangeSettings,
+  type PendingEmailChange,
 } from "@avgeek-oss/design-system";
 import {
   dateTimePreferenceOptions,
@@ -49,8 +50,14 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
-import { RelativeDateTime } from "./relative-date-time.js";
-import { api, errorText, isResponseObject, type Session } from "./api.js";
+import { RelativeDateTime, useCurrentTime } from "./relative-date-time.js";
+import {
+  api,
+  ApiError,
+  errorText,
+  isResponseObject,
+  type Session,
+} from "./api.js";
 
 type SessionRow = {
   id: string;
@@ -177,10 +184,12 @@ function ListState({
 export function AccountSettings({
   section,
   session,
+  emailDeliveryConfigured,
   onRefresh,
 }: {
   section: string;
   session: Session;
+  emailDeliveryConfigured: boolean;
   onRefresh: () => void;
 }) {
   const titles: Record<string, string> = {
@@ -207,7 +216,14 @@ export function AccountSettings({
     case "sessions":
       return <SessionSettings session={session} onRefresh={onRefresh} />;
     default:
-      return <EmailPasswordSettings session={session} onRefresh={onRefresh} />;
+      return (
+        <EmailPasswordSettings
+          key={`${session.user.id}:${session.user.email}`}
+          session={session}
+          emailDeliveryConfigured={emailDeliveryConfigured}
+          onRefresh={onRefresh}
+        />
+      );
   }
 }
 function ProfileSettings({
@@ -230,7 +246,7 @@ function ProfileSettings({
         />
         <SharedProfileSettings
           value={session.user.name}
-          maxLength={100}
+          maxLength={120}
           onSave={async (name) => {
             await api("/auth/profile", { name }, "PATCH");
             onRefresh();
@@ -362,27 +378,318 @@ function PreferenceSettings({
     </section>
   );
 }
+type EmailChangeResponse = { pending: PendingEmailChange | null };
+function isEmailChangeResponse(value: unknown): value is EmailChangeResponse {
+  if (!isResponseObject(value)) return false;
+  const pending = value.pending;
+  return (
+    pending === null ||
+    (isResponseObject(pending) &&
+      typeof pending.email === "string" &&
+      pending.email.length > 0 &&
+      typeof pending.expiresAt === "string" &&
+      Number.isFinite(Date.parse(pending.expiresAt)))
+  );
+}
+function uncertainResponse(cause: unknown) {
+  return (
+    cause instanceof ApiError &&
+    (cause.status === 0 || (cause.status >= 200 && cause.status < 300))
+  );
+}
 function EmailPasswordSettings({
   session,
+  emailDeliveryConfigured,
   onRefresh,
 }: {
   session: Session;
+  emailDeliveryConfigured: boolean;
   onRefresh: () => void;
 }) {
   const identity = useIdentityConfirmation();
+  const appSuspended = useAppSuspended();
+  const emailIdentityHeaders = useMemo(
+    () => ({ "X-Mill-User-Id": session.user.id }),
+    [session.user.id],
+  );
+  const currentTime = useCurrentTime();
+  const [emailChange, setEmailChange] = useState<{
+    value: EmailChangeResponse | null;
+    error: string;
+  }>({ value: null, error: "" });
+  const [resendAvailableAt, setResendAvailableAt] = useState(0);
+  const [pending, setPending] = useState<{
+    action: () => Promise<void>;
+    resolve: () => void;
+    reject: (cause: Error) => void;
+  } | null>(null);
+  const pendingRef = useRef(pending);
+  const mutationPending = useRef(false);
+  const generation = useRef(0);
+  const active = useRef(true);
+  const controller = useRef<AbortController | null>(null);
+  useEffect(() => {
+    active.current = !appSuspended;
+    if (appSuspended) {
+      controller.current?.abort();
+      pendingRef.current?.reject(new Error("Identity confirmation canceled."));
+      pendingRef.current = null;
+      controller.current = null;
+      mutationPending.current = false;
+      setPending(null);
+    }
+    return () => {
+      active.current = false;
+      generation.current++;
+      controller.current?.abort();
+      pendingRef.current?.reject(new Error("Identity confirmation canceled."));
+      pendingRef.current = null;
+    };
+  }, [appSuspended]);
+  const loadEmailChange = useCallback(async () => {
+    const request = ++generation.current;
+    setEmailChange((old) => ({ ...old, error: "" }));
+    try {
+      const value = await api<EmailChangeResponse>(
+        "/auth/email-change",
+        undefined,
+        "GET",
+        {
+          headers: emailIdentityHeaders,
+          validateResponse: isEmailChangeResponse,
+        },
+      );
+      if (active.current && request === generation.current)
+        setEmailChange({ value, error: "" });
+    } catch (cause) {
+      if (active.current && request === generation.current)
+        setEmailChange((old) => ({ ...old, error: errorText(cause) }));
+    }
+  }, [emailIdentityHeaders]);
+  useEffect(() => {
+    if (emailDeliveryConfigured && !appSuspended) void loadEmailChange();
+    return () => {
+      generation.current++;
+    };
+  }, [emailDeliveryConfigured, appSuspended, loadEmailChange]);
+  function updateEmailChange(value: EmailChangeResponse) {
+    generation.current++;
+    if (active.current) setEmailChange({ value, error: "" });
+  }
+  async function emailMutation(action: (signal: AbortSignal) => Promise<void>) {
+    if (!active.current)
+      throw new Error("Sign in again to change your email address.");
+    if (mutationPending.current)
+      throw new Error("Complete the current email change first.");
+    mutationPending.current = true;
+    const request = new AbortController();
+    controller.current = request;
+    try {
+      await action(request.signal);
+    } catch (cause) {
+      if (active.current && !request.signal.aborted) throw cause;
+    } finally {
+      if (controller.current === request) {
+        mutationPending.current = false;
+        controller.current = null;
+      }
+    }
+  }
+  function securePasskey(action: (signal: AbortSignal) => Promise<void>) {
+    if (!active.current)
+      return Promise.reject(
+        new Error("Sign in again to change your email address."),
+      );
+    if (mutationPending.current)
+      return Promise.reject(
+        new Error("Complete the current email change first."),
+      );
+    mutationPending.current = true;
+    const request = new AbortController();
+    controller.current = request;
+    return new Promise<void>((resolve, reject) => {
+      const confirmation = {
+        action: async () => {
+          if (!active.current || request.signal.aborted) return;
+          try {
+            await action(request.signal);
+          } catch (cause) {
+            if (active.current && !request.signal.aborted) throw cause;
+          }
+        },
+        resolve,
+        reject,
+      };
+      pendingRef.current = confirmation;
+      setPending(confirmation);
+    });
+  }
+  function closeConfirmation() {
+    controller.current?.abort();
+    pendingRef.current?.reject(new Error("Identity confirmation canceled."));
+    pendingRef.current = null;
+    controller.current = null;
+    mutationPending.current = false;
+    setPending(null);
+  }
+  async function requestEmailChange(email: string, signal: AbortSignal) {
+    const normalized = email.trim().toLowerCase();
+    let result: EmailChangeResponse;
+    try {
+      result = await api<EmailChangeResponse>(
+        "/auth/email-change",
+        { email },
+        "POST",
+        {
+          signal,
+          headers: emailIdentityHeaders,
+          validateResponse: (value) =>
+            isEmailChangeResponse(value) && value.pending?.email === normalized,
+        },
+      );
+    } catch (cause) {
+      if (!uncertainResponse(cause) || signal.aborted) throw cause;
+      try {
+        result = await api<EmailChangeResponse>(
+          "/auth/email-change",
+          undefined,
+          "GET",
+          {
+            signal,
+            headers: emailIdentityHeaders,
+            validateResponse: isEmailChangeResponse,
+          },
+        );
+      } catch {
+        throw cause;
+      }
+      if (
+        result.pending?.email !== normalized ||
+        Date.parse(result.pending.expiresAt) <= Date.now()
+      )
+        throw cause;
+    }
+    updateEmailChange(result);
+    if (active.current)
+      toast.success("Confirmation email queued. Check your new address.");
+  }
   return (
     <section className="min-w-0">
       {identity.confirmation}
+      {!appSuspended && pending && (
+        <ReauthenticationDialog
+          onClose={closeConfirmation}
+          onConfirmed={async () => {
+            if (!active.current || pendingRef.current !== pending) return;
+            await pending.action();
+            if (!active.current || pendingRef.current !== pending) return;
+            pending.resolve();
+            pendingRef.current = null;
+            controller.current = null;
+            mutationPending.current = false;
+            setPending(null);
+          }}
+        />
+      )}
       <PageHeading
         title="Email & Password"
         icon={<HugeiconsIcon icon={Mail01Icon} />}
       />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
-        <EmailChangeSettings
-          email={session.user.email}
-          isVerified={false}
-          mode="read-only"
-        />
+        {emailDeliveryConfigured ? (
+          <ListState
+            loaded={emailChange.value !== null}
+            error={emailChange.error}
+            retry={() => void loadEmailChange()}
+            noun="email settings"
+          >
+            <EmailChangeSettings
+              email={session.user.email}
+              isVerified={session.user.emailVerified}
+              pendingChange={
+                emailChange.value?.pending &&
+                Date.parse(emailChange.value.pending.expiresAt) > currentTime
+                  ? emailChange.value.pending
+                  : null
+              }
+              resendAvailableAt={resendAvailableAt}
+              formatDate={(value) =>
+                new Intl.DateTimeFormat(undefined, {
+                  timeZone: session.user.timeZone,
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                }).format(new Date(value))
+              }
+              onRequestChange={(email) =>
+                securePasskey((signal) => requestEmailChange(email, signal))
+              }
+              onCancelChange={() =>
+                emailMutation(async (signal) => {
+                  try {
+                    await api("/auth/email-change", {}, "DELETE", {
+                      signal,
+                      headers: emailIdentityHeaders,
+                      validateResponse: (value) =>
+                        isResponseObject(value) && value.ok === true,
+                    });
+                  } catch (cause) {
+                    if (!uncertainResponse(cause) || signal.aborted)
+                      throw cause;
+                    let result: EmailChangeResponse;
+                    try {
+                      result = await api(
+                        "/auth/email-change",
+                        undefined,
+                        "GET",
+                        {
+                          signal,
+                          headers: emailIdentityHeaders,
+                          validateResponse: isEmailChangeResponse,
+                        },
+                      );
+                    } catch {
+                      throw cause;
+                    }
+                    if (result.pending !== null) throw cause;
+                  }
+                  updateEmailChange({ pending: null });
+                  if (active.current) toast.success("Email change canceled.");
+                })
+              }
+              onResendVerification={() =>
+                emailMutation(async (signal) => {
+                  const result = await api<{
+                    status: true;
+                    resendAvailableAt: number;
+                  }>("/auth/email-verification/request", {}, "POST", {
+                    signal,
+                    headers: emailIdentityHeaders,
+                    validateResponse: (value) =>
+                      isResponseObject(value) &&
+                      value.status === true &&
+                      typeof value.resendAvailableAt === "number" &&
+                      Number.isFinite(value.resendAvailableAt),
+                  });
+                  if (active.current)
+                    setResendAvailableAt(result.resendAvailableAt);
+                  if (active.current)
+                    toast.success("Verification email queued.");
+                })
+              }
+            />
+          </ListState>
+        ) : (
+          <EmailChangeSettings
+            email={session.user.email}
+            isVerified={session.user.emailVerified}
+            mode="read-only"
+          >
+            <p className="text-sm text-muted">
+              Email changes and verification are unavailable until email
+              delivery is configured for this installation.
+            </p>
+          </EmailChangeSettings>
+        )}
         <PasswordChangeSettings
           minLength={15}
           maxLength={1024}
@@ -503,7 +810,7 @@ function PasskeysSettings({
           >
             <PasskeySettings
               items={keys.items ?? []}
-              maxNameLength={100}
+              maxNameLength={120}
               recoveryCodes={recoveryCodes}
               recoveryCodesFilename="mill-recovery-codes.txt"
               onDismissRecoveryCodes={() => setRecoveryCodes([])}

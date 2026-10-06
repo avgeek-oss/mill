@@ -58,6 +58,61 @@ export function hasResponseRecord(value: unknown, key: string) {
   );
 }
 
+export function hasStatusAcknowledgement(value: unknown) {
+  return (
+    isResponseObject(value) && value.status === true && !("error" in value)
+  );
+}
+export function hasOkAcknowledgement(value: unknown) {
+  return isResponseObject(value) && value.ok === true && !("error" in value);
+}
+export function hasSessionResponse(value: unknown): value is Session {
+  if (
+    !isResponseObject(value) ||
+    !isResponseObject(value.user) ||
+    !isResponseObject(value.workspace)
+  )
+    return false;
+  const { user, workspace } = value;
+  return (
+    typeof user.id === "string" &&
+    !!user.id &&
+    typeof user.name === "string" &&
+    typeof user.email === "string" &&
+    !!user.email &&
+    typeof user.emailVerified === "boolean" &&
+    ["admin", "member", "viewer"].includes(String(user.role)) &&
+    typeof user.timeZone === "string" &&
+    !!user.timeZone &&
+    [
+      "day-short-month-year",
+      "day-month-year",
+      "month-day-year",
+      "year-month-day",
+    ].includes(String(user.dateFormat)) &&
+    ["24-hour", "12-hour"].includes(String(user.timeFormat)) &&
+    Number.isSafeInteger(user.passkeyCount) &&
+    Number(user.passkeyCount) >= 0 &&
+    isResponseObject(user.notificationPreferences) &&
+    typeof workspace.id === "string" &&
+    !!workspace.id &&
+    typeof workspace.name === "string"
+  );
+}
+export function hasIdentityChallengeResponse(value: unknown) {
+  return (
+    isResponseObject(value) &&
+    value.requiresSecondFactor === true &&
+    typeof value.challengeId === "string" &&
+    !!value.challengeId &&
+    Array.isArray(value.methods) &&
+    value.methods.length === 1 &&
+    value.methods[0] === "passkey" &&
+    value.preferredMethod === "passkey" &&
+    typeof value.recoveryAvailable === "boolean"
+  );
+}
+
 export function createRetryKey() {
   const unresolved = new Map<string, string>();
   return {
@@ -161,6 +216,12 @@ async function request<T>(
         "/auth/passkeys/authenticate/verify",
         "/auth/recovery/reset",
         "/auth/accept-invitation",
+        "/auth/password-reset/request",
+        "/auth/verification-email",
+        "/auth/email-verification/confirm",
+        "/auth/email-change/confirm",
+        "/auth/invitation/verification/request",
+        "/auth/invitation/verification/confirm",
       ].includes(path)
     ) {
       const active = await fetch("/api/auth/me", {
@@ -236,6 +297,7 @@ export type User = {
   id: string;
   name: string;
   email: string;
+  emailVerified: boolean;
   role: "admin" | "member" | "viewer";
   timeZone: string;
   dateFormat:

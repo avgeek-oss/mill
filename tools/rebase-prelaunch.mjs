@@ -8,7 +8,7 @@ import postgres from "postgres";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const baselineName = "001_initial.sql";
 const reviewedBaselineChecksum =
-  "070ba86deb3dd76c9489b580bf79f1b65e217d80cb3cedc2ca00fc3b8d9e4a22";
+  "5c9a99302e60f0764a63e2f413369f4e129d8f7b81efcd1de3b28a1896ca3080";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 const qualify = (schema, name) => `${quote(schema)}.${quote(name)}`;
@@ -242,6 +242,15 @@ export async function rebasePrelaunch(
     const sourceHasStartDate = original.tables.tasks.some(
       (column) => column.name === "start_date",
     );
+    const sourceHasVerifiedEmail = original.tables.users.some(
+      (column) => column.name === "email_verified",
+    );
+    const sourceHasInvitationVerification = original.tables.invitations.some(
+      (column) => column.name === "verification_required",
+    );
+    const sourceHasRecoveryEpoch = original.tables.account_recovery.some(
+      (column) => column.name === "security_epoch",
+    );
     const retiredColumns = {
       tasks: ["agent_id"],
       credentials: ["agent_id"],
@@ -250,10 +259,13 @@ export async function rebasePrelaunch(
     };
     assert.deepEqual(
       Object.keys(clean.tables).sort(),
-      Object.keys(original.tables)
-        .filter((name) => !removedTables.has(name))
-        .concat("mill_migrations")
-        .sort(),
+      [
+        ...new Set(
+          Object.keys(original.tables)
+            .filter((name) => !removedTables.has(name))
+            .concat("mill_migrations", "email_requests", "email_outbox"),
+        ),
+      ].sort(),
       "Unexpected baseline table changes",
     );
     for (const [table, columns] of Object.entries(original.tables)) {
@@ -272,6 +284,12 @@ export async function rebasePrelaunch(
         expectedColumns.push("time_format");
       if (table === "sessions" && !sourceHasPasskeyProof)
         expectedColumns.push("passkey_authenticated_at");
+      if (table === "users" && !sourceHasVerifiedEmail)
+        expectedColumns.push("email_verified");
+      if (table === "invitations" && !sourceHasInvitationVerification)
+        expectedColumns.push("verification_required");
+      if (table === "account_recovery" && !sourceHasRecoveryEpoch)
+        expectedColumns.push("security_epoch");
       expectedColumns.sort();
       assert.deepEqual(
         clean.tables[table].map((column) => column.name).sort(),
@@ -305,7 +323,14 @@ export async function rebasePrelaunch(
             }
           : {}),
       },
+      invitations: sourceHasInvitationVerification
+        ? {}
+        : { verification_required: "false" },
+      account_recovery: sourceHasRecoveryEpoch
+        ? {}
+        : { security_epoch: "NULL::integer" },
       users: {
+        ...(!sourceHasVerifiedEmail ? { email_verified: "false" } : {}),
         ...(!sourceHasDateFormat
           ? { date_format: "'day-short-month-year'::text" }
           : {}),
@@ -345,6 +370,10 @@ export async function rebasePrelaunch(
     };
     const commonColumns = {};
     for (const table of await tableOrder(tx, staging, activeTables)) {
+      if (!sourceTables.includes(table)) {
+        counts[table] = 0;
+        continue;
+      }
       const common = clean.tables[table].map((column) => column.name);
       commonColumns[table] = common;
       const names = common.map(quote).join(",");
@@ -368,7 +397,9 @@ export async function rebasePrelaunch(
       );
       counts[table] = row.count;
     }
-    for (const table of activeTables)
+    for (const table of activeTables.filter((name) =>
+      sourceTables.includes(name),
+    ))
       await verifyCommonColumns(
         tx,
         schema,
@@ -444,6 +475,8 @@ async function main(args) {
     );
     const knownSources = await Promise.all(
       [
+        "prelaunch-email-layout.json",
+        "prelaunch-passkey-layout.json",
         "prelaunch-auth-settings-layout.json",
         "prelaunch-account-preferences-layout.json",
         "prelaunch-start-date-layout.json",

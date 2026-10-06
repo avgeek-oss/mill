@@ -6,11 +6,11 @@ Passwords require 15-1,024 characters. Mill stores them with scrypt using N=3276
 
 ## Join a team
 
-An administrator opens **Team settings → Members**, chooses **Invite a person**, enters an email address, and selects a role. Copy the private invitation link and send it to that person. Mill does not send email. The invitation expires after seven days, can be revoked, and can be accepted once. Issuing another invitation to the same address invalidates the earlier link.
+An administrator opens **Team settings → Members**, chooses **Invite a person**, enters an email address, and selects a role. With SMTP configured, Mill queues an invitation email. Without SMTP, copy the private invitation link and send it to that person. The invitation expires after seven days, can be revoked, and can be accepted once. Issuing another invitation to the same address invalidates the earlier link. The inviter must remain an active administrator; removal or demotion invalidates their pending invitations.
 
 The invitation list shows relative expiry time, such as “Expires in 12 hours”. Expired invitations are hidden from the list.
 
-The person following the link chooses their name and password. Their account receives the role recorded on the invitation. A removed member loses browser and client access immediately. Inviting that email again restores the same member identifier so earlier task and comment attribution stays intact, while replacing their password and removing old authentication factors.
+The person following the link chooses their name and password. With SMTP configured, they first confirm the code sent to the invited address; verification alone does not create an account or session. Their account receives the role recorded on the invitation. A removed member loses browser and client access immediately. Inviting that email again restores the same member identifier so earlier task and comment attribution stays intact, while replacing their password and removing old authentication factors.
 
 | Role   | Access                                                                                                                                |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -46,13 +46,21 @@ Open **Settings → Account settings** in the primary sidebar, or use the accoun
 
 - **Profile**: your name, account email, and Gravatar preview. Email is read-only.
 - **Preferences**: your time zone and in-app assignment and mention notifications.
-- **Email & Password**: your current email and password changes.
+- **Email & Password**: your current email, verification state, pending email change, and password changes. Email changes require configured SMTP and recent identity confirmation.
 - **Passkeys**: registered passkeys and their recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
 - **API Keys**: your personal REST keys and authorized OAuth connections.
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 
 The account menu also links to Mill's changelog, documentation, feedback, and contribution guide. Administrators use **Team settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.
+
+## Email verification and changes
+
+SMTP is optional. Configure it using [the email settings](configuration.md) to enable verification emails, password-reset emails, and invitation verification. Without it, account email remains read-only, invitations use private links, and operator account recovery remains available. Email verification does not replace a passkey and is not required for ordinary sign-in.
+
+Verification and email-change links expire after one hour and can be used once. Opening a link shows a confirmation page; the change happens only after confirmation. A pending email change leaves the current sign-in address in place until the new address is confirmed. Confirming the new address ends every account session, invalidates pending security challenges, and revokes owned API keys and OAuth connections. Sign in with the new address afterward.
+
+Public email requests acknowledge eligible and unknown addresses in the same way. A queued request is not proof of delivery. Request and resend limits apply to each address and client; an unavailable delivery service reports failure through a toast while retaining the form draft.
 
 ## Passkeys and recovery codes
 
@@ -70,7 +78,9 @@ Adding or removing a factor ends other browser sessions and invalidates pending 
 
 ## Recover an account
 
-Account recovery works without an email provider. Contact the person operating your Mill installation. They run this command inside the installed application directory, with the same database and secret configuration as the server:
+With SMTP configured, use **Forgot password** to request a one-time reset link. The public acknowledgement does not disclose whether an address belongs to an account. Password recovery leaves registered passkeys in place; a reset link is not a substitute for a lost passkey.
+
+Operator account recovery also works without an email provider. Contact the person operating your Mill installation. They run this command inside the installed application directory, with the same database and secret configuration as the server:
 
 ```sh
 pnpm recover-account --email person@example.com
@@ -100,38 +110,48 @@ Before converting an older prelaunch schema, members with a verified authenticat
 
 All endpoints are under `/api/auth`, return JSON and enforce the same access rules as the interface. Successful sign-in sets the session cookie. Send that cookie with subsequent requests, and the configured public origin on mutations. Errors return `{ "error": { "code": "STABLE_CODE", "message": "A readable message", "requestId": "correlation-id" } }`. Stale identity confirmation returns `403 REAUTHENTICATION_REQUIRED`; a busy password queue returns `503 AUTHENTICATION_BUSY`. Login, verification, invitations and recovery use persistent database rate limits with `Retry-After` on throttling. Successful complete sign-in clears the account bucket; a pending second-factor challenge does not. Address throttling remains in place.
 
-| Method and path                       | Request or result                                                                                                                                                                       |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /status`                         | `{setupRequired}`.                                                                                                                                                                      |
-| `POST /setup`                         | `{workspaceName,name,email,password}` → `{user,workspace}` and cookie.                                                                                                                  |
-| `POST /login`                         | `{email,password}` → `{user,workspace}` or `{requiresSecondFactor,challengeId,methods:["passkey"],preferredMethod:"passkey",recoveryAvailable}`.                                        |
-| `POST /logout`                        | Ends the current session.                                                                                                                                                               |
-| `GET /me`                             | `{user,workspace}`; no password hashes or authentication secrets.                                                                                                                       |
-| `PATCH /profile`                      | Optional `{name,timeZone,notificationPreferences:{assignments,mentions}}` → `{user,workspace}`.                                                                                         |
-| `POST /reauth`                        | `{password}` → `{ok:true}` or a second-factor challenge tied to the current session.                                                                                                    |
-| `POST /password`                      | `{currentPassword,password}`; requires recent authentication.                                                                                                                           |
-| `GET /sessions`                       | `{items:[{id,userAgent,createdAt,lastSeenAt,expiresAt,current}]}`.                                                                                                                      |
-| `DELETE /sessions/:id`                | Revokes one of the signed-in person's sessions.                                                                                                                                         |
-| `GET /passkeys`                       | `{items:[{id,name,createdAt}],recoveryCodeCount}`.                                                                                                                                      |
-| `POST /passkeys/recovery/verify`      | `{challengeId,code}` verifies a single-use passkey recovery code after password verification. Recovery access cannot authorize security changes.                                        |
-| `POST /passkeys/recovery-codes`       | `{}` replaces recovery codes after a recent passkey verification.                                                                                                                       |
-| `POST /passkeys/register/options`     | `{}` → `{challengeId,options}`; recent human session required.                                                                                                                          |
-| `POST /passkeys/register/verify`      | `{challengeId,name,response}`; browser WebAuthn registration response; returns ten recovery codes for the first passkey.                                                                |
-| `DELETE /passkeys/:id`                | Removes the person's passkey; recent authentication required.                                                                                                                           |
-| `POST /passkeys/authenticate/options` | `{challengeId?}` → `{challengeId,options}`; omit the identifier for discoverable passkey sign-in or to confirm the current signed-in session.                                           |
-| `POST /passkeys/authenticate/verify`  | `{challengeId,response}` → account and cookie, or reauthentication success.                                                                                                             |
-| `GET /members`                        | Active team members' basic metadata and `passkeyEnabled`, derived from their registered passkeys.                                                                                       |
-| `GET /invitations`                    | Admin-only invitation metadata; optional `limit=1..100`, UUID `cursor`; returns `{items,hasMore,nextCursor}`; excludes expired invitations before pagination and never includes tokens. |
-| `POST /invitations`                   | Admin-only `{email,role}` → `{invitation,token,inviteUrl,emailDelivery:"unavailable"}`; save the link at creation.                                                                      |
-| `DELETE /invitations/:id`             | Admin-only revocation.                                                                                                                                                                  |
-| `GET /invitation?token=…`             | Public invitation context for a valid token; email, role and workspace name.                                                                                                            |
-| `POST /accept-invitation`             | `{token,name,password}` → account and cookie.                                                                                                                                           |
-| `PATCH /members/:id`                  | Admin-only `{role}`; last-admin protection.                                                                                                                                             |
-| `DELETE /members/:id`                 | Admin-only reversible membership removal through a subsequent invitation.                                                                                                               |
-| `POST /recovery/reset`                | `{token,password}`; completes an operator-issued recovery link.                                                                                                                         |
+| Method and path                         | Request or result                                                                                                                                                                       |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /status`                           | `{setupRequired,emailDeliveryConfigured}`.                                                                                                                                              |
+| `POST /setup`                           | `{workspaceName,name,email,password,timeZone?,dateFormat?,timeFormat?}` → `{user,workspace}` and cookie.                                                                                |
+| `POST /login`                           | `{email,password}` → `{user,workspace}` or `{requiresSecondFactor,challengeId,methods:["passkey"],preferredMethod:"passkey",recoveryAvailable}`.                                        |
+| `POST /logout`                          | Ends the current session.                                                                                                                                                               |
+| `GET /me`                               | `{user,workspace}`; no password hashes or authentication secrets.                                                                                                                       |
+| `PATCH /profile`                        | Optional `{name,timeZone,notificationPreferences:{assignments,mentions}}` → `{user,workspace}`.                                                                                         |
+| `POST /reauth`                          | `{password}` → `{ok:true}` or a second-factor challenge tied to the current session.                                                                                                    |
+| `POST /password`                        | `{currentPassword,password}`; requires recent authentication.                                                                                                                           |
+| `GET /sessions`                         | `{items:[{id,userAgent,createdAt,lastSeenAt,expiresAt,current}]}`.                                                                                                                      |
+| `DELETE /sessions/:id`                  | Revokes one of the signed-in person's sessions.                                                                                                                                         |
+| `GET /passkeys`                         | `{items:[{id,name,createdAt}],recoveryCodeCount}`.                                                                                                                                      |
+| `POST /passkeys/recovery/verify`        | `{challengeId,code}` verifies a single-use passkey recovery code after password verification. Recovery access cannot authorize security changes.                                        |
+| `POST /passkeys/recovery-codes`         | `{}` replaces recovery codes after a recent passkey verification.                                                                                                                       |
+| `POST /passkeys/register/options`       | `{}` → `{challengeId,options}`; recent human session required.                                                                                                                          |
+| `POST /passkeys/register/verify`        | `{challengeId,name,response}`; browser WebAuthn registration response; returns ten recovery codes for the first passkey.                                                                |
+| `DELETE /passkeys/:id`                  | Removes the person's passkey; recent authentication required.                                                                                                                           |
+| `POST /passkeys/authenticate/options`   | `{challengeId?}` → `{challengeId,options}`; omit the identifier for discoverable passkey sign-in or to confirm the current signed-in session.                                           |
+| `POST /passkeys/authenticate/verify`    | `{challengeId,response}` → account and cookie, or reauthentication success.                                                                                                             |
+| `GET /members`                          | Active team members' basic metadata and `passkeyEnabled`, derived from their registered passkeys.                                                                                       |
+| `GET /invitations`                      | Admin-only invitation metadata; optional `limit=1..100`, UUID `cursor`; returns `{items,hasMore,nextCursor}`; excludes expired invitations before pagination and never includes tokens. |
+| `POST /invitations`                     | Admin-only `{email,role}` → `{invitation,token,inviteUrl,emailDelivery}`; delivery is `"queued"` or `"unavailable"`. Save the link at creation.                                         |
+| `DELETE /invitations/:id`               | Admin-only revocation.                                                                                                                                                                  |
+| `GET /invitation?token=…`               | Public `{invitation,verificationRequired}` for a valid token; invitation includes email, role and workspace name.                                                                       |
+| `POST /accept-invitation`               | `{token,name,password,verificationToken?}` → account and cookie; SMTP invitations require a valid name-bound verification proof.                                                        |
+| `PATCH /members/:id`                    | Admin-only `{role}`; last-admin protection.                                                                                                                                             |
+| `DELETE /members/:id`                   | Admin-only reversible membership removal through a subsequent invitation.                                                                                                               |
+| `POST /recovery/reset`                  | `{token,password}`; completes an email or operator-issued recovery link.                                                                                                                |
+| `POST /email-verification/request`      | Browser-only `{}` → `{status:true,resendAvailableAt}`; queues verification for the signed-in account.                                                                                   |
+| `POST /verification-email`              | Public `{email}` → neutral `{status:true}`; queues verification when eligible.                                                                                                          |
+| `POST /email-verification/confirm`      | Public `{id,token}` → `{ok:true}`; consumes a valid verification link.                                                                                                                  |
+| `GET /email-change`                     | Browser-only pending `{email,expiresAt}` metadata or `null`.                                                                                                                            |
+| `POST /email-change`                    | Browser-only `{email}` → pending metadata; requires recent identity confirmation.                                                                                                       |
+| `DELETE /email-change`                  | Browser-only `{}` → `{ok:true}`; cancels the pending change.                                                                                                                            |
+| `POST /email-change/confirm`            | Public `{id,token}` → `{ok:true}`; changes the address and revokes account credentials.                                                                                                 |
+| `POST /password-reset/request`          | Public `{email}` → neutral `{status:true}`; queues a reset link when eligible.                                                                                                          |
+| `POST /invitation/verification/request` | Public `{token}` → `{status:true,resendAvailableAt,expiresAt}`; queues an invitation code.                                                                                              |
+| `POST /invitation/verification/confirm` | Public `{token,name,code}` → `{verificationToken}`; binds the proof to the invitation and verified name.                                                                                |
 
-`user` contains `id`, `name`, `email`, `role`, `timeZone`, `notificationPreferences`, `passkeyCount`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
+`user` contains `id`, `name`, `email`, `role`, `timeZone`, `notificationPreferences`, `passkeyCount`, `emailVerified`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
 
-The PostgreSQL integration tests in `tests/auth.test.ts` verify setup and last-admin races, invitation lifecycle, cross-role and external-client restrictions, session/password/recovery revocation, real signed passkey ceremonies and origin verification, session-bound identity confirmation, concurrent one-use recovery redemption, refusal to authorize security changes through recovery access, and a blocked old-password login racing a security reset.
+The PostgreSQL integration tests in `tests/auth.test.ts`, `tests/email-parity.test.ts`, and `tests/invitation-authority.test.ts` verify setup and last-admin races, invitation lifecycle, cross-role and external-client restrictions, session/password/recovery revocation, real signed passkey ceremonies and origin verification, session-bound identity confirmation, concurrent one-use recovery redemption, refusal to authorize security changes through recovery access, a blocked old-password login racing a security reset, purpose-bound email proofs, invitation authority, encrypted SMTP delivery and cancellation, and account availability during delivery.
 
 Account actions report success and errors through toast alerts. Failed changes retain their drafts and retry controls. Required-field validation also uses a toast and focuses the first invalid field.

@@ -5,6 +5,7 @@ import { badRequest, clientAddress, type Env } from "../http.js";
 import { activeUser, body, passwordSchema } from "./model.js";
 import { hashPassword, hashToken, rateLimit, secretToken } from "./security.js";
 
+import { cancelEmails } from "./email-outbox.js";
 export const recoveryRoutes = new Hono<Env>();
 export async function createOperatorRecovery(email: string, resetMfa = false) {
   const token = secretToken();
@@ -13,8 +14,9 @@ export async function createOperatorRecovery(email: string, resetMfa = false) {
     const [user] =
       await tx`SELECT * FROM users WHERE email=${email.trim().toLowerCase()} AND disabled_at IS NULL FOR UPDATE`;
     if (!user) throw new Error("Active member not found");
+    await cancelEmails(tx, user.id);
     await tx`DELETE FROM account_recovery WHERE user_id=${user.id}`;
-    await tx`INSERT INTO account_recovery(token_hash,user_id,reset_mfa,expires_at) VALUES(${hashToken(token)},${user.id},${resetMfa},now()+interval '30 minutes')`;
+    await tx`INSERT INTO account_recovery(token_hash,user_id,reset_mfa,security_epoch,expires_at) VALUES(${hashToken(token)},${user.id},${resetMfa},${user.securityEpoch},now()+interval '30 minutes')`;
   });
   return token;
 }
@@ -36,6 +38,9 @@ recoveryRoutes.post("/recovery/reset", async (c) => {
       await tx`SELECT * FROM account_recovery WHERE token_hash=${hashToken(input.token)} AND expires_at>now() FOR UPDATE`;
     if (!recovery) badRequest("The recovery link is invalid or expired");
     const user = await activeUser(recovery.userId, tx);
+    if (recovery.securityEpoch !== user.securityEpoch)
+      badRequest("The recovery link is invalid or expired");
+    await cancelEmails(tx, user.id);
     await tx`UPDATE users SET password_hash=${passwordHash},security_epoch=security_epoch+1,updated_at=now() WHERE id=${user.id}`;
     await tx`DELETE FROM sessions WHERE user_id=${user.id}`;
     await tx`DELETE FROM auth_challenges WHERE user_id=${user.id}`;

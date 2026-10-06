@@ -44,6 +44,7 @@ async function invite(
 test("first setup is atomic, has no default account, and stores only password/session hashes", async () => {
   assert.deepEqual(await (await request("/api/auth/status")).json(), {
     setupRequired: true,
+    emailDeliveryConfigured: false,
   });
   const input = {
     workspaceName: "Team",
@@ -74,6 +75,7 @@ test("first setup is atomic, has no default account, and stores only password/se
   assert.match(good.headers.get("set-cookie")!, /SameSite=Lax/i);
   assert.deepEqual(await (await request("/api/auth/status")).json(), {
     setupRequired: false,
+    emailDeliveryConfigured: false,
   });
 });
 test("setup rejects invalid preferences before creating any account and defaults omitted formats", async () => {

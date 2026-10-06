@@ -35,7 +35,24 @@ const baseline = await readFile(
   new URL("../packages/database/migrations/001_initial.sql", import.meta.url),
   "utf8",
 );
-const legacyBaseline = baseline
+const emailBaseline = baseline
+  .replace(
+    /(CREATE TABLE (?:workspace|users) \([\s\S]*? {2}name text NOT NULL CHECK \(length\(name\) BETWEEN 1 AND )120(\),)/g,
+    (_match, prefix, suffix) => prefix + "100" + suffix,
+  )
+  .replace(
+    "CREATE TABLE passkeys (\n  id text PRIMARY KEY,\n  user_id uuid NOT NULL REFERENCES users(id),\n  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 120),",
+    "CREATE TABLE passkeys (\n  id text PRIMARY KEY,\n  user_id uuid NOT NULL REFERENCES users(id),\n  name text NOT NULL,",
+  );
+const passkeyBaseline = emailBaseline
+  .split("\n\nCREATE TABLE email_requests")[0]
+  .replace("  email_verified boolean NOT NULL DEFAULT false,\n", "")
+  .replace("  verification_required boolean NOT NULL DEFAULT false,\n", "")
+  .replace(
+    "  reset_mfa boolean NOT NULL DEFAULT false,\n  security_epoch integer,\n",
+    "  reset_mfa boolean NOT NULL DEFAULT false,\n",
+  );
+const legacyBaseline = passkeyBaseline
   .replace("  passkey_authenticated_at timestamptz,\n", "")
   .replace(
     "CREATE TABLE recovery_codes",
@@ -552,7 +569,13 @@ for (const source of [
       );
       const retained = { ...tasks[0] };
       if (!source.hasStartDate) delete retained.start_date;
-      const convertedUsers = [...(await sql`SELECT * FROM users`)];
+      const rawConvertedUsers = [...(await sql`SELECT * FROM users`)];
+      assert.ok(
+        rawConvertedUsers.every((user) => user.email_verified === false),
+      );
+      const convertedUsers = rawConvertedUsers.map(
+        ({ email_verified: _verified, ...user }) => user,
+      );
       if (source.hasPreferences) assert.deepEqual(convertedUsers, users);
       else {
         assert.equal(convertedUsers[0].date_format, "day-short-month-year");
@@ -729,8 +752,12 @@ test("removed authenticator-only members do not block inspection or conversion a
     const convertedMembers = [...(await sql`SELECT * FROM users ORDER BY id`)];
     assert.deepEqual(
       convertedMembers.map(
-        ({ date_format: _dateFormat, time_format: _timeFormat, ...member }) =>
-          member,
+        ({
+          date_format: _dateFormat,
+          time_format: _timeFormat,
+          email_verified: _verified,
+          ...member
+        }) => member,
       ),
       members,
     );
@@ -762,4 +789,209 @@ test("removed authenticator-only members do not block inspection or conversion a
       tasks,
     );
   });
+});
+
+test("exact PR4 passkey baseline converts without fabricating email proof, preserves current passkey sessions, and archives old recovery links", async () => {
+  const database = `email_rebase_${randomUUID().replaceAll("-", "")}`;
+  const admin = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  await admin.unsafe(`CREATE DATABASE "${database}"`);
+  const url = new URL(databaseUrl);
+  url.pathname = `/${database}`;
+  const db = postgres(url.href, { max: 1, onnotice: () => {} });
+  try {
+    const checksum = createHash("sha256").update(passkeyBaseline).digest("hex");
+    assert.equal(
+      checksum,
+      "070ba86deb3dd76c9489b580bf79f1b65e217d80cb3cedc2ca00fc3b8d9e4a22",
+    );
+    await db.unsafe(passkeyBaseline);
+    await db`CREATE TABLE mill_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`;
+    await db`INSERT INTO mill_migrations(name,checksum) VALUES('001_initial.sql',${checksum})`;
+    const expected = JSON.parse(
+      await readFile(
+        new URL("../tools/prelaunch-passkey-layout.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(await schemaLayout(db, "public"), expected);
+    const workspace = randomUUID(),
+      user = randomUUID();
+    await db`INSERT INTO workspace(id,name) VALUES(${workspace},'Retained workspace')`;
+    await db`INSERT INTO users(id,workspace_id,name,email,password_hash,role,time_zone,date_format,time_format) VALUES(${user},${workspace},'Owner','owner@example.test','retained-password-hash','admin','Asia/Kolkata','year-month-day','12-hour')`;
+    await db`INSERT INTO passkeys(id,user_id,name,public_key,counter) VALUES('actual-key',${user},'Actual key',${Buffer.from("real-retained-public-key")},12)`;
+    await db`INSERT INTO sessions(id,user_id,token_hash,security_epoch,user_agent,expires_at,passkey_authenticated_at) VALUES(${randomUUID()},${user},'actual-session',0,'Actual browser',now()+interval '1 day',now())`;
+    await db`INSERT INTO account_recovery(token_hash,user_id,expires_at) VALUES('old-recovery-token-hash',${user},now()+interval '1 hour')`;
+    await db`INSERT INTO invitations(id,email,role,token_hash,invited_by,expires_at) VALUES(${randomUUID()},'invited@example.test','member','old-private-invite',${user},now()+interval '1 day')`;
+    const sessions = [...(await db`SELECT * FROM sessions`)],
+      keys = [...(await db`SELECT * FROM passkeys`)],
+      recoveries = [...(await db`SELECT * FROM account_recovery`)];
+    await db.end();
+    const inspected = await execFileAsync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL("../tools/rebase-prelaunch.mjs", import.meta.url),
+        ),
+        "--schema",
+        "public",
+      ],
+      { env: { ...process.env, DATABASE_URL: url.href } },
+    );
+    assert.equal(JSON.parse(inspected.stdout).applied, false);
+    const converting = postgres(url.href, { max: 1, onnotice: () => {} });
+    try {
+      const result = await rebasePrelaunch(converting, {
+        schema: "public",
+        baseline,
+        expectedLegacy: expected,
+        apply: true,
+      });
+      assert.equal(result.applied, true);
+      assert.deepEqual(
+        [...(await converting`SELECT * FROM sessions`)],
+        sessions,
+      );
+      assert.deepEqual([...(await converting`SELECT * FROM passkeys`)], keys);
+      assert.equal(
+        (await converting`SELECT email_verified FROM users`)[0].email_verified,
+        false,
+      );
+      assert.equal(
+        (await converting`SELECT verification_required FROM invitations`)[0]
+          .verification_required,
+        false,
+      );
+      assert.equal(
+        (await converting`SELECT security_epoch FROM account_recovery`)[0]
+          .security_epoch,
+        null,
+      );
+      assert.equal(
+        (await converting`SELECT count(*)::int AS count FROM email_requests`)[0]
+          .count,
+        0,
+      );
+      assert.equal(
+        (await converting`SELECT count(*)::int AS count FROM email_outbox`)[0]
+          .count,
+        0,
+      );
+      assert.deepEqual(
+        [
+          ...(await converting.unsafe(
+            `SELECT * FROM "${result.archivedSchema}".account_recovery`,
+          )),
+        ],
+        recoveries,
+      );
+    } finally {
+      await converting.end();
+    }
+  } finally {
+    await db.end();
+    await admin.unsafe(`DROP DATABASE IF EXISTS "${database}"`);
+    await admin.end();
+  }
+});
+
+test("the exact previous email baseline widens common names and preserves verified facts, pending proof, opaque mail payload and passkey state", async () => {
+  const database = `name_rebase_${randomUUID().replaceAll("-", "")}`,
+    admin = postgres(databaseUrl, { max: 1, onnotice: () => {} });
+  await admin.unsafe(`CREATE DATABASE "${database}"`);
+  const url = new URL(databaseUrl);
+  url.pathname = `/${database}`;
+  const db = postgres(url.href, { max: 1, onnotice: () => {} });
+  try {
+    const checksum = createHash("sha256").update(emailBaseline).digest("hex");
+    assert.equal(
+      checksum,
+      "0121c0c04b67d6bfcb890d1df8d849a7e00b8a21ebea422ad2467c13201182bd",
+    );
+    await db.unsafe(emailBaseline);
+    await db`CREATE TABLE mill_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`;
+    await db`INSERT INTO mill_migrations(name,checksum) VALUES('001_initial.sql',${checksum})`;
+    const expected = JSON.parse(
+      await readFile(
+        new URL("../tools/prelaunch-email-layout.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    assert.deepEqual(await schemaLayout(db, "public"), expected);
+    const workspace = randomUUID(),
+      user = randomUUID(),
+      invitation = randomUUID(),
+      proof = randomUUID(),
+      mail = randomUUID();
+    await db`INSERT INTO workspace(id,name) VALUES(${workspace},${"W".repeat(100)})`;
+    await db`INSERT INTO users(id,workspace_id,name,email,email_verified,password_hash,security_epoch,role) VALUES(${user},${workspace},${"U".repeat(100)},'verified@example.test',true,'retained-password',7,'admin')`;
+    await db`INSERT INTO invitations(id,email,role,token_hash,invited_by,verification_required,expires_at) VALUES(${invitation},'invitee@example.test','member','retained-invitation',${user},true,now()+interval '1 day')`;
+    await db`INSERT INTO account_recovery(token_hash,user_id,security_epoch,expires_at) VALUES('retained-recovery',${user},7,now()+interval '1 hour')`;
+    await db`INSERT INTO passkeys(id,user_id,name,public_key,counter) VALUES('retained-key',${user},${"P".repeat(100)},${Buffer.from("retained-public-key")},9)`;
+    await db`INSERT INTO sessions(id,user_id,token_hash,security_epoch,user_agent,expires_at,passkey_authenticated_at) VALUES(${randomUUID()},${user},'retained-session',7,'Browser',now()+interval '1 day',now())`;
+    await db`INSERT INTO email_requests(id,user_id,purpose,email,previous_email,security_epoch,token_hash,expires_at) VALUES(${proof},${user},'change','new@example.test','verified@example.test',7,'retained-proof-digest',now()+interval '1 hour')`;
+    await db`INSERT INTO email_outbox(id,request_id,payload,expires_at) VALUES(${mail},${proof},'opaque-sealed-payload',now()+interval '1 hour')`;
+    const tables = [
+      "users",
+      "workspace",
+      "invitations",
+      "account_recovery",
+      "passkeys",
+      "sessions",
+      "email_requests",
+      "email_outbox",
+    ];
+    const before: Record<string, unknown> = {};
+    for (const table of tables)
+      before[table] = [...(await db.unsafe(`SELECT * FROM "${table}"`))];
+    await db.end();
+    const inspection = await execFileAsync(
+      process.execPath,
+      [
+        fileURLToPath(
+          new URL("../tools/rebase-prelaunch.mjs", import.meta.url),
+        ),
+        "--schema",
+        "public",
+      ],
+      { env: { ...process.env, DATABASE_URL: url.href } },
+    );
+    assert.equal(JSON.parse(inspection.stdout).counts.email_outbox, 1);
+    const converting = postgres(url.href, { max: 1, onnotice: () => {} });
+    try {
+      const result = await rebasePrelaunch(converting, {
+        schema: "public",
+        baseline,
+        expectedLegacy: expected,
+        apply: true,
+      });
+      assert.equal(result.applied, true);
+      for (const table of tables) {
+        assert.deepEqual(
+          [...(await converting.unsafe(`SELECT * FROM "${table}"`))],
+          before[table],
+        );
+        assert.deepEqual(
+          [
+            ...(await converting.unsafe(
+              `SELECT * FROM "${result.archivedSchema}"."${table}"`,
+            )),
+          ],
+          before[table],
+        );
+      }
+      await converting`UPDATE users SET name=${"U".repeat(120)} WHERE id=${user}`;
+      await converting`UPDATE workspace SET name=${"W".repeat(120)}`;
+      await converting`UPDATE passkeys SET name=${"P".repeat(120)}`;
+      await assert.rejects(
+        converting`UPDATE passkeys SET name=${"P".repeat(121)}`,
+        { code: "23514" },
+      );
+    } finally {
+      await converting.end();
+    }
+  } finally {
+    await db.end();
+    await admin.unsafe(`DROP DATABASE IF EXISTS "${database}"`);
+    await admin.end();
+  }
 });

@@ -5,16 +5,19 @@ import { HTTPException } from "hono/http-exception";
 import type postgres from "postgres";
 import { z } from "zod";
 import { sql } from "../../../../packages/database/src/index.js";
-import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
+import type {
+  Actor,
+  Role,
+  UserEmailState,
+} from "../../../../packages/contracts/src/index.js";
 import { actor, HttpError, type Env } from "../http.js";
 import { appOrigin, hashToken, secretToken } from "./security.js";
 
 export type Db = typeof sql | postgres.TransactionSql;
-export type UserRow = {
+export type UserRow = UserEmailState & {
   id: string;
   workspaceId: string;
   name: string;
-  email: string;
   role: Role;
   passwordHash: string;
   securityEpoch: number;
@@ -33,7 +36,7 @@ export const passwordSchema = z
   .string()
   .min(15, "Use at least 15 characters for your password")
   .max(1024);
-export const nameSchema = z.string().trim().min(1).max(100);
+export const nameSchema = z.string().trim().min(1).max(120);
 export const dateFormatSchema = z.enum([
   "day-short-month-year",
   "day-month-year",
@@ -111,6 +114,7 @@ export async function userMetadata(user: UserRow, db: Db = sql) {
     id: user.id,
     name: user.name,
     email: user.email,
+    emailVerified: user.emailVerified,
     role: user.role,
     timeZone: user.timeZone,
     dateFormat: user.dateFormat,

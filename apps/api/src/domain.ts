@@ -742,7 +742,7 @@ domainRoutes.patch("/workspace", async (c) => {
   administrative(c, true);
   const input = await body(
     c,
-    z.object({ name: z.string().trim().min(1).max(100) }).strict(),
+    z.object({ name: z.string().trim().min(1).max(120) }).strict(),
   );
   const workspace = await sql.begin(async (tx) => {
     await tx`SELECT id FROM workspace FOR UPDATE`;

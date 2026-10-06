@@ -31,7 +31,13 @@ import {
   UserMultipleIcon,
 } from "@hugeicons/core-free-icons";
 import type { Member, Role } from "../../../packages/contracts/src/index.js";
-import { ApiError, api, errorText, type Session } from "./api.js";
+import {
+  ApiError,
+  api,
+  errorText,
+  isResponseObject,
+  type Session,
+} from "./api.js";
 import { PageHeading } from "./page-heading.js";
 import { RelativeDateTime, useCurrentTime } from "./relative-date-time.js";
 
@@ -527,6 +533,9 @@ function InvitePersonDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const [emailDelivery, setEmailDelivery] = useState<
+    "queued" | "unavailable"
+  >();
   return (
     <InviteMemberDialog
       isOpen
@@ -537,24 +546,31 @@ function InvitePersonDialog({
       defaultRole="member"
       resultGuidance={
         <p className="text-sm text-muted">
-          Email delivery is not configured. Copy the link to share it directly.
+          {emailDelivery === "queued"
+            ? "The invitation email is queued. You can also copy the link to share it directly."
+            : "Email delivery is not configured. Copy the link to share it directly."}{" "}
           The invitation expires after seven days.
         </p>
       }
       onInvite={async (values) => {
         const invitation = await api<{
           inviteUrl: string;
-          emailDelivery: "unavailable" | "sent" | "failed";
-        }>("/auth/invitations", values);
+          emailDelivery: "queued" | "unavailable";
+        }>("/auth/invitations", values, "POST", {
+          validateResponse: (value) =>
+            isResponseObject(value) &&
+            !("error" in value) &&
+            typeof value.inviteUrl === "string" &&
+            URL.canParse(value.inviteUrl) &&
+            (value.emailDelivery === "queued" ||
+              value.emailDelivery === "unavailable"),
+        });
+        setEmailDelivery(invitation.emailDelivery);
         toast.success(
-          invitation.emailDelivery === "sent"
-            ? "Invitation created and email sent."
+          invitation.emailDelivery === "queued"
+            ? "Invitation created and email queued."
             : "Invitation created.",
         );
-        if (invitation.emailDelivery === "failed")
-          toast.danger(
-            "The invitation email could not be sent. Share the link directly.",
-          );
         onCreated();
         return invitation;
       }}

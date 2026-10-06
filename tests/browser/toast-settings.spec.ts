@@ -194,7 +194,7 @@ test("identical synchronous password mismatches produce a toast on every attempt
   expect(passwordRequests).toBe(0);
 });
 
-test("invitation creation and delivery failure appear only as toasts alongside the private link", async ({
+test("invitation creation appears only as a toast alongside the private link when email is unavailable", async ({
   page,
   baseURL,
 }) => {
@@ -212,7 +212,7 @@ test("invitation creation and delivery failure appear only as toasts alongside t
       status: 201,
       json: {
         inviteUrl: `${baseURL}/invite?token=toast-only-disposable-link`,
-        emailDelivery: "failed",
+        emailDelivery: "unavailable",
       },
     });
   });
@@ -240,7 +240,7 @@ test("invitation creation and delivery failure appear only as toasts alongside t
       page,
       "The invitation email could not be sent. Share the link directly.",
     ),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(dialog.getByRole("alert")).toHaveCount(0);
   await expect(
     dialog.getByText("Invitation created.", { exact: true }),

@@ -1,6 +1,6 @@
 CREATE TABLE workspace (
   id uuid PRIMARY KEY,
-  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX workspace_singleton ON workspace ((true));
@@ -8,9 +8,10 @@ CREATE UNIQUE INDEX workspace_singleton ON workspace ((true));
 CREATE TABLE users (
   id uuid PRIMARY KEY,
   workspace_id uuid NOT NULL REFERENCES workspace(id),
-  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
   email text NOT NULL UNIQUE CHECK (email = lower(email)),
   password_hash text NOT NULL,
+  email_verified boolean NOT NULL DEFAULT false,
   security_epoch integer NOT NULL DEFAULT 0,
   role text NOT NULL CHECK (role IN ('admin', 'member', 'viewer')),
   time_zone text NOT NULL DEFAULT 'UTC',
@@ -50,7 +51,7 @@ CREATE TABLE auth_challenges (
 CREATE TABLE passkeys (
   id text PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id),
-  name text NOT NULL,
+  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
   public_key bytea NOT NULL,
   counter bigint NOT NULL,
   transports jsonb NOT NULL DEFAULT '[]',
@@ -69,6 +70,7 @@ CREATE TABLE invitations (
   role text NOT NULL CHECK (role IN ('admin', 'member', 'viewer')),
   token_hash text NOT NULL UNIQUE,
   invited_by uuid NOT NULL REFERENCES users(id),
+  verification_required boolean NOT NULL DEFAULT false,
   expires_at timestamptz NOT NULL,
   accepted_at timestamptz,
   revoked_at timestamptz,
@@ -78,6 +80,7 @@ CREATE TABLE account_recovery (
   token_hash text PRIMARY KEY,
   user_id uuid NOT NULL REFERENCES users(id),
   reset_mfa boolean NOT NULL DEFAULT false,
+  security_epoch integer,
   expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -328,3 +331,44 @@ BEGIN
   END LOOP;
 END;
 $$;
+
+
+CREATE TABLE email_requests (
+  id uuid PRIMARY KEY,
+  user_id uuid REFERENCES users(id),
+  invitation_id uuid REFERENCES invitations(id),
+  purpose text NOT NULL CHECK (purpose IN ('verification','change','invitation')),
+  email text NOT NULL,
+  previous_email text,
+  security_epoch integer NOT NULL,
+  token_hash text,
+  code_hash text,
+  proof_hash text,
+  verified_name text,
+  attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  CHECK ((purpose='invitation' AND invitation_id IS NOT NULL AND user_id IS NULL) OR (purpose<>'invitation' AND user_id IS NOT NULL AND invitation_id IS NULL))
+);
+CREATE UNIQUE INDEX email_requests_user_purpose ON email_requests(user_id,purpose) WHERE consumed_at IS NULL;
+CREATE UNIQUE INDEX email_requests_invitation ON email_requests(invitation_id) WHERE consumed_at IS NULL;
+CREATE TABLE email_outbox (
+  id uuid PRIMARY KEY,
+  request_id uuid REFERENCES email_requests(id),
+  invitation_id uuid REFERENCES invitations(id),
+  recovery_hash text,
+  payload text,
+  state text NOT NULL DEFAULT 'pending' CHECK (state IN ('pending','delivered','cancelled','failed')),
+  attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+  available_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  lease_token uuid,
+  lease_until timestamptz,
+  last_error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  delivered_at timestamptz,
+  CHECK (num_nonnulls(request_id,invitation_id,recovery_hash)=1),
+  CHECK ((lease_token IS NULL)=(lease_until IS NULL))
+);
+CREATE INDEX email_outbox_pending ON email_outbox(available_at,created_at) WHERE state='pending';

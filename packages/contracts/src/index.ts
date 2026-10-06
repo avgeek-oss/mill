@@ -98,3 +98,24 @@ export type NotificationPage = {
   hasMore: boolean;
   nextCursor: string | null;
 };
+
+export type AuthStatus = {
+  setupRequired: boolean;
+  emailDeliveryConfigured: boolean;
+};
+export type UserEmailState = {
+  email: string;
+  emailVerified: boolean;
+};
+export type PendingEmailChange = {
+  email: string;
+  expiresAt: string;
+};
+export type EmailRequestReceipt = { status: true };
+export type EmailResendReceipt = EmailRequestReceipt & {
+  resendAvailableAt: number;
+};
+export type InvitationCodeReceipt = EmailResendReceipt & {
+  expiresAt: string;
+};
+export type InvitationVerificationProof = { verificationToken: string };

@@ -35,3 +35,40 @@ test("configuration requires secrets/database and restricts insecure origins", (
     process.env = previous;
   }
 });
+
+test("optional SMTP requires paired configuration, validates addresses and retains secure defaults", () => {
+  const environment = { ...process.env };
+  Object.assign(process.env, {
+    DATABASE_URL: "postgres://test:disposable@127.0.0.1/mill",
+    MILL_SECRET: "x".repeat(32),
+    MILL_BASE_URL: "https://mill.example",
+  });
+  const fields = [
+    "MILL_SMTP_HOST",
+    "MILL_SMTP_PORT",
+    "MILL_SMTP_SECURE",
+    "MILL_SMTP_USER",
+    "MILL_SMTP_PASSWORD",
+    "MILL_SMTP_FROM",
+  ];
+  try {
+    for (const k of fields) delete process.env[k];
+    assert.equal(validateConfiguration().MILL_SMTP_HOST, "");
+    process.env.MILL_SMTP_HOST = "smtp.example.test";
+    assert.throws(validateConfiguration, /Configure SMTP host and from/);
+    process.env.MILL_SMTP_FROM = "no-reply@example.test";
+    let c = validateConfiguration();
+    assert.equal(c.MILL_SMTP_PORT, 587);
+    assert.equal(c.MILL_SMTP_SECURE, false);
+    process.env.MILL_SMTP_USER = "user";
+    assert.throws(validateConfiguration, /Configure SMTP user and password/);
+    process.env.MILL_SMTP_PASSWORD = "safe-test-password";
+    process.env.MILL_SMTP_SECURE = "true";
+    c = validateConfiguration();
+    assert.equal(c.MILL_SMTP_SECURE, true);
+    process.env.MILL_SMTP_FROM = "Header\r\nInjected";
+    assert.throws(validateConfiguration, /MILL_SMTP_FROM/);
+  } finally {
+    process.env = environment;
+  }
+});

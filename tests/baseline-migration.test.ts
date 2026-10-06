@@ -97,6 +97,8 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         "boards",
         "comments",
         "credentials",
+        "email_outbox",
+        "email_requests",
         "invitations",
         "mill_migrations",
         "notifications",

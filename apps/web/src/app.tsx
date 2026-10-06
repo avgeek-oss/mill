@@ -64,6 +64,8 @@ import {
   api,
   createRetryKey,
   errorText,
+  hasSessionResponse,
+  isResponseObject,
   initializeNavigation,
   navigate,
   navigationIndex,
@@ -92,20 +94,27 @@ const AppConsent = lazy(() =>
 );
 function usePath() {
   const [path, setPath] = useState(
-    window.location.pathname + window.location.search,
+    window.location.pathname + window.location.search + window.location.hash,
   );
   useEffect(() => {
     initializeNavigation();
-    let currentPath = window.location.pathname + window.location.search;
+    let currentPath =
+      window.location.pathname + window.location.search + window.location.hash;
     let currentIndex = navigationIndex() ?? 0;
     let restoration: { index: number; restored: () => void } | null = null;
     const listener = () => {
-      currentPath = window.location.pathname + window.location.search;
+      currentPath =
+        window.location.pathname +
+        window.location.search +
+        window.location.hash;
       currentIndex = navigationIndex() ?? currentIndex;
       setPath(currentPath);
     };
     const pop = () => {
-      const targetPath = window.location.pathname + window.location.search;
+      const targetPath =
+        window.location.pathname +
+        window.location.search +
+        window.location.hash;
       const targetIndex = navigationIndex();
       if (restoration) {
         if (targetIndex === restoration.index) {
@@ -153,20 +162,23 @@ function usePath() {
     };
     window.addEventListener("popstate", pop);
     window.addEventListener("mill:navigate", listener);
+    window.addEventListener("hashchange", listener);
     return () => {
       window.removeEventListener("popstate", pop);
       window.removeEventListener("mill:navigate", listener);
+      window.removeEventListener("hashchange", listener);
     };
   }, []);
   return path;
 }
 export function App() {
   const location = usePath();
-  const path = location.split("?")[0];
+  const path = location.split(/[?#]/)[0];
   const activeBoardId = path.match(/^\/boards\/([^/]+)/)?.[1];
   const activeTaskId = path.match(/^\/boards\/[^/]+\/tasks\/([^/]+)\/?$/)?.[1];
   const [session, setSession] = useState<Session | null>(null);
   const [setup, setSetup] = useState(false);
+  const [emailDeliveryConfigured, setEmailDeliveryConfigured] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [expired, setExpired] = useState(false);
@@ -227,11 +239,24 @@ export function App() {
     setReady(false);
     setError("");
     try {
-      const status = await api<{ setupRequired: boolean }>("/auth/status");
+      const status = await api<{
+        setupRequired: boolean;
+        emailDeliveryConfigured: boolean;
+      }>("/auth/status", undefined, "GET", {
+        validateResponse: (value) =>
+          isResponseObject(value) &&
+          typeof value.setupRequired === "boolean" &&
+          typeof value.emailDeliveryConfigured === "boolean",
+      });
+      setEmailDeliveryConfigured(status.emailDeliveryConfigured);
       setSetup(status.setupRequired);
       if (!status.setupRequired) {
         try {
-          setSession(await api<Session>("/auth/me"));
+          setSession(
+            await api<Session>("/auth/me", undefined, "GET", {
+              validateResponse: hasSessionResponse,
+            }),
+          );
         } catch (e) {
           if (e instanceof ApiError && e.status === 401) setSession(null);
           else throw e;
@@ -248,7 +273,9 @@ export function App() {
     setError("");
     try {
       const [me, people, notification] = await Promise.all([
-        api<Session>("/auth/me"),
+        api<Session>("/auth/me", undefined, "GET", {
+          validateResponse: hasSessionResponse,
+        }),
         loadMemberDirectory(),
         api<{ unreadCount: number }>("/notifications?limit=1"),
       ]);
@@ -525,6 +552,34 @@ export function App() {
     };
     if (requestNavigation("/", perform)) perform();
   }
+  function discardRevokedSession() {
+    interruptAccountActions(true);
+    lastBoardsRequest.current++;
+    lastRefreshRequest.current++;
+    recentlyCreatedBoard.current = null;
+    latestLoadedBoard.current = null;
+    suspendedFocus.current = null;
+    suspensionActive.current = false;
+    setSession(null);
+    setExpired(false);
+    setBoards([]);
+    setMembers([]);
+    setNotificationCount(0);
+    setRouteBoard(null);
+    setRouteTask(null);
+  }
+  async function reconcileIdentity() {
+    try {
+      const current = await api<Session>("/auth/me", undefined, "GET", {
+        validateResponse: hasSessionResponse,
+      });
+      acceptSession(current);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401)
+        discardRevokedSession();
+      else throw cause;
+    }
+  }
   const authView = (
     <>
       {expired && (
@@ -533,7 +588,14 @@ export function App() {
         </ErrorMessage>
       )}
       <Suspense fallback={null}>
-        <Auth setup={setup} onSession={acceptSession} focusEmail={expired} />
+        <Auth
+          key={location}
+          setup={setup}
+          emailDeliveryConfigured={emailDeliveryConfigured}
+          onSession={acceptSession}
+          onIdentityChanged={reconcileIdentity}
+          focusEmail={expired}
+        />
       </Suspense>
     </>
   );
@@ -541,6 +603,7 @@ export function App() {
     return (
       <main aria-busy className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6" />
     );
+  if (["/invite", "/recover"].includes(path)) return authView;
   if (!session) {
     if (error)
       return (
@@ -825,7 +888,8 @@ export function App() {
                           ) : settingsSection &&
                             knownSettings.includes(settingsSection) ? (
                             <SettingsPage
-                              key={settingsSection}
+                              key={`${session.user.id}:${session.workspace.id}:${settingsSection}`}
+                              emailDeliveryConfigured={emailDeliveryConfigured}
                               section={settingsSection}
                               session={session}
                               members={members}
