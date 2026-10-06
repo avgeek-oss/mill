@@ -216,7 +216,7 @@ for (const [index, operation] of operations.entries()) {
         submit = "Update";
         await page
           .getByRole("dialog", { name: dialogTitle, exact: true })
-          .getByRole("button", { name: /Role$/ })
+          .getByRole("button", { name: /Role\*$/ })
           .click();
         await page.getByRole("option", { name: "Viewer", exact: true }).click();
       } else if (operation === "remove") {
@@ -313,7 +313,7 @@ for (const [index, operation] of operations.entries()) {
         );
       if (operation === "role")
         await expect(
-          dialog.getByRole("button", { name: /Role$/ }),
+          dialog.getByRole("button", { name: /Role\*$/ }),
         ).toContainText("Viewer");
       expect(
         await page.evaluate(
