@@ -1,5 +1,10 @@
+import { useSettingsMutation } from "./use-settings-mutation.js";
 import { useEffect } from "react";
-import { ButtonLink, TeamGeneralSettings } from "@avgeek-oss/design-system";
+import {
+  ButtonLink,
+  TeamGeneralSettings,
+  useOverlaySuspension,
+} from "@avgeek-oss/design-system";
 import { EmptyState } from "@avgeek-oss/design-system/data-display/empty-state";
 import { Settings2 } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
@@ -23,6 +28,10 @@ export function SettingsPage({
   boards: Board[];
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
+  const mutate = useSettingsMutation(
+    `${session.user.id}:${session.workspace.id}:${section}`,
+  );
   const title = settingsTitles[section] ?? "Settings";
   useEffect(() => {
     document.title = `${title} · Mill`;
@@ -72,8 +81,11 @@ export function SettingsPage({
             value={session.workspace.name}
             maxLength={120}
             onSave={async (name) => {
-              await api("/workspace", { name }, "PATCH");
-              onRefresh();
+              const isCurrent = suspension.capture();
+              await mutate((signal) =>
+                api("/workspace", { name }, "PATCH", { signal }),
+              );
+              if (isCurrent()) onRefresh();
             }}
           />
         </div>
