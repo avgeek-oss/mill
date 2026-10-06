@@ -2470,41 +2470,31 @@ test("long content, fixed statuses, tablet/phone themes and operational errors",
     route.abort(),
   );
   await page.reload();
-  const networkError = page
-    .getByRole("main")
-    .locator("section")
-    .filter({
-      has: page.getByRole("heading", {
-        name: "Board unavailable",
-        exact: true,
-      }),
-    });
-  await expect(networkError).toBeVisible();
-  await expect(networkError.getByText("500", { exact: true })).toHaveCount(0);
+  const networkMessage =
+    "Mill could not be reached. Check your connection and try again.";
+  const main = page.getByRole("main");
   await expect(
-    networkError.getByText("Connection", { exact: true }),
+    page.locator('[data-slot="toast"]').filter({ hasText: networkMessage }),
   ).toBeVisible();
-  await expect(
-    page.locator('[data-slot="toast"]').filter({
-      hasText:
-        "Mill could not be reached. Check your connection and try again.",
-    }),
-  ).toBeVisible();
-  await expect(
-    networkError.getByRole("button", { name: "Try again", exact: true }),
-  ).toBeVisible();
+  await expect(main.getByText(networkMessage, { exact: true })).toHaveCount(0);
+  await expect(main.getByText("500", { exact: true })).toHaveCount(0);
+  await expect(main.getByRole("alert")).toHaveCount(0);
+  await expect(page.getByRole("grid", { name: "Task list" })).toHaveCount(0);
+  await expect(main.getByText("No tasks yet", { exact: true })).toHaveCount(0);
+  await expect(page).toHaveURL(`/boards/${boardId}`);
+  const retry = main.getByRole("button", { name: "Retry", exact: true });
+  await expect(retry).toBeEnabled();
   await page.screenshot({
     path: "docs/screenshots/network-error.png",
     fullPage: true,
     animations: "disabled",
   });
   await page.unroute(`**/api/boards/${boardId}/tasks?**`);
-  await networkError
-    .getByRole("button", { name: "Try again", exact: true })
-    .click();
+  await retry.click();
   await expect(
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Task list" })).toBeVisible();
 });
 
 async function browserDatabase() {
@@ -2571,7 +2561,7 @@ test("large-board pagination keeps URL state, recovers a changed page and suppor
       .getByRole("button", { name: "Go to page 1" }),
   ).toHaveAttribute("aria-current", "page");
   await expect(page).toHaveURL(new RegExp(`q=Scale\\+task.*sort=title`));
-  await page.getByRole("button", { name: "Next page" }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`page=2`));
   await expect(taskLinks).toHaveCount(25);
   await expect(taskLinks.first()).toContainText("Scale task 026");
@@ -2584,7 +2574,7 @@ test("large-board pagination keeps URL state, recovers a changed page and suppor
   await expect(page).not.toHaveURL(/page=2/);
   await expect(taskLinks).toHaveCount(100);
   const hundredRowsReadyMs = Date.now() - hundredPageStartAt;
-  await page.getByRole("button", { name: "Next page" }).click();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
   await expect(taskLinks).toHaveCount(5);
   await expect(taskLinks.last()).toContainText("Scale task 105");
   const pageTwoHref = await taskLinks.last().getAttribute("href");
@@ -2596,11 +2586,25 @@ test("large-board pagination keeps URL state, recovers a changed page and suppor
   await expect(page).toHaveURL(new RegExp(`page=2.*limit=100`));
   await page.getByRole("button", { name: /Assignee$/ }).click();
   const members = page.getByRole("listbox");
-  await members.hover();
-  await page.mouse.wheel(0, 650);
+  const memberPopover = page
+    .locator('[data-slot="select-popover"]')
+    .filter({ has: members });
+  await expect(memberPopover).toBeVisible();
+  await expect(memberPopover).toHaveCSS("overflow-y", "auto");
+  expect(
+    await memberPopover.evaluate(
+      (element) => element.scrollHeight > element.clientHeight,
+    ),
+  ).toBe(true);
+  const beforeWheel = await memberPopover.evaluate(
+    (element) => element.scrollTop,
+  );
+  await memberPopover.hover();
+  await page.mouse.wheel(0, 2000);
   await expect
-    .poll(() => members.evaluate((el) => el.scrollTop))
-    .toBeGreaterThan(0);
+    .poll(() => memberPopover.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(beforeWheel);
+  await expect(members.getByRole("option").last()).toBeInViewport();
   await page
     .getByRole("searchbox", { name: "Search assignee" })
     .fill("Reviewer 020");
@@ -2629,7 +2633,7 @@ test("large-board pagination keeps URL state, recovers a changed page and suppor
   await page.getByRole("button", { name: "Back to board" }).click();
   await expect(page).toHaveURL(new RegExp(`page=2.*limit=100`));
   await expect(taskLinks.last()).toContainText("Scale task 105 reviewed");
-  await page.getByRole("button", { name: "Previous page" }).click();
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
   await expect(taskLinks).toHaveCount(100);
   const displayedIds = await taskLinks.evaluateAll((links) =>
     links.map(
@@ -2656,7 +2660,7 @@ test("large-board pagination keeps URL state, recovers a changed page and suppor
     contentType: "application/json",
   });
 });
-test("a real isolated database fault renders 500 and reload recovery", async ({
+test("a real isolated database fault reports HTTP 500 and recovers through retry", async ({
   page,
 }) => {
   await login(page, {
@@ -2670,20 +2674,39 @@ test("a real isolated database fault renders 500 and reload recovery", async ({
       `ALTER TABLE "${schema}".tasks RENAME TO tasks_fault`,
     );
     renamed = true;
+    const failedRead = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `/api/boards/${boardId}/tasks` &&
+        response.request().method() === "GET" &&
+        response.status() === 500,
+    );
     await page.goto(`/boards/${boardId}`);
+    const response = await failedRead;
+    expect(response.status()).toBe(500);
+    const serverMessage = "Mill could not complete this request. Try again.";
+    const requestId = response.headers()["x-request-id"];
+    expect(requestId).toBeTruthy();
+    expect(await response.json()).toEqual({
+      error: { code: "INTERNAL_ERROR", message: serverMessage, requestId },
+    });
     await expect(
-      page.getByRole("heading", { name: "Mill could not load this page" }),
+      page
+        .locator(
+          '[data-slot="toast"][data-frontmost="true"]:not([data-exiting="true"]):not([data-hidden="true"])',
+        )
+        .filter({ hasText: serverMessage }),
     ).toBeVisible();
-    const serverError = page
-      .getByRole("main")
-      .locator("section")
-      .filter({
-        has: page.getByRole("heading", {
-          name: "Mill could not load this page",
-          exact: true,
-        }),
-      });
-    await expect(serverError.getByText("500", { exact: true })).toBeVisible();
+    const main = page.getByRole("main");
+    await expect(main.getByText(serverMessage, { exact: true })).toHaveCount(0);
+    await expect(main.getByRole("alert")).toHaveCount(0);
+    await expect(main.getByText("No tasks yet", { exact: true })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole("grid", { name: "Task list" })).toHaveCount(0);
+    await expect(page).toHaveURL(`/boards/${boardId}`);
+    await expect(
+      main.getByRole("button", { name: "Retry", exact: true }),
+    ).toBeEnabled();
     await page.screenshot({
       path: "docs/screenshots/server-error.png",
       fullPage: true,
@@ -2696,7 +2719,7 @@ test("a real isolated database fault renders 500 and reload recovery", async ({
       );
     await database.end();
   }
-  await page.getByRole("button", { name: "Try again", exact: true }).click();
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
@@ -2734,10 +2757,24 @@ test("task load failures preserve the deep link and recover without creating a t
   const fail = (route: Route) => route.abort("failed");
   await page.route(`**/api/tasks/${taskId}*`, fail);
   await page.goto(`/boards/${boardId}/tasks/${taskId}`);
+  const networkMessage =
+    "Mill could not be reached. Check your connection and try again.";
+  await expect(
+    page.locator('[data-slot="toast"]').filter({ hasText: networkMessage }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("main").getByText(networkMessage, { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Task unavailable" }),
-  ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Try again" })).toBeEnabled();
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Edit task details", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Retry", exact: true }),
+  ).toBeEnabled();
   await expect(page.getByRole("button", { name: "Create task" })).toHaveCount(
     0,
   );
@@ -2746,7 +2783,7 @@ test("task load failures preserve the deep link and recover without creating a t
   );
   expect(creations).toBe(0);
   await page.unroute(`**/api/tasks/${taskId}*`, fail);
-  await page.getByRole("button", { name: "Try again" }).click();
+  await page.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Edit task details" }),
   ).toBeVisible();
