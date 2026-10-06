@@ -417,6 +417,8 @@ function TwoFactorSettings({
   const [code, setCode] = useState("");
   const [totpError, setTotpError] = useState("");
   const [totpBusy, setTotpBusy] = useState(false);
+  const [copyingSetupKey, setCopyingSetupKey] = useState(false);
+  const setupKeyCopyPending = useRef(false);
   const [codes, setCodes] = useState<string[]>([]);
   async function refresh() {
     onRefresh();
@@ -581,10 +583,28 @@ function TwoFactorSettings({
                   <CodeBlock>
                     <CodeBlock.Header>
                       <span className="text-sm text-muted">Setup key</span>
-                      <CodeBlock.CopyButton
-                        code={totp.secret}
+                      <Widget.Action
                         aria-label="Copy setup key"
-                      />
+                        isDisabled={copyingSetupKey}
+                        onPress={async () => {
+                          if (setupKeyCopyPending.current) return;
+                          setupKeyCopyPending.current = true;
+                          setCopyingSetupKey(true);
+                          try {
+                            await navigator.clipboard.writeText(totp.secret);
+                            toast.success("Setup key copied to clipboard.");
+                          } catch {
+                            toast.danger(
+                              "Could not copy the setup key. Select it and copy it manually.",
+                            );
+                          } finally {
+                            setupKeyCopyPending.current = false;
+                            setCopyingSetupKey(false);
+                          }
+                        }}
+                      >
+                        Copy
+                      </Widget.Action>
                     </CodeBlock.Header>
                     <CodeBlock.Code
                       code={totp.secret}

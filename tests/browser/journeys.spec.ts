@@ -71,7 +71,7 @@ async function login(
       page.getByRole("button", { name: "Open navigation" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Sign in to Mill" }),
+      page.getByRole("heading", { name: "Sign in", exact: true }),
     ).toBeHidden();
   } else {
     await expect(
@@ -267,19 +267,39 @@ test("first installation, board lifecycle, unassigned task and discussion", asyn
 }, testInfo) => {
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Create your workspace" }),
+    page.getByRole("heading", { name: "Set up your team", exact: true }),
   ).toBeVisible();
-  await page.getByLabel("Workspace name").fill(account.workspaceName);
-  await page.getByLabel("Your name").fill(account.name);
+  const setupSubmissions: unknown[] = [];
+  const observeSetup = async (route: Route) => {
+    setupSubmissions.push(route.request().postDataJSON());
+    await route.continue();
+  };
+  await page.route("**/api/auth/setup", observeSetup);
+  await page
+    .getByLabel("Team name", { exact: true })
+    .fill(account.workspaceName);
+  await page.getByLabel("Your Name", { exact: true }).fill(account.name);
   await page.getByLabel("Email", { exact: true }).fill(account.email);
   await page.getByLabel("Password", { exact: true }).fill(account.password);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Set your preferences", exact: true }),
+  ).toBeVisible();
+  expect(setupSubmissions).toHaveLength(0);
   await page
-    .getByLabel("Confirm password", { exact: true })
-    .fill(account.password);
-  await page.getByRole("button", { name: "Create workspace" }).click();
+    .getByRole("button", { name: "Complete Setup", exact: true })
+    .click();
   await expect(
     page.getByRole("navigation", { name: "Workspace navigation" }),
   ).toBeVisible();
+  expect(setupSubmissions).toHaveLength(1);
+  expect(setupSubmissions[0]).toMatchObject({
+    workspaceName: account.workspaceName,
+    name: account.name,
+    email: account.email,
+    password: account.password,
+  });
+  await page.unroute("**/api/auth/setup", observeSetup);
   const bootstrap = await rememberBrowserBootstrap(page.request, baseOrigin);
   workspaceId = bootstrap.identity.workspace.id;
   adminUserId = bootstrap.identity.user.id;
@@ -808,7 +828,9 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
   browser,
 }) => {
   await page.goto(sidebarSizingInvitationUrl);
-  await page.getByLabel("Your name").fill("Sidebar Sizing Review");
+  await page
+    .getByLabel("Your Name", { exact: true })
+    .fill("Sidebar Sizing Review");
   await page
     .getByLabel("Password", { exact: true })
     .fill(sidebarSizingAccount.password);
@@ -840,7 +862,7 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
       });
       try {
         await context.addInitScript(
-          (value) => localStorage.setItem("mill:theme", value),
+          (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
           theme,
         );
         const surface = await context.newPage();
@@ -1007,7 +1029,7 @@ test("keyboard controls, URL filters, task returns, themes and mobile navigation
   ] as const) {
     await page.setViewportSize({ width, height });
     await page.evaluate(
-      (value) => localStorage.setItem("mill:theme", value),
+      (value) => localStorage.setItem("avgeek-oss-ui-theme", value),
       theme,
     );
     await page.reload();
@@ -1166,7 +1188,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
   adminSessionCookies = [];
   await title.fill("Expired title draft");
   await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
+    page.getByRole("heading", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await expect(edit).toBeHidden();
   await expect(page.locator("[data-authenticated-app]")).toHaveAttribute(
@@ -1241,7 +1263,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
   await page.getByRole("button", { name: "Clear draft" }).click();
   await signOut();
   await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
+    page.getByRole("heading", { name: "Sign in", exact: true }),
   ).toBeVisible();
   adminSessionCookies = [];
   expect(logoutRequests).toBe(1);
@@ -1264,7 +1286,7 @@ test("expired session preserves task route, and unknown route has recovery", asy
     adminSessionCookies = [];
     await target.clock.fastForward(30_100);
     await expect(
-      target.getByRole("heading", { name: "Sign in to Mill" }),
+      target.getByRole("heading", { name: "Sign in", exact: true }),
     ).toBeVisible();
     await expect(popover).toBeHidden();
     await expect(target.locator("[data-authenticated-app]")).toHaveAttribute(
@@ -1336,7 +1358,7 @@ test("reauth masks a revoked board and retries only after access returns", async
   adminSessionCookies = [];
   await page.clock.fastForward(30_100);
   await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
+    page.getByRole("heading", { name: "Sign in", exact: true }),
   ).toBeVisible();
   const denyBoard = async (route: Route) => {
     if (route.request().method() !== "GET") return route.continue();
@@ -1407,7 +1429,7 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
     adminSessionCookies = [];
     await title.fill("Private title pending on access loss");
     await expect(
-      page.getByRole("heading", { name: "Sign in to Mill" }),
+      page.getByRole("heading", { name: "Sign in", exact: true }),
     ).toBeVisible();
     const taskReadRoute = (url: URL) =>
       url.pathname === `/api/tasks/${disposable.id}`;
@@ -1492,7 +1514,7 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
     adminSessionCookies = [];
     await title.fill("Private title pending when task disappears");
     await expect(
-      page.getByRole("heading", { name: "Sign in to Mill" }),
+      page.getByRole("heading", { name: "Sign in", exact: true }),
     ).toBeVisible();
     const latestTask = await deleter.get(`/api/tasks/${disposable.id}`);
     expect(latestTask.ok()).toBeTruthy();
@@ -1536,7 +1558,9 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
   browser,
 }) => {
   await page.goto(permissionsInvitationUrl);
-  await page.getByLabel("Your name").fill("Permissions Review");
+  await page
+    .getByLabel("Your Name", { exact: true })
+    .fill("Permissions Review");
   await page
     .getByLabel("Password", { exact: true })
     .fill(permissionsAccount.password);
@@ -1624,7 +1648,7 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
   const viewerContext = await browser.newContext({ baseURL: baseOrigin });
   const viewer = await viewerContext.newPage();
   await viewer.goto(invitation.inviteUrl);
-  await viewer.getByLabel("Your name").fill("Jamie Viewer");
+  await viewer.getByLabel("Your Name", { exact: true }).fill("Jamie Viewer");
   await viewer
     .getByLabel("Password", { exact: true })
     .fill("Viewer-only-password-42");
@@ -1879,7 +1903,7 @@ test("a different person cannot inherit an expired task draft", async ({
   adminSessionCookies = [];
   await title.fill("Private title draft from Alex");
   await expect(
-    page.getByRole("heading", { name: "Sign in to Mill" }),
+    page.getByRole("heading", { name: "Sign in", exact: true }),
   ).toBeVisible();
   await page
     .getByLabel("Email", { exact: true })
@@ -1907,7 +1931,7 @@ test("task deletion removes discussion permanently, retains other tasks, and ret
   page,
 }) => {
   await page.goto(lifecycleInvitationUrl);
-  await page.getByLabel("Your name").fill("Lifecycle Review");
+  await page.getByLabel("Your Name", { exact: true }).fill("Lifecycle Review");
   await page
     .getByLabel("Password", { exact: true })
     .fill(lifecycleAccount.password);

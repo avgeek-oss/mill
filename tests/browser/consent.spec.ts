@@ -281,12 +281,10 @@ test("delayed real details for request A cannot enable or replace request B and 
     });
     await page.goto(a.url);
     await received.wait;
-    await expect(
-      page.getByRole("region", { name: "Connection request", exact: true }),
-    ).toHaveAttribute("aria-busy", "true");
-    await expect(
-      page.getByText("Loading connection…", { exact: true }),
-    ).toHaveCount(0);
+    const pending = page
+      .getByRole("status")
+      .filter({ hasText: "Loading connection request…" });
+    await expect(pending).toHaveText("Loading connection request…");
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
     ).toHaveCount(0);
@@ -362,9 +360,13 @@ test("a delayed old decision cannot redirect a new request and scoped consent gr
       .getByRole("button", { name: "Allow access", exact: true })
       .click();
     await received.wait;
+    await expect(page.locator("form")).toHaveAttribute("aria-busy", "true");
     await expect(
-      page.getByText("Allowing access…", { exact: true }),
-    ).toBeVisible();
+      page.getByRole("button", { name: "Allow access", exact: true }),
+    ).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Deny", exact: true }),
+    ).toBeDisabled();
     await page.evaluate((url) => {
       window.history.pushState({}, "", url);
       window.dispatchEvent(new Event("mill:navigate"));
@@ -587,9 +589,7 @@ test("Viewer edit access and unsupported requested permissions remain unavailabl
     );
     await page.goto(write.url);
     await expect(
-      page
-        .locator('[data-slot="toast"]:not([data-exiting="true"])')
-        .filter({ hasText: "Viewer role" }),
+      page.getByRole("alert").filter({ hasText: "Viewer role" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
@@ -609,9 +609,7 @@ test("Viewer edit access and unsupported requested permissions remain unavailabl
     }
     await page.goto(unsupported.url);
     await expect(
-      page
-        .locator('[data-slot="toast"]:not([data-exiting="true"])')
-        .filter({ hasText: "unsupported permissions" }),
+      page.getByRole("alert").filter({ hasText: "unsupported permissions" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Allow access", exact: true }),
@@ -647,7 +645,7 @@ test("phone consent in both themes keeps long context readable and supports keyb
       });
       try {
         await context.addInitScript((value) => {
-          localStorage.setItem("mill:theme", value);
+          localStorage.setItem("avgeek-oss-ui-theme", value);
         }, theme);
         const mobile = await context.newPage();
         const touchMedia = await mobile.evaluate(() => ({
@@ -695,9 +693,9 @@ test("phone consent in both themes keeps long context readable and supports keyb
         await summary.focus();
         await mobile.keyboard.press("Enter");
         await expect(
-          mobile.getByText("Administrative access is excluded.", {
-            exact: true,
-          }),
+          mobile.getByText(
+            /^Administrative access is excluded\. Access remains limited by your current membership, role, and approved boards\.$/,
+          ),
         ).toBeVisible();
         expect(
           await mobile.evaluate(
@@ -790,9 +788,7 @@ test("malformed trust and role enums cannot suppress the warning or enable decis
       await expect(
         page.getByRole("button", { name: "Deny", exact: true }),
       ).toHaveCount(0);
-      await page
-        .getByRole("button", { name: "Retry connection", exact: true })
-        .click();
+      await page.getByRole("button", { name: "Retry", exact: true }).click();
       await expect(
         page.getByText("Unverified app.", { exact: false }),
       ).toBeVisible();
@@ -860,15 +856,40 @@ test("malformed decision acknowledgements cannot navigate, claim success, or cha
           .filter({ hasText: "response could not be confirmed" }),
       ).toBeVisible();
       expect(new URL(page.url()).pathname).toBe("/oauth/consent");
+      await expect(page).toHaveURL(connection.url);
       await expect(
         page.getByText(/Access (allowed|denied)\. Returning/),
       ).toHaveCount(0);
       await expect(
+        page.locator('[data-slot="toast"]').filter({
+          hasText: /^Access (allowed|denied)\.$/,
+        }),
+      ).toHaveCount(0);
+      await expect(
         page.getByRole("button", { name: "Allow access", exact: true }),
-      ).toBeDisabled();
+      ).toHaveCount(0);
       await expect(
         page.getByRole("button", { name: "Deny", exact: true }),
-      ).toBeDisabled();
+      ).toHaveCount(0);
+      const auth = page.locator('[data-slot="identity-auth-shell"]');
+      await expect(
+        auth.getByText(/The connection response could not be confirmed\./),
+      ).toHaveCount(0);
+      await expect(
+        auth.getByText(
+          "Start a new connection from your app to request access.",
+          {
+            exact: true,
+          },
+        ),
+      ).toBeVisible();
+      const back = auth.getByRole("link", {
+        name: "Back to Mill",
+        exact: true,
+      });
+      await expect(back).toBeVisible();
+      await expect(back).toBeEnabled();
+      await expect(back).toHaveAttribute("href", "/boards");
     }
   } finally {
     await operator.api.dispose();

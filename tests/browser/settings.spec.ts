@@ -96,7 +96,7 @@ async function accountAction(
   const trigger = page.getByRole("button", { name: /^Account menu for / });
   if (!(await trigger.isVisible()))
     await page
-      .getByRole("button", { name: "Open navigation", exact: true })
+      .getByRole("button", { name: "Toggle navigation", exact: true })
       .click();
   await trigger.click();
   await page
@@ -172,7 +172,7 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
       name: "Edit Gravatar image (opens in a new tab)",
       exact: true,
     })
-    .locator('[data-slot="avatar"]');
+    .locator('[role="img"]');
   await expect(avatar).toBeVisible();
   await expect(avatar.getByText("CS", { exact: true })).toBeVisible();
   const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(admin.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
@@ -506,8 +506,8 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
   await login(page, admin);
   await page.getByRole("link", { name: "Team settings", exact: true }).click();
   await page
-    .getByRole("navigation", { name: "Team settings navigation", exact: true })
-    .getByRole("link", { name: "Members", exact: true })
+    .getByRole("navigation", { name: "Page navigation", exact: true })
+    .getByRole("button", { name: "Members", exact: true })
     .click();
   async function invitation(email: string, role: string) {
     await page
@@ -868,8 +868,8 @@ test("team settings persist without backup or portable data surfaces", async ({
   ).toBeVisible();
   const name = page.getByRole("textbox", { name: /^Team name/ });
   await name.fill("Settings workspace verification");
-  await page.getByRole("button", { name: "Update", exact: true }).click();
-  await expect(feedbackToast(page, "Team settings updated.")).toBeVisible();
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(feedbackToast(page, "Changes saved")).toBeVisible();
   expect((await json(page.request, "/auth/me")).workspace.name).toBe(
     "Settings workspace verification",
   );
@@ -881,7 +881,7 @@ test("team settings persist without backup or portable data surfaces", async ({
   ).toHaveCount(0);
   await expect(
     page.getByRole("main").locator('[data-slot="widget-header"]'),
-  ).toHaveCount(0);
+  ).toHaveText("Team details");
   await page.goto("/settings/data");
   await expect(
     page.getByRole("heading", {
@@ -1320,8 +1320,8 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
     "Independent Lists",
   );
   await login(page, account);
-  await accountAction(page, "Profile");
-  await expect(page.getByLabel("Email", { exact: true })).toHaveValue(
+  await accountAction(page, "Auth & Security");
+  await expect(page.getByLabel("Current email", { exact: true })).toHaveValue(
     account.email,
   );
   const { database, schema } = await browserDatabase();
@@ -1347,10 +1347,10 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
     await lockAcquired;
     await page
       .getByRole("navigation", {
-        name: "Account settings navigation",
+        name: "Page navigation",
         exact: true,
       })
-      .getByRole("link", { name: "Two-factor Auth", exact: true })
+      .getByRole("button", { name: "Two-factor Auth", exact: true })
       .click();
     const keys = page.getByRole("region", { name: "Passkeys", exact: true });
     const sessions = page.getByRole("region", {
@@ -1381,10 +1381,10 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
     renamedKeys = true;
     await page
       .getByRole("navigation", {
-        name: "Account settings navigation",
+        name: "Page navigation",
         exact: true,
       })
-      .getByRole("link", { name: "Two-factor Auth", exact: true })
+      .getByRole("button", { name: "Two-factor Auth", exact: true })
       .click();
     await expect(
       feedbackToast(page, "Mill could not complete this request"),
@@ -1401,9 +1401,7 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
       `ALTER TABLE "${schema}".passkeys_list_fault RENAME TO passkeys`,
     );
     renamedKeys = false;
-    await keys
-      .getByRole("button", { name: "Retry passkeys", exact: true })
-      .click();
+    await keys.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(
       keys.getByText("No passkeys added.", { exact: true }),
     ).toBeVisible();
@@ -1414,26 +1412,24 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
     renamedAgent = true;
     await page
       .getByRole("navigation", {
-        name: "Account settings navigation",
+        name: "Page navigation",
         exact: true,
       })
-      .getByRole("link", { name: "Sessions", exact: true })
+      .getByRole("button", { name: "Sessions", exact: true })
       .click();
     await expect(
       feedbackToast(page, "Mill could not complete this request"),
     ).toBeVisible();
     await expect(sessions.getByRole("alert")).toHaveCount(0);
     await expect(
-      sessions.getByText("No active sessions.", { exact: true }),
+      sessions.getByText("No sessions", { exact: true }),
     ).toHaveCount(0);
     await expect(keys).toHaveCount(0);
     await database.unsafe(
       `ALTER TABLE "${schema}".sessions RENAME COLUMN user_agent_list_fault TO user_agent`,
     );
     renamedAgent = false;
-    await sessions
-      .getByRole("button", { name: "Retry sessions", exact: true })
-      .click();
+    await sessions.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(
       sessions.getByText("This browser", { exact: true }),
     ).toBeVisible();

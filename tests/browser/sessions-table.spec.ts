@@ -158,9 +158,10 @@ test("sessions loading and request failure announce status and retry without a f
     release!();
   }
   const region = page.getByRole("region", { name: "Sessions", exact: true });
-  await expect(region.getByRole("alert")).toHaveText(
-    "Sessions temporarily unavailable",
-  );
+  await expect(
+    feedbackToast(page, "Sessions temporarily unavailable"),
+  ).toBeVisible();
+  await expect(region.getByRole("alert")).toHaveCount(0);
   await page.unroute("**/api/auth/sessions");
   await region.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(region.getByText("This browser", { exact: true })).toBeVisible();

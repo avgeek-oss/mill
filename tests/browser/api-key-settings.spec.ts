@@ -271,9 +271,8 @@ test("initial loading, failed loading, empty list and the personal key form rema
   } finally {
     release();
   }
-  await expect(region.getByRole("alert")).toContainText(
-    "Mill could not be reached",
-  );
+  await expect(feedbackToast(page, "Mill could not be reached")).toBeVisible();
+  await expect(region.getByRole("alert")).toHaveCount(0);
   await region.getByRole("button", { name: "Retry", exact: true }).click();
   await expect(region.getByText("No API keys", { exact: true })).toBeVisible();
   await page
@@ -365,7 +364,7 @@ test("response loss retries the same creation, reveals the original token locall
       dialog.getByRole("button", { name: "Creating…", exact: true }),
     ).toBeDisabled();
     await expect(
-      dialog.getByRole("button", { name: "Close", exact: true }),
+      dialog.getByRole("button", { name: "Close dialog", exact: true }),
     ).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeVisible();
@@ -826,10 +825,13 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
     ).toHaveClass(/text-muted/);
     await expect
       .poll(() =>
-        page.locator("button [data-slot='avatar']").evaluate((element) => {
-          const bounds = element.getBoundingClientRect();
-          return bounds.width >= 32 && bounds.width === bounds.height;
-        }),
+        page
+          .getByRole("button", { name: /^Account menu for / })
+          .locator('[role="img"]')
+          .evaluate((element) => {
+            const bounds = element.getBoundingClientRect();
+            return bounds.width >= 32 && bounds.width === bounds.height;
+          }),
       )
       .toBe(true);
     await writeFile(

@@ -77,7 +77,7 @@ async function login(page: Page, path = "/settings/members") {
 }
 async function openSettings(page: Page, section: "People" | "Team settings") {
   const openNavigation = page.getByRole("button", {
-    name: "Open navigation",
+    name: "Toggle navigation",
     exact: true,
   });
   if ((page.viewportSize()?.width ?? 1280) < 1024) {
@@ -86,15 +86,16 @@ async function openSettings(page: Page, section: "People" | "Team settings") {
     if (new URL(page.url()).pathname !== path) await page.goto(path);
     return;
   }
-  if (await openNavigation.isVisible()) await openNavigation.click();
+  if ((await openNavigation.getAttribute("aria-expanded")) !== "true")
+    await openNavigation.click();
   await page.getByRole("link", { name: "Team settings", exact: true }).click();
   if (section === "People")
     await page
       .getByRole("navigation", {
-        name: "Team settings navigation",
+        name: "Page navigation",
         exact: true,
       })
-      .getByRole("link", { name: "Members", exact: true })
+      .getByRole("button", { name: "Members", exact: true })
       .click();
 }
 async function database() {
@@ -154,8 +155,8 @@ test("People lists load independently, show separate recovery and protect the la
     await route.fulfill({ response });
   });
   await page
-    .getByRole("navigation", { name: "Team settings navigation", exact: true })
-    .getByRole("link", { name: "Members", exact: true })
+    .getByRole("navigation", { name: "Page navigation", exact: true })
+    .getByRole("button", { name: "Members", exact: true })
     .click();
   const members = page.getByRole("region", {
     name: "Workspace members",
@@ -166,7 +167,10 @@ test("People lists load independently, show separate recovery and protect the la
     exact: true,
   });
   try {
-    await expect(members.getByRole("alert")).toBeVisible();
+    await expect(
+      feedbackToast(page, "People are temporarily unavailable."),
+    ).toBeVisible();
+    await expect(members.getByRole("alert")).toHaveCount(0);
     await expect(invitations).toHaveAttribute("aria-busy", "true");
     await expect(invitations.getByRole("status")).toContainText(
       "Loading invitations",
@@ -442,7 +446,7 @@ test("team settings persist without backup or portable data surfaces", async ({
   ).toHaveCount(0);
   await expect(
     page.getByRole("main").locator('[data-slot="widget-header"]'),
-  ).toHaveCount(0);
+  ).toHaveText("Team details");
 });
 
 test("People and team settings layouts remain usable in both themes at desktop and phone widths", async ({
@@ -799,7 +803,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
         .getByRole("alert"),
     ).toHaveCount(0);
     await invitations
-      .getByRole("button", { name: "Retry invitations", exact: true })
+      .getByRole("button", { name: "Retry", exact: true })
       .click();
     await expect(
       invitations.getByText(oldEmail, { exact: true }),

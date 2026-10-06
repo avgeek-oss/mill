@@ -16,6 +16,15 @@ export default ts.config(
   {
     files: ["apps/web/src/**/*.{ts,tsx}"],
     rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "JSXMemberExpression[object.name='CodeBlock'][property.name='CopyButton']",
+          message:
+            "The published copy control lacks toast feedback. Use Widget.Action with awaited clipboard copying and success/error toasts until the shared fix is published.",
+        },
+      ],
       "no-restricted-imports": [
         "error",
         {

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Choice, toast } from "@mill/web-design-system";
 import {
   AuthScreen,
+  ButtonLink,
   McpAuthorization,
   QueryLoading,
 } from "@avgeek-oss/design-system";
@@ -304,21 +305,19 @@ function ConsentRequest({
     }
   }
 
-  const blockedReason = !validScope
-    ? "This app requested unsupported permissions. Start a new connection with read or read and write access."
-    : write && !canWrite
-      ? "Your Viewer role cannot grant edit access. Reconnect with read-only access."
-      : !details?.canApprove
-        ? "Your account cannot grant the requested access."
-        : directory.pending
-          ? "Wait for your available boards to load."
-          : directory.error
-            ? "Reload your available boards before approving access."
-            : !selectedAvailable
-              ? "This board is no longer available. Choose another board."
-              : unconfirmed
-                ? "Start again from your app to confirm this connection."
-                : undefined;
+  const blockedReason = !validScope ? (
+    "This app requested unsupported permissions. Start a new connection with read or read and write access."
+  ) : write && !canWrite ? (
+    "Your Viewer role cannot grant edit access. Reconnect with read-only access."
+  ) : !details?.canApprove ? (
+    "Your account cannot grant the requested access."
+  ) : directory.pending ? (
+    "Wait for your available boards to load."
+  ) : directory.error || !selectedAvailable ? (
+    <span className="text-muted">
+      Access requires a confirmed connection and an available board selection.
+    </span>
+  ) : undefined;
   if (!id)
     return (
       <AuthScreen brand={<AuthBrand />} title="Connect to Mill">
@@ -338,6 +337,19 @@ function ConsentRequest({
           message={connection.error}
           onRetry={() => setAttempt((value) => value + 1)}
         />
+      </AuthScreen>
+    );
+  if (unconfirmed)
+    return (
+      <AuthScreen
+        brand={<AuthBrand />}
+        title="Connect to Mill"
+        description="Start a new connection from your app to request access."
+      >
+        <QueryFeedback message={decisionError} />
+        <ButtonLink href="/boards" variant="secondary">
+          Back to Mill
+        </ButtonLink>
       </AuthScreen>
     );
   if (!details) return null;
