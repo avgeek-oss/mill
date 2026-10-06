@@ -1,3 +1,4 @@
+import { useOverlaySuspension } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import { QueryFeedback } from "./query-feedback.js";
 import {
   useCallback,
@@ -582,6 +583,7 @@ function InvitePersonDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const overlay = useOverlaySuspension();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("member");
   const [busy, setBusy] = useState(false);
@@ -593,6 +595,7 @@ function InvitePersonDialog({
   } | null>(null);
   async function create() {
     if (pending.current) return;
+    const isCurrent = overlay.capture();
     pending.current = true;
     setBusy(true);
     setError("");
@@ -601,6 +604,7 @@ function InvitePersonDialog({
         inviteUrl: string;
         emailDelivery: "unavailable" | "sent" | "failed";
       }>("/auth/invitations", { email, role });
+      if (!isCurrent()) return;
       setResult(invitation);
       toast.success(
         invitation.emailDelivery === "sent"
@@ -613,19 +617,22 @@ function InvitePersonDialog({
         );
       onCreated();
     } catch (error) {
-      setError(errorText(error));
+      if (isCurrent()) setError(errorText(error));
     } finally {
       pending.current = false;
       setBusy(false);
     }
   }
   async function copy() {
+    const isCurrent = overlay.capture();
     setError("");
     try {
       await navigator.clipboard.writeText(result!.inviteUrl);
+      if (!isCurrent()) return;
       toast.success("Invitation link copied.");
       setError("");
     } catch {
+      if (!isCurrent()) return;
       toast.danger(
         "The link could not be copied. Select the invitation link and copy it manually.",
       );
@@ -734,6 +741,7 @@ function PeopleActionDialog({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
+  const overlay = useOverlaySuspension();
   const [role, setRole] = useState(
     action.kind === "revoke" ? action.invitation.role : action.member.role,
   );
@@ -754,6 +762,7 @@ function PeopleActionDialog({
         : "Revoke invitation";
   async function save() {
     if (pending.current) return;
+    const isCurrent = overlay.capture();
     pending.current = true;
     setBusy(true);
     setError("");
@@ -766,7 +775,9 @@ function PeopleActionDialog({
           action.kind === "role" ? { role } : {},
           action.kind === "role" ? "PATCH" : "DELETE",
         );
+      if (!isCurrent()) return;
       await onSaved();
+      if (!isCurrent()) return;
       toast.success(
         action.kind === "role"
           ? "Role updated."
@@ -776,7 +787,7 @@ function PeopleActionDialog({
       );
       onClose();
     } catch (error) {
-      setError(errorText(error));
+      if (isCurrent()) setError(errorText(error));
     } finally {
       pending.current = false;
       setBusy(false);

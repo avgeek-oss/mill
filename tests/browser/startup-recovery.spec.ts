@@ -406,7 +406,7 @@ test("phone actions remain compact and fields retain readable input text", async
     ).toBeVisible();
     for (const name of [
       "Toggle navigation",
-      "Open notifications",
+      /^Notifications(?:, \d+ unread)?$/,
       /^Appearance:/,
       "Save",
     ]) {
@@ -416,7 +416,7 @@ test("phone actions remain compact and fields retain readable input text", async
       });
       const bounds = await control.boundingBox();
       expect(bounds).not.toBeNull();
-      const expectedSize = name === "Save" || name instanceof RegExp ? 40 : 32;
+      const expectedSize = 40;
       expect(bounds!.height).toBe(expectedSize);
       expect(bounds!.width).toBeGreaterThanOrEqual(expectedSize);
     }

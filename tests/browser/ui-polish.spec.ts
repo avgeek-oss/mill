@@ -158,12 +158,14 @@ for (const width of [1280, 390])
         );
         for (const headerButton of [
           page.locator(".navigation-toggle"),
-          page.getByRole("button", { name: "Open notifications", exact: true }),
+          page.getByRole("button", {
+            name: /^Notifications(?:, \d+ unread)?$/,
+          }),
         ]) {
           await expect(headerButton).toHaveCount(1);
           const dimensions = await headerButton.boundingBox();
-          expect(dimensions!.height).toBe(32);
-          expect(dimensions!.width).toBe(32);
+          expect(dimensions!.height).toBe(buttonHeight);
+          expect(dimensions!.width).toBe(buttonHeight);
         }
         const appearance = page.getByRole("button", { name: /^Appearance:/ });
         await expect(appearance).toHaveCount(1);

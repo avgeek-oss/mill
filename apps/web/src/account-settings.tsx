@@ -25,12 +25,14 @@ import {
   FieldDescription,
   NewTabIndicator,
   QueryLoading,
+  useAppSuspended,
   TextField,
   TypographyParagraph,
   Widget,
   toast,
 } from "@mill/web-design-system";
 import {
+  useOverlaySuspension,
   ProfileSettings as SharedProfileSettings,
   PreferencesSettings,
   PasswordChangeSettings,
@@ -105,34 +107,59 @@ function AccountWidget({
   );
 }
 function useAccountList<T>(path: string) {
+  const appSuspended = useAppSuspended();
   const [state, setState] = useState<{
     items: T[] | null;
     pending: boolean;
     error: string;
   }>({ items: null, pending: true, error: "" });
   const generation = useRef(0);
+  const active = useRef(!appSuspended);
+  const controller = useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
+    if (!active.current) return;
     const current = ++generation.current;
+    controller.current?.abort();
+    const request = new AbortController();
+    controller.current = request;
     setState((old) => ({ ...old, pending: true, error: "" }));
     try {
-      const result = await api<{ items: T[] }>(path);
-      if (current === generation.current)
+      const result = await api<{ items: T[] }>(path, undefined, "GET", {
+        signal: request.signal,
+      });
+      if (
+        active.current &&
+        !request.signal.aborted &&
+        current === generation.current
+      )
         setState({ items: result.items, pending: false, error: "" });
     } catch (cause) {
-      if (current === generation.current)
+      if (
+        active.current &&
+        !request.signal.aborted &&
+        current === generation.current
+      )
         setState((old) => ({
           ...old,
           pending: false,
           error: errorText(cause),
         }));
+    } finally {
+      if (controller.current === request) controller.current = null;
     }
   }, [path]);
   useEffect(() => {
-    void refresh();
+    active.current = !appSuspended;
+    if (appSuspended)
+      setState((old) => ({ ...old, pending: false, error: "" }));
+    else void refresh();
     return () => {
+      active.current = false;
       generation.current++;
+      controller.current?.abort();
+      controller.current = null;
     };
-  }, [refresh]);
+  }, [appSuspended, refresh]);
   return { ...state, refresh };
 }
 function ListState({
@@ -202,6 +229,7 @@ function ProfileSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   return (
     <section className="min-w-0">
       <PageHeading
@@ -234,8 +262,9 @@ function ProfileSettings({
           label="Your Name"
           maxLength={100}
           onSave={async (name) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", { name }, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
       </div>
@@ -249,6 +278,7 @@ function PreferenceSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const preferenceOptions = useMemo(
     () => ({
       ...dateTimePreferenceOptions,
@@ -272,7 +302,8 @@ function PreferenceSettings({
   const notificationPending = useRef(false);
   const [notificationError, setNotificationError] = useState("");
   async function saveNotifications() {
-    if (notificationPending.current) return;
+    if (notificationPending.current || suspension.isSuspended) return;
+    const isCurrent = suspension.capture();
     notificationPending.current = true;
     setBusy(true);
     setNotificationError("");
@@ -282,10 +313,12 @@ function PreferenceSettings({
         { notificationPreferences: { assignments, mentions } },
         "PATCH",
       );
-      toast.success("Notifications saved.");
-      onRefresh();
+      if (isCurrent()) {
+        toast.success("Notifications saved.");
+        onRefresh();
+      }
     } catch (cause) {
-      setNotificationError(errorText(cause));
+      if (isCurrent()) setNotificationError(errorText(cause));
     } finally {
       notificationPending.current = false;
       setBusy(false);
@@ -307,8 +340,9 @@ function PreferenceSettings({
           options={preferenceOptions}
           formatPreview={dateTimePreview}
           onSave={async (preferences) => {
+            const isCurrent = suspension.capture();
             await api("/auth/profile", preferences, "PATCH");
-            onRefresh();
+            if (isCurrent()) onRefresh();
           }}
         />
         <AccountWidget title="Notifications">
@@ -371,6 +405,7 @@ function EmailPasswordSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   return (
     <section className="min-w-0">
       <PageHeading
@@ -391,10 +426,13 @@ function EmailPasswordSettings({
           minLength={15}
           maxLength={1024}
           onChangePassword={async ({ currentPassword, newPassword }) => {
+            const isCurrent = suspension.capture();
             await api("/auth/password", {
               currentPassword,
               password: newPassword,
             });
+            if (!isCurrent())
+              throw new DOMException("Account action canceled.", "AbortError");
             toast.success("Password changed.");
             onRefresh();
           }}
@@ -410,6 +448,7 @@ function TwoFactorSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const suspension = useOverlaySuspension();
   const keys = useAccountList<Passkey>("/auth/passkeys");
   const [pending, setPending] = useState<{
     action: () => Promise<void>;
@@ -452,7 +491,8 @@ function TwoFactorSettings({
     });
   }
   async function verifyAuthenticator() {
-    if (totpPending.current) return;
+    if (totpPending.current || suspension.isSuspended) return;
+    const isCurrent = suspension.capture();
     totpPending.current = true;
     setTotpBusy(true);
     setTotpError("");
@@ -463,6 +503,7 @@ function TwoFactorSettings({
           : `/auth/totp/${totpMode === "disable" ? "disable" : "recovery-codes"}`,
         { code },
       );
+      if (!isCurrent()) return;
       if (result.recoveryCodes) setCodes(result.recoveryCodes);
       setTotp(null);
       setTotpMode("idle");
@@ -476,7 +517,7 @@ function TwoFactorSettings({
       );
       await refresh();
     } catch (cause) {
-      setTotpError(errorText(cause));
+      if (isCurrent()) setTotpError(errorText(cause));
     } finally {
       totpPending.current = false;
       setTotpBusy(false);

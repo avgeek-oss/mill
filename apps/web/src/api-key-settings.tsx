@@ -1,3 +1,4 @@
+import { useOverlaySuspension } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import { QueryFeedback } from "./query-feedback.js";
 // Adapted from Towbar's public Apache-2.0 API/MCP settings composition.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -76,6 +77,7 @@ function CreateCredential({
   onClose: () => void;
   onCreated: (credential: Credential) => void;
 }) {
+  const overlay = useOverlaySuspension();
   const [retryKey] = useState(createRetryKey);
   return (
     <CreateApiKeyDialog
@@ -92,6 +94,7 @@ function CreateCredential({
       }))}
       defaultExpiry="30"
       onCreate={async ({ name, expiry }) => {
+        const isCurrent = overlay.capture();
         const payload = { name: name.trim(), expiresInDays: Number(expiry) };
         const result = await api<{ credential: Credential; token: string }>(
           "/credentials",
@@ -104,6 +107,8 @@ function CreateCredential({
             },
           },
         );
+        if (!isCurrent())
+          throw new DOMException("The operation was canceled.", "AbortError");
         retryKey.reset();
         onCreated(result.credential);
         toast.success("API key created.");
@@ -127,6 +132,7 @@ export function ApiKeySettings({
   boards: Board[];
   onRefresh: () => void;
 }) {
+  const overlay = useOverlaySuspension();
   const [items, setItems] = useState<Credential[] | null>(null);
   const [pending, setPending] = useState(true);
   const [error, setError] = useState("");
@@ -218,6 +224,7 @@ export function ApiKeySettings({
     }
   }
   async function revoke(id: string) {
+    const isCurrent = overlay.capture();
     const path = `/credentials/${id}`;
     let retryKey = revokeKeys.current.get(id);
     if (!retryKey) {
@@ -231,6 +238,8 @@ export function ApiKeySettings({
         "Idempotency-Key": retryKey.forRequest(path, undefined, "DELETE"),
       },
     });
+    if (!isCurrent())
+      throw new DOMException("The operation was canceled.", "AbortError");
     revokeKeys.current.delete(id);
     revokedIds.current.add(id);
     setItems((previous) => previous?.filter((item) => item.id !== id) ?? null);

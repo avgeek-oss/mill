@@ -1213,7 +1213,9 @@ test("expired session preserves task route, and unknown route has recovery", asy
   await expect(
     page.getByRole("heading", { name: "Saved elsewhere" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Open notifications" }).click();
+  await page
+    .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
+    .click();
   const notifications = page.getByRole("dialog", { name: "Notifications" });
   await expect(notifications).toBeVisible();
   expect(
@@ -1322,7 +1324,9 @@ test("expired session preserves task route, and unknown route has recovery", asy
   const checkOpenPopoverExpiry = async (target: Page) => {
     await target.clock.install();
     await login(target);
-    await target.getByRole("button", { name: "Open notifications" }).click();
+    await target
+      .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
+      .click();
     const popover = target.getByRole("dialog", { name: "Notifications" });
     await expect(popover).toBeVisible();
     expect(
@@ -1398,7 +1402,9 @@ test("reauth masks a revoked board and retries only after access returns", async
   await expect(
     page.getByRole("heading", { name: "Release planning", exact: true }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Open notifications" }).click();
+  await page
+    .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
+    .click();
   await expect(
     page.getByRole("dialog", { name: "Notifications" }),
   ).toBeVisible();
@@ -1755,12 +1761,11 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
   ).toBeVisible();
   await viewer.goto(`/boards/${boardId}`);
   await viewer
-    .getByRole("button", { name: "Open notifications", exact: true })
+    .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
     .click();
-  const notifications = viewer.getByRole("list", {
-    name: "Notification list",
-    exact: true,
-  });
+  const notifications = viewer
+    .getByRole("dialog", { name: "Notifications", exact: true })
+    .getByRole("list");
   await expect(notifications.getByRole("listitem")).toHaveCount(2);
   await expect(notifications.getByText("Unread", { exact: true })).toHaveCount(
     2,

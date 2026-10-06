@@ -735,12 +735,11 @@ test("assignment and mention notifications open the correct task and preferences
     page.getByRole("heading", { name: board.name, exact: true }),
   ).toBeVisible();
   await page
-    .getByRole("button", { name: "Open notifications", exact: true })
+    .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
     .click();
-  const notificationsList = page.getByRole("list", {
-    name: "Notification list",
-    exact: true,
-  });
+  const notificationsList = page
+    .getByRole("dialog", { name: "Notifications", exact: true })
+    .getByRole("list");
   const notificationItems = notificationsList.getByRole("listitem");
   const unreadItems = notificationItems.filter({
     has: page.getByText("Unread", { exact: true }),
@@ -760,7 +759,8 @@ test("assignment and mention notifications open the correct task and preferences
     page.getByRole("tablist", { name: "Notifications filter" }),
   ).toHaveCount(0);
   await page
-    .getByRole("list", { name: "Notification list", exact: true })
+    .getByRole("dialog", { name: "Notifications", exact: true })
+    .getByRole("list")
     .getByRole("listitem")
     .filter({ hasText: /mentioned you/i })
     .getByRole("link")
@@ -770,7 +770,7 @@ test("assignment and mention notifications open the correct task and preferences
   ).toBeVisible();
   await page.getByRole("button", { name: "Back to board" }).click();
   await page
-    .getByRole("button", { name: "Open notifications", exact: true })
+    .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
     .click();
   await expect(unreadItems).toHaveCount(1);
   await page.getByRole("button", { name: "Mark all read" }).click();
@@ -798,7 +798,7 @@ test("assignment and mention notifications open the correct task and preferences
     assigneeId: recipient.id,
   });
   await page
-    .getByRole("button", { name: "Open notifications", exact: true })
+    .getByRole("button", { name: /^Notifications(?:, \d+ unread)?$/ })
     .click();
   await expect(unreadItems).toHaveCount(0);
   await expect(
