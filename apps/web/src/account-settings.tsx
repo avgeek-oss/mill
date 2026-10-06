@@ -93,34 +93,59 @@ function AccountWidget({
   );
 }
 function useAccountList<T>(path: string) {
+  const appSuspended = useAppSuspended();
   const [state, setState] = useState<{
     items: T[] | null;
     pending: boolean;
     error: string;
   }>({ items: null, pending: true, error: "" });
   const generation = useRef(0);
+  const active = useRef(!appSuspended);
+  const controller = useRef<AbortController | null>(null);
   const refresh = useCallback(async () => {
+    if (!active.current) return;
     const current = ++generation.current;
+    controller.current?.abort();
+    const request = new AbortController();
+    controller.current = request;
     setState((old) => ({ ...old, pending: true, error: "" }));
     try {
-      const result = await api<{ items: T[] }>(path);
-      if (current === generation.current)
+      const result = await api<{ items: T[] }>(path, undefined, "GET", {
+        signal: request.signal,
+      });
+      if (
+        active.current &&
+        !request.signal.aborted &&
+        current === generation.current
+      )
         setState({ items: result.items, pending: false, error: "" });
     } catch (cause) {
-      if (current === generation.current)
+      if (
+        active.current &&
+        !request.signal.aborted &&
+        current === generation.current
+      )
         setState((old) => ({
           ...old,
           pending: false,
           error: errorText(cause),
         }));
+    } finally {
+      if (controller.current === request) controller.current = null;
     }
   }, [path]);
   useEffect(() => {
-    void refresh();
+    active.current = !appSuspended;
+    if (appSuspended)
+      setState((old) => ({ ...old, pending: false, error: "" }));
+    else void refresh();
     return () => {
+      active.current = false;
       generation.current++;
+      controller.current?.abort();
+      controller.current = null;
     };
-  }, [refresh]);
+  }, [appSuspended, refresh]);
   return { ...state, refresh };
 }
 function ListState({
