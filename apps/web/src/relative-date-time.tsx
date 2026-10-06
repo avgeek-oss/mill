@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { formatDateTime } from "./date-time-preferences.js";
 
 const listeners = new Set<() => void>();
 let now = Date.now();
@@ -66,28 +67,24 @@ export function relativeDate(value: number, current: number) {
   );
 }
 
-function absoluteDate(date: Date, timeZone: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    timeZone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
 export function AbsoluteDateTime({
   value,
   timeZone,
+  dateFormat,
+  timeFormat,
   label,
   className = "",
 }: {
   value: string;
   timeZone: string;
+  dateFormat?: string;
+  timeFormat?: string;
   label?: string;
   className?: string;
 }) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return <span>—</span>;
-  const absolute = absoluteDate(date, timeZone);
+  const absolute = formatDateTime(date, { timeZone, dateFormat, timeFormat });
   return (
     <time
       dateTime={value}
@@ -103,6 +100,8 @@ export function AbsoluteDateTime({
 export function RelativeDateTime({
   value,
   timeZone,
+  dateFormat,
+  timeFormat,
   label,
   prefix,
   compact = false,
@@ -112,6 +111,8 @@ export function RelativeDateTime({
 }: {
   value: string;
   timeZone: string;
+  dateFormat?: string;
+  timeFormat?: string;
   label?: string;
   prefix?: string;
   compact?: boolean;
@@ -122,7 +123,7 @@ export function RelativeDateTime({
   const current = useCurrentTime();
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return <span>—</span>;
-  const absolute = absoluteDate(date, timeZone);
+  const absolute = formatDateTime(date, { timeZone, dateFormat, timeFormat });
   const relative = relativeDate(date.getTime(), current || Date.now());
   return (
     <time

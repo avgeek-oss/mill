@@ -49,6 +49,7 @@ import { activityLabel } from "./activity-label.js";
 import { Markdown } from "./markdown.js";
 import { mentionPopupPosition, textareaCaretRect } from "./mention-caret.js";
 import { RelativeDateTime } from "./relative-date-time.js";
+import { formatDate, formatDateTime } from "./date-time-preferences.js";
 import { hasCommentResponse, hasOkResponse } from "./responses.js";
 
 type DiscussionKind = "comments" | "activity";
@@ -98,18 +99,11 @@ function itemVersion(item: DiscussionItem) {
   return "version" in item ? item.version : 0;
 }
 
-function CommentDate({ value, timeZone }: { value: string; timeZone: string }) {
+function CommentDate({ value, user }: { value: string; user: User }) {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return null;
-  const dateText = new Intl.DateTimeFormat(undefined, {
-    timeZone,
-    dateStyle: "medium",
-  }).format(date);
-  const fullDate = new Intl.DateTimeFormat(undefined, {
-    timeZone,
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  const dateText = formatDate(date, user);
+  const fullDate = formatDateTime(date, user);
   return (
     <TooltipText
       as="time"
@@ -975,10 +969,7 @@ function TaskDiscussionContent({
                         <TypographyText className="min-w-0 truncate text-sm/5 font-medium">
                           {name}
                         </TypographyText>
-                        <CommentDate
-                          value={item.createdAt}
-                          timeZone={user.timeZone}
-                        />
+                        <CommentDate value={item.createdAt} user={user} />
                       </div>
                       <div className="min-w-0 break-words text-sm text-muted">
                         <Markdown>{item.body}</Markdown>
@@ -1089,6 +1080,8 @@ function TaskDiscussionContent({
                   cell: (item) => (
                     <RelativeDateTime
                       value={item.createdAt}
+                      dateFormat={user.dateFormat}
+                      timeFormat={user.timeFormat}
                       timeZone={user.timeZone}
                       label="Activity date"
                       className="whitespace-nowrap"

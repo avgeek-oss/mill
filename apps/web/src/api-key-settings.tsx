@@ -285,7 +285,12 @@ export function ApiKeySettings({
     .filter((item) => item.tokenType === "oauth")
     .map(authorizedRecord);
   const formatDate = (value: string) => (
-    <RelativeDateTime value={value} timeZone={session.user.timeZone} />
+    <RelativeDateTime
+      value={value}
+      dateFormat={session.user.dateFormat}
+      timeFormat={session.user.timeFormat}
+      timeZone={session.user.timeZone}
+    />
   );
   return (
     <section className="settings-page min-w-0">

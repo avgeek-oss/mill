@@ -45,7 +45,7 @@ See [connection steps](clients.md), [the API reference](api.md), and [private vu
 Open **Settings → Account settings** in the primary sidebar, or use the account menu at the bottom left. The secondary sidebar separates your settings into focused pages:
 
 - **Profile**: your name, account email, and Gravatar preview. Email is read-only.
-- **Preferences**: your time zone and in-app assignment and mention notifications.
+- **Preferences**: your date format, time format, time zone, and in-app assignment and mention notifications.
 - **Email & Password**: your current email and password changes.
 - **Two-factor Auth**: passkeys, an authenticator app, and recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
@@ -53,6 +53,8 @@ Open **Settings → Account settings** in the primary sidebar, or use the accoun
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 
 The account menu also links to Mill's changelog, documentation, feedback, and contribution guide. Administrators use **Team settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.
+
+Display preferences use the same IDs during setup and profile updates. `dateFormat` accepts `day-short-month-year` (16 Sept 2026), `short-month-day-year` (Sept 16, 2026), `year-month-day` (2026-09-16), `day-month-year` (16/09/2026), or `month-day-year` (09/16/2026). `timeFormat` accepts `24-hour` (14:30), `12-hour` (2:30 PM), `24-hour-seconds` (14:30:45), or `12-hour-seconds` (2:30:45 PM). Defaults are `day-short-month-year`, `24-hour`, and the `UTC` time zone. These choices change display labels; task calendar dates remain `YYYY-MM-DD`, and timestamp wire values retain their UTC/offset semantics. Updating other profile fields preserves stored display preferences.
 
 ## Passkeys and authenticator apps
 
@@ -106,7 +108,7 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 | `POST /second-factor`                 | `{challengeId,method:"totp"\|"recovery",code}` → account and cookie, or `{ok:true}` for reauthentication.                                                                               |
 | `POST /logout`                        | Ends the current session.                                                                                                                                                               |
 | `GET /me`                             | `{user,workspace}`; no password hashes or authentication secrets.                                                                                                                       |
-| `PATCH /profile`                      | Optional `{name,timeZone,notificationPreferences:{assignments,mentions}}` → `{user,workspace}`.                                                                                         |
+| `PATCH /profile`                      | Optional `{name,timeZone,dateFormat,timeFormat,notificationPreferences:{assignments,mentions}}` → `{user,workspace}`.                                                                   |
 | `POST /reauth`                        | `{password}` → `{ok:true}` or a second-factor challenge tied to the current session.                                                                                                    |
 | `POST /password`                      | `{currentPassword,password}`; requires recent authentication.                                                                                                                           |
 | `GET /sessions`                       | `{items:[{id,userAgent,createdAt,lastSeenAt,expiresAt,current}]}`.                                                                                                                      |
@@ -131,7 +133,7 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 | `DELETE /members/:id`                 | Admin-only reversible membership removal through a subsequent invitation.                                                                                                               |
 | `POST /recovery/reset`                | `{token,password}`; completes an operator-issued recovery link.                                                                                                                         |
 
-`user` contains `id`, `name`, `email`, `role`, `timeZone`, `notificationPreferences`, `totpEnabled` and `passkeyCount`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
+`user` contains `id`, `name`, `email`, `role`, `timeZone`, `dateFormat`, `timeFormat`, `notificationPreferences`, `totpEnabled` and `passkeyCount`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
 
 The PostgreSQL integration tests in `tests/auth.test.ts` verify setup and last-admin races, invitation lifecycle, cross-role and external-client restrictions, session/password/recovery revocation, encrypted authenticator storage, replay protections, real signed passkey ceremonies and origin verification, passkey preference with successful authenticator fallback, and a blocked old-password login racing a security reset.
 

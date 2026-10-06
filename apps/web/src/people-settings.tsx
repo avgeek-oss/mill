@@ -495,6 +495,8 @@ export function PeopleSettings({
                     cell: (invitation) => (
                       <RelativeDateTime
                         value={invitation.expiresAt}
+                        dateFormat={session.user.dateFormat}
+                        timeFormat={session.user.timeFormat}
                         timeZone={session.user.timeZone}
                         label="Invitation expires"
                         prefix="Expires"

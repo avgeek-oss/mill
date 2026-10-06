@@ -21,10 +21,11 @@ export type UserRow = {
   timeZone: string;
   dateFormat:
     | "day-short-month-year"
+    | "short-month-day-year"
     | "day-month-year"
     | "month-day-year"
     | "year-month-day";
-  timeFormat: "24-hour" | "12-hour";
+  timeFormat: "24-hour" | "12-hour" | "24-hour-seconds" | "12-hour-seconds";
   notificationPreferences: { assignments: boolean; mentions: boolean };
   disabledAt: Date | null;
 };
@@ -36,18 +37,25 @@ export const passwordSchema = z
 export const nameSchema = z.string().trim().min(1).max(100);
 export const dateFormatSchema = z.enum([
   "day-short-month-year",
+  "short-month-day-year",
+  "year-month-day",
   "day-month-year",
   "month-day-year",
-  "year-month-day",
 ]);
-export const timeFormatSchema = z.enum(["24-hour", "12-hour"]);
+export const timeFormatSchema = z.enum([
+  "24-hour",
+  "12-hour",
+  "24-hour-seconds",
+  "12-hour-seconds",
+]);
 export const timeZoneSchema = z
   .string()
   .min(1)
   .max(100)
   .refine((value) => {
+    if (/^[+-]/.test(value)) return false;
     try {
-      new Intl.DateTimeFormat("en", { timeZone: value });
+      new Intl.DateTimeFormat("en-GB", { timeZone: value });
       return true;
     } catch {
       return false;
