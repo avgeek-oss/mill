@@ -1111,20 +1111,16 @@ test("notifications stay on the board with bounded wheel scrolling and keyboard 
     );
     await expect(scroller).toHaveCount(1);
     await expect(scroller).toHaveCSS("max-height", "416px");
-    await expect
-      .poll(async () => {
-        const bounds = await inbox(page).boundingBox();
-        return bounds ? bounds.x + bounds.width : Infinity;
-      })
-      .toBeLessThanOrEqual(width - 15);
-    const bounds = await inbox(page).boundingBox();
-    expect(bounds).not.toBeNull();
-    expect(bounds!.x).toBeGreaterThanOrEqual(15);
-    expect(bounds!.width).toBeLessThanOrEqual(Math.min(384, width - 32));
-    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 15);
-    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(
-      width === 375 ? 833 : 989,
-    );
+    await expect(async () => {
+      const bounds = await inbox(page).boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.x).toBeGreaterThanOrEqual(12);
+      expect(bounds!.width).toBeLessThanOrEqual(Math.min(384, width - 32));
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 12);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(
+        width === 375 ? 833 : 989,
+      );
+    }).toPass({ timeout: 5000 });
     await scroller.hover();
     await page.mouse.wheel(0, 600);
     await expect

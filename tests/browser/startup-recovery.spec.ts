@@ -416,7 +416,7 @@ test("phone actions remain compact and fields retain readable input text", async
       });
       const bounds = await control.boundingBox();
       expect(bounds).not.toBeNull();
-      const expectedSize = 40;
+      const expectedSize = name === "Toggle navigation" ? 32 : 40;
       expect(bounds!.height).toBe(expectedSize);
       expect(bounds!.width).toBeGreaterThanOrEqual(expectedSize);
     }

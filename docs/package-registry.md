@@ -1,6 +1,6 @@
 # Package registry setup
 
-Mill uses the published, open-source `@avgeek-oss/design-system@1.2.1` package. The repository's `.npmrc` maps only the `@avgeek-oss` scope to GitHub Packages; other dependencies come from npm. No sibling checkout or unpublished library source is required.
+Mill uses the published, open-source `@avgeek-oss/design-system` package. The repository's `.npmrc` maps only the `@avgeek-oss` scope to GitHub Packages; other dependencies come from npm. No sibling checkout or unpublished library source is required.
 
 GitHub Packages requires authentication to install public npm packages. Use a GitHub classic personal access token with `read:packages`, following [GitHub's npm registry authentication guide](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry#authenticating-to-github-packages).
 

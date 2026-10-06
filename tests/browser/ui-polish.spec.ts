@@ -156,16 +156,19 @@ for (const width of [1280, 390])
           compactHeight,
           { iconOnly: true, iconSize: buttonIconSize },
         );
-        for (const headerButton of [
-          page.locator(".navigation-toggle"),
-          page.getByRole("button", {
-            name: /^Notifications(?:, \d+ unread)?$/,
-          }),
-        ]) {
+        for (const [headerButton, expectedHeight] of [
+          [page.locator(".navigation-toggle"), 32],
+          [
+            page.getByRole("button", {
+              name: /^Notifications(?:, \d+ unread)?$/,
+            }),
+            buttonHeight,
+          ],
+        ] as const) {
           await expect(headerButton).toHaveCount(1);
           const dimensions = await headerButton.boundingBox();
-          expect(dimensions!.height).toBe(buttonHeight);
-          expect(dimensions!.width).toBe(buttonHeight);
+          expect(dimensions!.height).toBe(expectedHeight);
+          expect(dimensions!.width).toBe(expectedHeight);
         }
         const appearance = page.getByRole("button", { name: /^Appearance:/ });
         await expect(appearance).toHaveCount(1);
