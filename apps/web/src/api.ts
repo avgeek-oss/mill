@@ -2,6 +2,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code = "REQUEST_FAILED",
+    public requestId?: string,
   ) {
     super(message);
   }
@@ -9,7 +11,36 @@ export class ApiError extends Error {
 export type ApiOptions = {
   headers?: Record<string, string>;
   validateResponse?: (data: unknown) => boolean;
+  onReauthenticationRequired?: () => Promise<boolean>;
 };
+
+export function responseError(
+  status: number,
+  data: unknown,
+  requestId?: string,
+) {
+  const result = isResponseObject(data) ? data : {};
+  const error = isResponseObject(result.error) ? result.error : {};
+  return new ApiError(
+    status,
+    typeof error.message === "string"
+      ? error.message
+      : typeof result.error_description === "string"
+        ? result.error_description
+        : typeof result.error === "string"
+          ? result.error
+          : "Unable to complete this request.",
+    typeof error.code === "string"
+      ? error.code
+      : typeof result.code === "string"
+        ? result.code
+        : typeof result.error_description === "string" &&
+            typeof result.error === "string"
+          ? result.error
+          : "REQUEST_FAILED",
+    typeof error.requestId === "string" ? error.requestId : requestId,
+  );
+}
 
 export function isResponseObject(
   value: unknown,
@@ -50,6 +81,15 @@ export async function api<T>(
   method = body === undefined ? "GET" : "POST",
   options: ApiOptions = {},
 ): Promise<T> {
+  return request<T>(path, body, method, options, false);
+}
+async function request<T>(
+  path: string,
+  body: unknown,
+  method: string,
+  options: ApiOptions,
+  retried: boolean,
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(path.startsWith("/api") ? path : `/api${path}`, {
@@ -75,7 +115,7 @@ export async function api<T>(
       );
     return undefined as T;
   }
-  let data: { error?: string };
+  let data: unknown;
   try {
     data = await response.json();
   } catch {
@@ -92,6 +132,19 @@ export async function api<T>(
       "The server response could not be read. Try again.",
     );
   if (!response.ok) {
+    const failure = responseError(
+      response.status,
+      data,
+      response.headers.get("X-Request-Id") ?? undefined,
+    );
+    if (
+      response.status === 403 &&
+      failure.code === "REAUTHENTICATION_REQUIRED" &&
+      !retried &&
+      options.onReauthenticationRequired &&
+      (await options.onReauthenticationRequired())
+    )
+      return request<T>(path, body, method, options, true);
     if (
       response.status === 401 &&
       path !== "/auth/me" &&
@@ -110,10 +163,7 @@ export async function api<T>(
       if (active?.status === 401)
         window.dispatchEvent(new Event("mill:expired"));
     }
-    throw new ApiError(
-      response.status,
-      data?.error ?? "Unable to complete this request.",
-    );
+    throw failure;
   }
   if (options.validateResponse && !options.validateResponse(data))
     throw new ApiError(
@@ -180,6 +230,12 @@ export type User = {
   email: string;
   role: "admin" | "member" | "viewer";
   timeZone: string;
+  dateFormat:
+    | "day-short-month-year"
+    | "day-month-year"
+    | "month-day-year"
+    | "year-month-day";
+  timeFormat: "24-hour" | "12-hour";
   notificationPreferences: {
     assignments?: boolean;
     mentions?: boolean;

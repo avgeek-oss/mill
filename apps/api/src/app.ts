@@ -1,8 +1,6 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
-import { HTTPException } from "hono/http-exception";
-import { ZodError } from "zod";
 import { sql } from "../../../packages/database/src/index.js";
 import { authRoutes, sessionActor } from "./auth.js";
 import { domainRoutes } from "./domain.js";
@@ -18,8 +16,46 @@ import {
   mutationAuthority,
   readAuthority,
 } from "./middleware.js";
-import type { Env } from "./http.js";
+import {
+  errorResponse,
+  handleError,
+  requestContext,
+  requestId,
+  type Env,
+} from "./http.js";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 export const app = new Hono<Env>();
+app.use("*", async (c, next) => {
+  const id = requestId(c.req.header("x-request-id"));
+  c.set("requestId", id);
+  c.header("X-Request-Id", id);
+  await requestContext.run(id, next);
+  if (
+    c.res.status < 400 ||
+    !c.res.headers.get("Content-Type")?.includes("application/json")
+  )
+    return;
+  const result: unknown = await c.res
+    .clone()
+    .json()
+    .catch(() => null);
+  if (
+    result &&
+    typeof result === "object" &&
+    "error" in result &&
+    typeof result.error === "string" &&
+    !("error_description" in result)
+  ) {
+    c.res = errorResponse(
+      c,
+      c.res.status as ContentfulStatusCode,
+      result.error,
+      "code" in result && typeof result.code === "string"
+        ? result.code
+        : undefined,
+    );
+  }
+});
 export const httpSecurity = secureHeaders({
   contentSecurityPolicy: {
     defaultSrc: ["'self'"],
@@ -36,32 +72,10 @@ export const httpSecurity = secureHeaders({
 app.use("*", httpSecurity);
 const standardBodyLimit = bodyLimit({
   maxSize: 2 * 1024 * 1024,
-  onError: (c) => c.json({ error: "Request is too large" }, 413),
+  onError: (c) => errorResponse(c, 413, "Request is too large"),
 });
 app.use("*", standardBodyLimit);
-app.onError((error, c) => {
-  if (error instanceof HTTPException)
-    return c.json({ error: error.message }, error.status);
-  if (error instanceof ZodError)
-    return c.json(
-      {
-        error: error.issues
-          .map((i) => `${i.path.join(".")}: ${i.message}`)
-          .join("; "),
-      },
-      400,
-    );
-  if (error instanceof SyntaxError)
-    return c.json({ error: "Request must contain valid JSON" }, 400);
-  console.error(
-    "Request failed",
-    error instanceof Error ? error.name : "Unknown error",
-  );
-  return c.json(
-    { error: "Mill could not complete this request. Try again." },
-    500,
-  );
-});
+app.onError(handleError);
 app.get("/health/live", (c) => c.json({ status: "ok" }));
 app.get("/health/ready", async (c) => {
   c.header("Cache-Control", "no-store");
@@ -114,5 +128,5 @@ app.use("/oauth/*", rateLimit);
 app.route("/api/auth", authRoutes);
 app.route("/api", domainRoutes);
 app.route("/", externalRoutes);
-app.notFound((c) => c.json({ error: "This route does not exist" }, 404));
+app.notFound((c) => errorResponse(c, 404, "This route does not exist"));
 setApiDispatcher(async (request) => app.fetch(request));

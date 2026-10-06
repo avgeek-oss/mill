@@ -70,6 +70,8 @@ async function fixture(
   const sql = postgres(url.href, { max: 1, onnotice: () => {} });
   try {
     await sql.unsafe(baseline);
+    await sql`ALTER TABLE users DROP COLUMN date_format`;
+    await sql`ALTER TABLE users DROP COLUMN time_format`;
     await sql`ALTER TABLE tasks DROP COLUMN type`;
     await sql`ALTER TABLE tasks DROP COLUMN start_date`;
     await sql`CREATE TABLE mill_migrations(name text PRIMARY KEY,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`;
@@ -370,6 +372,12 @@ for (const source of [
     hasType: false,
   },
   {
+    name: "previous complete task baseline",
+    file: "prelaunch-account-preferences-layout.json",
+    hasType: true,
+    hasStartDate: true,
+  },
+  {
     name: "Task and Bug baseline",
     file: "prelaunch-start-date-layout.json",
     hasType: true,
@@ -389,7 +397,17 @@ for (const source of [
           "utf8",
         ),
       );
-      const sourceBaseline = baseline.replace("  start_date date,\n", "");
+      const withoutPreferences = baseline
+        .split("\n")
+        .filter(
+          (line) =>
+            !line.startsWith("  date_format ") &&
+            !line.startsWith("  time_format "),
+        )
+        .join("\n");
+      const sourceBaseline = source.hasStartDate
+        ? withoutPreferences
+        : withoutPreferences.replace("  start_date date,\n", "");
       await sql.unsafe(
         source.hasType
           ? sourceBaseline
@@ -410,12 +428,15 @@ for (const source of [
       await sql`INSERT INTO tasks(id,board_id,identifier,title,description,created_by,assignee_id,priority,status,version,status_changed_at) VALUES(${task},${board},'KEEP-1','Preserved task','All original content',${user},${user},'urgent','done',9,now()-interval '3 days')`;
       if (source.hasType)
         await sql`UPDATE tasks SET type='bug' WHERE id=${task}`;
+      if (source.hasStartDate)
+        await sql`UPDATE tasks SET start_date='2026-10-08' WHERE id=${task}`;
       await sql`UPDATE tasks SET due_date='2026-10-11' WHERE id=${task}`;
       await sql`INSERT INTO comments(task_id,author_id,body) VALUES(${task},${user},'Preserved discussion')`;
       await sql`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail) VALUES(${task},${board},${user},'Historical owner name','oauth','task.updated','{"fields":["title"]}')`;
       await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at) VALUES(${user},'Existing connection','retained-hash','prefix',ARRAY['read','write'],'oauth',ARRAY[${board}::uuid],now()+interval '1 day')`;
       await sql`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,board_ids,task_ids) VALUES('owner','retry','retained-request','{"task":{"title":"cached old task"}}',201,ARRAY[${board}::uuid],ARRAY[${task}::uuid])`;
       const before = [...(await sql`SELECT * FROM tasks`)];
+      const users = [...(await sql`SELECT * FROM users`)];
       const credentials = [...(await sql`SELECT * FROM credentials`)];
       const activity = [...(await sql`SELECT * FROM activity`)];
       const comments = [...(await sql`SELECT * FROM comments`)];
@@ -462,8 +483,22 @@ for (const source of [
       assert.equal(converted.applied, true);
       const tasks = [...(await sql`SELECT * FROM tasks`)];
       assert.equal(tasks[0].type, source.hasType ? "bug" : "task");
-      assert.equal(tasks[0].start_date, null);
-      const { start_date: _startDate, ...retained } = tasks[0];
+      assert.deepEqual(
+        tasks[0].start_date,
+        source.hasStartDate ? before[0].start_date : null,
+      );
+      const retained = { ...tasks[0] };
+      if (!source.hasStartDate) delete retained.start_date;
+      const convertedUsers = [...(await sql`SELECT * FROM users`)];
+      assert.equal(convertedUsers[0].date_format, "day-short-month-year");
+      assert.equal(convertedUsers[0].time_format, "24-hour");
+      assert.deepEqual(
+        convertedUsers.map(
+          ({ date_format: _dateFormat, time_format: _timeFormat, ...user }) =>
+            user,
+        ),
+        users,
+      );
       if (!source.hasType) delete retained.type;
       assert.deepEqual(retained, before[0]);
       assert.deepEqual(

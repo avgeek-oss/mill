@@ -6,24 +6,29 @@ import {
   scrypt as scryptCallback,
   timingSafeEqual,
 } from "node:crypto";
-import { HTTPException } from "hono/http-exception";
+import type { TransactionSql } from "postgres";
 import { sql } from "../../../../packages/database/src/index.js";
 import { config } from "../config.js";
+import { HttpError } from "../http.js";
+import { runPasswordOperation } from "./password.js";
 
 function derivePassword(password: string, salt: string, legacy = false) {
-  return new Promise<Buffer>((resolve, reject) =>
-    scryptCallback(
-      password,
-      salt,
-      64,
-      {
-        N: legacy ? 16384 : 32768,
-        r: 8,
-        p: legacy ? 1 : 3,
-        maxmem: 64 * 1024 * 1024,
-      },
-      (error, key) => (error ? reject(error) : resolve(key)),
-    ),
+  return runPasswordOperation(
+    () =>
+      new Promise<Buffer>((resolve, reject) =>
+        scryptCallback(
+          password,
+          salt,
+          64,
+          {
+            N: legacy ? 16384 : 32768,
+            r: 8,
+            p: legacy ? 1 : 3,
+            maxmem: 64 * 1024 * 1024,
+          },
+          (error, key) => (error ? reject(error) : resolve(key)),
+        ),
+      ),
   );
 }
 export const secretToken = () => randomBytes(32).toString("base64url");
@@ -88,14 +93,34 @@ export async function rateLimit(
   limit: number,
   windowSeconds = 900,
 ) {
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    !Number.isInteger(windowSeconds) ||
+    windowSeconds < 1 ||
+    windowSeconds > 86400
+  )
+    throw new RangeError(
+      "Authentication limits require a positive count and a window no longer than one day",
+    );
+  await sql`DELETE FROM auth_rate_limits WHERE window_start < now()-interval '2 days'`;
   const [bucket] = await sql`
     INSERT INTO auth_rate_limits(key, attempts, window_start) VALUES (${hashToken(key)}, 1, now())
     ON CONFLICT(key) DO UPDATE SET
       attempts = CASE WHEN auth_rate_limits.window_start < now() - ${windowSeconds} * interval '1 second' THEN 1 ELSE auth_rate_limits.attempts + 1 END,
       window_start = CASE WHEN auth_rate_limits.window_start < now() - ${windowSeconds} * interval '1 second' THEN now() ELSE auth_rate_limits.window_start END
-    RETURNING attempts`;
+    RETURNING attempts, greatest(1,ceil(extract(epoch FROM (window_start + ${windowSeconds} * interval '1 second' - now()))))::int AS retry_after`;
   if (bucket.attempts > limit)
-    throw new HTTPException(429, {
-      message: "Too many attempts. Try again later.",
-    });
+    throw new HttpError(
+      429,
+      "AUTH_RATE_LIMITED",
+      "Too many attempts. Try again later.",
+      { "Retry-After": String(bucket.retryAfter) },
+    );
+}
+export async function clearAuthRateLimit(
+  key: string,
+  db: typeof sql | TransactionSql = sql,
+) {
+  await db`DELETE FROM auth_rate_limits WHERE key=${hashToken(key)}`;
 }

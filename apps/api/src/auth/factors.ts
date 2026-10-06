@@ -29,6 +29,7 @@ import {
 } from "./model.js";
 import {
   appOrigin,
+  clearAuthRateLimit,
   decrypt,
   encrypt,
   hashToken,
@@ -104,20 +105,24 @@ async function completeChallenge(
         message: "Use the session that requested verification",
       });
     await db`UPDATE sessions SET authenticated_at=now() WHERE id=${row.sessionId}`;
+    await clearAuthRateLimit(`reauth:${user.id}`, db);
     return { ok: true };
   }
   await newSession(c, user.id, db, user.securityEpoch);
+  await clearAuthRateLimit(`login-email:${user.email}`, db);
 
   return identityResponse(user, db);
 }
 securityRoutes.post("/second-factor", async (c) => {
   const input = await body(
     c,
-    z.object({
-      challengeId: challengeSchema,
-      method: z.enum(["totp", "recovery"]),
-      code: codeSchema,
-    }),
+    z
+      .object({
+        challengeId: challengeSchema,
+        method: z.enum(["totp", "recovery"]),
+        code: codeSchema,
+      })
+      .strict(),
   );
   await rateLimit(`factor:${input.challengeId}`, 5, 300);
   return sql.begin(async (tx) => {
@@ -189,13 +194,15 @@ securityRoutes.post("/passkeys/register/verify", async (c) => {
   const current = await recentSession(c);
   const input = await body(
     c,
-    z.object({
-      challengeId: challengeSchema,
-      response: z.custom<RegistrationResponseJSON>(
-        (v) => typeof v === "object" && v !== null,
-      ),
-      name: nameSchema,
-    }),
+    z
+      .object({
+        challengeId: challengeSchema,
+        response: z.custom<RegistrationResponseJSON>(
+          (v) => typeof v === "object" && v !== null,
+        ),
+        name: nameSchema,
+      })
+      .strict(),
   );
   await rateLimit(`passkey-register-verify:${input.challengeId}`, 5, 300);
   return sql.begin(async (tx) => {
@@ -247,7 +254,7 @@ securityRoutes.delete("/passkeys/:id", async (c) => {
 securityRoutes.post("/passkeys/authenticate/options", async (c) => {
   const input = await body(
     c,
-    z.object({ challengeId: challengeSchema.optional() }),
+    z.object({ challengeId: challengeSchema.optional() }).strict(),
   );
   await rateLimit(`passkey-options:${clientAddress(c)}`, 40);
   let userId: string | null = null;
@@ -283,12 +290,14 @@ securityRoutes.post("/passkeys/authenticate/options", async (c) => {
 securityRoutes.post("/passkeys/authenticate/verify", async (c) => {
   const input = await body(
     c,
-    z.object({
-      challengeId: challengeSchema,
-      response: z.custom<AuthenticationResponseJSON>(
-        (v) => typeof v === "object" && v !== null,
-      ),
-    }),
+    z
+      .object({
+        challengeId: challengeSchema,
+        response: z.custom<AuthenticationResponseJSON>(
+          (v) => typeof v === "object" && v !== null,
+        ),
+      })
+      .strict(),
   );
   await rateLimit(`passkey-verify:${input.challengeId}`, 5, 300);
   return sql.begin(async (tx) => {
@@ -356,7 +365,7 @@ securityRoutes.post("/totp/setup", async (c) => {
 securityRoutes.post("/totp/verify", async (c) => {
   await recentSession(c);
   const user = await activeUser(human(c).userId);
-  const input = await body(c, z.object({ code: codeSchema }));
+  const input = await body(c, z.object({ code: codeSchema }).strict());
   await rateLimit(`totp-settings:${user.id}`, 5, 300);
   return sql.begin(async (tx) => {
     await tx`SELECT id FROM workspace FOR UPDATE`;
@@ -378,7 +387,7 @@ for (const action of ["disable", "recovery-codes"] as const)
   securityRoutes.post(`/totp/${action}`, async (c) => {
     await recentSession(c);
     const user = await activeUser(human(c).userId);
-    const input = await body(c, z.object({ code: codeSchema }));
+    const input = await body(c, z.object({ code: codeSchema }).strict());
     await rateLimit(`totp-settings:${user.id}`, 5, 300);
     return sql.begin(async (tx) => {
       await tx`SELECT id FROM workspace FOR UPDATE`;

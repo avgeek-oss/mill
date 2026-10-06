@@ -96,7 +96,7 @@ Full database backups contain the complete identity state and private credential
 
 ## Identity API
 
-All endpoints are under `/api/auth`, return JSON and enforce the same access rules as the interface. Successful sign-in sets the session cookie. Send that cookie with subsequent requests, and the configured public origin on mutations. Errors return `{ "error": "A readable message" }` with 400, 401, 403, 404, 409 or 429 status. Login, verification, invitations and recovery use persistent database rate limits.
+All endpoints are under `/api/auth`, return JSON and enforce the same access rules as the interface. Successful sign-in sets the session cookie. Send that cookie with subsequent requests, and the configured public origin on mutations. Errors return `{ "error": { "code": "STABLE_CODE", "message": "A readable message", "requestId": "correlation-id" } }`. Stale identity confirmation returns `403 REAUTHENTICATION_REQUIRED`; a busy password queue returns `503 AUTHENTICATION_BUSY`. Login, verification, invitations and recovery use persistent database rate limits with `Retry-After` on throttling. Successful complete sign-in clears the account bucket; a pending second-factor challenge does not. Address throttling remains in place.
 
 | Method and path                       | Request or result                                                                                                                                                                       |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

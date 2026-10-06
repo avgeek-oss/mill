@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { badRequest, requireHuman, type Env } from "./http.js";
+import { badRequest, requireHuman, handleError, type Env } from "./http.js";
 import { authenticateClient, registerClient } from "./external/clients.js";
 import {
   createCredential,
@@ -45,18 +45,7 @@ externalRoutes.onError((error, c) => {
       error.status,
     );
   }
-  if (error instanceof HTTPException)
-    return c.json({ error: error.message }, error.status);
-  if (error instanceof SyntaxError)
-    return c.json({ error: "Invalid JSON" }, 400);
-  console.error(
-    "External access request failed",
-    error instanceof Error ? error.name : "UnknownError",
-  );
-  return c.json(
-    { error: "The request could not be completed. Try again." },
-    500,
-  );
+  return handleError(error, c);
 });
 for (const path of ["/.well-known/*", "/oauth/*", "/api/oauth/*", "/mcp"]) {
   externalRoutes.use(path, async (c, next) => {

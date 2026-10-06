@@ -202,7 +202,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_notifications",
-    "Read your unread or recent assignment and mention notifications.",
+    "Read every unread assignment and mention notification and notifications read in the last 24 hours. Use nextCursor for all pages; unreadCount is independent of page size.",
     "GET",
     "/api/notifications",
     {
@@ -213,7 +213,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "mark_notifications",
-    "Mark selected notifications or all your notifications as read/unread. Choose ids OR all:true.",
+    "Mark selected notifications or all notifications present at the request snapshot as read/unread. Repeated read marks preserve the first read time. Choose ids OR all:true.",
     "PATCH",
     "/api/notifications",
     {

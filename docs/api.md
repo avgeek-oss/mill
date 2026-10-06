@@ -22,7 +22,9 @@ Boards use case-insensitive name order, then the exact name and UUID to resolve 
 
 Single mutations return `{board}`, `{task}`, or `{comment}`. Domain deletes return `{ok:true}`. Fields are camelCase. Resource IDs are UUIDs; a task's stable human identifier such as `OPS-17` is a label, not the API path ID.
 
-Failures return `{error:"Description"}` and may include a stable `code`.
+Generic API failures return `{error:{code,message,requestId}}`. Use `error.code` to choose recovery behavior and `error.message` for readable feedback. The same correlation ID appears in `X-Request-Id` on successful and failed requests. A supplied request ID must be at most 100 characters containing only letters, digits or `._:-`; invalid values are replaced with a generated UUID. IDs do not authorize an action. Server failures omit database details and credentials.
+
+An expired identity-confirmation window returns `403 REAUTHENTICATION_REQUIRED`; complete real identity verification before retrying the initiating operation, at most once automatically. Other `403` failures do not request reauthentication. Unknown fields in authentication and domain mutation bodies are rejected. OAuth protocol failures retain `{error,error_description}` rather than the generic envelope.
 
 | Status | Meaning                                           | Client action                               |
 | ------ | ------------------------------------------------- | ------------------------------------------- |
@@ -35,6 +37,7 @@ Failures return `{error:"Description"}` and may include a stable `code`.
 | `413`  | Request or response exceeds a bound               | Send less data or narrow the read           |
 | `429`  | Rate limit reached                                | Wait for `Retry-After`                      |
 | `500`  | Server could not complete the request             | Inspect health/logs and retry appropriately |
+| `503`  | Password verification capacity is busy            | Wait for `Retry-After` before retrying      |
 
 ## Permissions
 
@@ -139,6 +142,8 @@ curl --fail-with-body "$MILL_URL/api/tasks/TASK_UUID" \
 | `GET /api/tasks/:id/activity`  | `limit`, `cursor`    | `{items,hasMore,nextCursor}`; newest first |
 
 Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. Only the author or a human Admin can delete a comment. An OAuth client can delete its owner's comments within approved boards and write scope, but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human` or `oauth`), identifying the person responsible for the action.
+
+New activity records also include `detail.connection` with `type` (`session`, `api-key`, or `oauth`) and the originating `requestId`. This distinguishes browser, REST and MCP changes while retaining the same human owner. It contains no tokens or credential values and survives revocation. Historical records without this metadata remain unattributed to a connection type.
 
 ## Notifications and settings
 

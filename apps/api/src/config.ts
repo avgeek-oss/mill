@@ -32,6 +32,18 @@ const schema = z.object({
       );
     }, "Use an HTTPS origin or a loopback HTTP development origin"),
   MILL_SECRET: z.string().min(32),
+  MILL_PASSWORD_VERIFY_CONCURRENCY: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(8)
+    .default(2),
+  MILL_PASSWORD_VERIFY_QUEUE_LIMIT: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(100)
+    .default(16),
   PORT: z.coerce.number().int().min(1).max(65535).default(4321),
   NODE_ENV: z
     .enum(["development", "production", "test"])

@@ -6,7 +6,7 @@ import type postgres from "postgres";
 import { z } from "zod";
 import { sql } from "../../../../packages/database/src/index.js";
 import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
-import { actor, badRequest, type Env } from "../http.js";
+import { actor, HttpError, type Env } from "../http.js";
 import { appOrigin, hashToken, secretToken } from "./security.js";
 
 export type Db = typeof sql | postgres.TransactionSql;
@@ -19,6 +19,12 @@ export type UserRow = {
   passwordHash: string;
   securityEpoch: number;
   timeZone: string;
+  dateFormat:
+    | "day-short-month-year"
+    | "day-month-year"
+    | "month-day-year"
+    | "year-month-day";
+  timeFormat: "24-hour" | "12-hour";
   notificationPreferences: { assignments: boolean; mentions: boolean };
   disabledAt: Date | null;
 };
@@ -28,6 +34,25 @@ export const passwordSchema = z
   .min(15, "Use at least 15 characters for your password")
   .max(1024);
 export const nameSchema = z.string().trim().min(1).max(100);
+export const dateFormatSchema = z.enum([
+  "day-short-month-year",
+  "day-month-year",
+  "month-day-year",
+  "year-month-day",
+]);
+export const timeFormatSchema = z.enum(["24-hour", "12-hour"]);
+export const timeZoneSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .refine((value) => {
+    try {
+      new Intl.DateTimeFormat("en", { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Choose a valid time zone");
 export const roleSchema = z.enum(["admin", "member", "viewer"]);
 export async function body<T extends z.ZodType>(
   c: Context<Env>,
@@ -37,11 +62,15 @@ export async function body<T extends z.ZodType>(
   try {
     data = await c.req.json();
   } catch {
-    badRequest("Send a valid JSON body");
+    throw new HttpError(400, "MALFORMED_JSON", "Send a valid JSON body");
   }
   const parsed = schema.safeParse(data);
   if (!parsed.success)
-    badRequest(parsed.error.issues[0]?.message ?? "Invalid request");
+    throw new HttpError(
+      400,
+      "INVALID_REQUEST",
+      parsed.error.issues[0]?.message ?? "Invalid request",
+    );
   return parsed.data;
 }
 export function human(c: Context<Env>) {
@@ -85,6 +114,8 @@ export async function userMetadata(user: UserRow, db: Db = sql) {
     email: user.email,
     role: user.role,
     timeZone: user.timeZone,
+    dateFormat: user.dateFormat,
+    timeFormat: user.timeFormat,
     notificationPreferences: inAppPreferences(user.notificationPreferences),
     totpEnabled: state.totpEnabled,
     passkeyCount: state.passkeyCount,
@@ -116,9 +147,11 @@ export async function currentSession(c: Context<Env>, db: Db = sql) {
 export async function recentSession(c: Context<Env>) {
   const session = await currentSession(c);
   if (new Date(session.authenticatedAt).getTime() < Date.now() - 600_000)
-    throw new HTTPException(403, {
-      message: "Verify your identity again before changing security settings",
-    });
+    throw new HttpError(
+      403,
+      "REAUTHENTICATION_REQUIRED",
+      "Verify your identity again before changing security settings",
+    );
   return session;
 }
 export function cookieOptions() {

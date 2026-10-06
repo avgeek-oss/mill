@@ -54,7 +54,22 @@ async function request(
     expected,
     `${method} ${path} returned expected HTTP status`,
   );
-  return response.status === 204 ? null : response.json();
+  if (response.status === 204) return null;
+  const result = await response.json();
+  if (path.startsWith("/api/") && response.status >= 400) {
+    const requestId = response.headers.get("x-request-id");
+    assert.match(requestId, /^[A-Za-z0-9._:-]{1,100}$/);
+    if (path.startsWith("/api/oauth/") && "error_description" in result) {
+      assert.match(result.error, /^[a-z_]+$/);
+      assert.equal(typeof result.error_description, "string");
+      assert.ok(result.error_description.length > 0);
+    } else {
+      assert.equal(typeof result.error?.code, "string");
+      assert.equal(typeof result.error?.message, "string");
+      assert.equal(result.error?.requestId, requestId);
+    }
+  }
+  return result;
 }
 function pass(message) {
   console.log(`PASS ${message}`);
@@ -419,7 +434,7 @@ const deletedRetry = await request(
   cookies,
   { "Idempotency-Key": "install-deleted-board" },
 );
-assert.equal(deletedRetry.code, "retry_invalidated");
+assert.equal(deletedRetry.error.code, "retry_invalidated");
 assert.ok(
   !(await request("/api/boards?limit=100")).items.some(
     (board) => board.id === state.deletedBoardId,

@@ -54,7 +54,7 @@ test("the member directory continues past 1000 people without hiding active acco
       { cookie: admin.cookie },
     );
     assert.equal(stale.status, 409);
-    assert.equal((await stale.json()).code, "member_list_changed");
+    assert.equal((await stale.json()).error.code, "member_list_changed");
     const oauth = await setupOAuth(admin.cookie, {});
     const firstToolPage = await callMcpTool(oauth.token, "list_members", {
       limit: 1000,

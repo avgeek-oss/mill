@@ -94,7 +94,7 @@ test("board pagination reaches every board and newly created boards beyond the f
     await request(`/api/boards?cursor=${first.nextCursor}`, { cookie }),
     409,
   );
-  assert.equal(stale.code, "board_list_changed");
+  assert.equal(stale.error.code, "board_list_changed");
   const restarted = await json(await request("/api/boards", { cookie }));
   assert.deepEqual(
     await traversal("/api/boards?limit=100", { cookie }, restarted),
@@ -135,7 +135,7 @@ test("board cursors preserve alphabetical case and identifier ties and reject in
     await request(`/api/boards?cursor=${first.nextCursor}`, { cookie }),
     409,
   );
-  assert.equal(stale.code, "board_list_changed");
+  assert.equal(stale.error.code, "board_list_changed");
   const restarted = await json(
     await request("/api/boards?limit=37", { cookie }),
   );
@@ -266,7 +266,7 @@ test("board cursors reject renamed anchors and other renamed rows before a compl
     await request(`/api/boards?limit=2&cursor=${first.nextCursor}`, { cookie }),
     409,
   );
-  assert.equal(movedAnchor.code, "board_list_changed");
+  assert.equal(movedAnchor.error.code, "board_list_changed");
   const reset = await json(await request("/api/boards?limit=2", { cookie }));
   assert.deepEqual(await traversal("/api/boards?limit=2", { cookie }, reset), [
     boards[0].id,
@@ -290,7 +290,7 @@ test("board cursors reject renamed anchors and other renamed rows before a compl
     await request(`/api/boards?limit=2&cursor=${reset.nextCursor}`, { cookie }),
     409,
   );
-  assert.equal(movedOther.code, "board_list_changed");
+  assert.equal(movedOther.error.code, "board_list_changed");
   const final = await json(await request("/api/boards?limit=2", { cookie }));
   assert.deepEqual(await traversal("/api/boards?limit=2", { cookie }, final), [
     boards[0].id,
@@ -322,7 +322,7 @@ test("directory continuation reaches every board and rejects metadata or deletio
     await request(`${path}&cursor=${first.nextCursor}`, { cookie }),
     409,
   );
-  assert.equal(stale.code, "board_list_changed");
+  assert.equal(stale.error.code, "board_list_changed");
   first = await json(await request(path, { cookie }));
   const [removed] = await sql`SELECT * FROM boards WHERE prefix='WHOLE153'`;
   await json(
@@ -336,7 +336,7 @@ test("directory continuation reaches every board and rejects metadata or deletio
     await request(`${path}&cursor=${first.nextCursor}`, { cookie }),
     409,
   );
-  assert.equal(stale.code, "board_list_changed");
+  assert.equal(stale.error.code, "board_list_changed");
   const reset = await json(await request(path, { cookie }));
   assert.deepEqual(
     await traversal(path, { cookie }, reset),
@@ -412,7 +412,7 @@ test("personal API key directory pages cover current and future boards and rejec
     }),
     409,
   );
-  assert.equal(stale.code, "board_list_changed");
+  assert.equal(stale.error.code, "board_list_changed");
   const restarted = await json(await request(path, { token: personal.token }));
   const expected = (
     await sql`SELECT id FROM boards ORDER BY lower(name),name,id`
@@ -533,7 +533,7 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
     });
     assert.equal(stale.isError, true);
     assert.equal(
-      (stale.structuredContent as { code: string }).code,
+      (stale.structuredContent as { error: { code: string } }).error.code,
       "board_list_changed",
     );
     const currentExpected = (

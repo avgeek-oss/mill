@@ -21,10 +21,12 @@ export async function createOperatorRecovery(email: string, resetMfa = false) {
 recoveryRoutes.post("/recovery/reset", async (c) => {
   const input = await body(
     c,
-    z.object({
-      token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-      password: passwordSchema,
-    }),
+    z
+      .object({
+        token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+        password: passwordSchema,
+      })
+      .strict(),
   );
   await rateLimit(`account-recovery:${clientAddress(c)}`, 10);
   const passwordHash = await hashPassword(input.password);

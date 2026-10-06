@@ -221,7 +221,7 @@ test("aging out without a task version change invalidates default cursor and num
       ),
       409,
     );
-    assert.equal(response.code, "task_list_changed");
+    assert.equal(response.error.code, "task_list_changed");
   }
   const current = await list("limit=2");
   assert.equal(current.total, 4);

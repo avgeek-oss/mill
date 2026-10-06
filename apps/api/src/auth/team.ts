@@ -154,7 +154,7 @@ teamRoutes.post("/invitations", async (c) => {
   const who = admin(c);
   const input = await body(
     c,
-    z.object({ email: emailSchema, role: roleSchema }),
+    z.object({ email: emailSchema, role: roleSchema }).strict(),
   );
   await rateLimit(`invite:${who.userId}`, 30, 3600);
   const token = secretToken();
@@ -203,11 +203,13 @@ teamRoutes.get("/invitation", async (c) => {
 teamRoutes.post("/accept-invitation", async (c) => {
   const input = await body(
     c,
-    z.object({
-      token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
-      name: nameSchema,
-      password: passwordSchema,
-    }),
+    z
+      .object({
+        token: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+        name: nameSchema,
+        password: passwordSchema,
+      })
+      .strict(),
   );
   await rateLimit(`accept-invitation:${clientAddress(c)}`, 20);
   const passwordHash = await hashPassword(input.password);
@@ -245,7 +247,7 @@ teamRoutes.post("/accept-invitation", async (c) => {
 teamRoutes.patch("/members/:id", async (c) => {
   const who = admin(c);
   const id = uuid(c.req.param("id"));
-  const input = await body(c, z.object({ role: roleSchema }));
+  const input = await body(c, z.object({ role: roleSchema }).strict());
   const member = await sql.begin(async (tx) => {
     await lockedAdmin(who.userId, tx);
     const user = await activeUser(id, tx);

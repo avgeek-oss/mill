@@ -13,7 +13,13 @@ import {
   TASK_STATUSES,
   TASK_TYPES,
 } from "../../../../packages/contracts/src/index.js";
-import { badRequest, conflict, requireRole, type Env } from "../http.js";
+import {
+  badRequest,
+  conflict,
+  requireRole,
+  requestContext,
+  type Env,
+} from "../http.js";
 import { sessionToken } from "../auth/model.js";
 import { hashToken } from "../auth/security.js";
 import { lockAuthority } from "../authority.js";
@@ -202,7 +208,22 @@ export async function recordActivity(
   boardId: string,
   taskId: string,
 ) {
-  await tx`INSERT INTO activity (actor_id,actor_name,actor_kind,action,detail,board_id,task_id) VALUES (${a.userId},${a.name},${a.kind},${action},${tx.json(detail as postgres.JSONValue)},${boardId},${taskId})`;
+  const connection = {
+    type:
+      a.kind === "oauth"
+        ? "oauth"
+        : a.credentialType === "api-key"
+          ? "api-key"
+          : "session",
+    ...(requestContext.getStore()
+      ? { requestId: requestContext.getStore() }
+      : {}),
+  };
+  const metadata =
+    detail && typeof detail === "object" && !Array.isArray(detail)
+      ? detail
+      : {};
+  await tx`INSERT INTO activity (actor_id,actor_name,actor_kind,action,detail,board_id,task_id) VALUES (${a.userId},${a.name},${a.kind},${action},${tx.json({ ...metadata, connection } as postgres.JSONValue)},${boardId},${taskId})`;
 }
 export async function validateAssignee(tx: Tx, assigneeId?: string | null) {
   if (!assigneeId) return;

@@ -443,7 +443,10 @@ for (const changedAccess of ["scope", "boards"] as const) {
     const denied = await pending;
     assert.equal(denied.result?.isError, true, JSON.stringify(denied.result));
     if (changedAccess === "boards")
-      assert.equal(denied.result?.structuredContent?.code, "retry_invalidated");
+      assert.equal(
+        (denied.result?.structuredContent?.error as { code: string })?.code,
+        "retry_invalidated",
+      );
     else
       assert.match(
         JSON.stringify(denied.result?.content),

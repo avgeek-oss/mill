@@ -8,7 +8,7 @@ import postgres from "postgres";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const baselineName = "001_initial.sql";
 const reviewedBaselineChecksum =
-  "c13b4b26be2f21f4bfe8721969c9e1a807446480c58001cc9437a89bef6e4d87";
+  "8247de93dfc38687c5bae1fac7e330b630d60c7e0401b74f8d8a7c05e8fd4c9d";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 const qualify = (schema, name) => `${quote(schema)}.${quote(name)}`;
@@ -214,6 +214,12 @@ export async function rebasePrelaunch(
       "mill_migrations",
     ]);
     const sourceHasAgents = sourceTables.includes("agents");
+    const sourceHasDateFormat = original.tables.users.some(
+      (column) => column.name === "date_format",
+    );
+    const sourceHasTimeFormat = original.tables.users.some(
+      (column) => column.name === "time_format",
+    );
     const sourceHasTaskType = original.tables.tasks.some(
       (column) => column.name === "type",
     );
@@ -244,6 +250,10 @@ export async function rebasePrelaunch(
       if (table === "tasks" && !sourceHasTaskType) expectedColumns.push("type");
       if (table === "tasks" && !sourceHasStartDate)
         expectedColumns.push("start_date");
+      if (table === "users" && !sourceHasDateFormat)
+        expectedColumns.push("date_format");
+      if (table === "users" && !sourceHasTimeFormat)
+        expectedColumns.push("time_format");
       expectedColumns.sort();
       assert.deepEqual(
         clean.tables[table].map((column) => column.name).sort(),
@@ -264,6 +274,12 @@ export async function rebasePrelaunch(
     const invalidApproval = `s.code_hash IS NOT NULL AND (NOT (${activeOwner}) OR NOT (${eligibleLegacyIdentity}))`;
     const notificationOwner = `(SELECT CASE WHEN count(DISTINCT u.id)=1 THEN min(u.name) ELSE 'Workspace member' END FROM ${qualify(schema, "users")} u JOIN ${qualify(schema, "agents")} a ON s.actor_name=a.name || ' via ' || u.name)`;
     const projections = {
+      users: {
+        ...(!sourceHasDateFormat
+          ? { date_format: "'day-short-month-year'::text" }
+          : {}),
+        ...(!sourceHasTimeFormat ? { time_format: "'24-hour'::text" } : {}),
+      },
       tasks: {
         ...(!sourceHasTaskType ? { type: "'task'::text" } : {}),
         ...(!sourceHasStartDate ? { start_date: "NULL::date" } : {}),
@@ -395,6 +411,7 @@ async function main(args) {
     );
     const knownSources = await Promise.all(
       [
+        "prelaunch-account-preferences-layout.json",
         "prelaunch-start-date-layout.json",
         "prelaunch-task-type-layout.json",
         "prelaunch-legacy-layout.json",

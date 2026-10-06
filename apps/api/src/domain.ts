@@ -639,23 +639,40 @@ domainRoutes.get("/notifications", async (c) => {
       ? sql`AND tasks.board_id IN ${sql(a.boardIds)}`
       : sql`AND false`
     : sql``;
-  const [anchor] = cursor
-    ? await sql`SELECT notifications.id,notifications.created_at FROM notifications JOIN tasks ON tasks.id=notifications.task_id WHERE notifications.id=${cursor} AND user_id=${a.userId} ${scope}`
-    : [];
-  if (cursor && !anchor)
+  const rows = await sql`
+    WITH scoped AS MATERIALIZED (
+      SELECT notifications.*,tasks.title,tasks.identifier,tasks.board_id
+      FROM notifications JOIN tasks ON tasks.id=notifications.task_id
+      WHERE notifications.user_id=${a.userId} ${scope}
+    ), anchor AS (
+      SELECT created_at,id FROM scoped WHERE id=${cursor}
+    ), summary AS (
+      SELECT count(*) FILTER (WHERE read_at IS NULL)::int AS unread_count,
+        ${cursor === null} OR EXISTS (SELECT 1 FROM anchor) AS anchor_valid
+      FROM scoped
+    ), page AS (
+      SELECT * FROM scoped
+      WHERE (read_at IS NULL OR read_at > now()-interval '24 hours')
+        ${unread ? sql`AND read_at IS NULL` : sql``}
+        ${cursor ? sql`AND (created_at,id)<(SELECT created_at,id FROM anchor)` : sql``}
+      ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}
+    )
+    SELECT page.*,summary.unread_count,summary.anchor_valid
+    FROM summary LEFT JOIN page ON true
+    ORDER BY page.created_at DESC,page.id DESC`;
+  if (!rows[0].anchorValid)
     badRequest(
       "This notification cursor does not belong to your notifications",
     );
-  const [count] =
-    await sql`SELECT count(*)::int AS total FROM notifications JOIN tasks ON tasks.id=notifications.task_id WHERE user_id=${a.userId} AND read_at IS NULL ${scope}`;
-  const rows =
-    await sql`SELECT notifications.*,tasks.title,tasks.identifier,tasks.board_id FROM notifications JOIN tasks ON tasks.id=notifications.task_id WHERE user_id=${a.userId} ${scope} ${unread ? sql`AND read_at IS NULL` : sql``} ${anchor ? sql`AND (notifications.created_at,notifications.id)<(SELECT created_at,id FROM notifications WHERE id=${anchor.id})` : sql``} ORDER BY notifications.created_at DESC,notifications.id DESC LIMIT ${limit + 1}`;
-  const items = rows.slice(0, limit);
+  const page = rows
+    .filter((row) => row.id !== null)
+    .map(({ unreadCount: _count, anchorValid: _valid, ...item }) => item);
+  const items = page.slice(0, limit);
   return c.json({
     items,
-    unreadCount: count.total,
-    hasMore: rows.length > limit,
-    nextCursor: rows.length > limit ? items.at(-1)?.id : null,
+    unreadCount: rows[0].unreadCount,
+    hasMore: page.length > limit,
+    nextCursor: page.length > limit ? items.at(-1)?.id : null,
   });
 });
 domainRoutes.patch("/notifications", async (c) => {
@@ -679,20 +696,37 @@ domainRoutes.patch("/notifications", async (c) => {
         "Choose notification IDs or all notifications",
       ),
   );
-  const rows = await sql.begin(async (tx) => {
+  const updated = await sql.begin(async (tx) => {
     await revalidateAuthority(c, tx, "viewer");
     const current = actor(c);
     if (current.kind === "oauth" && !current.scopes.includes("write"))
       return null;
-    const permitted =
-      await tx`SELECT notifications.id FROM notifications JOIN tasks ON tasks.id=notifications.task_id WHERE notifications.user_id=${current.userId} ${current.boardIds ? (current.boardIds.length ? tx`AND tasks.board_id IN ${tx(current.boardIds)}` : tx`AND false`) : tx``} ${input.ids ? tx`AND notifications.id IN ${tx(input.ids)}` : tx``} FOR UPDATE OF notifications`;
-    if (input.ids && permitted.length !== new Set(input.ids).size) return null;
-    if (!permitted.length) return [];
-    return tx`UPDATE notifications SET read_at=${input.read ? new Date() : null} WHERE id IN ${tx(permitted.map((row) => row.id))} RETURNING id`;
+    const scope = current.boardIds
+      ? current.boardIds.length
+        ? tx`AND tasks.board_id IN ${tx(current.boardIds)}`
+        : tx`AND false`
+      : tx``;
+    if (input.ids) {
+      const permitted =
+        await tx`SELECT notifications.id FROM notifications JOIN tasks ON tasks.id=notifications.task_id WHERE notifications.user_id=${current.userId} ${scope} AND notifications.id IN ${tx(input.ids)} FOR UPDATE OF notifications`;
+      if (permitted.length !== new Set(input.ids).size) return null;
+    }
+    // The mutation uses one statement snapshot; later arrivals remain unread.
+    // Updating only unread rows preserves the original receipt time on retries.
+    const [result] = await tx<{ updated: number }[]>`
+      WITH marked AS (
+        UPDATE notifications SET read_at=${input.read ? tx`statement_timestamp()` : tx`NULL`}
+        FROM tasks WHERE tasks.id=notifications.task_id
+          AND notifications.user_id=${current.userId} ${scope}
+          ${input.ids ? tx`AND notifications.id IN ${tx(input.ids)}` : tx``}
+          ${input.read ? tx`AND read_at IS NULL` : tx`AND read_at IS NOT NULL`}
+        RETURNING 1
+      ) SELECT count(*)::int AS updated FROM marked`;
+    return result.updated;
   });
-  if (!rows)
+  if (updated === null)
     return c.json({ error: "Some notifications are outside your access" }, 403);
-  return c.json({ ok: true, updated: rows.length });
+  return c.json({ ok: true, updated });
 });
 domainRoutes.get("/workspace", async (c) => {
   const a = requireRole(c);

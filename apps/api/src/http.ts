@@ -2,12 +2,90 @@ import { HTTPException } from "hono/http-exception";
 import type { Context } from "hono";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { isIP } from "node:net";
+import { randomUUID } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { ZodError } from "zod";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { config } from "./config.js";
 import type { Actor } from "../../../packages/contracts/src/index.js";
 export type Env = {
   Bindings: { incoming?: IncomingMessage; outgoing?: ServerResponse };
-  Variables: { actor: Actor };
+  Variables: { actor: Actor; requestId: string };
 };
+export const requestContext = new AsyncLocalStorage<string>();
+export class HttpError extends HTTPException {
+  constructor(
+    status: ContentfulStatusCode,
+    readonly code: string,
+    message: string,
+    readonly responseHeaders: Record<string, string> = {},
+  ) {
+    super(status, { message });
+  }
+}
+export function requestId(value?: string) {
+  return value && value.length <= 100 && /^[A-Za-z0-9._:-]+$/.test(value)
+    ? value
+    : randomUUID();
+}
+export function statusErrorCode(status: number) {
+  return (
+    (
+      {
+        400: "BAD_REQUEST",
+        401: "UNAUTHORIZED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        410: "GONE",
+        413: "PAYLOAD_TOO_LARGE",
+        422: "UNPROCESSABLE",
+        429: "RATE_LIMITED",
+        503: "SERVICE_UNAVAILABLE",
+      } as Record<number, string>
+    )[status] ?? (status >= 500 ? "INTERNAL_ERROR" : "REQUEST_FAILED")
+  );
+}
+export function errorResponse(
+  c: Context<Env>,
+  status: ContentfulStatusCode,
+  message: string,
+  code = statusErrorCode(status),
+) {
+  const id = c.get("requestId") ?? requestId();
+  c.header("X-Request-Id", id);
+  c.header("Cache-Control", "no-store");
+  return c.json({ error: { code, message, requestId: id } }, status);
+}
+export function handleError(error: Error, c: Context<Env>) {
+  if (error instanceof HttpError) {
+    for (const [name, value] of Object.entries(error.responseHeaders))
+      c.header(name, value);
+    return errorResponse(c, error.status, error.message, error.code);
+  }
+  if (error instanceof HTTPException)
+    return errorResponse(c, error.status, error.message);
+  if (error instanceof ZodError)
+    return errorResponse(
+      c,
+      400,
+      error.issues[0]?.message ?? "Request is invalid",
+      "INVALID_REQUEST",
+    );
+  if (error instanceof SyntaxError)
+    return errorResponse(
+      c,
+      400,
+      "Request must contain valid JSON",
+      "MALFORMED_JSON",
+    );
+  console.error("Request failed", c.get("requestId"), error.name);
+  return errorResponse(
+    c,
+    500,
+    "Mill could not complete this request. Try again.",
+  );
+}
 export function actor(c: Context<Env>): Actor {
   const value = c.get("actor");
   if (!value) throw new HTTPException(401, { message: "Sign in to continue" });

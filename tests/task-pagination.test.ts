@@ -110,10 +110,13 @@ async function stale(
     `/api/boards/${boardId}/tasks?limit=2&${query}&cursor=${first.nextCursor}`,
     { cookie },
   );
-  assert.deepEqual(await json(response, 409), {
-    code: "task_list_changed",
-    error: "Task list changed. Reload tasks to continue.",
-  });
+  const payload = await json(response, 409);
+  assert.equal(payload.error.code, "task_list_changed");
+  assert.equal(
+    payload.error.message,
+    "Task list changed. Reload tasks to continue.",
+  );
+  assert.equal(payload.error.requestId, response.headers.get("X-Request-Id"));
 }
 function encode(value: unknown) {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -369,7 +372,7 @@ test("a personal API key reads future-board task pages and restarts after its hu
     await request(`${path}&cursor=${first.nextCursor}`, { token: key.token }),
     409,
   );
-  assert.equal(stale.code, "task_list_changed");
+  assert.equal(stale.error.code, "task_list_changed");
   let current: Page = await json(await request(path, { token: key.token }));
   const ids = current.items.map((item) => item.id);
   while (current.hasMore) {

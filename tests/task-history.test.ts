@@ -179,9 +179,10 @@ test("workspace audit is absent for every role while task history retains human,
   );
   assert.equal(personalKeyEvent.actorId, user.id);
   assert.equal(personalKeyEvent.actorName, "Admin");
-  assert.deepEqual(personalKeyEvent.detail, {
-    fields: ["assigneeId", "priority"],
-  });
+  const { connection: personalConnection, ...personalDetails } =
+    personalKeyEvent.detail;
+  assert.equal(personalConnection.type, "api-key");
+  assert.deepEqual(personalDetails, { fields: ["assigneeId", "priority"] });
   assert.ok(
     history.items.every(
       (event: { taskId: string; boardId: string }) =>
@@ -268,9 +269,20 @@ test("status changes retain attributed history, reject stale versions and dedupl
   });
   assert.equal(stale.response.status, 200);
   assert.equal(stale.result?.isError, true);
-  assert.deepEqual(stale.result?.structuredContent, {
-    error: "This item changed. Reload it before saving.",
-  });
+  const staleError = stale.result?.structuredContent?.error as {
+    code: string;
+    message: string;
+    requestId: string;
+  };
+  assert.equal(staleError.code, "CONFLICT");
+  assert.equal(
+    staleError.message,
+    "This item changed. Reload it before saving.",
+  );
+  assert.equal(
+    staleError.requestId,
+    stale.response.headers.get("X-Request-Id"),
+  );
   assert.deepEqual(
     await sql`SELECT * FROM tasks WHERE id=${task.id}`,
     taskBefore,
@@ -306,10 +318,9 @@ test("status changes retain attributed history, reject stale versions and dedupl
   assert.equal(event.actorId, user.id);
   assert.equal(event.actorKind, "oauth");
   assert.equal(event.actorName, "Admin");
-  assert.deepEqual(event.detail, {
-    fromStatus: "backlog",
-    status: "in_progress",
-  });
+  const { connection, ...details } = event.detail;
+  assert.equal(connection.type, "oauth");
+  assert.deepEqual(details, { fromStatus: "backlog", status: "in_progress" });
   assert.deepEqual(
     await sql`SELECT * FROM tasks WHERE id=${unrelated.id}`,
     unrelatedBefore,

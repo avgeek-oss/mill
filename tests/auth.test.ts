@@ -198,6 +198,9 @@ test("first setup is atomic, has no default account, and stores only password/se
     name: "Admin",
     email: "ADMIN@example.test",
     password,
+    dateFormat: "year-month-day",
+    timeFormat: "12-hour",
+    timeZone: "Asia/Kolkata",
   };
   const responses = await Promise.all([
     request("/api/auth/setup", { body: input }),
@@ -207,6 +210,9 @@ test("first setup is atomic, has no default account, and stores only password/se
   const good = responses.find((r) => r.status === 201)!;
   const result = await good.json();
   assert.equal(result.user.email, "admin@example.test");
+  assert.equal(result.user.dateFormat, "year-month-day");
+  assert.equal(result.user.timeFormat, "12-hour");
+  assert.equal(result.user.timeZone, "Asia/Kolkata");
   assert.equal(JSON.stringify(result).includes("password"), false);
   const [stored] = await sql`SELECT password_hash FROM users`;
   assert.match(stored.passwordHash, /^scrypt:/);
@@ -218,6 +224,41 @@ test("first setup is atomic, has no default account, and stores only password/se
     setupRequired: false,
   });
 });
+test("setup rejects invalid preferences before creating any account and defaults omitted formats", async () => {
+  const input = {
+    workspaceName: "Team",
+    name: "Admin",
+    email: "admin@example.test",
+    password,
+  };
+  for (const invalid of [
+    { dateFormat: "unsupported" },
+    { timeFormat: "unsupported" },
+    { timeZone: "invented/timezone" },
+    { unexpected: true },
+  ]) {
+    assert.equal(
+      (await request("/api/auth/setup", { body: { ...input, ...invalid } }))
+        .status,
+      400,
+    );
+    assert.equal(
+      (await sql`SELECT count(*)::int AS count FROM workspace`)[0].count,
+      0,
+    );
+    assert.equal(
+      (await sql`SELECT count(*)::int AS count FROM users`)[0].count,
+      0,
+    );
+  }
+  const response = await request("/api/auth/setup", { body: input });
+  assert.equal(response.status, 201);
+  const { user } = await response.json();
+  assert.equal(user.dateFormat, "day-short-month-year");
+  assert.equal(user.timeFormat, "24-hour");
+  assert.equal(user.timeZone, "UTC");
+});
+
 test("login rejects invalid credentials and supports session list, revocation and sign out", async () => {
   const admin = await setupUser();
   assert.equal(
@@ -290,12 +331,42 @@ test("profiles validate time zones, preserve omitted preferences and reject API-
     body: {
       name: "Pat",
       timeZone: "Asia/Kolkata",
+      dateFormat: "month-day-year",
+      timeFormat: "12-hour",
       notificationPreferences: { assignments: false, mentions: true },
     },
   });
   assert.equal(changed.status, 200);
   const data = await changed.json();
   assert.equal(data.user.timeZone, "Asia/Kolkata");
+  assert.equal(data.user.dateFormat, "month-day-year");
+  assert.equal(data.user.timeFormat, "12-hour");
+  const preserved = await (
+    await request("/api/auth/profile", {
+      method: "PATCH",
+      cookie: admin.cookie,
+      body: { name: "Pat Updated" },
+    })
+  ).json();
+  assert.equal(preserved.user.dateFormat, "month-day-year");
+  assert.equal(preserved.user.timeFormat, "12-hour");
+  assert.equal(preserved.user.timeZone, "Asia/Kolkata");
+  for (const body of [
+    { dateFormat: "invented" },
+    { timeFormat: "invented" },
+    { unsupported: true },
+  ]) {
+    assert.equal(
+      (
+        await request("/api/auth/profile", {
+          method: "PATCH",
+          cookie: admin.cookie,
+          body,
+        })
+      ).status,
+      400,
+    );
+  }
   assert.deepEqual(data.user.notificationPreferences, {
     assignments: false,
     mentions: true,
@@ -350,6 +421,69 @@ test("profiles validate time zones, preserve omitted preferences and reject API-
     403,
   );
 });
+test("concurrent profile changes preserve each independently supplied preference", async () => {
+  const admin = await setupUser();
+  const responses = await Promise.all([
+    request("/api/auth/profile", {
+      cookie: admin.cookie,
+      method: "PATCH",
+      body: { dateFormat: "year-month-day" },
+    }),
+    request("/api/auth/profile", {
+      cookie: admin.cookie,
+      method: "PATCH",
+      body: { timeFormat: "12-hour", timeZone: "Asia/Kathmandu" },
+    }),
+  ]);
+  assert.deepEqual(
+    responses.map((response) => response.status),
+    [200, 200],
+  );
+  const { user } = await (
+    await request("/api/auth/me", { cookie: admin.cookie })
+  ).json();
+  assert.equal(user.dateFormat, "year-month-day");
+  assert.equal(user.timeFormat, "12-hour");
+  assert.equal(user.timeZone, "Asia/Kathmandu");
+});
+
+test("date and time preferences remain scoped to the signed-in user", async () => {
+  const admin = await setupUser();
+  const member = await invite(admin.cookie, "preferences-member@example.test");
+  const changed = await request("/api/auth/profile", {
+    cookie: member.cookie,
+    method: "PATCH",
+    body: {
+      dateFormat: "year-month-day",
+      timeFormat: "12-hour",
+      timeZone: "Asia/Kathmandu",
+    },
+  });
+  assert.equal(changed.status, 200);
+  const reloaded = await (
+    await request("/api/auth/me", { cookie: member.cookie })
+  ).json();
+  assert.equal(reloaded.user.dateFormat, "year-month-day");
+  assert.equal(reloaded.user.timeFormat, "12-hour");
+  assert.equal(reloaded.user.timeZone, "Asia/Kathmandu");
+  const other = await (
+    await request("/api/auth/me", { cookie: admin.cookie })
+  ).json();
+  assert.equal(other.user.dateFormat, "day-short-month-year");
+  assert.equal(other.user.timeFormat, "24-hour");
+  assert.equal(other.user.timeZone, "UTC");
+  assert.equal(
+    (
+      await request("/api/auth/profile", {
+        cookie: member.cookie,
+        method: "PATCH",
+        body: { userId: admin.user.id, dateFormat: "month-day-year" },
+      })
+    ).status,
+    400,
+  );
+});
+
 test("profiles expose only in-app notification preferences and reject email delivery settings", async () => {
   const admin = await setupUser();
   await sql`UPDATE users SET notification_preferences=${sql.json({ assignments: false, mentions: true, email: true })} WHERE id=${admin.user.id}`;

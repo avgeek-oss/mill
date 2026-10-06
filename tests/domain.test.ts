@@ -44,7 +44,7 @@ async function mcpDenied(
   const result = await mcpResult(token, name, args);
   assert.equal(result.isError, true, name);
   const body = result.structuredContent ?? JSON.parse(result.content[0]!.text!);
-  assert.equal(body.error, error, name);
+  assert.equal(body.error.message ?? body.error, error, name);
 }
 async function member(cookie: string, email: string, role = "member") {
   const invitation = await json(

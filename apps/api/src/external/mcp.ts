@@ -104,6 +104,7 @@ export async function serveMcp(c: Context<Env>) {
       const headers = new Headers({
         authorization: c.req.header("authorization")!,
         "content-type": "application/json",
+        "x-request-id": c.get("requestId"),
       });
       if (typeof retryKey === "string")
         headers.set("Idempotency-Key", retryKey);

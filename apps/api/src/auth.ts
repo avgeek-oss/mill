@@ -15,6 +15,9 @@ import {
   identityResponse,
   inAppPreferences,
   nameSchema,
+  dateFormatSchema,
+  timeFormatSchema,
+  timeZoneSchema,
   newSession,
   passwordSchema,
   recentSession,
@@ -24,6 +27,7 @@ import {
 } from "./auth/model.js";
 import {
   hashPassword,
+  clearAuthRateLimit,
   hashToken,
   rateLimit,
   verifyPassword,
@@ -43,12 +47,17 @@ authRoutes.post("/setup", async (c) => {
   await rateLimit(`setup:${clientAddress(c)}`, 20);
   const input = await body(
     c,
-    z.object({
-      workspaceName: nameSchema,
-      name: nameSchema,
-      email: emailSchema,
-      password: passwordSchema,
-    }),
+    z
+      .object({
+        workspaceName: nameSchema,
+        name: nameSchema,
+        email: emailSchema,
+        password: passwordSchema,
+        dateFormat: dateFormatSchema.default("day-short-month-year"),
+        timeFormat: timeFormatSchema.default("24-hour"),
+        timeZone: timeZoneSchema.default("UTC"),
+      })
+      .strict(),
   );
   const passwordHash = await hashPassword(input.password);
   return sql.begin(async (tx) => {
@@ -60,18 +69,20 @@ authRoutes.post("/setup", async (c) => {
     await tx`INSERT INTO workspace(id,name) VALUES(${workspaceId},${input.workspaceName})`;
     const [user] = await tx<
       UserRow[]
-    >`INSERT INTO users(id,workspace_id,name,email,password_hash,role)
-      VALUES(${randomUUID()},${workspaceId},${input.name},${input.email},${passwordHash},'admin') RETURNING *`;
+    >`INSERT INTO users(id,workspace_id,name,email,password_hash,role,date_format,time_format,time_zone)
+      VALUES(${randomUUID()},${workspaceId},${input.name},${input.email},${passwordHash},'admin',${input.dateFormat},${input.timeFormat},${input.timeZone}) RETURNING *`;
     await newSession(c, user.id, tx);
 
     return c.json(await identityResponse(user, tx), 201);
   });
 });
 
-const loginSchema = z.object({
-  email: emailSchema,
-  password: z.string().min(1).max(1024),
-});
+const loginSchema = z
+  .object({
+    email: emailSchema,
+    password: z.string().min(1).max(1024),
+  })
+  .strict();
 export async function secondFactorChallenge(
   user: UserRow,
   purpose: "login" | "reauth",
@@ -118,6 +129,7 @@ authRoutes.post("/login", async (c) => {
     const challenge = await secondFactorChallenge(current, "login", null, tx);
     if (challenge) return c.json(challenge);
     await newSession(c, current.id, tx, current.securityEpoch);
+    await clearAuthRateLimit(`login-email:${current.email}`, tx);
 
     return c.json(await identityResponse(current, tx));
   });
@@ -126,7 +138,7 @@ authRoutes.post("/reauth", async (c) => {
   const user = await activeUser(human(c).userId);
   const input = await body(
     c,
-    z.object({ password: z.string().min(1).max(1024) }),
+    z.object({ password: z.string().min(1).max(1024) }).strict(),
   );
   await rateLimit(`reauth:${user.id}`, 10);
   if (!(await verifyPassword(input.password, user.passwordHash)))
@@ -149,6 +161,7 @@ authRoutes.post("/reauth", async (c) => {
     );
     if (challenge) return c.json(challenge);
     await tx`UPDATE sessions SET authenticated_at=now() WHERE id=${session.id}`;
+    await clearAuthRateLimit(`reauth:${current.id}`, tx);
     return c.json({ ok: true });
   });
 });
@@ -166,28 +179,30 @@ authRoutes.patch("/profile", async (c) => {
   const who = human(c);
   const input = await body(
     c,
-    z.object({
-      name: nameSchema.optional(),
-      timeZone: z.string().min(1).max(100).optional(),
-      notificationPreferences: z
-        .object({ assignments: z.boolean(), mentions: z.boolean() })
-        .strict()
-        .optional(),
-    }),
+    z
+      .object({
+        name: nameSchema.optional(),
+        timeZone: timeZoneSchema.optional(),
+        dateFormat: dateFormatSchema.optional(),
+        timeFormat: timeFormatSchema.optional(),
+        notificationPreferences: z
+          .object({ assignments: z.boolean(), mentions: z.boolean() })
+          .strict()
+          .optional(),
+      })
+      .strict(),
   );
-  if (input.timeZone !== undefined) {
-    try {
-      new Intl.DateTimeFormat("en", { timeZone: input.timeZone });
-    } catch {
-      badRequest("Choose a valid time zone");
-    }
-  }
-  const user = await activeUser(who.userId);
-  const [updated] = await sql<
-    UserRow[]
-  >`UPDATE users SET name=${input.name ?? user.name},time_zone=${input.timeZone ?? user.timeZone},
-    notification_preferences=${sql.json(input.notificationPreferences ?? inAppPreferences(user.notificationPreferences))},updated_at=now() WHERE id=${who.userId} RETURNING *`;
-  return c.json(await identityResponse(updated));
+  return sql.begin(async (tx) => {
+    await tx`SELECT id FROM workspace FOR UPDATE`;
+    await currentSession(c, tx);
+    const user = await activeUser(who.userId, tx);
+    const [updated] = await tx<
+      UserRow[]
+    >`UPDATE users SET name=${input.name ?? user.name},time_zone=${input.timeZone ?? user.timeZone},
+      date_format=${input.dateFormat ?? user.dateFormat},time_format=${input.timeFormat ?? user.timeFormat},
+      notification_preferences=${tx.json(input.notificationPreferences ?? inAppPreferences(user.notificationPreferences))},updated_at=now() WHERE id=${who.userId} RETURNING *`;
+    return c.json(await identityResponse(updated, tx));
+  });
 });
 authRoutes.get("/sessions", async (c) => {
   const session = await currentSession(c);
@@ -212,10 +227,12 @@ authRoutes.post("/password", async (c) => {
   const user = await activeUser(human(c).userId);
   const input = await body(
     c,
-    z.object({
-      currentPassword: z.string().min(1).max(1024),
-      password: passwordSchema,
-    }),
+    z
+      .object({
+        currentPassword: z.string().min(1).max(1024),
+        password: passwordSchema,
+      })
+      .strict(),
   );
   await rateLimit(`password-change:${user.id}`, 5);
   if (!(await verifyPassword(input.currentPassword, user.passwordHash)))

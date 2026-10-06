@@ -144,7 +144,7 @@ test("task detail, comments and activity resolve permissions through the owning 
     assert.equal(denied.error, undefined);
     assert.equal(denied.result?.isError, true, name);
     assert.equal(
-      denied.result?.structuredContent?.error,
+      (denied.result?.structuredContent?.error as { message: string })?.message,
       "This credential does not permit this action",
       name,
     );

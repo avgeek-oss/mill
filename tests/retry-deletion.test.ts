@@ -21,7 +21,7 @@ async function terminalRetry(
   const replay = await request(path, options);
   assert.equal(replay.headers.get("Idempotency-Replayed"), "true");
   const result = await json(replay, 410);
-  assert.equal(result.code, "retry_invalidated");
+  assert.equal(result.error.code, "retry_invalidated");
   return result;
 }
 async function saved(key: string) {
@@ -203,7 +203,7 @@ test("a retained legacy upgrade retry key returns a terminal response and cannot
   const original = await saved(key);
   await sql`UPDATE api_idempotency SET response=NULL,status=410,invalidation_reason='upgrade',board_ids='{}',task_ids='{}' WHERE key=${key}`;
   const result = await terminalRetry("/api/boards", options);
-  assert.match(result.error, /upgrade/);
+  assert.match(result.error.message, /upgrade/);
   assert.equal((await sql`SELECT id FROM boards`).length, 1);
   const current = await saved(key);
   assert.equal(current.actorKey, original.actorKey);

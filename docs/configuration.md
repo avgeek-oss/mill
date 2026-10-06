@@ -25,6 +25,8 @@ For browser passkeys, use `localhost` during local development or an HTTPS DNS h
 
 `MILL_WEB_DIR` optionally changes the static frontend directory for direct Node execution. The packaged image already uses the correct `apps/web/dist` path; operators normally leave it unset.
 
+Password hashing and verification share a bounded queue. `MILL_PASSWORD_VERIFY_CONCURRENCY` defaults to 2 and accepts 1–8 concurrent operations. `MILL_PASSWORD_VERIFY_QUEUE_LIMIT` defaults to 16 and accepts 0–100 waiting operations; 0 rejects work whenever all operation slots are occupied. Excess requests return `503 AUTHENTICATION_BUSY` with `Retry-After: 1`, before starting expensive password work. Keep concurrency low on small installations. Authentication throttles persist in PostgreSQL and return the remaining window through `Retry-After`; successful complete sign-in clears the account bucket while address throttling remains in place.
+
 ## Notifications
 
 Mill v1 uses in-app assignment and mention notifications; task email notifications are excluded. The account/invitation email provider is currently unavailable. Administrators share private invitation links and use the local account-recovery procedure described in [getting started](getting-started.md).

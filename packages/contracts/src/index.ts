@@ -78,3 +78,22 @@ export type Comment = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type Notification = {
+  id: string;
+  userId: string;
+  taskId: string;
+  boardId: string;
+  kind: "assignment" | "mention";
+  actorName: string;
+  identifier: string;
+  title: string;
+  readAt: string | null;
+  createdAt: string;
+};
+export type NotificationPage = {
+  items: Notification[];
+  unreadCount: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
