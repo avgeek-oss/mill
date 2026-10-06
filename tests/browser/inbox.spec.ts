@@ -780,6 +780,9 @@ test("pending task opening cannot navigate after dismissing and reopening the li
   ).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`/boards/${boardId}$`));
   await expect(taskPage(page)).toHaveCount(0);
+  await expect(
+    inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
+  ).toBeEnabled();
   pending = new Promise<void>((resolve) => {
     release = resolve;
   });

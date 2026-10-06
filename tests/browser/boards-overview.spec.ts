@@ -345,6 +345,8 @@ for (const width of [1280, 390])
               const title = candidate.querySelector("h2")?.textContent;
               return title ? [title] : [];
             }),
+            gutterPaddingLeft: getComputedStyle(gutter).paddingLeft,
+            gutterPaddingRight: getComputedStyle(gutter).paddingRight,
             leftInset: fieldRect.left - gutterRect.left,
             rightInset: gutterRect.right - fieldRect.right,
             fieldGap: getComputedStyle(fields).rowGap,
@@ -365,8 +367,10 @@ for (const width of [1280, 390])
         await expect(
           filters.getByText("Sort order", { exact: true }),
         ).toBeVisible();
-        expect(filterGeometry.leftInset).toBe(12);
-        expect(filterGeometry.rightInset).toBe(12);
+        expect(filterGeometry.gutterPaddingLeft).toBe("12px");
+        expect(filterGeometry.gutterPaddingRight).toBe("12px");
+        expect(Math.abs(filterGeometry.leftInset - 12)).toBeLessThan(0.01);
+        expect(Math.abs(filterGeometry.rightInset - 12)).toBeLessThan(0.01);
         expect(filterGeometry.fieldGap).toBe("16px");
         expect(filterGeometry.labels.map((label) => label.text)).toEqual([
           "Assignee",
