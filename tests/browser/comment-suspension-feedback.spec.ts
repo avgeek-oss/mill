@@ -242,11 +242,14 @@ for (const [width, theme] of [
           });
           if (action === "create") await draft.fill(body);
           else {
-            await page
-              .getByRole("article")
-              .filter({ hasText: body })
-              .getByRole("button", { name: /Delete comment by/ })
-              .click();
+            const comment = page.getByRole("article").filter({ hasText: body });
+            const remove = comment.getByRole("button", {
+              name: /Delete comment by/,
+            });
+            if (width === 1280) await comment.hover();
+            await expect(remove).toBeVisible();
+            await expect(remove).toBeEnabled();
+            await remove.click();
             await expect(dialog).toBeVisible();
           }
           const submit =
