@@ -208,9 +208,10 @@ test("verification requests retain the email on malformed acknowledgement and ke
     });
   });
   await page.goto("/");
-  await page
-    .getByRole("button", { name: "Need a new verification email?" })
-    .click();
+  await expect(
+    page.getByRole("button", { name: "Need a new verification email?" }),
+  ).toHaveCount(0);
+  await page.goto("/verification-email");
   await page.getByLabel("Email", { exact: true }).fill("known@example.test");
   await page.getByRole("button", { name: "Send verification link" }).click();
   await expect(alerts(page)).toHaveCount(1);
