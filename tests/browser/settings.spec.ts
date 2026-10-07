@@ -104,6 +104,7 @@ async function accountAction(
     .getByRole("menu")
     .getByRole("menuitem", { name: action, exact: true })
     .click();
+  await expect(page.locator('[data-slot="dropdown-popover"]')).toHaveCount(0);
 }
 async function signOut(page: Page) {
   await accountAction(page, "Sign out");

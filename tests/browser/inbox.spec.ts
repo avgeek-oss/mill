@@ -801,7 +801,13 @@ test("pending task opening cannot navigate after dismissing and reopening the li
     ).toBeVisible();
   } finally {
     release();
-    await page.unrouteAll({ behavior: "wait" });
+    try {
+      await expect(
+        inbox(page).getByRole("button", { name: "Mark all read", exact: true }),
+      ).toBeEnabled();
+    } finally {
+      await page.unrouteAll({ behavior: "wait" });
+    }
   }
   await expect(
     row(page, "Obsolete open Inbox teammate 2").getByText("Read", {
