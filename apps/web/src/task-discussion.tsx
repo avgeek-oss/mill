@@ -18,6 +18,7 @@ import {
   QueryLoading,
   TypographyParagraph,
   TypographyText,
+  useOverlaySuspension,
 } from "@avgeek-oss/design-system";
 import { ErrorMessage, useAppSuspended } from "@mill/web-design-system";
 import { UserAvatar } from "@avgeek-oss/design-system/patterns/user-avatar";
@@ -51,6 +52,7 @@ import { mentionPopupPosition, textareaCaretRect } from "./mention-caret.js";
 import { RelativeDateTime } from "./relative-date-time.js";
 import { formatDate, formatDateTime } from "./date-time-preferences.js";
 import { hasCommentResponse, hasOkResponse } from "./responses.js";
+import { useSettingsMutation } from "./use-settings-mutation.js";
 
 type DiscussionKind = "comments" | "activity";
 type DiscussionItem = Comment | Activity;
@@ -195,6 +197,9 @@ function useDiscussionPages<T extends DiscussionItem>(
   taskId: string,
   kind: DiscussionKind,
 ) {
+  const overlay = useOverlaySuspension();
+  const capture = useRef(overlay.capture);
+  const runQuery = useSettingsMutation(`${taskId}:${kind}`);
   const [collection, setCollection] = useState<Collection<T>>({
     items: [],
     hasMore: false,
@@ -207,6 +212,9 @@ function useDiscussionPages<T extends DiscussionItem>(
   const current = useRef(collection);
   const mounted = useRef(true);
   const latestRequest = useRef(0);
+  useLayoutEffect(() => {
+    capture.current = overlay.capture;
+  }, [overlay.capture]);
   const update = useCallback(
     (change: (previous: Collection<T>) => Collection<T>) => {
       const next = change(current.current);
@@ -219,12 +227,14 @@ function useDiscussionPages<T extends DiscussionItem>(
 
   const load = useCallback(
     async (more: boolean): Promise<T[] | null> => {
+      const captured = capture.current();
+      if (!mounted.current || !captured()) return null;
       const previous = current.current;
       if (more && (!previous.hasMore || !previous.nextCursor || previous.busy))
         return null;
       const request = ++latestRequest.current;
       const isCurrent = () =>
-        mounted.current && request === latestRequest.current;
+        mounted.current && captured() && request === latestRequest.current;
       const lastVisible = previous.items.at(-1);
       const refreshBoundary =
         previous.boundary &&
@@ -241,13 +251,16 @@ function useDiscussionPages<T extends DiscussionItem>(
         do {
           const params = new URLSearchParams({ limit: "100" });
           if (cursor) params.set("cursor", cursor);
-          page = await api<Page<T>>(
-            `/tasks/${taskId}/${kind}?${params}`,
-            undefined,
-            "GET",
-            {
-              validateResponse: (value) => hasDiscussionPage(value, kind),
-            },
+          page = await runQuery((signal) =>
+            api<Page<T>>(
+              `/tasks/${taskId}/${kind}?${params}`,
+              undefined,
+              "GET",
+              {
+                signal,
+                validateResponse: (value) => hasDiscussionPage(value, kind),
+              },
+            ),
           );
           if (!isCurrent()) return null;
           if (page.items.some((item) => item.taskId !== taskId))
@@ -296,16 +309,23 @@ function useDiscussionPages<T extends DiscussionItem>(
         if (isCurrent()) update((state) => ({ ...state, busy: false }));
       }
     },
-    [taskId, kind, update],
+    [taskId, kind, update, runQuery],
   );
 
-  useEffect(() => {
-    mounted.current = true;
-    void load(false);
+  useLayoutEffect(() => {
+    mounted.current = !overlay.isSuspended;
+    if (overlay.isSuspended) {
+      ++latestRequest.current;
+      update((state) => ({ ...state, busy: false }));
+    }
     return () => {
       mounted.current = false;
       ++latestRequest.current;
     };
+  }, [overlay.isSuspended, update]);
+
+  useEffect(() => {
+    void load(false);
   }, [load]);
 
   const refresh = useCallback(() => load(false), [load]);
@@ -336,6 +356,8 @@ function TaskDiscussionContent({
   members,
 }: TaskDiscussionProps) {
   const appSuspended = useAppSuspended();
+  const overlay = useOverlaySuspension();
+  const runMutation = useSettingsMutation(`${taskId}:${user.id}`);
   const comments = useDiscussionPages<Comment>(taskId, "comments");
   const activity = useDiscussionPages<Activity>(taskId, "activity");
   const [tab, setTab] = useState("comments");
@@ -362,6 +384,7 @@ function TaskDiscussionContent({
   const currentDraft = useRef("");
   const mutationPending = useRef(false);
   const mutationOutcome = useRef<Promise<boolean> | null>(null);
+  const finishPendingMutation = useRef<((saved: boolean) => void) | null>(null);
   const mounted = useRef(true);
   const generation = useRef(0);
   const previousRefreshKey = useRef(refreshKey);
@@ -505,23 +528,32 @@ function TaskDiscussionContent({
     mutationOutcome.current = outcome;
     mutationPending.current = true;
     setBusy(true);
-    return (saved: boolean) => {
+    const finish = (saved: boolean) => {
       if (mutationOutcome.current === outcome) {
         mutationOutcome.current = null;
         mutationPending.current = false;
+        finishPendingMutation.current = null;
         if (mounted.current) setBusy(false);
       }
       settle(saved);
     };
+    finishPendingMutation.current = finish;
+    return finish;
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     mounted.current = true;
+    setBusy(false);
+    if (appSuspended || overlay.isSuspended) {
+      ++generation.current;
+      finishPendingMutation.current?.(false);
+    }
     return () => {
       mounted.current = false;
       ++generation.current;
+      finishPendingMutation.current?.(false);
     };
-  }, []);
+  }, [appSuspended, overlay.isSuspended]);
 
   useEffect(() => {
     if (previousRefreshKey.current === refreshKey) return;
@@ -622,8 +654,9 @@ function TaskDiscussionContent({
     )
       return;
     const requestGeneration = generation.current;
+    const captured = overlay.capture();
     const isCurrent = () =>
-      mounted.current && generation.current === requestGeneration;
+      mounted.current && captured() && generation.current === requestGeneration;
     const path = `/tasks/${taskId}/comments`;
     const payload = {
       body,
@@ -633,16 +666,19 @@ function TaskDiscussionContent({
     let succeeded = false;
     setCommentError("");
     try {
-      const result = await api<{ comment: Comment }>(path, payload, "POST", {
-        validateResponse: (value) =>
-          hasCommentResponse(value) &&
-          isResponseObject(value) &&
-          isResponseObject(value.comment) &&
-          value.comment.taskId === taskId,
-        headers: {
-          "Idempotency-Key": createKey.forRequest(path, payload),
-        },
-      });
+      const result = await runMutation((signal) =>
+        api<{ comment: Comment }>(path, payload, "POST", {
+          signal,
+          validateResponse: (value) =>
+            hasCommentResponse(value) &&
+            isResponseObject(value) &&
+            isResponseObject(value.comment) &&
+            value.comment.taskId === taskId,
+          headers: {
+            "Idempotency-Key": createKey.forRequest(path, payload),
+          },
+        }),
+      );
       if (!isCurrent()) return;
       createKey.reset();
       const saved = {
@@ -673,8 +709,9 @@ function TaskDiscussionContent({
       return;
     const target = deleting;
     const requestGeneration = generation.current;
+    const captured = overlay.capture();
     const isCurrent = () =>
-      mounted.current && generation.current === requestGeneration;
+      mounted.current && captured() && generation.current === requestGeneration;
     const path = `/comments/${target.id}`;
     const payload = { version: target.version };
     const finishMutation = beginMutation();
@@ -682,12 +719,15 @@ function TaskDiscussionContent({
     setDeleteError("");
     setDeleteConflict(false);
     try {
-      await api(path, payload, "DELETE", {
-        validateResponse: hasOkResponse,
-        headers: {
-          "Idempotency-Key": deleteKey.forRequest(path, payload, "DELETE"),
-        },
-      });
+      await runMutation((signal) =>
+        api(path, payload, "DELETE", {
+          signal,
+          validateResponse: hasOkResponse,
+          headers: {
+            "Idempotency-Key": deleteKey.forRequest(path, payload, "DELETE"),
+          },
+        }),
+      );
       if (!isCurrent()) return;
       deleteKey.reset();
       comments.updateItems((items) =>
@@ -709,23 +749,29 @@ function TaskDiscussionContent({
   }
 
   async function reloadDeletingComment() {
-    if (!deleting || mutationPending.current) return;
+    if (!deleting || appSuspended || mutationPending.current) return;
     const target = deleting;
     const requestGeneration = generation.current;
+    const captured = overlay.capture();
+    const isCurrent = () =>
+      mounted.current && captured() && generation.current === requestGeneration;
+    const finishMutation = beginMutation();
     setDeleteError("");
-    const items = await comments.refresh();
-    if (!mounted.current || generation.current !== requestGeneration || !items)
-      return;
-    const latest = items.find((item) => item.id === target.id);
-    if (!latest) {
-      setDeleteError(
-        "This comment has already been deleted. Close this confirmation to continue.",
-      );
-      return;
+    try {
+      const items = await comments.refresh();
+      if (!isCurrent() || !items) return;
+      const latest = items.find((item) => item.id === target.id);
+      if (!latest) {
+        setDeleteError(
+          "This comment has already been deleted. Close this confirmation to continue.",
+        );
+        return;
+      }
+      setDeleting((current) => (current?.id === target.id ? latest : current));
+      setDeleteConflict(false);
+    } finally {
+      finishMutation(false);
     }
-    setDeleting((current) => (current?.id === target.id ? latest : current));
-    setDeleteError("");
-    setDeleteConflict(false);
   }
 
   function closeDelete() {
