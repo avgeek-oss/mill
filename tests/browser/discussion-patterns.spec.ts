@@ -232,12 +232,13 @@ for (const [width, theme] of [
     await confirmation
       .getByRole("button", { name: "Delete comment", exact: true })
       .click();
-    await expect(
-      page
-        .locator('[data-slot="toast"]')
-        .filter({ hasText: "Comment deletion unavailable." }),
-    ).toBeVisible();
+    const failureToast = page
+      .locator('[data-slot="toast"]')
+      .filter({ hasText: "Comment deletion unavailable." });
+    await expect(failureToast).toBeVisible();
     await expect(confirmation).toBeVisible();
+    await failureToast.locator('[data-slot="toast-close"]').click();
+    await expect(failureToast).toHaveCount(0);
     await expect(confirmation.getByRole("alert")).toHaveCount(0);
     await expect(
       page.getByRole("article", { name: /^Comment by/ }),
