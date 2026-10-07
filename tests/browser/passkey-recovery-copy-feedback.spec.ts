@@ -114,6 +114,9 @@ for (const width of [1280, 390])
         const activeToasts = page.locator(
           '[data-slot="toast"]:not([data-exiting="true"])',
         );
+        await expect(
+          activeToasts.filter({ hasText: "Passkey added" }),
+        ).toBeVisible();
         while (await activeToasts.count()) {
           const count = await activeToasts.count();
           await activeToasts
