@@ -1576,6 +1576,11 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
       `ALTER TABLE "${schema}".passkeys RENAME TO passkeys_list_fault`,
     );
     renamedKeys = true;
+    const passkeyFailureResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/auth/passkeys" &&
+        response.request().method() === "GET",
+    );
     await page
       .getByRole("navigation", {
         name: "Page navigation",
@@ -1583,6 +1588,10 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
       })
       .getByRole("button", { name: "Passkeys", exact: true })
       .click();
+    expect((await passkeyFailureResponse).status()).toBe(500);
+    await expect(
+      page.getByRole("button", { name: "Retry", exact: true }),
+    ).toBeVisible();
     await expect(
       feedbackToast(page, "Mill could not complete this request"),
     ).toBeVisible();
@@ -1608,6 +1617,11 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
       `ALTER TABLE "${schema}".sessions RENAME COLUMN user_agent TO user_agent_list_fault`,
     );
     renamedAgent = true;
+    const sessionFailureResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/auth/sessions" &&
+        response.request().method() === "GET",
+    );
     await page
       .getByRole("navigation", {
         name: "Page navigation",
@@ -1615,6 +1629,10 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
       })
       .getByRole("button", { name: "Sessions", exact: true })
       .click();
+    expect((await sessionFailureResponse).status()).toBe(500);
+    await expect(
+      sessions.getByRole("button", { name: "Retry", exact: true }),
+    ).toBeVisible();
     await expect(
       feedbackToast(page, "Mill could not complete this request"),
     ).toBeVisible();
