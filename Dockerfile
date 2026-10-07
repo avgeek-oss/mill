@@ -11,7 +11,8 @@ RUN --mount=type=secret,id=npm_token,required=true \
     printf '//npm.pkg.github.com/:_authToken=%s\n' "$(cat /run/secrets/npm_token)" > /run/npm-config/npmrc \
     && NPM_CONFIG_USERCONFIG=/run/npm-config/npmrc pnpm install --frozen-lockfile --store-dir /pnpm/store
 RUN pnpm build
-RUN pnpm --filter mill deploy --prod --legacy /prod/mill
+RUN --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
+    pnpm --filter mill deploy --prod --legacy --offline --store-dir /pnpm/store /prod/mill
 
 FROM base AS runtime
 ARG SOURCE_COMMIT=development
