@@ -212,6 +212,10 @@ for (const path of ["/login", "/login?source=preview#sign-in"]) {
     await expect(
       page.getByRole("heading", { name: "Page not found", exact: true }),
     ).toHaveCount(0);
+    const notFoundToast = page.locator('[data-slot="toast"]').filter({
+      hasText: "The link may be outdated or the page may have moved.",
+    });
+    await expect(notFoundToast).toHaveCount(0);
     await page.goto(path);
     await expect(
       page.getByRole("heading", { name: "Boards", exact: true }),
@@ -222,6 +226,7 @@ for (const path of ["/login", "/login?source=preview#sign-in"]) {
         process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323",
       ).href,
     );
+    await expect(notFoundToast).toHaveCount(0);
     await page.evaluate(
       (loginPath) =>
         window.history.replaceState(window.history.state, "", loginPath),
@@ -237,6 +242,7 @@ for (const path of ["/login", "/login?source=preview#sign-in"]) {
         process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323",
       ).href,
     );
+    await expect(notFoundToast).toHaveCount(0);
   });
 }
 

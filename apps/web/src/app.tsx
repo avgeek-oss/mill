@@ -437,21 +437,22 @@ export function App() {
     if (session && (path === "/" || path === "/boards"))
       document.title = "Boards · Mill";
   }, [path, session?.user.id]);
-  const overview = path === "/boards" || path === "/";
+  const canonicalizeToBoards = Boolean(
+    session &&
+    (path === "/" ||
+      path === "/notifications" ||
+      (!expired && path === "/login")),
+  );
+  const overview = path === "/boards" || path === "/" || canonicalizeToBoards;
   useEffect(() => {
     if (session && !expired) void loadBoards();
   }, [session?.user.id, expired, overview, sessionRevision]);
   useEffect(() => {
-    if (
-      session &&
-      (path === "/" ||
-        path === "/notifications" ||
-        (!expired && path === "/login"))
-    ) {
+    if (canonicalizeToBoards) {
       window.history.replaceState(window.history.state, "", "/boards");
       window.dispatchEvent(new Event("mill:navigate"));
     }
-  }, [session?.user.id, path, expired]);
+  }, [canonicalizeToBoards, path]);
   function interruptAccountActions(clearDraft = false) {
     accountActionGeneration.current++;
     logoutRequest.current?.abort();
