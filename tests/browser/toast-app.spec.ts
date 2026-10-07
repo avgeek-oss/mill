@@ -111,8 +111,8 @@ for (const [width, theme] of [
       await dismiss(page);
     }
     await email.fill("toast-sign-in@example.test");
-    await password.fill("Retained-password-42");
     for (let attempt = 0; attempt < 2; attempt++) {
+      await password.fill("Submitted-password-42");
       await submit.click();
       await expect(notification(page, failure)).toBeVisible();
       await expect
@@ -128,7 +128,7 @@ for (const [width, theme] of [
       ).toHaveCount(0);
       await expect(page.locator("form").getByRole("alert")).toHaveCount(0);
       await expect(email).toHaveValue("toast-sign-in@example.test");
-      await expect(password).toHaveValue("Retained-password-42");
+      await expect(password).toHaveValue("");
       await password.focus();
       await expect(notification(page, failure)).toHaveCount(1);
       await dismiss(page, failure);
