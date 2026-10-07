@@ -9,7 +9,7 @@
     "./date-picker-field": "./src/forms/date-picker-field.tsx"
   },
   "dependencies": {
-    "@avgeek-oss/design-system": "1.2.4",
+    "@avgeek-oss/design-system": "1.2.6",
     "@fontsource-variable/geist-mono": "5.3.0",
     "@fontsource-variable/inter": "5.3.0",
     "@heroui/react": "3.2.6",

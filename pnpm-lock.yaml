@@ -70,8 +70,8 @@ importers:
   apps/web:
     dependencies:
       '@avgeek-oss/design-system':
-        specifier: 1.2.5
-        version: 1.2.5(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
+        specifier: 1.2.6
+        version: 1.2.6(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
       '@heroui/react':
         specifier: 3.2.6
         version: 3.2.6(@internationalized/date@3.12.4)(@react-aria/ssr@3.10.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@react-aria/utils@3.34.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-aria-components@1.21.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-aria@3.52.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwind-merge@3.7.0)(tailwindcss@4.3.3)
@@ -135,8 +135,8 @@ importers:
   packages/web-design-system:
     dependencies:
       '@avgeek-oss/design-system':
-        specifier: 1.2.4
-        version: 1.2.4(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
+        specifier: 1.2.6
+        version: 1.2.6(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
       '@fontsource-variable/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -200,16 +200,8 @@ packages:
       react: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
       react-dom: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
 
-  '@avgeek-oss/design-system@1.2.4':
-    resolution: {integrity: sha512-hxzEfUW8ZwSmHlirz7o3OU4cJXhUa3EDLxpNleWW13mK8frwTBy3hAo1iInUqgw7xD9MUuAm/q/IqXjQMmFJJQ==, tarball: https://npm.pkg.github.com/download/@avgeek-oss/design-system/1.2.4/0307bf04d890dfbad1c62308c4e88533e542d351}
-    engines: {node: '>=24'}
-    peerDependencies:
-      next: ^16.0.0
-      react: ^19.0.0
-      react-dom: ^19.0.0
-
-  '@avgeek-oss/design-system@1.2.5':
-    resolution: {integrity: sha512-38Bjes+ZJsTfjCpUu9+5zpjwBWdBgKKRdmNf3XbeaBcKOq683S2Wb9T8J84EzGsxIOaN70b6SSiuF1dBX3BbIw==, tarball: https://npm.pkg.github.com/download/@avgeek-oss/design-system/1.2.5/578a3d11f24ca5b122ebded247eed567a0e3fc6b}
+  '@avgeek-oss/design-system@1.2.6':
+    resolution: {integrity: sha512-pJUXqlHOq6ruKOsGD0siBAbMgUGG0PxN7g+esGlCBRABV3ZVMrEDV75/4LrhbgLDYaKbiyAiFdtkKqbyjD68NA==, tarball: https://npm.pkg.github.com/download/@avgeek-oss/design-system/1.2.6/9eb937f4770c7baa9da8f17ffb96a61dbdde36f4}
     engines: {node: '>=24'}
     peerDependencies:
       next: ^16.0.0
@@ -2921,61 +2913,7 @@ snapshots:
       react-transition-group: 4.4.5(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       use-sync-external-store: 1.7.0(react@19.3.0)
 
-  '@avgeek-oss/design-system@1.2.4(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)':
-    dependencies:
-      '@fontsource-variable/geist-mono': 5.3.0
-      '@fontsource-variable/inter': 5.3.0
-      '@heroui/react': 3.2.6(@internationalized/date@3.12.4)(@react-aria/ssr@3.10.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@react-aria/utils@3.34.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-aria-components@1.21.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-aria@3.52.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwind-merge@3.7.0)(tailwindcss@4.3.3)
-      '@heroui/styles': 3.2.6(tailwind-merge@3.7.0)(tailwindcss@4.3.3)
-      '@hookform/resolvers': 5.9.1(@standard-schema/spec@1.1.0)(ajv@8.20.0)(react-hook-form@7.89.0(@types/react@19.3.0)(react@19.3.0))(zod@4.5.4)
-      '@hugeicons/core-free-icons': 4.3.5
-      '@hugeicons/react': 1.1.10(react@19.3.0)
-      '@internationalized/date': 3.12.4
-      '@react-aria/ssr': 3.10.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      '@react-aria/utils': 3.34.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      clsx: 2.1.1
-      next: 16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      prism-react-renderer: 2.4.1(react@19.3.0)
-      react: 19.3.0
-      react-aria: 3.52.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      react-aria-components: 1.21.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
-      react-dom: 19.3.0(react@19.3.0)
-      react-hook-form: 7.89.0(@types/react@19.3.0)(react@19.3.0)
-      recharts: 3.10.1(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
-      tailwind-merge: 3.7.0
-      tailwindcss: 4.3.3
-      zod: 4.5.4
-    transitivePeerDependencies:
-      - '@react-spectrum/provider'
-      - '@sinclair/typebox'
-      - '@standard-schema/spec'
-      - '@types/react'
-      - '@types/react-dom'
-      - '@typeschema/main'
-      - '@vinejs/vine'
-      - ajv
-      - ajv-errors
-      - ajv-formats
-      - arktype
-      - ata-validator
-      - class-transformer
-      - class-validator
-      - computed-types
-      - effect
-      - fluentvalidation-ts
-      - fp-ts
-      - io-ts
-      - joi
-      - nope-validator
-      - react-is
-      - redux
-      - superstruct
-      - typanion
-      - valibot
-      - vest
-      - yup
-
-  '@avgeek-oss/design-system@1.2.5(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)':
+  '@avgeek-oss/design-system@1.2.6(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)':
     dependencies:
       '@fontsource-variable/geist-mono': 5.3.0
       '@fontsource-variable/inter': 5.3.0

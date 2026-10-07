@@ -4,4 +4,4 @@ packages:
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
-  - "@avgeek-oss/design-system@1.2.4 || 1.2.5"
+  - "@avgeek-oss/design-system@1.2.6"
