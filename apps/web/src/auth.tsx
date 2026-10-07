@@ -18,6 +18,7 @@ import {
   TeamSetup,
 } from "@avgeek-oss/design-system";
 import { toast } from "@avgeek-oss/design-system/overlays/toast";
+import { BrandLockup } from "@avgeek-oss/design-system/media/brand-lockup";
 import {
   api,
   errorText,
@@ -60,10 +61,9 @@ export function AuthBrand() {
     <a
       href="/"
       aria-label="Mill sign in"
-      className="inline-flex w-fit items-center gap-2 font-medium"
+      className="inline-flex w-fit text-foreground"
     >
-      <MillMark />
-      Mill
+      <BrandLockup logo={<MillMark />}>Mill</BrandLockup>
     </a>
   );
 }
