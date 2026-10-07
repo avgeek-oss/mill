@@ -537,6 +537,85 @@ test("real loopback SMTP handoff carries a usable verification link and clears e
   }
 });
 
+test("real SMTP password reset rejects expired and replayed links and replaces credentials", async () => {
+  const server = await smtpFixture();
+  try {
+    const u = await setupUser();
+    const issueReset = async () => {
+      await json(
+        await request("/api/auth/password-reset/request", {
+          body: { email: u.user.email },
+        }),
+      );
+      assert.equal(await deliverEmailBatch(), 1);
+      const raw = server.messages
+        .at(-1)!
+        .replace(/=\r\n/g, "")
+        .replace(/=([0-9A-F]{2})/g, (_match, hex) =>
+          String.fromCharCode(parseInt(hex, 16)),
+        );
+      const token = raw.match(/\/recover#([A-Za-z0-9_-]{43})/)?.[1];
+      assert.ok(token);
+      const [stored] = await sql`SELECT token_hash FROM account_recovery`;
+      assert.notEqual(stored.tokenHash, token);
+      return token;
+    };
+    const expiredToken = await issueReset();
+    await sql`UPDATE account_recovery SET expires_at=now()-interval '1 second'`;
+    assert.equal(
+      (
+        await request("/api/auth/recovery/reset", {
+          body: { token: expiredToken, password },
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await request("/api/auth/me", { cookie: u.cookie })).status,
+      200,
+    );
+    await sql`DELETE FROM auth_rate_limits`;
+    const token = await issueReset();
+    const attempts = await Promise.all([
+      request("/api/auth/recovery/reset", { body: { token, password } }),
+      request("/api/auth/recovery/reset", { body: { token, password } }),
+    ]);
+    assert.deepEqual(
+      attempts.map((response) => response.status).sort(),
+      [200, 400],
+    );
+    assert.equal(
+      (await request("/api/auth/me", { cookie: u.cookie })).status,
+      401,
+    );
+    assert.equal(
+      (
+        await request("/api/auth/login", {
+          body: { email: u.user.email, password: "Secure test passphrase 42!" },
+        })
+      ).status,
+      401,
+    );
+    await json(
+      await request("/api/auth/login", {
+        body: { email: u.user.email, password },
+      }),
+    );
+    assert.equal(
+      (await sql`SELECT token_hash FROM account_recovery`).length,
+      0,
+    );
+    assert.equal(server.messages.length, 2);
+    assert.ok(
+      (await sql`SELECT payload FROM email_outbox`).every(
+        (row) => row.payload === null,
+      ),
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 test("retained UI intent cannot mutate a different browser account or authorize through an API key", async () => {
   const u = await setupUser();
   const credential = (

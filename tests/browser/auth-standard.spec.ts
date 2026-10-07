@@ -154,17 +154,27 @@ for (const [width, theme] of [
     await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
     expect(loginAttempts).toBe(2);
     await expect(page.locator('form [role="alert"]')).toHaveCount(0);
+    await failure.getByRole("button").click();
+    await expect(failure).toHaveCount(0);
     await page
       .getByRole("button", { name: "Forgot password?", exact: true })
       .click();
     await expect(
-      page.getByRole("heading", { name: "Recover your account" }),
+      page.getByRole("heading", { name: "Reset your password" }),
     ).toBeVisible();
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue(
+      browserBootstrap.email,
+    );
+    await page.getByRole("button", { name: "Send reset link" }).click();
+    await expect(failure).toHaveCount(1);
+    await expect(failure).toContainText("Email delivery is not configured");
+    await expect(page.getByLabel("Email", { exact: true })).toHaveValue(
+      browserBootstrap.email,
+    );
     await expect(
-      page.getByText("They can create a one-time recovery link.", {
-        exact: false,
-      }),
+      page.getByRole("heading", { name: "Reset your password" }),
     ).toBeVisible();
+    await failure.getByRole("button").click();
     await page
       .getByRole("button", { name: "← Back to Sign In", exact: true })
       .click();

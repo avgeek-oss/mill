@@ -439,7 +439,7 @@ export function Auth({
       </>
     );
   }
-  if (mode === "forgot" && emailDeliveryConfigured)
+  if (mode === "forgot")
     return (
       <ForgotPassword
         brand={brand}
@@ -466,18 +466,6 @@ export function Auth({
     );
   if (mode === "reset-sent")
     return <ResetLinkSent brand={brand} onBackToSignIn={backToSignIn} />;
-  if (mode === "forgot" && !emailDeliveryConfigured)
-    return (
-      <AuthScreen
-        brand={brand}
-        title="Recover your account"
-        description="Contact the person who runs your Mill installation. They can create a one-time recovery link."
-      >
-        <Button variant="secondary" onPress={backToSignIn}>
-          ← Back to Sign In
-        </Button>
-      </AuthScreen>
-    );
   if (mode === "reset")
     return token ? (
       <PasswordSetup
