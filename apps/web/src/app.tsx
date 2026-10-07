@@ -442,11 +442,16 @@ export function App() {
     if (session && !expired) void loadBoards();
   }, [session?.user.id, expired, overview, sessionRevision]);
   useEffect(() => {
-    if (session && (path === "/" || path === "/notifications")) {
+    if (
+      session &&
+      (path === "/" ||
+        path === "/notifications" ||
+        (!expired && path === "/login"))
+    ) {
       window.history.replaceState(window.history.state, "", "/boards");
       window.dispatchEvent(new Event("mill:navigate"));
     }
-  }, [session?.user.id, path]);
+  }, [session?.user.id, path, expired]);
   function interruptAccountActions(clearDraft = false) {
     accountActionGeneration.current++;
     logoutRequest.current?.abort();

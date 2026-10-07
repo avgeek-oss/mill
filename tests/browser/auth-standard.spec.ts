@@ -212,6 +212,31 @@ for (const path of ["/login", "/login?source=preview#sign-in"]) {
     await expect(
       page.getByRole("heading", { name: "Page not found", exact: true }),
     ).toHaveCount(0);
+    await page.goto(path);
+    await expect(
+      page.getByRole("heading", { name: "Boards", exact: true }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(
+      new URL(
+        "/boards",
+        process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323",
+      ).href,
+    );
+    await page.evaluate(
+      (loginPath) =>
+        window.history.replaceState(window.history.state, "", loginPath),
+      path,
+    );
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Boards", exact: true }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(
+      new URL(
+        "/boards",
+        process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323",
+      ).href,
+    );
   });
 }
 
