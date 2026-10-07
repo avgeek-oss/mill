@@ -49,7 +49,8 @@ Open **Settings → Account settings** in the primary sidebar, or use the accoun
 - **Email & Password**: your current email, verification state, pending email change, and password changes. Email changes require configured SMTP and recent identity confirmation.
 - **Passkeys**: registered passkeys and their recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
-- **API Keys**: your personal REST keys and authorized OAuth connections.
+- **API Keys**: your personal REST keys.
+- **MCP Connections**: authorized OAuth apps, their approved access, and individual revocation.
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 
 The account menu also links to Mill's changelog, documentation, feedback, and contribution guide. Administrators use **Team settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.

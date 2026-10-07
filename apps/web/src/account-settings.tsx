@@ -43,15 +43,8 @@ import {
   dateTimePreferenceOptions,
   dateTimePreview,
 } from "./date-time-preferences.js";
-import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Mail01Icon,
-  MonitorIcon,
-  Settings01Icon,
-  UserAccountIcon,
-} from "@hugeicons/core-free-icons";
 import { Save } from "./icons.js";
-import { PageHeading } from "./page-heading.js";
+import { SettingsHeading } from "./settings-heading.js";
 import { AppShellBreadcrumb } from "@avgeek-oss/design-system/layouts/app-shell-breadcrumb";
 import { usePageBreadcrumbs } from "./app-breadcrumbs.js";
 import { RelativeDateTime, useCurrentTime } from "./relative-date-time.js";
@@ -243,10 +236,7 @@ function ProfileSettings({
   );
   return (
     <section className="min-w-0">
-      <PageHeading
-        title="Profile"
-        icon={<HugeiconsIcon icon={UserAccountIcon} />}
-      />
+      <SettingsHeading section="profile" />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
         <ProfileImageSettings
           email={session.user.email}
@@ -328,10 +318,7 @@ function PreferenceSettings({
   }
   return (
     <section className="min-w-0">
-      <PageHeading
-        title="Preferences"
-        icon={<HugeiconsIcon icon={Settings01Icon} />}
-      />
+      <SettingsHeading section="preferences" />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
         <PreferencesSettings
           value={{
@@ -638,10 +625,7 @@ function EmailPasswordSettings({
           }}
         />
       )}
-      <PageHeading
-        title="Email & Password"
-        icon={<HugeiconsIcon icon={Mail01Icon} />}
-      />
+      <SettingsHeading section="email-password" />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
         {emailDeliveryConfigured ? (
           <ListState
@@ -735,7 +719,7 @@ function EmailPasswordSettings({
             isVerified={session.user.emailVerified}
             mode="read-only"
           >
-            <p className="text-sm text-muted">
+            <p className="text-xs text-muted">
               Email changes and verification are unavailable until email
               delivery is configured for this installation.
             </p>
@@ -855,7 +839,7 @@ function PasskeysSettings({
   return (
     <section className="min-w-0">
       <AppShellBreadcrumb items={breadcrumbs} title="Passkeys" />
-      {keys.items === null && <PageHeading title="Passkeys" />}
+      {keys.items === null && <SettingsHeading section="passkeys" />}
       <div className="content-grid min-w-0">
         <div className="min-w-0">
           <ListState
@@ -995,10 +979,7 @@ function SessionSettings({
       aria-label="Sessions"
       aria-busy={sessions.pending}
     >
-      <PageHeading
-        title="Sessions"
-        icon={<HugeiconsIcon icon={MonitorIcon} />}
-      />
+      <SettingsHeading section="sessions" />
       <ListState
         loaded={sessions.items !== null}
         error={sessions.error}

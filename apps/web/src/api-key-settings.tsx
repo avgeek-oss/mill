@@ -7,14 +7,11 @@ import type { Board } from "../../../packages/contracts/src/index.js";
 import { Button, QueryLoading, toast } from "@mill/web-design-system";
 import {
   ApiKeysSettings as SharedApiKeysSettings,
-  AuthorizedClientsTable,
-  AsyncActionButton,
+  McpConnectionsSettings,
   CreateApiKeyDialog,
   type ApiKey,
   type AuthorizedClient,
 } from "@avgeek-oss/design-system";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Key01Icon } from "@hugeicons/core-free-icons";
 import { Plus } from "./icons.js";
 import {
   api,
@@ -23,7 +20,7 @@ import {
   isResponseObject,
   type Session,
 } from "./api.js";
-import { PageHeading } from "./page-heading.js";
+import { SettingsHeading } from "./settings-heading.js";
 import { RelativeDateTime } from "./relative-date-time.js";
 
 type Credential = {
@@ -129,15 +126,26 @@ function CreateCredential({
   );
 }
 
-export function ApiKeySettings({
-  session,
-  boards,
-  onRefresh,
-}: {
+type CredentialSettingsProps = {
   session: Session;
   boards: Board[];
   onRefresh: () => void;
-}) {
+};
+
+export function ApiKeySettings(props: CredentialSettingsProps) {
+  return <CredentialSettings key="api-key" {...props} kind="api-key" />;
+}
+
+export function McpConnectionSettings(props: CredentialSettingsProps) {
+  return <CredentialSettings key="oauth" {...props} kind="oauth" />;
+}
+
+function CredentialSettings({
+  kind,
+  session,
+  boards,
+  onRefresh,
+}: CredentialSettingsProps & { kind: "api-key" | "oauth" }) {
   const overlay = useOverlaySuspension();
   const [items, setItems] = useState<Credential[] | null>(null);
   const [pending, setPending] = useState(true);
@@ -300,18 +308,19 @@ export function ApiKeySettings({
   );
   return (
     <section className="settings-page min-w-0">
-      <PageHeading
-        title="API keys"
-        icon={<HugeiconsIcon icon={Key01Icon} size={20} />}
+      <SettingsHeading
+        section={kind === "api-key" ? "api-keys" : "mcp-connections"}
         actions={
-          <Button onPress={() => setCreating(true)}>
-            <Plus /> Create API key
-          </Button>
+          kind === "api-key" ? (
+            <Button onPress={() => setCreating(true)}>
+              <Plus /> Create API key
+            </Button>
+          ) : undefined
         }
       />
       <section
         className="content-grid min-w-0"
-        aria-label="API keys"
+        aria-label={kind === "api-key" ? "API Keys" : "MCP Connections"}
         role="region"
         aria-busy={pending || morePending}
       >
@@ -319,36 +328,25 @@ export function ApiKeySettings({
           <QueryFeedback message={error} onRetry={() => void refresh()} />
         ) : null}
         {pending && items === null ? (
-          <QueryLoading className="sr-only">Loading API keys</QueryLoading>
+          <QueryLoading className="sr-only">
+            {kind === "api-key"
+              ? "Loading API keys"
+              : "Loading MCP connections"}
+          </QueryLoading>
         ) : items !== null ? (
-          <>
+          kind === "api-key" ? (
             <SharedApiKeysSettings
               items={apiKeys}
               formatDate={formatDate}
-              emptyDescription="Create a personal key to use Mill through the REST API."
               onRevoke={revoke}
             />
-            <h2 className="text-lg font-medium">Authorized clients</h2>
-            <AuthorizedClientsTable
+          ) : (
+            <McpConnectionsSettings
               items={authorizedClients}
               formatDate={formatDate}
-              emptyDescription="Connect an MCP client by signing in and approving its access."
-              actions={(item) => (
-                <AsyncActionButton
-                  variant="danger"
-                  onAction={() => revoke(item.id)}
-                  confirmation={{
-                    title: `Revoke ${item.client.name}?`,
-                    description:
-                      "This client will lose access immediately. Sign in from the client again to reconnect.",
-                    confirmLabel: "Revoke access",
-                  }}
-                >
-                  Revoke
-                </AsyncActionButton>
-              )}
+              onRevoke={revoke}
             />
-          </>
+          )
         ) : null}
         {nextCursor ? (
           <div className="content-grid">
@@ -367,7 +365,7 @@ export function ApiKeySettings({
           </div>
         ) : null}
       </section>
-      {creating && (
+      {kind === "api-key" && creating && (
         <CreateCredential
           onClose={() => setCreating(false)}
           onCreated={(credential) => {

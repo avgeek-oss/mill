@@ -6,12 +6,14 @@ import { ApplicationPage, TooltipText } from "@mill/web-design-system";
 export function PageHeading({
   title,
   icon,
+  titleContent,
   actions,
   actionsPlacement = "end",
   truncateTitle = false,
 }: {
   title: string;
   icon?: ReactNode;
+  titleContent?: ReactNode;
   actions?: ReactNode;
   actionsPlacement?: "inline" | "end";
   truncateTitle?: boolean;
@@ -32,12 +34,14 @@ export function PageHeading({
       breadcrumbContent={current?.content}
       breadcrumbContentKey={current?.contentKey}
       titleContent={
-        <span className="inline-flex min-w-0 items-center gap-2">
-          {icon}
-          <TooltipText className="min-w-0 truncate" tooltip={title}>
-            {title}
-          </TooltipText>
-        </span>
+        titleContent ?? (
+          <span className="inline-flex min-w-0 items-center gap-2">
+            {icon}
+            <TooltipText className="min-w-0 truncate" tooltip={title}>
+              {title}
+            </TooltipText>
+          </span>
+        )
       }
       badge={actionsPlacement === "inline" ? actions : undefined}
       actions={actionsPlacement === "inline" ? undefined : actions}

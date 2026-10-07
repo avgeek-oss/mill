@@ -147,7 +147,10 @@ for (const [width, theme] of [
       });
       await authenticateBrowserFixture(page, fixture);
       await page.goto("/settings/mcp");
-      const copy = page.getByRole("button", { name: "Copy code", exact: true });
+      const copy = page.getByRole("button", {
+        name: "Copy MCP configuration",
+        exact: true,
+      });
       const failure =
         "Could not copy to the clipboard. Select and copy the text instead.";
       for (let attempt = 0; attempt < 2; attempt++) {

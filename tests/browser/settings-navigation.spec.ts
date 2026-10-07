@@ -43,7 +43,8 @@ const accountPages = [
   ["email-password", "Email & Password", "Email & Password"],
   ["passkeys", "Passkeys", "Passkeys"],
   ["sessions", "Sessions", "Sessions"],
-  ["api-keys", "API Keys", "API keys"],
+  ["api-keys", "API Keys", "API Keys"],
+  ["mcp-connections", "MCP Connections", "MCP Connections"],
   ["mcp", "MCP Guide", "MCP Guide"],
 ] as const;
 
@@ -92,7 +93,7 @@ for (const width of [1280, 390])
         for (const [section, label, title] of accountPages) {
           await openNavigation(page);
           await expect(
-            primary.getByRole("link", { name: "API keys", exact: true }),
+            primary.getByRole("link", { name: "API Keys", exact: true }),
           ).toHaveCount(0);
           await expect(
             primary.getByRole("link", { name: "People", exact: true }),
@@ -123,6 +124,23 @@ for (const width of [1280, 390])
             page.getByRole("heading", { name: title, exact: true, level: 1 }),
           ).toBeVisible();
           await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+          const headingStyle = await page
+            .getByRole("heading", { level: 1 })
+            .evaluate((heading) => {
+              const icon = heading.querySelector("svg");
+              if (!icon) throw new Error("Settings heading icon missing");
+              const bounds = icon.getBoundingClientRect();
+              return {
+                fontSize: getComputedStyle(heading).fontSize,
+                iconWidth: bounds.width,
+                iconHeight: bounds.height,
+              };
+            });
+          expect(headingStyle).toEqual({
+            fontSize: "18px",
+            iconWidth: 24,
+            iconHeight: 24,
+          });
           if (section === "passkeys")
             await expect(
               page.getByRole("button", { name: "Add passkey", exact: true }),
@@ -141,10 +159,10 @@ for (const width of [1280, 390])
               name: "Connect your MCP client",
               exact: true,
             });
-            const picker = guide.getByRole("button", { name: /Client/ });
+            const picker = guide.getByRole("button", { name: /App/ });
             const code = guide.getByLabel("MCP configuration", { exact: true });
             const endpoint = `${fixture.origin}/mcp`;
-            await expect(picker).toContainText("Cursor");
+            await expect(picker).toContainText("Codex");
             for (const [name, filename, expectedCode] of [
               [
                 "Codex",
@@ -188,7 +206,10 @@ for (const width of [1280, 390])
               ).toHaveText(filename!);
               await expect(code).toHaveText(expectedCode!);
               await guide
-                .getByRole("button", { name: "Copy code", exact: true })
+                .getByRole("button", {
+                  name: "Copy MCP configuration",
+                  exact: true,
+                })
                 .click();
               await expect(
                 page
@@ -217,9 +238,7 @@ for (const width of [1280, 390])
                 exact: true,
               }),
             ).toHaveAttribute("href", "https://mill.fyi/clients");
-            await expect(
-              guide.getByRole("link", { name: "API keys", exact: true }),
-            ).toHaveAttribute("href", "/settings/api-keys");
+            await expect(guide.getByRole("link")).toHaveCount(1);
           }
           expect(
             await page.evaluate(
@@ -382,7 +401,9 @@ test("MCP configuration remains available when clipboard access fails", async ({
       name: "Connect your MCP client",
       exact: true,
     });
-    await guide.getByRole("button", { name: "Copy code", exact: true }).click();
+    await guide
+      .getByRole("button", { name: "Copy MCP configuration", exact: true })
+      .click();
     await expect(
       page.locator('[data-slot="toast"]').filter({
         hasText:
@@ -398,12 +419,15 @@ test("MCP configuration remains available when clipboard access fails", async ({
       ),
     ).toHaveCount(0);
     await expect(
-      guide.getByRole("button", { name: "Copy code", exact: true }),
+      guide.getByRole("button", {
+        name: "Copy MCP configuration",
+        exact: true,
+      }),
     ).toBeVisible();
     await expect(
       guide.getByLabel("MCP configuration", { exact: true }),
     ).toContainText(`${fixture.origin}/mcp`);
-    const picker = guide.getByRole("button", { name: /Client/ });
+    const picker = guide.getByRole("button", { name: /App/ });
     await picker.focus();
     await page.keyboard.press("Enter");
     await expect(picker).toHaveAttribute("aria-expanded", "true");
@@ -425,8 +449,10 @@ test("MCP configuration remains available when clipboard access fails", async ({
     ).toHaveText(
       `[mcp_servers.mill]\nurl = ${JSON.stringify(`${fixture.origin}/mcp`)}`,
     );
-    await guide.getByRole("link", { name: "API keys", exact: true }).click();
-    await expect(page).toHaveURL("/settings/api-keys");
+    await page.goto("/settings/mcp-connections");
+    await expect(
+      page.getByRole("heading", { name: "MCP Connections", exact: true }),
+    ).toBeVisible();
   } finally {
     await context.close();
   }

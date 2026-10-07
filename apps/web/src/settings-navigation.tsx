@@ -1,6 +1,7 @@
 import {
   BookOpen01Icon,
   Key01Icon,
+  Link01Icon,
   Mail01Icon,
   MonitorIcon,
   FingerPrintIcon,
@@ -8,41 +9,84 @@ import {
   UserAccountIcon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
+import { settingsPageLabels } from "@avgeek-oss/design-system";
 import { navigate } from "./api.js";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { SecondaryItems } from "@avgeek-oss/design-system/navigation/secondary-sidebar";
 
-export const accountSections = [
+type SettingsGroup = {
+  title: string;
+  items: { id: string; label: string; icon: typeof UserAccountIcon }[];
+};
+
+export const accountSections: SettingsGroup[] = [
   {
     title: "Account",
     items: [
-      { id: "profile", label: "Profile", icon: UserAccountIcon },
-      { id: "preferences", label: "Preferences", icon: Settings01Icon },
+      {
+        id: "profile",
+        label: settingsPageLabels["profile"],
+        icon: UserAccountIcon,
+      },
+      {
+        id: "preferences",
+        label: settingsPageLabels["preferences"],
+        icon: Settings01Icon,
+      },
     ],
   },
   {
     title: "Security",
     items: [
-      { id: "email-password", label: "Email & Password", icon: Mail01Icon },
-      { id: "passkeys", label: "Passkeys", icon: FingerPrintIcon },
-      { id: "sessions", label: "Sessions", icon: MonitorIcon },
+      {
+        id: "email-password",
+        label: settingsPageLabels["email-password"],
+        icon: Mail01Icon,
+      },
+      {
+        id: "passkeys",
+        label: settingsPageLabels["passkeys"],
+        icon: FingerPrintIcon,
+      },
+      {
+        id: "sessions",
+        label: settingsPageLabels["sessions"],
+        icon: MonitorIcon,
+      },
     ],
   },
   {
     title: "API & MCP",
     items: [
-      { id: "api-keys", label: "API Keys", icon: Key01Icon },
-      { id: "mcp", label: "MCP Guide", icon: BookOpen01Icon },
+      {
+        id: "api-keys",
+        label: settingsPageLabels["api-keys"],
+        icon: Key01Icon,
+      },
+      {
+        id: "mcp-connections",
+        label: settingsPageLabels["mcp-connections"],
+        icon: Link01Icon,
+      },
+      { id: "mcp", label: settingsPageLabels["mcp"], icon: BookOpen01Icon },
     ],
   },
 ];
 
-export const teamSections = [
+export const teamSections: SettingsGroup[] = [
   {
     title: "Team",
     items: [
-      { id: "workspace", label: "General", icon: Settings01Icon },
-      { id: "members", label: "Members", icon: UserGroupIcon },
+      {
+        id: "workspace",
+        label: settingsPageLabels.general,
+        icon: Settings01Icon,
+      },
+      {
+        id: "members",
+        label: settingsPageLabels["members"],
+        icon: UserGroupIcon,
+      },
     ],
   },
 ];
@@ -53,10 +97,8 @@ export const settingsTitles: Record<string, string> = {
       group.items.map((item) => [item.id, item.label]),
     ),
   ),
-  "api-keys": "API keys",
-  members: "People",
-  security: "Email & Password",
-  "two-factor": "Passkeys",
+  security: settingsPageLabels["email-password"],
+  "two-factor": settingsPageLabels.passkeys,
 };
 
 export const canonicalSettingsSection = (section: string) =>

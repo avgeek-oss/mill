@@ -217,7 +217,7 @@ test("invitation creation appears only as a toast alongside the private link whe
     });
   });
   await page
-    .getByRole("button", { name: "Invite a person", exact: true })
+    .getByRole("button", { name: "Create invitation", exact: true })
     .click();
   const form = page.getByRole("dialog", {
     name: "Create invitation",

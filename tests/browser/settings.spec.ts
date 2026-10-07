@@ -87,7 +87,12 @@ async function choose(
   await scope
     .getByRole("button", { name: new RegExp(`${label}\\*?$`) })
     .click();
-  await page.getByRole("option", { name: value, exact: true }).click();
+  await page
+    .getByRole("option", {
+      name: label === "Role" ? new RegExp(`^${value}\\b`) : value,
+      exact: label !== "Role",
+    })
+    .click();
 }
 async function accountAction(
   page: Page,
@@ -626,7 +631,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
     .click();
   async function invitation(email: string, role: string) {
     await page
-      .getByRole("button", { name: "Invite a person", exact: true })
+      .getByRole("button", { name: "Create invitation", exact: true })
       .click();
     const dialog = page.getByRole("dialog", {
       name: "Create invitation",
@@ -954,7 +959,7 @@ test("a personal API key uses current human permissions and loses access when re
       page.locator('[data-slot="code-block-code"] code'),
     ).toHaveCount(0);
     const row = page
-      .getByRole("region", { name: "API keys", exact: true })
+      .getByRole("region", { name: "API Keys", exact: true })
       .getByRole("row")
       .filter({ hasText: "Settings personal API key" });
     await row.getByRole("button", { name: "Revoke", exact: true }).click();

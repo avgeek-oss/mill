@@ -25,12 +25,16 @@ async function openInvitation(page: Page) {
   await authenticateBrowserFixture(page, fixture);
   await page.goto("/settings/members");
   await page
-    .getByRole("button", { name: "Invite a person", exact: true })
+    .getByRole("button", { name: "Create invitation", exact: true })
     .click();
   const form = page.getByRole("dialog", {
     name: "Create invitation",
     exact: true,
   });
+  await expect(form.getByLabel("Email", { exact: true })).toHaveAttribute(
+    "autocomplete",
+    "off",
+  );
   await form
     .getByLabel("Email", { exact: true })
     .fill("invitation-delivery@example.test");
@@ -112,7 +116,7 @@ for (const [width, theme, emailDelivery] of [
     await result.getByRole("button", { name: "Done", exact: true }).click();
     await expect(result).toHaveCount(0);
     await expect(
-      page.getByRole("button", { name: "Invite a person", exact: true }),
+      page.getByRole("button", { name: "Create invitation", exact: true }),
     ).toBeFocused();
   });
 }

@@ -6,13 +6,12 @@ import {
   useOverlaySuspension,
 } from "@avgeek-oss/design-system";
 import { EmptyState } from "@avgeek-oss/design-system/data-display/empty-state";
-import { Settings2 } from "./icons.js";
-import { PageHeading } from "./page-heading.js";
+import { SettingsHeading } from "./settings-heading.js";
 import type { Board, Member } from "../../../packages/contracts/src/index.js";
 import { api, type Session } from "./api.js";
 import { AccountSettings } from "./account-settings.js";
 import { PeopleSettings } from "./people-settings.js";
-import { ApiKeySettings } from "./api-key-settings.js";
+import { ApiKeySettings, McpConnectionSettings } from "./api-key-settings.js";
 import { isAccountSection, settingsTitles } from "./settings-navigation.js";
 import { McpGuide } from "./mcp-guide.js";
 
@@ -38,7 +37,10 @@ export function SettingsPage({
   useEffect(() => {
     document.title = `${title} · Mill`;
   }, [title]);
-  if (isAccountSection(section) && !["api-keys", "mcp"].includes(section))
+  if (
+    isAccountSection(section) &&
+    !["api-keys", "mcp-connections", "mcp"].includes(section)
+  )
     return (
       <AccountSettings
         key={`${section}:${session.user.id}`}
@@ -54,7 +56,9 @@ export function SettingsPage({
   )
     return (
       <section className="settings-page">
-        <PageHeading title={title} icon={<Settings2 />} />
+        <SettingsHeading
+          section={section === "members" ? "members" : "general"}
+        />
         <EmptyState>
           <EmptyState.Header>
             <EmptyState.Title>Administrator access required</EmptyState.Title>
@@ -74,10 +78,20 @@ export function SettingsPage({
     return (
       <ApiKeySettings session={session} boards={boards} onRefresh={onRefresh} />
     );
+  if (section === "mcp-connections")
+    return (
+      <McpConnectionSettings
+        session={session}
+        boards={boards}
+        onRefresh={onRefresh}
+      />
+    );
   if (section === "mcp") return <McpGuide />;
   return (
     <section className="settings-page">
-      <PageHeading title={title} icon={<Settings2 />} />
+      <SettingsHeading
+        section={section === "members" ? "members" : "general"}
+      />
       {section === "workspace" && (
         <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
           <TeamGeneralSettings

@@ -141,7 +141,7 @@ async function directoryAccount(page: Page) {
 async function openKeys(page: Page) {
   await page.goto("/settings/api-keys");
   await expect(
-    page.getByRole("heading", { name: "API keys", exact: true }),
+    page.getByRole("heading", { name: "API Keys", exact: true }),
   ).toBeVisible();
 }
 async function createDialog(
@@ -261,7 +261,7 @@ test("initial loading, failed loading, empty list and the personal key form rema
     await route.abort("failed");
   });
   await openKeys(page);
-  const region = page.getByRole("region", { name: "API keys", exact: true });
+  const region = page.getByRole("region", { name: "API Keys", exact: true });
   try {
     await expect(region).toHaveAttribute("aria-busy", "true");
     const loading = region
@@ -387,7 +387,7 @@ test("response loss retries the same creation, reveals the original token locall
   expect(
     (
       await page
-        .getByRole("region", { name: "API keys", exact: true })
+        .getByRole("region", { name: "API Keys", exact: true })
         .textContent()
     )?.includes(original),
     "The credential is absent from the metadata table",
@@ -520,7 +520,7 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
   expect(record).toBeUndefined();
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "API keys", exact: true }),
+    page.getByRole("heading", { name: "API Keys", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("row", { name: /Revocation retry key/ }),
@@ -678,7 +678,7 @@ test("older active credentials remain reachable and revocable after the default 
   );
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "API keys", exact: true }),
+    page.getByRole("heading", { name: "API Keys", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("row", { name: /Older active key|Recent revoked key/ }),
@@ -760,7 +760,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       ),
     ).toBe(true);
     const columns = await page
-      .getByRole("region", { name: "API keys", exact: true })
+      .getByRole("region", { name: "API Keys", exact: true })
       .locator("thead th")
       .evaluateAll((elements) =>
         elements
@@ -905,7 +905,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       await chooseTheme(mobile, theme, true);
       await mobile.evaluate(() => window.scrollTo(0, 0));
       const cells = await mobile
-        .getByRole("region", { name: "API keys", exact: true })
+        .getByRole("region", { name: "API Keys", exact: true })
         .locator("tbody tr")
         .first()
         .locator("td")
@@ -1066,4 +1066,87 @@ test("Agent navigation, settings and API routes are absent for every workspace r
       await fixture.api.dispose();
     }
   }
+});
+
+test("MCP connections stay separate from API keys and preserve paginated revocation retries", async ({
+  page,
+}) => {
+  const owner = await account(page);
+  const { sql, schema } = await database();
+  let connectionId: string;
+  try {
+    const [connection] = await sql.unsafe(
+      `INSERT INTO "${schema}".credentials(user_id,name,token_hash,token_prefix,token_type,oauth_client_id,scopes,board_ids,expires_at) VALUES($1::uuid,'Limited MCP client',gen_random_uuid()::text,'redacted','oauth','limited-mcp-client',ARRAY['read']::text[],ARRAY[$2::uuid],now()+interval '30 days') RETURNING id`,
+      [owner.id, board.id],
+    );
+    connectionId = connection.id;
+    await sql.unsafe(
+      `INSERT INTO "${schema}".credentials(user_id,name,token_hash,token_prefix,scopes,created_at,expires_at) SELECT $1::uuid,'Personal key '||n,gen_random_uuid()::text,'redacted',ARRAY[]::text[],now()+n*interval '1 second',now()+interval '30 days' FROM generate_series(1,205)n`,
+      [owner.id],
+    );
+  } finally {
+    await sql.end();
+  }
+  await openKeys(page);
+  await expect(
+    page.getByText("Limited MCP client", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("grid", { name: "MCP connections", exact: true }),
+  ).toHaveCount(0);
+  await page.goto("/settings/mcp-connections");
+  await expect(
+    page.getByRole("heading", { name: "MCP Connections", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Create API key", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Load more credentials" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Load more credentials" }).click();
+  const row = page.getByRole("row").filter({ hasText: "Limited MCP client" });
+  await expect(row).toContainText(`Read only · ${board.name}`);
+  await expect(page.getByText("Personal key 205", { exact: true })).toHaveCount(
+    0,
+  );
+  const retryKeys: string[] = [];
+  let loseResponse = true;
+  await page.route(`**/api/credentials/${connectionId}`, async (route) => {
+    retryKeys.push(route.request().headers()["idempotency-key"]!);
+    const response = await route.fetch();
+    if (loseResponse) {
+      loseResponse = false;
+      await route.abort("failed");
+    } else await route.fulfill({ response });
+  });
+  await row.getByRole("button", { name: "Revoke", exact: true }).click();
+  const confirmation = page.getByRole("dialog", {
+    name: "Revoke Limited MCP client?",
+    exact: true,
+  });
+  const revoke = confirmation.getByRole("button", {
+    name: "Revoke connection",
+    exact: true,
+  });
+  await revoke.click();
+  await expect(feedbackToast(page, "Mill could not be reached")).toBeVisible();
+  await expect(confirmation).toBeVisible();
+  await revoke.click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(row).toHaveCount(0);
+  expect(retryKeys).toHaveLength(2);
+  expect(retryKeys[0]).toBeTruthy();
+  expect(retryKeys[1]).toBe(retryKeys[0]);
+  const credentials = await json(page.request, "/credentials");
+  expect(
+    credentials.items.filter(
+      (item: { tokenType: string }) => item.tokenType === "api-key",
+    ),
+  ).toHaveLength(200);
+  await page.reload();
+  await page.getByRole("button", { name: "Load more credentials" }).click();
+  await expect(
+    page.getByText("Limited MCP client", { exact: true }),
+  ).toHaveCount(0);
 });

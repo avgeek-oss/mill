@@ -16,20 +16,16 @@ import {
   MemberEditDialog,
   RemoveMemberDialog,
   RevokeInvitationDialog,
+  teamRoleOptions,
 } from "@avgeek-oss/design-system";
 import { Tooltip } from "@avgeek-oss/design-system/overlays/tooltip";
 import { toast } from "@avgeek-oss/design-system/overlays/toast";
-import type { ChoiceOption } from "@avgeek-oss/design-system";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
-  CrownIcon,
-  EyeIcon,
-  UserShield01Icon,
+  Add01Icon,
   Clock01Icon,
   CheckmarkCircle01Icon,
   InformationCircleIcon,
-  Mail01Icon,
-  UserMultipleIcon,
 } from "@hugeicons/core-free-icons";
 import type { Member, Role } from "../../../packages/contracts/src/index.js";
 import {
@@ -39,7 +35,7 @@ import {
   isResponseObject,
   type Session,
 } from "./api.js";
-import { PageHeading } from "./page-heading.js";
+import { SettingsHeading } from "./settings-heading.js";
 import { RelativeDateTime, useCurrentTime } from "./relative-date-time.js";
 
 type Invitation = {
@@ -51,23 +47,6 @@ type Invitation = {
   acceptedAt: string | null;
   revokedAt: string | null;
 };
-const roleNames: Record<Role, string> = {
-  admin: "Admin",
-  member: "Member",
-  viewer: "Viewer",
-};
-const roleIcons = {
-  admin: CrownIcon,
-  member: UserShield01Icon,
-  viewer: EyeIcon,
-} satisfies Record<Role, typeof CrownIcon>;
-const sharedRoleOptions: ChoiceOption<Role>[] = Object.entries(roleNames).map(
-  ([id, label]) => ({
-    id: id as Role,
-    label,
-    icon: <HugeiconsIcon icon={roleIcons[id as Role]} aria-hidden />,
-  }),
-);
 type ListState<T> = {
   items: T[];
   loading: boolean;
@@ -352,9 +331,8 @@ export function PeopleSettings({
   }
   return (
     <section ref={peopleSection} className="settings-page">
-      <PageHeading
-        title="People"
-        icon={<HugeiconsIcon icon={UserMultipleIcon} size={20} />}
+      <SettingsHeading
+        section="members"
         actions={
           <Button
             ref={inviteTrigger}
@@ -363,8 +341,8 @@ export function PeopleSettings({
               setInviteOpen(true);
             }}
           >
-            <HugeiconsIcon icon={Mail01Icon} size={16} />
-            Invite a person
+            <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden="true" />
+            Create invitation
           </Button>
         }
       />
@@ -386,7 +364,7 @@ export function PeopleSettings({
                   ...member,
                   accountStatus: { label: "Active", color: "success" as const },
                 }))}
-                roles={sharedRoleOptions}
+                roles={teamRoleOptions}
                 currentUserId={session.user.id}
                 actions={(member) => {
                   const lastAdmin =
@@ -464,7 +442,7 @@ export function PeopleSettings({
                     ),
                   },
                 }))}
-                roles={sharedRoleOptions}
+                roles={teamRoleOptions}
                 formatDate={(value) => (
                   <RelativeDateTime
                     value={value}
@@ -546,10 +524,10 @@ function InvitePersonDialog({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      roles={sharedRoleOptions}
+      roles={teamRoleOptions}
       defaultRole="member"
       resultGuidance={
-        <p className="text-sm text-muted">
+        <p className="text-xs text-muted">
           {emailDelivery === "queued"
             ? "The invitation email is queued. You can also copy the link to share it directly."
             : "Email delivery is not configured. Copy the link to share it directly."}{" "}
@@ -605,7 +583,7 @@ function PeopleActionDialog({
         isOpen
         mode="role-only"
         member={action.member}
-        roles={sharedRoleOptions}
+        roles={teamRoleOptions}
         onOpenChange={(open) => {
           if (!open) onClose();
         }}

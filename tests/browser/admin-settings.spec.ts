@@ -69,7 +69,7 @@ async function login(page: Page, path = "/settings/members") {
   await page.goto(path);
   await expect(
     page.getByRole("heading", {
-      name: path.endsWith("workspace") ? "General" : "People",
+      name: path.endsWith("workspace") ? "General" : "Members",
       exact: true,
       level: 1,
     }),
@@ -188,7 +188,7 @@ test("People lists load independently, show separate recovery and protect the la
       members.getByRole("grid", { name: "Members", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Members", exact: true }),
+      members.getByRole("heading", { name: "Members", exact: true }),
     ).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: "Invitations", exact: true }),
@@ -259,7 +259,7 @@ test("invitation creation keeps the draft modal open after a failure toast, reve
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await login(page);
   await page
-    .getByRole("button", { name: "Invite a person", exact: true })
+    .getByRole("button", { name: "Create invitation", exact: true })
     .click();
   let posts = 0;
   let release!: () => void;
@@ -333,7 +333,7 @@ test("invitation creation keeps the draft modal open after a failure toast, reve
     ).toBe(true);
     await reveal.getByRole("button", { name: "Done", exact: true }).click();
     await expect(
-      page.getByRole("button", { name: "Invite a person", exact: true }),
+      page.getByRole("button", { name: "Create invitation", exact: true }),
     ).toBeFocused();
     await expect(
       page.getByLabel("Invitation link", { exact: true }),
@@ -369,7 +369,7 @@ test("invitation creation keeps the draft modal open after a failure toast, reve
       exact: true,
     });
     await roleDialog.getByRole("button", { name: /Role\*?$/ }).click();
-    await page.getByRole("option", { name: "Viewer", exact: true }).click();
+    await page.getByRole("option", { name: /^Viewer\b/ }).click();
     await roleDialog
       .getByRole("button", { name: "Update", exact: true })
       .click();
@@ -496,7 +496,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
       if (await switcher.isVisible()) await switcher.click();
       await expect(
         page.getByRole("heading", {
-          name: name === "people" ? "People" : "General",
+          name: name === "people" ? "Members" : "General",
           exact: true,
           level: 1,
         }),
@@ -593,7 +593,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
       });
       if (name === "people") {
         await page
-          .getByRole("button", { name: "Invite a person", exact: true })
+          .getByRole("button", { name: "Create invitation", exact: true })
           .click();
         const dialog = page.getByRole("dialog", {
           name: "Create invitation",
@@ -726,9 +726,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
             name: /Role\*?$/,
           })
           .click();
-        await touch
-          .getByRole("option", { name: "Viewer", exact: true })
-          .click();
+        await touch.getByRole("option", { name: /^Viewer\b/ }).click();
         const cancel = dialog.getByRole("button", {
           name: "Cancel",
           exact: true,
@@ -939,7 +937,7 @@ test("invitation pagination reaches and revokes an older active invitation beyon
       feedbackToast(page, "Workspace access removed."),
     ).toBeVisible();
     const inviteAction = page.getByRole("button", {
-      name: "Invite a person",
+      name: "Create invitation",
       exact: true,
     });
     const focusState = await inviteAction.evaluate((element) => ({

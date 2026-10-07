@@ -95,7 +95,12 @@ async function choose(
   await scope
     .getByRole("button", { name: new RegExp(`${label}\\*?$`) })
     .click();
-  await page.getByRole("option", { name: value, exact: true }).click();
+  await page
+    .getByRole("option", {
+      name: label === "Role" ? new RegExp(`^${value}\\b`) : value,
+      exact: label !== "Role",
+    })
+    .click();
   await expect(page.getByRole("listbox")).toBeHidden();
 }
 async function openBoardAction(
@@ -1683,7 +1688,7 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
   expect(bindingAfterEdit.assigneeId).toBeNull();
   await page.goto("/settings/members");
   await page
-    .getByRole("button", { name: "Invite a person", exact: true })
+    .getByRole("button", { name: "Create invitation", exact: true })
     .click();
   await page
     .getByLabel("Email", { exact: true })
@@ -1944,7 +1949,7 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
     expect(revokedRead.status()).toBe(401);
     await page.reload();
     await expect(
-      page.getByRole("heading", { name: "API keys", exact: true, level: 1 }),
+      page.getByRole("heading", { name: "API Keys", exact: true, level: 1 }),
     ).toBeVisible();
     await expect(credentialRow).toHaveCount(0);
   } finally {

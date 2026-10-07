@@ -90,7 +90,7 @@ Client metadata documents must be public HTTPS JSON, use their exact document UR
 
 ## Revoke or diagnose a connection
 
-Open **API keys**, choose the owning key's revoke action, and confirm **Revoke API key**. Revocation takes effect on the next request and removes the key from the list. Revoked keys and connections are omitted from every page; expired keys remain visible until revoked. Personal API-key activity identifies the human owner. OAuth activity identifies the person who approved the connection and distinguishes OAuth actions from direct human actions. Workspace-wide audit history is not included in v1.
+Open **Account settings → API Keys** to revoke a personal key, or **Account settings → MCP Connections** to revoke an authorized app. Confirm **Revoke key** or **Revoke connection**. Revocation takes effect on the next request and removes the key from the list. Revoked keys and connections are omitted from every page; expired keys remain visible until revoked. Personal API-key activity identifies the human owner. OAuth activity identifies the person who approved the connection and distinguishes OAuth actions from direct human actions. Workspace-wide audit history is not included in v1.
 
 Mill 1.0.0 starts from one initial database migration. Private pre-launch installations that used the older sequence need the maintainer's conversion procedure before starting this version; do not change their migration ledger by hand. See [upgrades](upgrades.md).
 

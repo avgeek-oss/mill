@@ -83,7 +83,7 @@ for (const [index, operation] of operations.entries()) {
     };
     const keyOperation = operation.endsWith("key");
     const path = keyOperation ? "/settings/api-keys" : "/settings/members";
-    const heading = keyOperation ? "API keys" : "People";
+    const heading = keyOperation ? "API Keys" : "Members";
     const requestPath =
       operation === "create-key"
         ? "/api/credentials"
@@ -197,7 +197,7 @@ for (const [index, operation] of operations.entries()) {
         submit = "Revoke key";
       } else if (operation === "invite") {
         await page
-          .getByRole("button", { name: "Invite a person", exact: true })
+          .getByRole("button", { name: "Create invitation", exact: true })
           .click();
         dialogTitle = "Create invitation";
         submit = "Create invitation";
@@ -218,7 +218,7 @@ for (const [index, operation] of operations.entries()) {
           .getByRole("dialog", { name: dialogTitle, exact: true })
           .getByRole("button", { name: /Role\*$/ })
           .click();
-        await page.getByRole("option", { name: "Viewer", exact: true }).click();
+        await page.getByRole("option", { name: /^Viewer\b/ }).click();
       } else if (operation === "remove") {
         await page
           .getByRole("button", { name: `Remove ${member.name}`, exact: true })
