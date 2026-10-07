@@ -91,9 +91,12 @@ export async function revalidateAuthority(
 ) {
   await lockAuthority(tx);
   const existing = requireRole(c, min, boardId);
-  const [member] = await tx<
-    { role: Actor["role"]; name: string; securityEpoch: number }[]
-  >`SELECT role,name,security_epoch FROM users WHERE id=${existing.userId} AND disabled_at IS NULL FOR SHARE`;
+  const [member] =
+    existing.kind === "team"
+      ? [{ role: existing.role, name: existing.name, securityEpoch: 0 }]
+      : await tx<
+          { role: Actor["role"]; name: string; securityEpoch: number }[]
+        >`SELECT role,name,security_epoch FROM users WHERE id=${existing.userId} AND disabled_at IS NULL FOR SHARE`;
   if (!member)
     throw new HTTPException(401, {
       message: "Your membership changed. Sign in again.",
@@ -105,24 +108,35 @@ export async function revalidateAuthority(
         boardIds: string[] | null;
         tokenType: string;
         resource: string | null;
+        accessLevel: "read" | "edit";
+        includeAdmin: boolean;
       }[]
-    >`SELECT scopes,board_ids,token_type,resource FROM credentials WHERE id=${existing.credentialId} AND user_id=${existing.userId} AND revoked_at IS NULL AND expires_at>now() FOR SHARE`;
+    >`SELECT scopes,board_ids,token_type,resource,access_level,include_admin FROM credentials WHERE id=${existing.credentialId} AND user_id IS NOT DISTINCT FROM ${existing.kind === "team" ? null : existing.userId} AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>now()) FOR SHARE`;
     if (!credential)
       throw new HTTPException(401, {
         message: "This credential expired or was revoked",
       });
     if (
       credential.tokenType === "api-key" &&
-      existing.kind === "human" &&
+      (existing.kind === "human" || existing.kind === "team") &&
       credential.boardIds === null &&
       credential.scopes.length === 0
     ) {
       c.set("actor", {
         ...existing,
         name: member.name,
-        role: member.role,
+        role:
+          existing.kind === "team"
+            ? credential.includeAdmin
+              ? "admin"
+              : credential.accessLevel === "edit"
+                ? "member"
+                : "viewer"
+            : member.role,
         credentialType: "api-key",
-        scopes: member.role === "viewer" ? ["read"] : ["read", "write"],
+        scopes:
+          credential.accessLevel === "edit" ? ["read", "write"] : ["read"],
+        includeAdmin: credential.includeAdmin,
         boardIds: undefined,
       });
     } else if (
@@ -238,7 +252,7 @@ export async function notify(
   userId: string,
   kind: "assignment" | "mention",
 ) {
-  if (userId === a.userId) return;
+  if (a.kind !== "team" && userId === a.userId) return;
   const [user] = await tx<
     { notificationPreferences: { assignments?: boolean; mentions?: boolean } }[]
   >`SELECT notification_preferences FROM users WHERE id=${userId} AND disabled_at IS NULL`;

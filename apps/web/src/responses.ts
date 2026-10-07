@@ -75,9 +75,12 @@ export function hasCommentResponse(value: unknown) {
   const comment = record(value, "comment");
   return (
     !!comment &&
-    ["body", "authorId", "createdAt", "updatedAt"].every(
+    ["body", "createdAt", "updatedAt"].every(
       (key) => typeof comment[key] === "string",
     ) &&
+    (typeof comment.authorId === "string" ||
+      (comment.authorId === null && comment.authorKind === "team")) &&
+    ["human", "oauth", "team"].includes(String(comment.authorKind)) &&
     (comment.authorName === undefined ||
       typeof comment.authorName === "string") &&
     version(comment.version)

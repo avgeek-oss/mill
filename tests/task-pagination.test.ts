@@ -337,7 +337,12 @@ test("a personal API key reads future-board task pages and restarts after its hu
   const key = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Task page automation", expiresInDays: 365 },
+      body: {
+        name: "Task page automation",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
+      },
     }),
     201,
   );

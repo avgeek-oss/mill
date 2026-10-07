@@ -57,11 +57,17 @@ const presentation: Record<
   },
 };
 
-export function StatusIcon({ status }: { status: TaskStatus }) {
+export function StatusIcon({
+  status,
+  size = 16,
+}: {
+  status: TaskStatus;
+  size?: 16 | 20;
+}) {
   return (
     <HugeiconsIcon
       icon={presentation[status].icon}
-      size={16}
+      size={size}
       aria-hidden="true"
       className={`shrink-0 ${presentation[status].iconClassName}`}
     />

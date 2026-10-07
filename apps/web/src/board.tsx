@@ -21,7 +21,6 @@ import {
   SearchField,
   Dropdown,
   EmptyState,
-  TypographyText,
   TableCellStack,
   TableCellDescription,
   TooltipText,
@@ -78,7 +77,7 @@ function TaskIdentity({ name, email = "" }: { name?: string; email?: string }) {
           email={email}
           name={name}
           size="sm"
-          className="size-5 rounded-full"
+          className="size-7 shrink-0 rounded-full [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:text-muted"
         />
       )}
       <TooltipText
@@ -800,14 +799,7 @@ export function BoardPage({
                 filterContainer,
               )}
             {!accessDenied && error && board && (
-              <QueryFeedback
-                message={error}
-                onRetry={() => {
-                  if (loading) return;
-                  rememberPaginationFocus();
-                  void load(requestedPage.current, true);
-                }}
-              />
+              <ErrorMessage>{error}</ErrorMessage>
             )}
             {loading && !tasks.length ? (
               <QueryLoading className="sr-only">Loading tasks…</QueryLoading>
@@ -939,11 +931,6 @@ export function BoardPage({
                 tabIndex={-1}
                 className="mt-3 flex flex-wrap items-center justify-end gap-3 outline-none"
               >
-                <TypographyText textRole="caption" role="status">
-                  {taskTotal === 0
-                    ? "0 tasks"
-                    : `${(taskPage - 1) * displayedPageSize + 1}–${Math.min(taskPage * displayedPageSize, taskTotal)} of ${taskTotal} tasks`}
-                </TypographyText>
                 <fieldset disabled={paginationDisabled || taskListChanged}>
                   <Pagination
                     className="w-auto"
@@ -1012,13 +999,6 @@ export function BoardPage({
                   setSettings(false);
                 }}
                 title="Board settings"
-                footer={
-                  busy && (
-                    <TypographyText textRole="supporting" role="status">
-                      Saving…
-                    </TypographyText>
-                  )
-                }
               >
                 <ErrorMessage>{settingsError}</ErrorMessage>
                 <form
@@ -1077,7 +1057,14 @@ export function BoardPage({
                       isDisabled={!writable}
                     >
                       <Save />
-                      Save board
+                      <span className="grid">
+                        <span aria-hidden className="invisible [grid-area:1/1]">
+                          Save board
+                        </span>
+                        <span className="[grid-area:1/1]">
+                          {busy ? "Saving…" : "Save board"}
+                        </span>
+                      </span>
                     </Button>
                   </div>
                 </form>

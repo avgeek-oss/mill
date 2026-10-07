@@ -530,8 +530,14 @@ for (const width of [1280, 390])
         const viewUrl = page.url();
         await page.reload();
         await expect(
-          page.getByText("11–13 of 13 tasks", { exact: true }),
+          page.getByText("Page 2 of 2", { exact: true }),
         ).toBeVisible();
+        await expect(
+          page
+            .getByRole("grid", { name: "Task list", exact: true })
+            .getByRole("row")
+            .filter({ has: page.getByRole("link") }),
+        ).toHaveCount(3);
         expect(page.url()).toBe(viewUrl);
         await expect(search).toHaveValue("Release");
         const titleLink = page

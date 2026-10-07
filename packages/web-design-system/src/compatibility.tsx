@@ -185,7 +185,7 @@ export function Choice({
         {label}
       </Label>
       <Select.Trigger className="min-w-0">
-        <Select.Value className="flex min-w-0 flex-1 items-center gap-2 [&_[data-slot=avatar]]:size-5">
+        <Select.Value className="flex min-w-0 flex-1 items-center gap-2">
           {selected?.startContent ? (
             <span aria-hidden="true" className="inline-flex shrink-0">
               {selected.startContent}
@@ -222,7 +222,7 @@ export function Choice({
           >
             <SearchField
               aria-label={`Search ${label.toLowerCase()}`}
-              className="px-2 pt-2"
+              className="p-2"
               variant="secondary"
             >
               <SearchField.Group className="rounded-md">

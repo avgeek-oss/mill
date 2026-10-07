@@ -268,7 +268,12 @@ test("OAuth retains its protocol errors while durable task history distinguishes
   const key = await (
     await request("/api/credentials", {
       cookie,
-      body: { name: "Personal key" },
+      body: {
+        name: "Personal key",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     })
   ).json();
   const edited = await request(`/api/tasks/${task.id}`, {

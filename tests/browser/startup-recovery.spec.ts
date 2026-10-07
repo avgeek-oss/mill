@@ -86,7 +86,7 @@ for (const failure of ["server", "network"] as const) {
     await expect(
       page.getByRole("heading", { name: "Mill could not load" }),
     ).toBeVisible();
-    await expect(page.locator('[data-slot="toast"]')).toHaveCount(1);
+    await expect(page.locator('[data-slot="toast"]')).toHaveCount(0);
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Sign in" })).toHaveCount(0);
 
@@ -351,7 +351,7 @@ test("a stale entry reloads once to the current application build", async ({
   ).toBe(new URL(staleEntry, origin).href);
 });
 
-for (const action of ["Reload", "Go to boards"]) {
+for (const action of ["Try again", "Go to boards"]) {
   test(`a failed page module recovers through ${action}`, async ({ page }) => {
     await authenticate(page);
     let failModule = true;
@@ -368,7 +368,12 @@ for (const action of ["Reload", "Go to boards"]) {
       (request) =>
         request.isNavigationRequest() && request.frame() === page.mainFrame(),
     );
-    await page.getByRole("button", { name: action, exact: true }).click();
+    await page
+      .getByRole(action === "Go to boards" ? "link" : "button", {
+        name: action,
+        exact: true,
+      })
+      .click();
     await navigation;
     await expect(
       page.getByRole("navigation", { name: "Workspace navigation" }),
@@ -376,7 +381,7 @@ for (const action of ["Reload", "Go to boards"]) {
     await expect(
       page.getByRole("heading", { name: "Unable to open this page" }),
     ).toHaveCount(0);
-    if (action === "Reload") {
+    if (action === "Try again") {
       await expect(page).toHaveURL(`/boards/${boardId}`);
       await expect(
         page.getByRole("heading", {
@@ -466,14 +471,14 @@ test("missing pages have a primary recovery action in both themes and viewport s
         await page.goto("/missing-review-page");
         if (width === 390) await expectTouchContext(page);
         const heading = page.getByRole("heading", {
-          name: "This page could not be found",
+          name: "Page not found",
           exact: true,
         });
         await expect(heading).toBeVisible();
         await expect(
-          page.getByRole("button", { name: "Reload", exact: true }),
+          page.getByRole("button", { name: "Try again", exact: true }),
         ).toHaveCount(0);
-        const action = page.getByRole("button", {
+        const action = page.getByRole("link", {
           name: "Go to boards",
           exact: true,
         });
@@ -569,7 +574,7 @@ test("board read failure retries without a transient placeholder or empty state"
     );
     await expect(
       page.getByRole("heading", {
-        name: "Mill could not load this page",
+        name: "We couldn't load this page",
         exact: true,
       }),
     ).toHaveCount(0);
@@ -646,7 +651,7 @@ test("limited roles see permission recovery without administrative data requests
               await page.goto(`/settings/${section}`);
               await expect(
                 page.getByRole("heading", {
-                  name: "This page could not be found",
+                  name: "Page not found",
                   exact: true,
                 }),
               ).toBeVisible();

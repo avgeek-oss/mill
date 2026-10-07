@@ -211,7 +211,12 @@ test("board deletion requires a human Admin and current version, purges owned ro
   const personal = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Persistent personal key", expiresInDays: 90 },
+      body: {
+        name: "Persistent personal key",
+        access: "edit",
+        includeAdmin: true,
+        expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+      },
       headers: { "Idempotency-Key": "personal-credential-cache" },
     }),
     201,
@@ -219,7 +224,12 @@ test("board deletion requires a human Admin and current version, purges owned ro
   const memberKey = await json(
     await request("/api/credentials", {
       cookie: colleague.cookie,
-      body: { name: "Member automation", expiresInDays: 30 },
+      body: {
+        name: "Member automation",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );

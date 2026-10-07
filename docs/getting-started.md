@@ -16,7 +16,7 @@ Search tasks above the table. Use the secondary panel for status, assignee and p
 
 An administrator opens **Team Settings → Members**, chooses **Invite a person**, and selects their role. Share the invitation link privately with the intended recipient; Mill does not deliver email. Invitations expire and create an account for the invited email address. Each person should use their own account.
 
-Admins manage the team through **Team Settings → Members** and **General**. Members create and edit work. Viewers can read boards and tasks but cannot change them. Personal API keys inherit their owner's current role across all accessible boards. Only MCP OAuth has approved-board and read/write scope restrictions. A key cannot administer the workspace.
+Admins manage the team through **Team Settings → Members** and **General**. Members create and edit work. Viewers can read boards and tasks but cannot change them. Personal API keys are limited by explicit grants and their owner's active current role. Admins can create team keys with stored grants. API keys and OAuth can access MCP, while identity and team security management remain browser-only.
 
 ## Secure your account
 
@@ -26,7 +26,7 @@ Review active sessions and revoke a device you no longer use. Select your name a
 
 ## Connect an external client
 
-For REST, open **API keys**, choose **Create API key**, and enter a Name and Expiry: 30, 60, 90, or 365 days. Save the one-time token in the client's secret store. It uses your current permissions.
+For REST or MCP, open **API Keys**, choose **Create API key**, and enter a Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). Save the one-time token in the client's secret store. Admins create team keys under **Team Settings → API Keys**.
 
 For MCP OAuth, enter Mill's `/mcp` URL in your client. Sign in, review the requesting client and scopes, and optionally choose approved boards before allowing access. The connection belongs to you and uses your current role within those approved permissions. Follow [the REST/MCP connection guide](clients.md).
 

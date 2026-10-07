@@ -419,7 +419,7 @@ test("team settings persist without backup or portable data surfaces", async ({
   await page.goto("/settings/data");
   await expect(
     page.getByRole("heading", {
-      name: "This page could not be found",
+      name: "Page not found",
       exact: true,
       level: 1,
     }),

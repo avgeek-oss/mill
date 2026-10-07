@@ -31,7 +31,12 @@ export { credentialActor } from "./external/credentials.js";
 export { setApiDispatcher } from "./external/mcp.js";
 
 export const externalRoutes = new Hono<Env>();
-for (const path of ["/api/credentials", "/api/credentials/*"])
+for (const path of [
+  "/api/credentials",
+  "/api/credentials/*",
+  "/api/team-credentials",
+  "/api/team-credentials/*",
+])
   externalRoutes.use(path, async (c, next) => {
     c.header("Cache-Control", "no-store");
     c.header("Pragma", "no-cache");
@@ -58,7 +63,12 @@ for (const path of ["/.well-known/*", "/oauth/*", "/api/oauth/*", "/mcp"]) {
     await next();
   });
 }
-for (const path of ["/oauth/*", "/api/oauth/*", "/api/credentials*"])
+for (const path of [
+  "/oauth/*",
+  "/api/oauth/*",
+  "/api/credentials*",
+  "/api/team-credentials*",
+])
   externalRoutes.use(
     path,
     bodyLimit({
@@ -73,44 +83,61 @@ externalRoutes.use(
     onError: (c) => c.json({ error: "Request is too large" }, 413),
   }),
 );
-externalRoutes.get("/api/credentials", async (c) => {
-  const who = requireHuman(c);
-  const query = z
-    .object({
-      limit: z.coerce.number().int().min(1).max(200).default(200),
-      cursor: z.uuid().optional(),
-    })
-    .safeParse(c.req.query());
-  if (!query.success)
-    badRequest("Choose a limit from 1 to 200 and a valid credential cursor");
-  return c.json(
-    await listCredentials(who, query.data.limit, query.data.cursor),
-  );
-});
-externalRoutes.post("/api/credentials", async (c) => {
-  const a = requireHuman(c);
-  const parsed = z
-    .object({
-      name: z.string().trim().min(1).max(120),
-      expiresInDays: z
-        .union([z.literal(30), z.literal(60), z.literal(90), z.literal(365)])
-        .default(30),
-    })
-    .strict()
-    .safeParse(await c.req.json());
-  if (!parsed.success)
-    badRequest("Choose a name and an expiry of 30, 60, 90, or 365 days");
-  await recentSession(c);
-  return c.json(await createCredential(a, parsed.data), 201);
-});
-externalRoutes.delete("/api/credentials/:id", async (c) => {
-  const a = requireHuman(c),
-    id = z.uuid().safeParse(c.req.param("id"));
-  if (!id.success) badRequest("Invalid credential");
-  if (!(await revokeCredential(a, id.data)))
-    throw new HTTPException(404, { message: "Credential not found" });
-  return c.json({ revoked: true });
-});
+for (const scope of ["personal", "team"] as const) {
+  const route =
+    scope === "personal" ? "/api/credentials" : "/api/team-credentials";
+  externalRoutes.get(route, async (c) => {
+    const who = requireHuman(c);
+    if (scope === "team" && who.role !== "admin")
+      throw new HTTPException(403, {
+        message: "Only administrators can manage team API keys",
+      });
+    const query = z
+      .object({
+        limit: z.coerce.number().int().min(1).max(200).default(200),
+        cursor: z.uuid().optional(),
+      })
+      .safeParse(c.req.query());
+    if (!query.success)
+      badRequest("Choose a limit from 1 to 200 and a valid credential cursor");
+    return c.json(
+      await listCredentials(who, query.data.limit, query.data.cursor, scope),
+    );
+  });
+  externalRoutes.post(route, async (c) => {
+    const a = requireHuman(c);
+    if (scope === "team" && a.role !== "admin")
+      throw new HTTPException(403, {
+        message: "Only administrators can manage team API keys",
+      });
+    const parsed = z
+      .object({
+        name: z.string().trim().min(1).max(120),
+        access: z.enum(["read", "edit"]),
+        includeAdmin: z.boolean(),
+        expiresAt: z.iso.datetime().nullable(),
+      })
+      .strict()
+      .safeParse(await c.req.json());
+    if (!parsed.success)
+      badRequest("Choose a name, permissions, and an expiry");
+    await recentSession(c);
+    return c.json(await createCredential(a, parsed.data, scope), 201);
+  });
+  externalRoutes.delete(`${route}/:id`, async (c) => {
+    const a = requireHuman(c),
+      id = z.uuid().safeParse(c.req.param("id"));
+    if (scope === "team" && a.role !== "admin")
+      throw new HTTPException(403, {
+        message: "Only administrators can manage team API keys",
+      });
+    if (!id.success) badRequest("Invalid credential");
+    if (scope === "team") await recentSession(c);
+    if (!(await revokeCredential(a, id.data, scope)))
+      throw new HTTPException(404, { message: "Credential not found" });
+    return c.json({ revoked: true });
+  });
+}
 externalRoutes.use(
   "/.well-known/*",
   cors({ origin: "*", allowMethods: ["GET", "OPTIONS"] }),
@@ -269,7 +296,10 @@ externalRoutes.all("/mcp", async (c) => {
       "WWW-Authenticate",
       `Bearer resource_metadata="${resourceMetadataUrl()}"`,
     );
-    return c.json({ error: "A valid OAuth credential is required" }, 401);
+    return c.json(
+      { error: "A valid API key or OAuth credential is required" },
+      401,
+    );
   }
   return serveMcp(c);
 });

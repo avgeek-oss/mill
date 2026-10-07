@@ -103,8 +103,8 @@ export function requireRole(
       message: "You do not have permission for this action",
     });
   if (
-    a.kind === "oauth" &&
-    (min === "admin" ||
+    a.credentialId &&
+    ((min === "admin" && !a.includeAdmin) ||
       !a.scopes.includes(min === "viewer" ? "read" : "write") ||
       (boardId && a.boardIds && !a.boardIds.includes(boardId)))
   )

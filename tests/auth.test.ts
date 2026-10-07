@@ -250,6 +250,9 @@ test("profiles validate time zones, preserve omitted preferences and reject API-
       cookie: admin.cookie,
       body: {
         name: "Personal API key",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
       },
     })
   ).json();
@@ -510,6 +513,9 @@ test("last administrator protection survives concurrent demotion and member remo
       cookie: member.cookie,
       body: {
         name: "Member API key",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
       },
     })
   ).json();
@@ -571,7 +577,12 @@ test("passkey recovery is atomic, single-use, digest-only and cannot approve sec
   );
   const deniedKey = await request("/api/credentials", {
     cookie: recoveryCookie,
-    body: { name: "Recovery key" },
+    body: {
+      name: "Recovery key",
+      access: "edit",
+      includeAdmin: false,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+    },
   });
   assert.equal(deniedKey.status, 403);
   assert.equal(
@@ -678,7 +689,12 @@ test("passkey recovery is atomic, single-use, digest-only and cannot approve sec
     (
       await request("/api/credentials", {
         cookie: recoveryCookie,
-        body: { name: "Approved key" },
+        body: {
+          name: "Approved key",
+          access: "edit",
+          includeAdmin: false,
+          expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        },
       })
     ).status,
     201,
@@ -936,6 +952,9 @@ test("password changes revoke other sessions and API keys, preserving the curren
       cookie: admin.cookie,
       body: {
         name: "Personal API key",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
       },
     })
   ).json();
@@ -987,6 +1006,9 @@ test("operator recovery links expire, are single-use, revoke credentials and can
       cookie: admin.cookie,
       body: {
         name: "Personal API key",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
       },
     })
   ).json();
@@ -1195,7 +1217,12 @@ test("replacing passkey recovery codes requires fresh passkey proof and invalida
     (
       await request("/api/credentials", {
         cookie: admin.cookie,
-        body: { name: "Expired passkey proof" },
+        body: {
+          name: "Expired passkey proof",
+          access: "edit",
+          includeAdmin: false,
+          expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        },
       })
     ).status,
     403,

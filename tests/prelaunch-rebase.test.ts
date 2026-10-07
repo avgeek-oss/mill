@@ -35,6 +35,14 @@ const baseline = await readFile(
   new URL("../packages/database/migrations/001_initial.sql", import.meta.url),
   "utf8",
 );
+const keyPolicy = await readFile(
+  new URL(
+    "../packages/database/migrations/002_key_policies.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const keyPolicyChecksum = createHash("sha256").update(keyPolicy).digest("hex");
 const previousBaseline = baseline
   .replace(
     "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
@@ -628,11 +636,29 @@ for (const source of [
       if (!source.hasType) delete retained.type;
       assert.deepEqual(retained, before[0]);
       assert.deepEqual(
-        [...(await sql`SELECT * FROM credentials`)],
+        (await sql`SELECT * FROM credentials`).map((row) =>
+          Object.fromEntries(
+            Object.keys(credentials[0] ?? row).map((key) => [key, row[key]]),
+          ),
+        ),
         credentials,
       );
       assert.deepEqual([...(await sql`SELECT * FROM activity`)], activity);
-      assert.deepEqual([...(await sql`SELECT * FROM comments`)], comments);
+      const convertedComments = [...(await sql`SELECT * FROM comments`)];
+      assert.ok(
+        convertedComments.every(
+          (comment) =>
+            comment.author_kind === "human" && comment.author_name === null,
+        ),
+      );
+      assert.deepEqual(
+        convertedComments.map((row) =>
+          Object.fromEntries(
+            Object.keys(comments[0] ?? row).map((key) => [key, row[key]]),
+          ),
+        ),
+        comments,
+      );
       assert.deepEqual(
         [
           ...(await sql.unsafe(
@@ -657,7 +683,10 @@ for (const source of [
       );
       assert.deepEqual(
         [...(await sql`SELECT name,checksum FROM mill_migrations`)],
-        [{ name: "001_initial.sql", checksum: converted.baselineChecksum }],
+        [
+          { name: "001_initial.sql", checksum: converted.baselineChecksum },
+          { name: "002_key_policies.sql", checksum: keyPolicyChecksum },
+        ],
       );
     } finally {
       await sql.end();

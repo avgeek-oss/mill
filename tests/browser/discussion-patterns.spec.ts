@@ -83,6 +83,7 @@ for (const [width, theme] of [
       id: randomUUID(),
       taskId: task.id,
       authorId: fixture.identity.user.id,
+      authorKind: "human",
       authorName: fixture.identity.user.name,
       body: `History comment ${index}`,
       version: 1,
@@ -152,8 +153,13 @@ for (const [width, theme] of [
       exact: true,
     });
     await expect(table.getByRole("row")).toHaveCount(3);
-    await expect(table).toContainText("Browser");
-    await expect(table).toContainText("API key");
+    await expect(
+      table.getByRole("columnheader", { name: "Subject", exact: true }),
+    ).toBeVisible();
+    await expect(table).toContainText("Browser owner");
+    await expect(table).toContainText("REST owner");
+    await expect(table.getByText("· Browser", { exact: true })).toHaveCount(0);
+    await expect(table.getByText("API key", { exact: true })).toHaveCount(0);
     await history
       .getByRole("button", { name: "Load earlier activity" })
       .click();
@@ -171,7 +177,7 @@ for (const [width, theme] of [
       .getByRole("button", { name: "Load earlier activity" })
       .click();
     await expect(table.getByRole("row")).toHaveCount(5);
-    await expect(table).toContainText("MCP");
+    await expect(table).toContainText("MCP owner");
     await expect(table).toContainText("Historical owner");
     for (const secret of ["private-request-id", "private-detail-value"])
       await expect(history.getByText(secret, { exact: false })).toHaveCount(0);

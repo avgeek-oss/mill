@@ -35,7 +35,12 @@ async function fixture(scopes: string[] = ["read", "write"]) {
   });
   const created = await request("/api/credentials", {
     cookie,
-    body: { name: "Personal automation", expiresInDays: 30 },
+    body: {
+      name: "Personal automation",
+      access: "edit",
+      includeAdmin: false,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+    },
   });
   assert.equal(created.status, 201);
   const personal = await created.json();
@@ -408,7 +413,12 @@ async function changeAccessWhileWriteWaits(
     action === "revoke" || access === "personal-key"
       ? await request("/api/credentials", {
           cookie: memberCookie,
-          body: { name: "Pending personal key", expiresInDays: 30 },
+          body: {
+            name: "Pending personal key",
+            access: "edit",
+            includeAdmin: false,
+            expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+          },
         })
       : null;
   const credential = credentialResponse
@@ -544,7 +554,12 @@ test("retrying credential creation returns the same secret while encrypting stor
   const { cookie } = await setupUser();
   const options = {
     cookie,
-    body: { name: "Retried credential", expiresInDays: 30 },
+    body: {
+      name: "Retried credential",
+      access: "edit",
+      includeAdmin: false,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+    },
     headers: { "Idempotency-Key": "security-credential-retry" },
   };
   const firstResponse = await request("/api/credentials", options);

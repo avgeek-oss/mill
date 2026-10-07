@@ -9,6 +9,7 @@ export function QueryFeedback({
   message: string;
   onRetry?: () => void;
 }) {
+  if (!message) return null;
   return (
     <>
       <ErrorMessage>{message}</ErrorMessage>

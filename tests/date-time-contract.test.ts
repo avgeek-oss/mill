@@ -237,7 +237,7 @@ test("exact preceding schema conversion preserves every existing display choice 
       "passkeys",
       "credentials",
     ];
-    const before: Record<string, unknown> = {};
+    const before: Record<string, Record<string, unknown>[]> = {};
     for (const table of tables)
       before[table] = [
         ...(await db.unsafe(`SELECT * FROM "${table}" ORDER BY id`)),
@@ -266,11 +266,15 @@ test("exact preceding schema conversion preserves every existing display choice 
       assert.equal(receipt.applied, true);
       for (const table of tables) {
         assert.deepEqual(
-          [
-            ...(await converting.unsafe(
-              `SELECT * FROM "${table}" ORDER BY id`,
-            )),
-          ],
+          (await converting.unsafe(`SELECT * FROM "${table}" ORDER BY id`)).map(
+            (row) =>
+              Object.fromEntries(
+                Object.keys(before[table][0] ?? row).map((key) => [
+                  key,
+                  row[key],
+                ]),
+              ),
+          ),
           before[table],
         );
         assert.deepEqual(

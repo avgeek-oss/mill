@@ -6,7 +6,7 @@ Start with [REST and MCP clients](clients.md) for connections, [accounts and tea
 
 ## Authentication and limits
 
-Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST clients use `Authorization: Bearer mill_…` from a personal API key belonging to a human account. Keys use that account's current permissions without scope or board restrictions. OAuth tokens belong to the person approving the connection and authorize `/mcp` only, not public REST.
+Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST and MCP clients can use `Authorization: Bearer mill_…` from a personal or team API key. The key's stored grant limits the action; personal keys are also bounded by the owner's current active membership and role. OAuth tokens belong to the person approving the connection and authorize `/mcp` only, not public REST.
 
 Authenticated requests are limited to 240 per minute per person or credential; anonymous requests to 120 per minute per client address. MCP dispatch also uses the REST limit. `429` includes `Retry-After: 60`. Ordinary request bodies are bounded to 2 MiB, credential/OAuth bodies to 16 KiB, and MCP requests/tool responses to 1 MiB.
 
@@ -41,9 +41,9 @@ An expired identity-confirmation window returns `403 REAUTHENTICATION_REQUIRED`;
 
 ## Permissions
 
-Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Human Admins additionally manage membership/workspace settings and permanently delete boards. Every active member can access workspace boards. Personal API keys inherit that current access. OAuth connections can narrow it to approved boards and read or read/write scope.
+Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Human Admins additionally manage membership/workspace settings and permanently delete boards. Every active member can access workspace boards. Personal API keys are bounded by current access and their stored grant. Team keys use their stored team grant. OAuth connections can narrow access to approved boards and read or read/write scope.
 
-Every credential inherits its owner's current role and active membership. Administration, credentials, identity settings, and consent require a human session. Personal API keys cannot call any `/api/auth` route, including the team directory. Board-restricted OAuth connections cannot create boards or list members; unscoped OAuth can resolve basic member metadata through MCP. Notifications stay within the owner's account and, for scoped OAuth, approved boards. Authorization is rechecked before a mutation commits.
+Personal credentials require the owner's active membership and current role. Team keys use a stored team policy independent of the creator's later membership. Identity, membership, account security, credential management, and consent require a browser session. API keys cannot call any `/api/auth` route, including the team directory. Board-restricted OAuth connections cannot create boards or list members; unscoped OAuth can resolve basic member metadata through MCP. Notifications stay within the owner's account and, for scoped OAuth, approved boards. Authorization is rechecked before a mutation commits.
 
 ## Boards
 
@@ -143,7 +143,7 @@ curl --fail-with-body "$MILL_URL/api/tasks/TASK_UUID" \
 
 Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. Only the author or a human Admin can delete a comment. An OAuth client can delete its owner's comments within approved boards and write scope, but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human` or `oauth`), identifying the person responsible for the action.
 
-New activity records also include `detail.connection` with `type` (`session`, `api-key`, or `oauth`) and the originating `requestId`. This distinguishes browser, REST and MCP changes while retaining the same human owner. It contains no tokens or credential values and survives revocation. Historical records without this metadata remain unattributed to a connection type.
+New activity records also include `detail.connection` with `type` (`session`, `api-key`, or `oauth`) and the originating `requestId`. This distinguishes browser, REST and MCP changes; team-key actions carry a team actor. It contains no tokens or credential values and survives revocation. Historical records without this metadata remain unattributed to a connection type.
 
 ## Notifications and settings
 
@@ -164,15 +164,20 @@ A retained completed retry key from before migration returns terminal `410`, inc
 
 ## Credentials
 
-| Method and path               | Request                                   | Response                                                    |
-| ----------------------------- | ----------------------------------------- | ----------------------------------------------------------- |
-| `GET /api/credentials`        | Human session; optional `limit`, `cursor` | `{items,hasMore,nextCursor}` with metadata, no token hashes |
-| `POST /api/credentials`       | Human session; `{name,expiresInDays?}`    | `{credential,token}` once                                   |
-| `DELETE /api/credentials/:id` | Owner's human session                     | `{revoked:true}`                                            |
+| Method and path                    | Request                                                                | Response                                                             |
+| ---------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `GET /api/credentials`             | Owner's browser session; optional `limit`, `cursor`                    | `{items,hasMore,nextCursor}` with personal metadata, no token hashes |
+| `POST /api/credentials`            | Owner's recent browser session; `{name,access,includeAdmin,expiresAt}` | `{credential,token}` once                                            |
+| `DELETE /api/credentials/:id`      | Owner's browser session                                                | `{revoked:true}`                                                     |
+| `GET /api/team-credentials`        | Admin browser session; optional `limit`, `cursor`                      | `{items,hasMore,nextCursor}` with team-key metadata                  |
+| `POST /api/team-credentials`       | Admin's recent browser session; `{name,access,includeAdmin,expiresAt}` | `{credential,token}` once                                            |
+| `DELETE /api/team-credentials/:id` | Admin browser session                                                  | `{revoked:true}`                                                     |
 
-API keys belong to the person who creates them; an Admin does not gain another person's key ownership. A name is trimmed, nonempty, and at most 120 characters. Expiry defaults to 30 days and accepts only 30, 60, 90, or 365. `agentId`, `scopes`, and `boardIds` are rejected. The token is revealed once; later responses contain metadata without tokens or hashes.
+All four creation fields are required. `name` is trimmed, nonempty, and at most 120 characters; `access` is `read` or `edit`; `includeAdmin` is a boolean. The three UI choices map to `{access:"read",includeAdmin:false}` (Read-only), `{access:"edit",includeAdmin:false}` (Edit), and `{access:"edit",includeAdmin:true}` (Administrative permissions). `expiresAt` is a future timestamp or `null` for Never; Never requires an Admin issuer, with any of the three permission choices. The UI offers 30 days, 90 days, 1 year, and Never, with no preselected value. `expiresInDays`, `agentId`, `scopes`, and `boardIds` are rejected. The token is revealed once; later responses contain metadata without tokens or hashes.
 
-Personal API-key metadata has `tokenType:"api-key"`, null `boardIds`, and an empty stored `scopes` list. Runtime access comes from the human owner's current role and active membership across all accessible boards, including future boards. Viewer keys read; Member/Admin keys can change work within current role and human-session boundaries. Keys cannot use MCP, human-only management routes, or other owners' credentials. The same credential listing also includes the owner's OAuth connections, their scopes, and optional approved-board metadata. Revoked credentials are excluded before pagination; expired credentials remain listed until revoked. An owned cursor remains valid if its credential is revoked between pages. Neither credential type has Agent fields.
+Personal keys belong to their owner, require current active membership, and apply the stored grant within the current role. Demotion permanently narrows the stored grant; promotion does not restore it. Team keys have `userId:null` and a stored team grant independent of the creator's future membership. Team-key creation/list/revocation is Admin-only. Both key types can use REST and MCP, and neither can use browser-only identity, membership, security, or credential-management routes. The personal listing also includes the owner's OAuth connections with their scopes and approved-board metadata. Revoked credentials are excluded before pagination; expired credentials remain listed until revoked. Neither credential type has Agent fields.
+
+Team-key comments identify a team author in responses, with `authorKind:"team"`, a team-key name, and `authorId:null`; the creator's ID is retained only as a database reference. Edit team keys may remove team-authored comments, but cannot remove a person's comment through creator ownership. Team-key assignments and mentions notify the creator if they are a recipient. Activity attributes the action to the team key.
 
 ## Health and backups
 

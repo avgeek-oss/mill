@@ -4,7 +4,9 @@ import {
   createHmac,
   timingSafeEqual,
 } from "node:crypto";
+import { renderAuthEmail } from "@avgeek-oss/design-system/emails/render";
 import { Hono, type Context } from "hono";
+import { millEmailBrand } from "./email-brand.js";
 import { z } from "zod";
 import type { PendingEmailChange } from "../../../../packages/contracts/src/index.js";
 import { sql } from "../../../../packages/database/src/index.js";
@@ -131,8 +133,10 @@ async function issueVerification(
     { requestId: id },
     {
       to: user.email,
-      subject: "Verify your Mill email address",
-      text: `Confirm your email address by opening this link:\n${appOrigin()}/verify-email#${id}.${token}\n\nThis link expires in one hour. If you did not request it, ignore this email.`,
+      ...(await renderAuthEmail("email-verification", {
+        brand: millEmailBrand,
+        actionUrl: `${appOrigin()}/verify-email#${id}.${token}`,
+      })),
     },
     expiresAt,
   );
@@ -196,8 +200,10 @@ async function publicEmailRequest(
         { recoveryHash: digest },
         {
           to: user.email,
-          subject: "Reset your Mill password",
-          text: `Reset your password by opening this link:\n${appOrigin()}/recover#${token}\n\nThis link expires in one hour. If you did not request it, ignore this email.`,
+          ...(await renderAuthEmail("password-reset", {
+            brand: millEmailBrand,
+            actionUrl: `${appOrigin()}/recover#${token}`,
+          })),
         },
         expiresAt,
       );
@@ -287,8 +293,10 @@ emailRoutes.post("/email-change", async (c) => {
       { requestId: id },
       {
         to: input.email,
-        subject: "Confirm your Mill email change",
-        text: `Confirm your new email address by opening this link:\n${appOrigin()}/confirm-email-change#${id}.${token}\n\nThis link expires in one hour. If you did not request it, ignore this email.`,
+        ...(await renderAuthEmail("email-change-verification", {
+          brand: millEmailBrand,
+          actionUrl: `${appOrigin()}/confirm-email-change#${id}.${token}`,
+        })),
       },
       expiresAt,
     );
@@ -367,8 +375,10 @@ emailRoutes.post("/invitation/verification/request", async (c) => {
       { requestId: id },
       {
         to: i.email,
-        subject: "Verify your Mill invitation",
-        text: `Your invitation verification code is ${code}.\n\nIt expires in ten minutes. If you did not request it, ignore this email.`,
+        ...(await renderAuthEmail("invitation-verification", {
+          brand: millEmailBrand,
+          verificationCode: code,
+        })),
       },
       expiresAt,
     );

@@ -9,6 +9,8 @@ import {
   ApiKeysSettings as SharedApiKeysSettings,
   McpConnectionsSettings,
   CreateApiKeyDialog,
+  apiKeyPermissionOptions,
+  apiKeyExpiryOptions,
   type ApiKey,
   type AuthorizedClient,
 } from "@avgeek-oss/design-system";
@@ -21,6 +23,7 @@ import {
   type Session,
 } from "./api.js";
 import { SettingsHeading } from "./settings-heading.js";
+import { PageHeading } from "./page-heading.js";
 import { RelativeDateTime } from "./relative-date-time.js";
 
 type Credential = {
@@ -29,9 +32,12 @@ type Credential = {
   scopes: string[];
   boardIds: string[] | null;
   tokenType: "api-key" | "oauth";
+  accessLevel: "read" | "edit";
+  includeAdmin: boolean;
+  userId: string | null;
   tokenPrefix?: string;
   oauthClientId?: string | null;
-  expiresAt: string;
+  expiresAt: string | null;
   createdAt: string;
   lastUsedAt: string | null;
   revokedAt: string | null;
@@ -56,8 +62,11 @@ function validCreationResponse(value: unknown) {
     credential.scopes.length === 0 &&
     credential.boardIds === null &&
     credential.tokenType === "api-key" &&
-    typeof credential.expiresAt === "string" &&
-    Number.isFinite(Date.parse(credential.expiresAt)) &&
+    (credential.expiresAt === null ||
+      (typeof credential.expiresAt === "string" &&
+        Number.isFinite(Date.parse(credential.expiresAt)))) &&
+    ["read", "edit"].includes(String(credential.accessLevel)) &&
+    typeof credential.includeAdmin === "boolean" &&
     typeof credential.createdAt === "string" &&
     Number.isFinite(Date.parse(credential.createdAt)) &&
     credential.lastUsedAt === null &&
@@ -65,18 +74,23 @@ function validCreationResponse(value: unknown) {
   );
 }
 function stateOf(credential: Credential) {
-  return Date.parse(credential.expiresAt) <= Date.now() ? "Expired" : "Active";
+  return credential.expiresAt && Date.parse(credential.expiresAt) <= Date.now()
+    ? "Expired"
+    : "Active";
 }
 
 function CreateCredential({
   onClose,
   onCreated,
+  scope,
 }: {
   onClose: () => void;
   onCreated: (credential: Credential) => void;
+  scope: "personal" | "team";
 }) {
   const overlay = useOverlaySuspension();
   const [retryKey] = useState(createRetryKey);
+  const expiryForAttempt = useRef(new Map<string, string | null>());
   const identity = useIdentityConfirmation();
   return (
     <>
@@ -89,23 +103,39 @@ function CreateCredential({
             onClose();
           }
         }}
-        expiryOptions={[30, 60, 90, 365].map((days) => ({
-          id: String(days),
-          label: `${days} days`,
-        }))}
-        defaultExpiry="30"
-        onCreate={async ({ name, expiry }) => {
+        permissionOptions={apiKeyPermissionOptions}
+        expiryOptions={apiKeyExpiryOptions}
+        onCreate={async ({ name, permission, expiry }) => {
           const isCurrent = overlay.capture();
-          const payload = { name: name.trim(), expiresInDays: Number(expiry) };
+          const path = scope === "team" ? "/team-credentials" : "/credentials";
+          const days = Number(expiry);
+          const selection = JSON.stringify({
+            name: name.trim(),
+            permission,
+            expiry,
+          });
+          if (!expiryForAttempt.current.has(selection))
+            expiryForAttempt.current.set(
+              selection,
+              expiry === "never"
+                ? null
+                : new Date(Date.now() + days * 86400000).toISOString(),
+            );
+          const payload = {
+            name: name.trim(),
+            access: permission === "read" ? "read" : "edit",
+            includeAdmin: permission === "admin",
+            expiresAt: expiryForAttempt.current.get(selection)!,
+          };
           const result = await api<{ credential: Credential; token: string }>(
-            "/credentials",
+            path,
             payload,
             "POST",
             {
               validateResponse: validCreationResponse,
               onReauthenticationRequired: identity.confirmIdentity,
               headers: {
-                "Idempotency-Key": retryKey.forRequest("/credentials", payload),
+                "Idempotency-Key": retryKey.forRequest(path, payload),
               },
             },
           );
@@ -118,8 +148,10 @@ function CreateCredential({
         }}
       >
         <p className="text-xs text-muted">
-          This key uses your current permissions. Keep it private; you can
-          revoke it at any time.
+          {scope === "team"
+            ? "This key belongs to the team."
+            : "This key stays within your current role."}{" "}
+          Keep it private; you can revoke it at any time.
         </p>
       </CreateApiKeyDialog>
     </>
@@ -135,6 +167,11 @@ type CredentialSettingsProps = {
 export function ApiKeySettings(props: CredentialSettingsProps) {
   return <CredentialSettings key="api-key" {...props} kind="api-key" />;
 }
+export function TeamApiKeySettings(props: CredentialSettingsProps) {
+  return (
+    <CredentialSettings key="team-api-key" {...props} kind="team-api-key" />
+  );
+}
 
 export function McpConnectionSettings(props: CredentialSettingsProps) {
   return <CredentialSettings key="oauth" {...props} kind="oauth" />;
@@ -145,7 +182,8 @@ function CredentialSettings({
   session,
   boards,
   onRefresh,
-}: CredentialSettingsProps & { kind: "api-key" | "oauth" }) {
+}: CredentialSettingsProps & { kind: "api-key" | "team-api-key" | "oauth" }) {
+  const path = kind === "team-api-key" ? "/team-credentials" : "/credentials";
   const overlay = useOverlaySuspension();
   const [items, setItems] = useState<Credential[] | null>(null);
   const [pending, setPending] = useState(true);
@@ -175,7 +213,7 @@ function CredentialSettings({
     setNextCursor(null);
     setMoreError("");
     try {
-      const page = await api<CredentialPage>("/credentials");
+      const page = await api<CredentialPage>(path);
       if (current === generation.current) {
         setItems(visibleCredentials(page.items));
         setNextCursor(page.nextCursor);
@@ -185,7 +223,7 @@ function CredentialSettings({
     } finally {
       if (current === generation.current) setPending(false);
     }
-  }, [visibleCredentials]);
+  }, [visibleCredentials, path]);
   useEffect(() => {
     void refresh();
     return () => {
@@ -199,7 +237,7 @@ function CredentialSettings({
     setMoreError("");
     try {
       const page = await api<CredentialPage>(
-        `/credentials?cursor=${encodeURIComponent(nextCursor)}`,
+        `${path}?cursor=${encodeURIComponent(nextCursor)}`,
       );
       if (current === generation.current) {
         setItems((previous) => {
@@ -223,7 +261,7 @@ function CredentialSettings({
     const current = generation.current;
     setError("");
     try {
-      const page = await api<CredentialPage>("/credentials");
+      const page = await api<CredentialPage>(path);
       if (current === generation.current) {
         const fresh = new Set(page.items.map((item) => item.id));
         setItems((previous) => [
@@ -239,17 +277,17 @@ function CredentialSettings({
   }
   async function revoke(id: string) {
     const isCurrent = overlay.capture();
-    const path = `/credentials/${id}`;
+    const revokePath = `${path}/${id}`;
     let retryKey = revokeKeys.current.get(id);
     if (!retryKey) {
       retryKey = createRetryKey();
       revokeKeys.current.set(id, retryKey);
     }
-    await api(path, undefined, "DELETE", {
+    await api(revokePath, undefined, "DELETE", {
       validateResponse: (value) =>
         isResponseObject(value) && value.revoked === true,
       headers: {
-        "Idempotency-Key": retryKey.forRequest(path, undefined, "DELETE"),
+        "Idempotency-Key": retryKey.forRequest(revokePath, undefined, "DELETE"),
       },
     });
     if (!isCurrent())
@@ -269,7 +307,7 @@ function CredentialSettings({
       tokenHint: credential.tokenPrefix,
       createdAt: credential.createdAt,
       lastUsedAt: credential.lastUsedAt,
-      permissions: "Your current REST permissions",
+      permissions: `${credential.accessLevel === "read" ? "Read-only" : credential.includeAdmin ? "Administrative permissions" : "Edit"}${credential.userId ? " · Your current role" : " · Team"}`,
       status: {
         label: state,
         color: state === "Active" ? "success" : "warning",
@@ -308,19 +346,36 @@ function CredentialSettings({
   );
   return (
     <section className="settings-page min-w-0">
-      <SettingsHeading
-        section={kind === "api-key" ? "api-keys" : "mcp-connections"}
-        actions={
-          kind === "api-key" ? (
+      {kind === "team-api-key" ? (
+        <PageHeading
+          title="Team API Keys"
+          actions={
             <Button onPress={() => setCreating(true)}>
               <Plus /> Create API key
             </Button>
-          ) : undefined
-        }
-      />
+          }
+        />
+      ) : (
+        <SettingsHeading
+          section={kind === "api-key" ? "api-keys" : "mcp-connections"}
+          actions={
+            kind === "api-key" ? (
+              <Button onPress={() => setCreating(true)}>
+                <Plus /> Create API key
+              </Button>
+            ) : undefined
+          }
+        />
+      )}
       <section
         className="content-grid min-w-0"
-        aria-label={kind === "api-key" ? "API Keys" : "MCP Connections"}
+        aria-label={
+          kind === "oauth"
+            ? "MCP Connections"
+            : kind === "team-api-key"
+              ? "Team API Keys"
+              : "API Keys"
+        }
         role="region"
         aria-busy={pending || morePending}
       >
@@ -329,12 +384,10 @@ function CredentialSettings({
         ) : null}
         {pending && items === null ? (
           <QueryLoading className="sr-only">
-            {kind === "api-key"
-              ? "Loading API keys"
-              : "Loading MCP connections"}
+            {kind !== "oauth" ? "Loading API keys" : "Loading MCP connections"}
           </QueryLoading>
         ) : items !== null ? (
-          kind === "api-key" ? (
+          kind !== "oauth" ? (
             <SharedApiKeysSettings
               items={apiKeys}
               formatDate={formatDate}
@@ -365,8 +418,9 @@ function CredentialSettings({
           </div>
         ) : null}
       </section>
-      {kind === "api-key" && creating && (
+      {kind !== "oauth" && creating && (
         <CreateCredential
+          scope={kind === "team-api-key" ? "team" : "personal"}
           onClose={() => setCreating(false)}
           onCreated={(credential) => {
             setItems((previous) => [

@@ -30,7 +30,7 @@ Another person or client changed the task or its status after you opened it. Rel
 
 ## A client gets permission denied
 
-For a personal REST key, check the human owner's current membership and role, then the key's expiry and revocation state. A Viewer-owned key cannot write. Personal keys cannot use MCP or human-only management routes.
+For a personal key on REST or MCP, check the owner's active membership and role, stored grant, expiry, and revocation state. A Viewer-owned key cannot write. For a team key, check its stored team grant, expiry, and revocation state. Neither key type can use browser-only identity, membership, account security, or credential-management routes.
 
 For MCP OAuth, check the connection owner's active membership, current role, approved scopes and approved boards. A board-restricted connection cannot create boards or list the team directory. If its last approved board is deleted, the connection is revoked; reconnect and review the new access request. See [the connection guide](clients.md) and [access security](authentication.md#external-credential-boundaries).
 

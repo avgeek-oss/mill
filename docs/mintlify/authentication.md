@@ -21,21 +21,22 @@ The person following the link chooses their name and password. With SMTP configu
 | Member | Read boards, create and edit tasks, add and delete their own comments, assign work, and use credentials within their own permissions. |
 | Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                                            |
 
-Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Personal API keys inherit their human owner's current role and cannot access identity routes, including the team directory. MCP OAuth inherits the owner's role within its granted scopes and boards; unscoped OAuth may read basic member metadata through MCP for assignments and mentions. Membership, sessions, security settings, and other human administration require a browser session.
+Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Personal API keys are capped by their stored grant and their human owner's current active role; team keys use their stored team policy. Neither can access identity routes, including the team directory. MCP OAuth inherits the owner's role within its granted scopes and boards; unscoped OAuth may read basic member metadata through MCP for assignments and mentions. Membership, sessions, security settings, and other human administration require a browser session.
 
-People are human accounts. **API keys** belong to their human creator, use REST with current permissions, and have only Name and Expiry settings. MCP OAuth creates a connection owned by the person approving it, with requested scopes and optional approved boards. See [the client guide](/clients) for connection rules.
+People are human accounts. **Personal API keys** belong to their creator; **team API keys** belong to the team and are managed by Admins. Both use REST and MCP with required Name, Permissions, and Expires after selections. MCP OAuth creates a connection owned by the person approving it, with requested scopes and optional approved boards. See [the client guide](/clients) for connection rules.
 
 ## External credential boundaries
 
 A browser session, personal API key, and MCP OAuth connection have different authority. Hiding a UI action does not enforce permissions; the server checks current owner membership and role, and rechecks authority before a waiting mutation commits.
 
-| Authentication   | Domain access                                                                       | Human management                                                                                                |
-| ---------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| Browser session  | Current person's role across accessible boards                                      | Own account/security; Admin-only team/workspace actions; credential management within permissions               |
-| Personal API key | REST as the human owner, across all accessible boards, with current role            | Denied: all identity routes, team directory, workspace administration, credential management, and OAuth consent |
-| MCP OAuth        | Human owner's current role, granted read/write scopes, and optional approved boards | Denied; an unscoped connection may resolve basic members through MCP for assignments and mentions               |
+| Authentication   | Domain access                                                                       | Human management                                                                                  |
+| ---------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Browser session  | Current person's role across accessible boards                                      | Own account/security; Admin-only team/workspace actions; credential management within permissions |
+| Personal API key | REST/MCP within its stored grant and the owner's current active role                | Denied: identity, membership, account security, credential management, and OAuth consent          |
+| Team API key     | REST/MCP within its stored team grant, independent of creator membership            | Denied: identity, membership, account security, credential management, and OAuth consent          |
+| MCP OAuth        | Human owner's current role, granted read/write scopes, and optional approved boards | Denied; an unscoped connection may resolve basic members through MCP for assignments and mentions |
 
-Personal keys accept only Name and Expiry of 30, 60, 90, or 365 days. They have no scope or board selection and cannot use MCP. An API key is personal even when its owner is an administrator; another administrator does not gain ownership of it. Task activity identifies the human owner.
+Keys require Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). The stored grant never exceeds the issuing Admin's authority; personal grants narrow permanently on owner demotion. Personal keys retain human attribution. Team keys have a team actor and remain valid independently of their creator's later membership. Identity and key management always require a browser session.
 
 OAuth belongs to the person approving consent and cannot use public REST. Its effective access comes from that person's current membership and role, the granted scopes and optional approved boards. The server rechecks authority at consent, token exchange and every authenticated request. Task activity identifies the person responsible for OAuth actions.
 
@@ -52,11 +53,11 @@ Open **Settings → Account Settings** in the primary sidebar, or use the accoun
 - **Email & Password**: your current email, verification state, pending email change, and password changes. Email changes require configured SMTP and recent identity confirmation.
 - **Passkeys**: registered passkeys and their recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
-- **API Keys**: your personal REST keys.
+- **API Keys**: your personal REST and MCP keys. Admins also manage team keys under Team Settings → API Keys.
 - **MCP Connections**: authorized OAuth apps, their approved access, and individual revocation.
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 
-The account menu also links to Mill's changelog, documentation, feedback, and contribution guide. Administrators use **Team Settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.
+The account menu also links to Mill's changelog, documentation, and feedback. Administrators use **Team Settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.
 
 Display preferences use the same IDs during setup and profile updates. `dateFormat` accepts `day-short-month-year` (16 Sept 2026), `short-month-day-year` (Sept 16, 2026), `year-month-day` (2026-09-16), `day-month-year` (16/09/2026), or `month-day-year` (09/16/2026). `timeFormat` accepts `24-hour` (14:30), `12-hour` (2:30 PM), `24-hour-seconds` (14:30:45), or `12-hour-seconds` (2:30:45 PM). Defaults are `day-short-month-year`, `24-hour`, and the `UTC` time zone. These choices change display labels; task calendar dates remain `YYYY-MM-DD`, and timestamp wire values retain their UTC/offset semantics. Updating other profile fields preserves stored display preferences.
 
@@ -161,6 +162,8 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 The PostgreSQL integration tests in `tests/auth.test.ts`, `tests/email-parity.test.ts`, and `tests/invitation-authority.test.ts` verify setup and last-admin races, invitation lifecycle, cross-role and external-client restrictions, session/password/recovery revocation, real signed passkey ceremonies and origin verification, session-bound identity confirmation, concurrent one-use recovery redemption, refusal to authorize security changes through recovery access, a blocked old-password login racing a security reset, purpose-bound email proofs, invitation authority, encrypted SMTP delivery and cancellation, and account availability during delivery.
 
 Account actions report success and errors through toast alerts. Failed changes retain their drafts and retry controls. Required-field validation also uses a toast and focuses the first invalid field.
+
+Authentication and invitation emails use the shared `@avgeek-oss/design-system` templates with Mill branding. Delivery includes HTML and plain text. Mill owns the confirmation links, expiring proofs, encrypted outbox, retries, and SMTP configuration; the shared package owns presentation and standard copy. Pending messages created before HTML support remain deliverable as plain text.
 
 ## In the app
 

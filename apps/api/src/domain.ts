@@ -8,7 +8,14 @@ import type {
   Comment,
 } from "../../../packages/contracts/src/index.js";
 import { TASK_STATUSES } from "../../../packages/contracts/src/index.js";
-import { actor, badRequest, conflict, requireRole, type Env } from "./http.js";
+import {
+  actor,
+  badRequest,
+  conflict,
+  requireHuman,
+  requireRole,
+  type Env,
+} from "./http.js";
 import {
   assertVersion,
   board,
@@ -82,7 +89,7 @@ function previewPage<T extends { id: string }>(rows: T[], limit: number) {
 function administrative(c: Parameters<typeof actor>[0], write = false): Actor {
   const a = requireRole(c, "admin");
   if (a.kind === "oauth" || (write && !a.scopes.includes("write")))
-    badRequest("This action requires a workspace administrator session");
+    badRequest("This action requires administrative permission");
   return a;
 }
 
@@ -446,7 +453,7 @@ domainRoutes.get("/tasks/:id", async (c) => {
   const comments = previewPage(
     await sql<
       Comment[]
-    >`SELECT comments.*,users.name AS author_name FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ORDER BY created_at DESC,id DESC LIMIT ${commentLimit + 1}`,
+    >`SELECT comments.id,comments.task_id,CASE WHEN comments.author_kind='team' THEN NULL ELSE comments.author_id END AS author_id,comments.author_kind,COALESCE(comments.author_name,users.name) AS author_name,comments.body,comments.version,comments.created_at,comments.updated_at FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ORDER BY comments.created_at DESC,comments.id DESC LIMIT ${commentLimit + 1}`,
     commentLimit,
   );
   const activity = previewPage(
@@ -530,7 +537,7 @@ domainRoutes.get("/tasks/:id/comments", async (c) => {
   if (cursor && !anchor)
     badRequest("This comment cursor does not belong to the task");
   const rows =
-    await sql`SELECT comments.*,users.name AS author_name FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ${anchor ? sql`AND (comments.created_at,comments.id)<(SELECT created_at,id FROM comments WHERE id=${anchor.id})` : sql``} ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`;
+    await sql`SELECT comments.id,comments.task_id,CASE WHEN comments.author_kind='team' THEN NULL ELSE comments.author_id END AS author_id,comments.author_kind,COALESCE(comments.author_name,users.name) AS author_name,comments.body,comments.version,comments.created_at,comments.updated_at FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ${anchor ? sql`AND (comments.created_at,comments.id)<(SELECT created_at,id FROM comments WHERE id=${anchor.id})` : sql``} ORDER BY comments.created_at DESC,comments.id DESC LIMIT ${limit + 1}`;
   const items = rows.slice(0, limit);
   return c.json({
     items,
@@ -550,7 +557,7 @@ domainRoutes.post("/tasks/:id/comments", async (c) => {
     if (!fresh) missing("Task not found");
     const a = requireRole(c, "member", row.boardId);
     const [created] =
-      await tx`INSERT INTO comments (task_id,author_id,body) VALUES (${taskId},${a.userId},${input.body}) RETURNING *`;
+      await tx`INSERT INTO comments (task_id,author_id,author_kind,author_name,body) VALUES (${taskId},${a.userId},${a.kind},${a.kind === "team" ? a.name : null},${input.body}) RETURNING *`;
     await mentionNotifications(tx, a, taskId, input.body, input.mentionIds);
     await recordActivity(
       tx,
@@ -560,7 +567,11 @@ domainRoutes.post("/tasks/:id/comments", async (c) => {
       row.boardId,
       taskId,
     );
-    return { ...created, authorName: a.name };
+    return {
+      ...created,
+      authorId: a.kind === "team" ? null : a.userId,
+      authorName: a.name,
+    };
   });
   return c.json({ comment: result }, 201);
 });
@@ -576,9 +587,13 @@ async function deleteComment(c: Parameters<typeof actor>[0]) {
     const row = await task(c, original.taskId, "member", tx);
     await lockBoard(c, tx, row.boardId);
     const a = requireRole(c, "member", row.boardId);
+    const ownsComment =
+      a.kind === "team"
+        ? original.authorKind === "team"
+        : original.authorKind !== "team" && original.authorId === a.userId;
     if (
-      original.authorId !== a.userId &&
-      (a.role !== "admin" || a.kind !== "human")
+      !ownsComment &&
+      (a.role !== "admin" || (a.credentialId && !a.includeAdmin))
     )
       return { forbidden: true };
     const [freshTask] = await tx<
@@ -677,7 +692,12 @@ domainRoutes.get("/notifications", async (c) => {
 });
 domainRoutes.patch("/notifications", async (c) => {
   const a = requireRole(c);
-  if (a.kind === "oauth" && !a.scopes.includes("write"))
+  if (a.kind === "team")
+    return c.json(
+      { error: "Team API keys cannot access personal notifications" },
+      403,
+    );
+  if (a.credentialId && !a.scopes.includes("write"))
     return c.json(
       { error: "This credential does not permit notification changes" },
       403,
@@ -699,8 +719,7 @@ domainRoutes.patch("/notifications", async (c) => {
   const updated = await sql.begin(async (tx) => {
     await revalidateAuthority(c, tx, "viewer");
     const current = actor(c);
-    if (current.kind === "oauth" && !current.scopes.includes("write"))
-      return null;
+    if (current.credentialId && !current.scopes.includes("write")) return null;
     const scope = current.boardIds
       ? current.boardIds.length
         ? tx`AND tasks.board_id IN ${tx(current.boardIds)}`
@@ -729,17 +748,13 @@ domainRoutes.patch("/notifications", async (c) => {
   return c.json({ ok: true, updated });
 });
 domainRoutes.get("/workspace", async (c) => {
-  const a = requireRole(c);
-  if (a.kind === "oauth")
-    return c.json(
-      { error: "Workspace settings require a member session" },
-      403,
-    );
+  requireHuman(c);
   const [workspace] = await sql`SELECT id,name,created_at FROM workspace`;
   return c.json({ workspace });
 });
 domainRoutes.patch("/workspace", async (c) => {
-  administrative(c, true);
+  requireHuman(c);
+  requireRole(c, "admin");
   const input = await body(
     c,
     z.object({ name: z.string().trim().min(1).max(120) }).strict(),

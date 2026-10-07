@@ -438,7 +438,12 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
   const personal = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Personal work key", expiresInDays: 30 },
+      body: {
+        name: "Personal work key",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );
@@ -472,12 +477,17 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
     );
   assert.equal(
     (await callMcpTool(personal.token, "list_boards")).response.status,
-    403,
+    200,
   );
   const viewerKey = await json(
     await request("/api/credentials", {
       cookie: viewer.cookie,
-      body: { name: "Viewer personal key" },
+      body: {
+        name: "Viewer personal key",
+        access: "read",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );
@@ -840,7 +850,12 @@ test("assignments and mentions respect preferences and notifications remain priv
   const personal = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Personal notification key" },
+      body: {
+        name: "Personal notification key",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );

@@ -94,7 +94,12 @@ test("default pages exclude only terminal tasks older than 24 hours; explicit st
   const key = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Status history reader" },
+      body: {
+        name: "Status history reader",
+        access: "read",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );

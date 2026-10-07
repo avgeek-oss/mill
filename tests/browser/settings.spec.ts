@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -97,7 +96,7 @@ async function choose(
 async function accountAction(
   page: Page,
   action:
-    "Profile" | "Preferences" | "Auth & Security" | "My API Keys" | "Sign out",
+    "Profile" | "Preferences" | "Email & Password" | "API Keys" | "Sign out",
 ) {
   const trigger = page.getByRole("button", { name: /^Account menu for / });
   if (!(await trigger.isVisible()))
@@ -175,23 +174,17 @@ test.afterAll(async () => {
 test("profile preferences persist, UTC remains selectable, and a wrong current password leaves the session intact", async ({
   page,
 }, testInfo) => {
-  const avatarRequests = new Set<string>();
   await page.route("https://www.gravatar.com/avatar/**", async (route) => {
-    avatarRequests.add(route.request().url());
     await route.fulfill({ status: 404, body: "" });
   });
   await login(page, admin);
   await accountAction(page, "Profile");
-  const avatar = page
-    .getByRole("link", {
+  await expect(
+    page.getByRole("link", {
       name: "Edit Gravatar image (opens in a new tab)",
       exact: true,
-    })
-    .locator('[role="img"]');
-  await expect(avatar).toBeVisible();
-  await expect(avatar.getByText("CS", { exact: true })).toBeVisible();
-  const gravatar = `https://www.gravatar.com/avatar/${createHash("sha256").update(admin.email.trim().toLowerCase()).digest("hex")}?s=160&d=404&r=g`;
-  await expect.poll(() => avatarRequests.has(gravatar)).toBe(true);
+    }),
+  ).toHaveCount(0);
   await page.getByLabel("Your Name", { exact: true }).click();
   await expect(page.getByLabel("Your Name", { exact: true })).toBeFocused();
   await page
@@ -332,7 +325,7 @@ test("profile preferences persist, UTC remains selectable, and a wrong current p
       })
       .click();
   }
-  await accountAction(page, "Auth & Security");
+  await accountAction(page, "Email & Password");
   await page
     .getByLabel("Current password", { exact: true })
     .fill("An incorrect password");
@@ -898,7 +891,7 @@ test("a personal API key uses current human permissions and loses access when re
   playwright,
 }) => {
   await login(page, admin);
-  await accountAction(page, "My API Keys");
+  await accountAction(page, "API Keys");
   await page
     .getByRole("button", { name: "Create API key", exact: true })
     .click();
@@ -1008,7 +1001,7 @@ test("team settings persist without backup or portable data surfaces", async ({
   await page.goto("/settings/data");
   await expect(
     page.getByRole("heading", {
-      name: "This page could not be found",
+      name: "Page not found",
       exact: true,
       level: 1,
     }),
@@ -1518,7 +1511,7 @@ test("focused passkey and session pages distinguish PostgreSQL pending and failu
     "Independent Lists",
   );
   await login(page, account);
-  await accountAction(page, "Auth & Security");
+  await accountAction(page, "Email & Password");
   await expect(page.getByLabel("Current email", { exact: true })).toHaveValue(
     account.email,
   );

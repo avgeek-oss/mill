@@ -22,7 +22,11 @@ import {
 } from "@mill/web-design-system";
 import { DatePickerField } from "@mill/web-design-system/date-picker-field";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Copy01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft02Icon,
+  Copy01Icon,
+  PencilEdit02Icon,
+} from "@hugeicons/core-free-icons";
 import type {
   Board,
   Member,
@@ -346,7 +350,7 @@ export function TaskPage({
       name: member.name,
       startContent: (
         <Avatar
-          className="size-5"
+          className="size-6"
           size="sm"
           email={member.email}
           name={member.name}
@@ -389,7 +393,7 @@ export function TaskPage({
               {task && values && (
                 <section
                   aria-label="Task details"
-                  className="content-grid min-w-0 items-start pt-5 min-[701px]:grid-cols-[minmax(0,1fr)_20rem] min-[701px]:gap-x-8"
+                  className="content-grid min-w-0 items-start gap-y-2 pt-5 min-[701px]:grid-cols-[minmax(0,1fr)_20rem] min-[701px]:gap-x-8"
                 >
                   <header className="task-page-header col-span-full grid min-w-0">
                     <Button
@@ -398,6 +402,11 @@ export function TaskPage({
                       onPress={() => navigate(returnHref)}
                       isDisabled={deleting || leaving}
                     >
+                      <HugeiconsIcon
+                        aria-hidden
+                        icon={ArrowLeft02Icon}
+                        size={16}
+                      />
                       Back to board
                     </Button>
                     <div className="flex min-w-0 items-start justify-between gap-3">
@@ -532,7 +541,7 @@ export function TaskPage({
                         className="grid min-w-0 gap-3"
                         aria-label="Description"
                       >
-                        <div className="task-description-preview min-w-0 text-sm text-muted">
+                        <div className="task-description-preview min-w-0 text-sm text-foreground">
                           {values.description ? (
                             <Markdown>{values.description}</Markdown>
                           ) : (

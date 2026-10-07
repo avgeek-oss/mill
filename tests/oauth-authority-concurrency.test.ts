@@ -211,7 +211,12 @@ for (const access of ["session", "personal-key"] as const) {
         ? await json(
             await request("/api/credentials", {
               cookie,
-              body: { name: "Read race key" },
+              body: {
+                name: "Read race key",
+                access: "read",
+                includeAdmin: false,
+                expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+              },
             }),
             201,
           )

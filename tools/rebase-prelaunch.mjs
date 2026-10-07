@@ -7,6 +7,7 @@ import postgres from "postgres";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const baselineName = "001_initial.sql";
+const policyName = "002_key_policies.sql";
 const reviewedBaselineChecksum =
   "e82748c4b57ade74641a6d6ab051016daa3df5eef0ea05aac6c39c6b7ddd1466";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -415,6 +416,20 @@ export async function rebasePrelaunch(
       );
     await tx.unsafe("SET CONSTRAINTS ALL IMMEDIATE");
     requireKnownLegacy(await schemaLayout(tx, staging), clean);
+    const policy = await readFile(
+      path.join(root, "packages/database/migrations", policyName),
+      "utf8",
+    );
+    await tx.unsafe(policy);
+    await tx.unsafe(
+      `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
+      [policyName, digest(policy)],
+    );
+    const [unconverted] = await tx.unsafe(
+      `SELECT count(*)::int AS count FROM credentials WHERE created_by IS NULL OR access_level IS NULL OR include_admin IS NULL`,
+    );
+    if (unconverted.count)
+      throw new Error("Credential policy conversion was incomplete");
     await requireStopped(tx);
     await tx.unsafe(
       `ALTER SCHEMA ${quote(schema)} RENAME TO ${quote(archived)}`,
@@ -454,9 +469,13 @@ async function main(args) {
   const files = (
     await readdir(path.join(root, "packages/database/migrations"))
   ).filter((name) => name.endsWith(".sql"));
-  if (files.length !== 1 || files[0] !== baselineName)
+  if (
+    files.length !== 2 ||
+    !files.includes(baselineName) ||
+    !files.includes(policyName)
+  )
     throw new Error(
-      "The rebase requires the single reviewed 001_initial.sql baseline",
+      "The rebase requires the reviewed baseline and key policy migration",
     );
   const baseline = await readFile(
     path.join(root, "packages/database/migrations", baselineName),

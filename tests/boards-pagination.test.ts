@@ -194,7 +194,12 @@ test("board page validation rejects malformed, missing and wrong-collection anch
   const credential = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Cursor boundary", expiresInDays: 30 },
+      body: {
+        name: "Cursor boundary",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );
@@ -353,7 +358,12 @@ test("personal API key directory pages cover current and future boards and rejec
   const personal = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Directory automation", expiresInDays: 60 },
+      body: {
+        name: "Directory automation",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+      },
     }),
     201,
   );

@@ -198,66 +198,82 @@ export function CreateTaskDialog({
           disabled={!writable || pending}
           className="min-w-0 w-full max-md:text-base!"
         />
-        <ChoiceField
-          label="Type"
-          value={type}
-          onChange={(value) => setType(value as Task["type"])}
-          isDisabled={!writable || pending}
-          options={taskTypeOptions.map((option) => ({
-            id: option.id,
-            label: option.name,
-            icon: option.startContent,
-          }))}
-        />
-        {duplicateSource && (
-          <>
+        <div
+          className={
+            duplicateSource
+              ? "grid min-w-0 grid-cols-2 gap-4 sm:grid-cols-4"
+              : "content-grid min-w-0 grid-cols-1"
+          }
+        >
+          <div
+            className={
+              duplicateSource ? "col-span-2 sm:col-span-1 min-w-0" : "min-w-0"
+            }
+          >
             <ChoiceField
-              label="Status"
-              value={status}
-              onChange={(value) => setStatus(value as Task["status"])}
+              label="Type"
+              value={type}
+              onChange={(value) => setType(value as Task["type"])}
               isDisabled={!writable || pending}
-              options={statusOptions.map((option) => ({
+              options={taskTypeOptions.map((option) => ({
                 id: option.id,
                 label: option.name,
                 icon: option.startContent,
               }))}
             />
-            <ChoiceField
-              label="Priority"
-              value={priority}
-              onChange={(value) => setPriority(value as Task["priority"])}
-              isDisabled={!writable || pending}
-              options={priorityOptions.map((option) => ({
-                id: option.id,
-                label: option.name,
-                icon: option.startContent,
-              }))}
-            />
-          </>
-        )}
-        <Choice
-          className="min-w-0"
-          label="Assignee"
-          value={assigneeId}
-          onChange={setAssigneeId}
-          disabled={!writable || pending}
-          search
-          items={[
-            { id: "", name: "Unassigned", muted: true },
-            ...members.map((member) => ({
-              id: member.id,
-              name: member.name,
-              startContent: (
-                <Avatar
-                  email={member.email}
-                  name={member.name}
-                  size="sm"
-                  className="size-5"
-                />
-              ),
-            })),
-          ]}
-        />
+          </div>
+          {duplicateSource && (
+            <>
+              <ChoiceField
+                label="Status"
+                value={status}
+                onChange={(value) => setStatus(value as Task["status"])}
+                isDisabled={!writable || pending}
+                options={statusOptions.map((option) => ({
+                  id: option.id,
+                  label: option.name,
+                  icon: option.startContent,
+                }))}
+              />
+              <ChoiceField
+                label="Priority"
+                value={priority}
+                onChange={(value) => setPriority(value as Task["priority"])}
+                isDisabled={!writable || pending}
+                options={priorityOptions.map((option) => ({
+                  id: option.id,
+                  label: option.name,
+                  icon: option.startContent,
+                }))}
+              />
+            </>
+          )}
+          <Choice
+            className={
+              duplicateSource ? "min-w-0 col-span-2 sm:col-span-1" : "min-w-0"
+            }
+            label="Assignee"
+            value={assigneeId}
+            onChange={setAssigneeId}
+            disabled={!writable || pending}
+            search
+            items={[
+              { id: "", name: "Unassigned", muted: true },
+              ...members.map((member) => ({
+                id: member.id,
+                name: member.name,
+                startContent: (
+                  <Avatar
+                    email={member.email}
+                    name={member.name}
+                    size="sm"
+                    className="size-6"
+                  />
+                ),
+              })),
+            ]}
+          />
+        </div>
         <ErrorMessage>{error}</ErrorMessage>
       </form>
     </Dialog>

@@ -250,7 +250,7 @@ for (const width of [1280, 390])
         ).toBeVisible();
         await expect(
           page.getByText("No comments yet.", { exact: true }),
-        ).toBeVisible();
+        ).toHaveCount(0);
         const saved = await detail(task.id);
         expectCopiedTask(saved.task, source.task);
         expect(saved.comments).toEqual([]);

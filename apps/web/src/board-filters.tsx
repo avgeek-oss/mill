@@ -29,7 +29,7 @@ export function BoardFilters({
   const suspended = useAppSuspended();
   if (suspended) return null;
   return (
-    <div className="grid min-w-0 gap-3" aria-label="Task filters">
+    <div className="contents" aria-label="Task filters">
       <SecondarySection title="Sort tasks">
         <ChoiceField
           label="Sort order"
@@ -75,7 +75,7 @@ export function BoardFilters({
                     email={member.email}
                     name={member.name}
                     size="sm"
-                    className="size-5"
+                    className="size-6"
                   />
                 ),
               })),

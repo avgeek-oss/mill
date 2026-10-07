@@ -387,7 +387,12 @@ test("removed workflow and portable routes return 404 for sessions and personal 
   const { token } = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Personal writer" },
+      body: {
+        name: "Personal writer",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );

@@ -677,8 +677,8 @@ export function App() {
   const boardsHref = "/boards";
   const secondarySidebar =
     activeBoardId && !activeTaskId ? (
-      <SecondarySection>
-        <div ref={setFilterContainer} className="min-w-0" />
+      <SecondarySection className="contents">
+        <div ref={setFilterContainer} className="contents" />
       </SecondarySection>
     ) : settingsSection &&
       knownSettings.includes(settingsSection) &&
@@ -772,7 +772,6 @@ export function App() {
     taskIdentifier:
       routeTask?.id === activeTaskId ? routeTask?.identifier : undefined,
     settingsSection,
-    admin,
     search: window.location.search,
     fallback: navbarTitle,
   };

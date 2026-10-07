@@ -40,7 +40,7 @@ function notification(page: Page, text?: string) {
   return text ? notifications.filter({ hasText: text }) : notifications;
 }
 
-test("losing board access produces one toast and does not repeat feedback from hidden content", async ({
+test("losing board access shows the shared error page without feedback from hidden content", async ({
   page,
 }) => {
   await authenticateBrowserFixture(page, fixture);
@@ -62,15 +62,19 @@ test("losing board access produces one toast and does not repeat feedback from h
   await expect(
     page.getByRole("heading", { name: "Board access required", exact: true }),
   ).toBeVisible();
-  await expect(notification(page)).toHaveCount(1);
-  await expect(notification(page, failure)).toBeVisible();
+  await expect(notification(page)).toHaveCount(0);
   await expect(
     page.getByRole("main").getByText(failure, { exact: true }),
-  ).toHaveCount(0);
-  await dismiss(page, failure);
+  ).toBeVisible();
+  await expect(page.getByRole("grid", { name: "Task list" })).toBeHidden();
   await page.getByRole("button", { name: "Try again", exact: true }).click();
-  await expect(notification(page)).toHaveCount(1);
-  await expect(notification(page, failure)).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Board access required", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("main").getByText(failure, { exact: true }),
+  ).toHaveCount(1);
+  await expect(notification(page)).toHaveCount(0);
 });
 async function dismiss(page: Page, text?: string) {
   const toast = notification(page, text);
@@ -160,15 +164,60 @@ for (const [width, theme] of [
     await name.fill("Preserved board draft");
     const failure = "Board save unavailable. Retry your changes.";
     let requests = 0;
-    await page.route(`**/api/boards/${boardId}`, (route) => {
+    let releaseSave = () => {};
+    await page.route(`**/api/boards/${boardId}`, async (route) => {
       if (route.request().method() !== "PATCH") return route.continue();
       requests++;
+      if (requests === 1)
+        await new Promise<void>((resolve) => (releaseSave = resolve));
       return route.fulfill({ status: 503, json: { error: failure } });
     });
     for (let attempt = 0; attempt < 2; attempt++) {
+      await expect
+        .poll(() =>
+          dialog.evaluate((element) => {
+            let running = 0;
+            for (
+              let node: Element | null = element;
+              node;
+              node = node.parentElement
+            )
+              running += node
+                .getAnimations()
+                .filter((a) => a.playState === "running").length;
+            return running;
+          }),
+        )
+        .toBe(0);
+      const before = await dialog.boundingBox();
+      const save = dialog.getByRole("button", {
+        name: "Save board",
+        exact: true,
+      });
+      const buttonBefore = await save.boundingBox();
       await dialog
         .getByRole("button", { name: "Save board", exact: true })
         .click();
+      if (attempt === 0) {
+        try {
+          const saving = dialog.getByRole("button", {
+            name: "Saving…",
+            exact: true,
+          });
+          await expect(saving).toBeDisabled();
+          await expect(
+            dialog.getByText("Saving…", { exact: true }),
+          ).toHaveCount(1);
+          expect(await dialog.boundingBox()).toEqual(before);
+          expect(await saving.boundingBox()).toEqual(buttonBefore);
+          await page.screenshot({
+            path: `tmp/toast-feedback/board-saving-${width}-${theme}.png`,
+            animations: "disabled",
+          });
+        } finally {
+          releaseSave();
+        }
+      }
       await expect(notification(page, failure)).toBeVisible();
       await expect(dialog.getByRole("alert")).toHaveCount(0);
       await expect(dialog.getByText(failure, { exact: true })).toHaveCount(0);
@@ -198,3 +247,31 @@ for (const [width, theme] of [
     ).toBe("Toast verification");
   });
 }
+
+test("a failed refresh keeps the task table without an extra Retry control", async ({
+  page,
+}) => {
+  const created = await api.post(`/api/boards/${boardId}/tasks`, {
+    data: { title: "Retained task table" },
+  });
+  expect(created.ok()).toBeTruthy();
+  await authenticateBrowserFixture(page, fixture);
+  await page.goto(`/boards/${boardId}`);
+  const table = page.getByRole("grid", { name: "Task list", exact: true });
+  await expect(table).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry", exact: true }),
+  ).toHaveCount(0);
+  const failure = "Task refresh unavailable.";
+  await page.route(`**/api/boards/${boardId}/tasks?**`, (route) =>
+    route.fulfill({ status: 503, json: { error: failure } }),
+  );
+  await page
+    .getByRole("searchbox", { name: "Search tasks", exact: true })
+    .fill("refresh");
+  await expect(notification(page, failure)).toBeVisible();
+  await expect(table).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry", exact: true }),
+  ).toHaveCount(0);
+});

@@ -210,7 +210,12 @@ test("viewer sessions and personal REST keys receive the same authorized board s
   const issued = await json(
     await request("/api/credentials", {
       cookie: viewerCookie,
-      body: { name: "Read summaries", expiresInDays: 30 },
+      body: {
+        name: "Read summaries",
+        access: "read",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );

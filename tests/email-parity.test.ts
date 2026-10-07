@@ -10,6 +10,7 @@ import {
 } from "./support.js";
 import {
   deliverEmailBatch,
+  enqueueEmail,
   sendSmtpMessage,
   startEmailWorker,
 } from "../apps/api/src/auth/email-outbox.js";
@@ -49,7 +50,12 @@ async function json(response: Response, status = 200) {
   return response.json();
 }
 async function delivered() {
-  const messages: { to: string; subject: string; text: string }[] = [];
+  const messages: {
+    to: string;
+    subject: string;
+    text: string;
+    html?: string;
+  }[] = [];
   await deliverEmailBatch(async (m) => {
     messages.push(m);
   });
@@ -82,14 +88,13 @@ async function invitationCode(token: string) {
     }),
   );
   const mails = await delivered();
-  const code = mails
-    .find(
-      (m) =>
-        m.subject.includes("verification code") ||
-        m.subject === "Verify your Mill invitation",
-    )
-    ?.text.match(/code is (\d{6})/)?.[1];
+  const verification = mails.find(
+    (m) => m.subject === "[Mill] Verify your email",
+  );
+  const code = verification?.text.match(/Verification code: (\d{6})/)?.[1];
   assert.ok(code);
+  assert.ok(verification?.html?.includes(code));
+  assert.match(verification?.text ?? "", /expires in 10 minutes/);
   return code;
 }
 
@@ -182,7 +187,15 @@ test("verification is browser-owned, encrypted, purpose-bound and consumed once 
   const [before] = await sql`SELECT payload FROM email_outbox`;
   assert.equal(before.payload.includes(u.user.email), false);
   const messages = await delivered();
+  assert.equal(messages[0].subject, "[Mill] Verify your email");
+  assert.match(messages[0].html ?? "", /<!DOCTYPE html/);
+  assert.match(messages[0].html ?? "", /#744725/);
   const confirmation = link(messages[0].text, "/verify-email");
+  assert.ok(
+    messages[0].html?.includes(
+      `/verify-email#${confirmation.id}.${confirmation.token}`,
+    ),
+  );
   assert.equal(
     (await request("/api/auth/email-change/confirm", { body: confirmation }))
       .status,
@@ -203,6 +216,32 @@ test("verification is browser-owned, encrypted, purpose-bound and consumed once 
     (await sql`SELECT token_hash FROM email_requests`)[0].tokenHash,
     null,
   );
+});
+
+test("pending plain-text messages remain deliverable after adopting HTML templates", async () => {
+  const u = await setupUser();
+  await json(
+    await request("/api/auth/email-verification/request", {
+      cookie: u.cookie,
+      body: {},
+    }),
+  );
+  const [proof] = await sql`SELECT id,expires_at FROM email_requests`;
+  await sql`DELETE FROM email_outbox`;
+  await enqueueEmail(
+    sql,
+    { requestId: proof.id },
+    {
+      to: u.user.email,
+      subject: "Legacy verification",
+      text: "A pending plain-text message",
+    },
+    new Date(proof.expiresAt),
+  );
+  const [mail] = await delivered();
+  assert.equal(mail.subject, "Legacy verification");
+  assert.equal(mail.text, "A pending plain-text message");
+  assert.equal(mail.html, undefined);
 });
 
 test("email change requires recent passkey proof and pending request reuse survives lost responses", async () => {
@@ -228,7 +267,14 @@ test("email change requires recent passkey proof and pending request reuse survi
     first,
   );
   assert.equal((await sql`SELECT id FROM email_outbox`).length, 1);
-  const proof = link((await delivered())[0].text, "/confirm-email-change");
+  const [confirmation] = await delivered();
+  assert.equal(confirmation.subject, "[Mill] Confirm your new email address");
+  const proof = link(confirmation.text, "/confirm-email-change");
+  assert.ok(
+    confirmation.html?.includes(
+      `/confirm-email-change#${proof.id}.${proof.token}`,
+    ),
+  );
   await sql`UPDATE users SET security_epoch=security_epoch+1 WHERE id=${u.user.id}`;
   assert.equal(
     (await request("/api/auth/email-change/confirm", { body: proof })).status,
@@ -256,7 +302,12 @@ test("cancelled changes cannot confirm and successful confirmation atomically in
   const { credential } = await json(
     await request("/api/credentials", {
       cookie: u.cookie,
-      body: { name: "Owned" },
+      body: {
+        name: "Owned",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );
@@ -283,6 +334,11 @@ test("SMTP invitation requires verified code before atomic final signup, binds n
   const u = await setupUser();
   const i = await invite(u.cookie);
   assert.equal(i.emailDelivery, "queued");
+  const [invitation] = await delivered();
+  assert.equal(invitation.subject, "[Mill] Join Mill");
+  assert.ok(invitation.text.includes(`/invite?token=${i.token}`));
+  assert.ok(invitation.html?.includes(`/invite?token=${i.token}`));
+  assert.match(invitation.text, /as Member/);
   assert.equal(
     (await json(await request(`/api/auth/invitation?token=${i.token}`)))
       .verificationRequired,
@@ -503,6 +559,46 @@ async function smtpFixture() {
     },
   };
 }
+function multipartEmail(raw: string) {
+  const split = raw.indexOf("\r\n\r\n");
+  const headers = raw.slice(0, split).replace(/\r\n[ \t]+/g, " ");
+  assert.match(headers, /Content-Type: multipart\/alternative/i);
+  const boundary = headers.match(/boundary="([^"]+)"/i)?.[1];
+  assert.ok(boundary);
+  const parts = new Map<string, string>();
+  for (const part of raw.slice(split + 4).split(`--${boundary}`)) {
+    const separator = part.indexOf("\r\n\r\n");
+    if (separator < 0) continue;
+    const partHeaders = part.slice(0, separator);
+    const contentType = partHeaders.match(
+      /Content-Type: (text\/(?:plain|html))/i,
+    )?.[1];
+    if (!contentType) continue;
+    const body = part.slice(separator + 4).trimEnd();
+    const encoding = partHeaders.match(
+      /Content-Transfer-Encoding: ([^\r\n]+)/i,
+    )?.[1];
+    const decoded =
+      encoding === "base64"
+        ? Buffer.from(body, "base64").toString("utf8")
+        : encoding === "quoted-printable"
+          ? Buffer.from(
+              body
+                .replace(/=\r\n/g, "")
+                .replace(/=([0-9A-F]{2})/gi, (_match, hex) =>
+                  String.fromCharCode(parseInt(hex, 16)),
+                ),
+              "latin1",
+            ).toString("utf8")
+          : body;
+    parts.set(contentType.toLowerCase(), decoded);
+  }
+  const text = parts.get("text/plain");
+  const html = parts.get("text/html");
+  assert.ok(text);
+  assert.ok(html);
+  return { text, html, headers };
+}
 test("real loopback SMTP handoff carries a usable verification link and clears encrypted durable payload", async () => {
   const server = await smtpFixture();
   try {
@@ -515,12 +611,10 @@ test("real loopback SMTP handoff carries a usable verification link and clears e
     );
     assert.equal(await deliverEmailBatch(), 1);
     assert.equal(server.messages.length, 1);
-    const raw = server.messages[0]
-      .replace(/=\r\n/g, "")
-      .replace(/=([0-9A-F]{2})/g, (_match, hex) =>
-        String.fromCharCode(parseInt(hex, 16)),
-      );
-    const proof = link(raw, "/verify-email");
+    const mail = multipartEmail(server.messages[0]);
+    assert.match(mail.headers, /Subject: \[Mill\] Verify your email/);
+    const proof = link(mail.text, "/verify-email");
+    assert.ok(mail.html.includes(`/verify-email#${proof.id}.${proof.token}`));
     await json(
       await request("/api/auth/email-verification/confirm", { body: proof }),
     );
@@ -548,14 +642,11 @@ test("real SMTP password reset rejects expired and replayed links and replaces c
         }),
       );
       assert.equal(await deliverEmailBatch(), 1);
-      const raw = server.messages
-        .at(-1)!
-        .replace(/=\r\n/g, "")
-        .replace(/=([0-9A-F]{2})/g, (_match, hex) =>
-          String.fromCharCode(parseInt(hex, 16)),
-        );
-      const token = raw.match(/\/recover#([A-Za-z0-9_-]{43})/)?.[1];
+      const mail = multipartEmail(server.messages.at(-1)!);
+      assert.match(mail.headers, /Subject: \[Mill\] Reset your password/);
+      const token = mail.text.match(/\/recover#([A-Za-z0-9_-]{43})/)?.[1];
       assert.ok(token);
+      assert.ok(mail.html.includes(`/recover#${token}`));
       const [stored] = await sql`SELECT token_hash FROM account_recovery`;
       assert.notEqual(stored.tokenHash, token);
       return token;
@@ -622,7 +713,12 @@ test("retained UI intent cannot mutate a different browser account or authorize 
     await json(
       await request("/api/credentials", {
         cookie: u.cookie,
-        body: { name: "Identity test" },
+        body: {
+          name: "Identity test",
+          access: "edit",
+          includeAdmin: false,
+          expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        },
       }),
       201,
     )

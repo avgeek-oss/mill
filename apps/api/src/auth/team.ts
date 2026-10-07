@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { renderAuthEmail } from "@avgeek-oss/design-system/emails/render";
 import { Hono, type Context } from "hono";
+import { millEmailBrand } from "./email-brand.js";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { sql } from "../../../../packages/database/src/index.js";
@@ -184,8 +186,11 @@ teamRoutes.post("/invitations", async (c) => {
         { invitationId: created.id },
         {
           to: input.email,
-          subject: "You are invited to Mill",
-          text: `You have been invited to join Mill. Open this link to accept:\n${appOrigin()}/invite?token=${token}\n\nThis invitation expires in seven days.`,
+          ...(await renderAuthEmail("invitation", {
+            brand: millEmailBrand,
+            role: input.role,
+            actionUrl: `${appOrigin()}/invite?token=${token}`,
+          })),
         },
         new Date(created.expiresAt),
       );

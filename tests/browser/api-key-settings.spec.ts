@@ -91,6 +91,14 @@ async function json(
   expect(response.ok(), `${method} ${path}: ${response.status()}`).toBe(true);
   return response.json();
 }
+function keyData(name: string, days: 30 | 90 | 365 = 30) {
+  return {
+    name,
+    access: "read",
+    includeAdmin: false,
+    expiresAt: new Date(Date.now() + days * 86400000).toISOString(),
+  };
+}
 async function account(page: Page, role: "member" | "viewer" = "member") {
   const fixture = await getBrowserRoleFixture(origin, role);
   try {
@@ -148,6 +156,7 @@ async function createDialog(
   page: Page,
   name: string,
   activation: "pointer" | "touch" | "keyboard" = "pointer",
+  select = true,
 ) {
   const action = page.getByRole("button", {
     name: "Create API key",
@@ -160,9 +169,16 @@ async function createDialog(
     exact: true,
   });
   await dialog.getByLabel("Name", { exact: true }).fill(name);
-  await expect(
-    dialog.getByRole("button", { name: "Create key", exact: true }),
-  ).toBeEnabled();
+  if (select) {
+    await choose(page, "Permissions", "Read-only", activation);
+    await choose(page, "Expires after", "30 days", activation);
+  }
+  const submit = dialog.getByRole("button", {
+    name: "Create key",
+    exact: true,
+  });
+  if (select) await expect(submit).toBeEnabled();
+  else await expect(submit).toBeDisabled();
   return dialog;
 }
 async function choose(
@@ -290,27 +306,35 @@ test("initial loading, failed loading, empty list and the personal key form rema
   ).toBeVisible();
   await openKeys(page);
   const directoryBaseline = boardLookups;
-  const dialog = await createDialog(page, "A personal API key");
+  const dialog = await createDialog(
+    page,
+    "A personal API key",
+    "pointer",
+    false,
+  );
   await expect(dialog.getByRole("textbox")).toHaveCount(1);
   await expect(dialog.getByRole("button", { name: /Agent$/ })).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: /Access$/ })).toHaveCount(0);
+  await expect(
+    dialog.getByRole("button", { name: /Permissions\*$/ }),
+  ).toContainText("Select");
   await expect(
     dialog.getByRole("button", { name: /Board access$/ }),
   ).toHaveCount(0);
   await expect(
     dialog.getByRole("button", { name: /Expires after\*$/ }),
-  ).toContainText("30 days");
+  ).toContainText("Select");
+  await choose(page, "Permissions", "Edit");
   await dialog.getByRole("button", { name: /Expires after\*$/ }).click();
   await expect(page.getByRole("option")).toHaveText([
     "30 days",
-    "60 days",
     "90 days",
-    "365 days",
+    "1 year",
+    "Never",
   ]);
-  await page.getByRole("option", { name: "365 days", exact: true }).click();
+  await page.getByRole("option", { name: "1 year", exact: true }).click();
   await expect(
     dialog.getByRole("button", { name: /Expires after\*$/ }),
-  ).toContainText("365 days");
+  ).toContainText("1 year");
   expect(boardLookups).toBe(directoryBaseline);
   await dialog.getByRole("button", { name: "Create key", exact: true }).click();
   const reveal = page.getByRole("dialog", {
@@ -336,6 +360,7 @@ test("response loss retries the same creation, reveals the original token locall
   await openKeys(page);
   let original = "";
   const keys: string[] = [];
+  const payloads: Record<string, unknown>[] = [];
   let loseResponse = true;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -345,7 +370,15 @@ test("response loss retries the same creation, reveals the original token locall
     if (route.request().method() !== "POST") return route.continue();
     keys.push(route.request().headers()["idempotency-key"]);
     const payload = route.request().postDataJSON();
-    expect(Object.keys(payload).toSorted()).toEqual(["expiresInDays", "name"]);
+    payloads.push(payload);
+    expect(Object.keys(payload).toSorted()).toEqual([
+      "access",
+      "expiresAt",
+      "includeAdmin",
+      "name",
+    ]);
+    expect(payload.access).toBe("read");
+    expect(payload.includeAdmin).toBe(false);
     expect(payload.name).toBe("Response recovery assistant");
     if (loseResponse) {
       loseResponse = false;
@@ -379,6 +412,7 @@ test("response loss retries the same creation, reveals the original token locall
   await expect(reveal).toBeVisible();
   expect(keys.length).toBe(2);
   expect(keys[0] === keys[1]).toBe(true);
+  expect(payloads[0]).toEqual(payloads[1]);
   expect(
     (await reveal.locator('[data-slot="code-block-code"] code').innerText()) ===
       original,
@@ -421,12 +455,13 @@ test("response loss retries the same creation, reveals the original token locall
     ),
   ).toBe(30);
   const next = await createDialog(page, "Response recovery assistant");
-  await choose(page, "Expires after", "60 days");
+  await choose(page, "Expires after", "90 days");
   await next.getByRole("button", { name: "Create key", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Copy your API key" }),
   ).toBeVisible();
   expect(keys[2] !== keys[1]).toBe(true);
+  expect(payloads[2]).not.toEqual(payloads[1]);
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Done", exact: true })
@@ -443,10 +478,7 @@ test("revocation locks dismissal in flight, retains a failed confirmation and sa
 }) => {
   await account(page);
   const credential = (
-    await json(page.request, "/credentials", {
-      name: "Revocation retry key",
-      expiresInDays: 30,
-    })
+    await json(page.request, "/credentials", keyData("Revocation retry key"))
   ).credential;
   await openKeys(page);
   await page
@@ -531,10 +563,11 @@ test("a list response started before revocation cannot restore the removed key",
   page,
 }) => {
   await account(page);
-  await json(page.request, "/credentials", {
-    name: "Revoke while a list is pending",
-    expiresInDays: 30,
-  });
+  await json(
+    page.request,
+    "/credentials",
+    keyData("Revoke while a list is pending"),
+  );
   await openKeys(page);
   let release!: () => void;
   let captured!: () => void;
@@ -591,10 +624,7 @@ test("older active credentials remain reachable and revocable after the default 
 }) => {
   const owner = await account(page);
   const older = (
-    await json(page.request, "/credentials", {
-      name: "Older active key",
-      expiresInDays: 30,
-    })
+    await json(page.request, "/credentials", keyData("Older active key"))
   ).credential;
   const { sql, schema } = await database();
   try {
@@ -695,21 +725,23 @@ test("older active credentials remain reachable and revocable after the default 
   }
 });
 
-test("personal keys follow the viewer's current role and metadata fit desktop and phone in both themes", async ({
+test("personal read keys stay within their grant and metadata fit desktop and phone in both themes", async ({
   page,
   browser,
 }, testInfo) => {
   const viewer = await account(page, "viewer");
-  const credential = await json(page.request, "/credentials", {
-    name: "Release planning reader",
-    expiresInDays: 30,
-  });
+  const credential = await json(
+    page.request,
+    "/credentials",
+    keyData("Release planning reader"),
+  );
   const longCredentialName =
     "Personal key for release coordination, international operations, and workspace integration verification";
-  const longCredential = await json(page.request, "/credentials", {
-    name: longCredentialName,
-    expiresInDays: 365,
-  });
+  const longCredential = await json(
+    page.request,
+    "/credentials",
+    keyData(longCredentialName, 365),
+  );
   const keyHeaders = {
     Authorization: `Bearer ${credential.token}`,
     Origin: origin,
@@ -725,16 +757,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
   expect((await mutation()).status()).toBe(403);
   await json(admin, `/auth/members/${viewer.id}`, { role: "member" }, "PATCH");
   try {
-    const promoted = await mutation();
-    expect(promoted.ok()).toBe(true);
-    const task = (await promoted.json()).task;
-    const activity = await json(admin, `/tasks/${task.id}/activity`);
-    expect(
-      activity.items.some(
-        (item: { actorId: string; actorKind: string }) =>
-          item.actorId === viewer.id && item.actorKind === "human",
-      ),
-    ).toBe(true);
+    expect((await mutation()).status()).toBe(403);
   } finally {
     await json(
       admin,
@@ -746,7 +769,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
   expect((await mutation()).status()).toBe(403);
   await openKeys(page);
   const dialog = await createDialog(page, "Viewer personal key", "keyboard");
-  await choose(page, "Expires after", "60 days", "keyboard");
+  await choose(page, "Expires after", "90 days", "keyboard");
   await expect(dialog.getByRole("button", { name: /Access$/ })).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(
@@ -827,7 +850,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
       "color",
       await unusedRow
         .getByRole("gridcell", {
-          name: "Your current REST permissions",
+          name: "Read-only · Your current role",
           exact: true,
         })
         .evaluate((element) => getComputedStyle(element).color),
@@ -929,7 +952,7 @@ test("personal keys follow the viewer's current role and metadata fit desktop an
         mobile
           .getByRole("row", { name: new RegExp(longCredentialName) })
           .getByRole("gridcell", {
-            name: "Your current REST permissions",
+            name: "Read-only · Your current role",
             exact: true,
           }),
       ).toBeVisible();
@@ -1050,7 +1073,7 @@ test("Agent navigation, settings and API routes are absent for every workspace r
       await page.goto("/settings/agents");
       await expect(
         page.getByRole("heading", {
-          name: "This page could not be found",
+          name: "Page not found",
           exact: true,
         }),
       ).toBeVisible();
@@ -1149,4 +1172,110 @@ test("MCP connections stay separate from API keys and preserve paginated revocat
   await expect(
     page.getByText("Limited MCP client", { exact: true }),
   ).toHaveCount(0);
+});
+
+test("team API keys require explicit choices and render on desktop and phone", async ({
+  page,
+  browser,
+}, testInfo) => {
+  const fixture = await getBrowserBootstrap(origin);
+  await authenticateBrowserFixture(page, fixture);
+  await page.goto("/team-settings/team-api-keys");
+  await expect(
+    page.getByRole("heading", { name: "Team API Keys", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Team API Keys", exact: true }),
+  ).toBeVisible();
+  const dialog = await createDialog(
+    page,
+    "Release team integration",
+    "pointer",
+    false,
+  );
+  await expect(
+    dialog.getByRole("button", { name: "Create key", exact: true }),
+  ).toBeDisabled();
+  await choose(page, "Permissions", "Administrative permissions");
+  await expect(
+    dialog.getByRole("button", { name: "Create key", exact: true }),
+  ).toBeDisabled();
+  await choose(page, "Expires after", "Never");
+  await expect(
+    dialog.getByRole("button", { name: "Create key", exact: true }),
+  ).toBeEnabled();
+  await dialog.getByRole("button", { name: "Create key", exact: true }).click();
+  const reveal = page.getByRole("dialog", { name: "Copy your API key" });
+  await expect(reveal).toBeVisible();
+  await reveal.getByRole("button", { name: "Done", exact: true }).click();
+  const team = await json(fixture.api, "/team-credentials");
+  const issued = team.items.find(
+    (item: { name: string }) => item.name === "Release team integration",
+  );
+  expect(issued.userId).toBeNull();
+  expect(issued.accessLevel).toBe("edit");
+  expect(issued.includeAdmin).toBe(true);
+  expect(issued.expiresAt).toBeNull();
+  const row = page
+    .getByRole("row")
+    .filter({ hasText: "Release team integration" });
+  await expect(row).toContainText("Administrative permissions · Team");
+  await expect(row).toContainText("No expiry");
+  await page.screenshot({
+    path: testInfo.outputPath("team-api-keys-desktop.png"),
+    fullPage: true,
+    animations: "disabled",
+  });
+
+  const phone = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  try {
+    const mobile = await phone.newPage();
+    await authenticateBrowserFixture(mobile, fixture);
+    await mobile.goto("/team-settings/team-api-keys");
+    await expect(
+      mobile.getByRole("heading", { name: "Team API Keys", exact: true }),
+    ).toBeVisible();
+    const mobileRow = mobile
+      .getByRole("row")
+      .filter({ hasText: "Release team integration" });
+    await expect(mobileRow).toContainText("Administrative permissions · Team");
+    await expect(mobileRow).toContainText("No expiry");
+    const mobileDialog = await createDialog(
+      mobile,
+      "Another team key",
+      "touch",
+      false,
+    );
+    await choose(mobile, "Permissions", "Read-only", "touch");
+    await choose(mobile, "Expires after", "30 days", "touch");
+    await expect(
+      mobileDialog.getByRole("button", { name: "Create key", exact: true }),
+    ).toBeEnabled();
+    await mobileDialog
+      .getByRole("button", { name: "Cancel", exact: true })
+      .tap();
+    await mobile.screenshot({
+      path: testInfo.outputPath("team-api-keys-phone.png"),
+      animations: "disabled",
+    });
+    expect(
+      await mobile.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+  } finally {
+    await phone.close();
+  }
+  expect(
+    (
+      await fixture.api.delete(`/api/team-credentials/${issued.id}`, {
+        headers: { Origin: origin },
+      })
+    ).status(),
+  ).toBe(200);
+  await fixture.api.dispose();
 });

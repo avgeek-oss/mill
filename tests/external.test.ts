@@ -68,6 +68,9 @@ test("External credentials and actual MCP task workflows enforce current permiss
       cookie,
       body: {
         name: "Integration worker",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
       },
     }),
   );
@@ -76,6 +79,9 @@ test("External credentials and actual MCP task workflows enforce current permiss
       cookie,
       body: {
         name: "Read worker",
+        access: "read",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
       },
     }),
   );
@@ -152,7 +158,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
       },
     );
     await t.test(
-      "personal REST keys inherit the owner's role and do not expose session settings or MCP",
+      "personal keys can work within their grant but cannot open browser settings",
       async () => {
         const list = await ok<{ items: { id: string }[] }>(
           await request("/api/boards", { token: write.token }),
@@ -197,11 +203,6 @@ test("External credentials and actual MCP task workflows enforce current permiss
             403,
             path,
           );
-        assert.equal(
-          (await request("/mcp", { token: write.token, body: {} })).status,
-          403,
-        );
-
         for (const options of [{ cookie }, { token: write.token }]) {
           assert.equal((await request("/api/export", options)).status, 404);
           assert.equal(
@@ -895,6 +896,9 @@ test("External credentials and actual MCP task workflows enforce current permiss
             cookie,
             body: {
               name: "Fresh revocation",
+              access: "edit",
+              includeAdmin: false,
+              expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
             },
           }),
         );

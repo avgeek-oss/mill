@@ -25,10 +25,6 @@ import { UserAvatar } from "@avgeek-oss/design-system/patterns/user-avatar";
 import { Chip } from "@avgeek-oss/design-system/data-display/chip";
 import { Modal } from "@avgeek-oss/design-system/overlays/modal";
 import { Tabs } from "@avgeek-oss/design-system/navigation/tabs";
-import {
-  TableCellStack,
-  TableCellDescription,
-} from "@avgeek-oss/design-system/data-display/table-cell-text";
 import { Textarea } from "@avgeek-oss/design-system/forms/textarea";
 import { toast } from "@avgeek-oss/design-system/overlays/toast";
 import { TooltipText } from "@avgeek-oss/design-system/overlays/tooltip";
@@ -113,7 +109,7 @@ function CommentDate({ value, user }: { value: string; user: User }) {
       tooltip={fullDate}
       tabIndex={0}
       aria-label={`Commented: ${fullDate}`}
-      className="shrink-0 whitespace-nowrap text-xs/4 text-muted"
+      className="shrink-0 whitespace-nowrap text-sm/5 text-muted"
     >
       {dateText}
     </TooltipText>
@@ -124,21 +120,6 @@ function activityEntity(action: string) {
   if (action.startsWith("comment.")) return "Comment";
   if (action.startsWith("task.")) return "Task";
   return "Change";
-}
-
-function activityConnectionLabel(detail: unknown) {
-  if (!isResponseObject(detail) || !isResponseObject(detail.connection))
-    return null;
-  switch (detail.connection.type) {
-    case "session":
-      return "Browser";
-    case "api-key":
-      return "API key";
-    case "oauth":
-      return "MCP";
-    default:
-      return null;
-  }
 }
 
 function mentionAtCaret(
@@ -181,7 +162,7 @@ function hasDiscussionPage(value: unknown, kind: DiscussionKind) {
           ? hasCommentResponse({ comment: item })
           : typeof item.actorId === "string" &&
             typeof item.actorName === "string" &&
-            (item.actorKind === "human" || item.actorKind === "oauth") &&
+            ["human", "oauth", "team"].includes(String(item.actorKind)) &&
             typeof item.action === "string"),
     )
   )
@@ -450,7 +431,7 @@ function TaskDiscussionContent({
     input?.setSelectionRange(caret, caret);
   }, [draft]);
 
-  function humanAvatar(id: string, name: string, className: string) {
+  function humanAvatar(id: string | null, name: string, className: string) {
     const member = members?.find((item) => item.id === id);
     return (
       <UserAvatar
@@ -885,7 +866,7 @@ function TaskDiscussionContent({
         <Tabs.ListContainer className="w-fit max-w-full">
           <Tabs.List aria-label="Task discussion">
             <Tabs.Tab id="comments" className="whitespace-nowrap">
-              Comments{comments.ready ? ` (${comments.items.length})` : ""}
+              Comments
               <Tabs.Indicator />
             </Tabs.Tab>
             <Tabs.Tab id="activity" className="whitespace-nowrap">
@@ -1011,41 +992,36 @@ function TaskDiscussionContent({
                   <div className="flex min-w-0 items-start gap-3">
                     {humanAvatar(item.authorId, name, "mt-0.5 shrink-0")}
                     <div className="grid min-w-0 flex-1 gap-0.5">
-                      <div className="flex min-w-0 items-center gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
                         <TypographyText className="min-w-0 truncate text-sm/5 font-medium">
                           {name}
                         </TypographyText>
                         <CommentDate value={item.createdAt} user={user} />
+                        {canChange(item) && (
+                          <Button
+                            variant="danger-soft"
+                            isIconOnly
+                            className="task-comment-delete shrink-0"
+                            aria-label={`Delete comment by ${name}`}
+                            isDisabled={busy || comments.busy}
+                            onPress={() => {
+                              setDeleting(item);
+                              setDeleteError("");
+                              setDeleteConflict(false);
+                            }}
+                          >
+                            <HugeiconsIcon aria-hidden icon={Delete02Icon} />
+                          </Button>
+                        )}
                       </div>
                       <div className="min-w-0 break-words text-sm text-muted">
                         <Markdown>{item.body}</Markdown>
                       </div>
                     </div>
-                    {canChange(item) && (
-                      <Button
-                        variant="danger-soft"
-                        isIconOnly
-                        className="task-comment-delete shrink-0"
-                        aria-label={`Delete comment by ${name}`}
-                        isDisabled={busy || comments.busy}
-                        onPress={() => {
-                          setDeleting(item);
-                          setDeleteError("");
-                          setDeleteConflict(false);
-                        }}
-                      >
-                        <HugeiconsIcon aria-hidden icon={Delete02Icon} />
-                      </Button>
-                    )}
                   </div>
                 </article>
               );
             })}
-            {comments.ready && !comments.error && !comments.items.length && (
-              <TypographyParagraph size="sm" color="muted" className="py-3">
-                No comments yet.
-              </TypographyParagraph>
-            )}
           </div>
           {comments.hasMore && (
             <Button
@@ -1083,25 +1059,26 @@ function TaskDiscussionContent({
                   key: "action",
                   header: "Action",
                   isRowHeader: true,
+                  cell: (item) =>
+                    activityLabel(item.action).replace(/^./, (letter) =>
+                      letter.toUpperCase(),
+                    ),
+                },
+                {
+                  key: "subject",
+                  header: "Subject",
+                  headerClassName: "w-52",
                   cell: (item) => (
-                    <TableCellStack>
-                      <span>
-                        {activityLabel(item.action).replace(/^./, (letter) =>
-                          letter.toUpperCase(),
-                        )}
+                    <div className="flex min-w-0 items-center gap-2">
+                      {humanAvatar(
+                        item.actorKind === "team" ? null : item.actorId,
+                        item.actorName,
+                        "shrink-0",
+                      )}
+                      <span className="min-w-0 break-words">
+                        {item.actorName}
                       </span>
-                      <TableCellDescription className="flex min-w-0 items-center gap-1.5">
-                        {humanAvatar(item.actorId, item.actorName, "shrink-0")}
-                        <span className="min-w-0 break-words">
-                          {item.actorName}
-                        </span>
-                        {activityConnectionLabel(item.detail) && (
-                          <span className="shrink-0">
-                            · {activityConnectionLabel(item.detail)}
-                          </span>
-                        )}
-                      </TableCellDescription>
-                    </TableCellStack>
+                    </div>
                   ),
                 },
                 {

@@ -33,6 +33,7 @@
     "verify:production": "node tools/production-verify.mjs"
   },
   "dependencies": {
+    "@avgeek-oss/design-system": "file:/Users/praveen/.codex/tasks/attribute-list-polish/design-system-local-31.tgz",
     "@hono/node-server": "2.0.11",
     "@modelcontextprotocol/sdk": "1.31.0",
     "@simplewebauthn/server": "13.3.2",
@@ -40,6 +41,8 @@
     "jose": "6.2.12",
     "nodemailer": "10.0.15",
     "postgres": "3.4.9",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "zod": "4.5.4"
   },
   "devDependencies": {

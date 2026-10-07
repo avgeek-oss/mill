@@ -15,6 +15,14 @@ const baselineUrl = new URL(
 );
 const source = await readFile(baselineUrl, "utf8");
 const checksum = createHash("sha256").update(source).digest("hex");
+const policySource = await readFile(
+  new URL(
+    "../packages/database/migrations/002_key_policies.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const policyChecksum = createHash("sha256").update(policySource).digest("hex");
 function runMigration(schema: string, directory?: string) {
   return new Promise<{ code: number | null; output: string }>(
     (resolve, reject) => {
@@ -68,7 +76,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         new URL("../packages/database/migrations/", import.meta.url),
       )
     ).filter((name) => name.endsWith(".sql")),
-    ["001_initial.sql"],
+    ["001_initial.sql", "002_key_policies.sql"],
   );
   const schema = `baseline_${randomUUID().replaceAll("-", "")}`;
   const directory = await mkdtemp(join(tmpdir(), "mill-checksum-"));
@@ -83,7 +91,10 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
     await inSchema(schema, async (tx) => {
       assert.deepEqual(
         [...(await tx`SELECT name,checksum FROM mill_migrations`)],
-        [{ name: "001_initial.sql", checksum }],
+        [
+          { name: "001_initial.sql", checksum },
+          { name: "002_key_policies.sql", checksum: policyChecksum },
+        ],
       );
       const tables = (
         await tx`SELECT tablename FROM pg_tables WHERE schemaname=${schema} ORDER BY tablename`
@@ -125,6 +136,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       join(directory, "001_initial.sql"),
       source + "\n-- changed after installation\n",
     );
+    await writeFile(join(directory, "002_key_policies.sql"), policySource);
     const changed = await runMigration(schema, directory);
     assert.equal(changed.code, 1);
     assert.match(changed.output, /Migration changed: 001_initial.sql/);

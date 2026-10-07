@@ -3,8 +3,9 @@ export type Actor = {
   userId: string;
   name: string;
   role: Role;
-  kind: "human" | "oauth";
+  kind: "human" | "oauth" | "team";
   scopes: string[];
+  includeAdmin?: boolean;
   credentialId?: string;
   credentialType?: "api-key" | "oauth";
   boardIds?: string[];
@@ -64,7 +65,7 @@ export type Activity = {
   boardId: string;
   actorId: string;
   actorName: string;
-  actorKind: "human" | "oauth";
+  actorKind: "human" | "oauth" | "team";
   action: string;
   detail: unknown;
   createdAt: string;
@@ -72,7 +73,8 @@ export type Activity = {
 export type Comment = {
   id: string;
   taskId: string;
-  authorId: string;
+  authorId: string | null;
+  authorKind: "human" | "oauth" | "team";
   authorName: string;
   body: string;
   version: number;

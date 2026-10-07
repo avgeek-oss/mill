@@ -38,7 +38,7 @@ async function json(
   );
   return response.json();
 }
-async function login(page: Page, path = "/settings/members") {
+async function login(page: Page, path = "/team-settings/members") {
   await page.goto("/");
   await page.getByLabel("Email", { exact: true }).fill(bootstrap.email);
   await page.getByLabel("Password", { exact: true }).fill(bootstrap.password);
@@ -49,7 +49,7 @@ async function login(page: Page, path = "/settings/members") {
   await page.goto(path);
   await expect(
     page.getByRole("heading", {
-      name: path.endsWith("workspace") ? "General" : "People",
+      name: path.endsWith("general") ? "General" : "Members",
       exact: true,
       level: 1,
     }),

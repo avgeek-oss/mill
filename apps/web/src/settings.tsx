@@ -11,7 +11,11 @@ import type { Board, Member } from "../../../packages/contracts/src/index.js";
 import { api, type Session } from "./api.js";
 import { AccountSettings } from "./account-settings.js";
 import { PeopleSettings } from "./people-settings.js";
-import { ApiKeySettings, McpConnectionSettings } from "./api-key-settings.js";
+import {
+  ApiKeySettings,
+  McpConnectionSettings,
+  TeamApiKeySettings,
+} from "./api-key-settings.js";
 import { isAccountSection, settingsTitles } from "./settings-navigation.js";
 import { McpGuide } from "./mcp-guide.js";
 
@@ -50,7 +54,10 @@ export function SettingsPage({
         onRefresh={onRefresh}
       />
     );
-  if (["members", "general"].includes(section) && session.user.role !== "admin")
+  if (
+    ["members", "general", "team-api-keys"].includes(section) &&
+    session.user.role !== "admin"
+  )
     return (
       <section className="settings-page">
         <SettingsHeading
@@ -71,6 +78,14 @@ export function SettingsPage({
     );
   if (section === "members")
     return <PeopleSettings session={session} onRefresh={onRefresh} />;
+  if (section === "team-api-keys")
+    return (
+      <TeamApiKeySettings
+        session={session}
+        boards={boards}
+        onRefresh={onRefresh}
+      />
+    );
   if (section === "api-keys")
     return (
       <ApiKeySettings session={session} boards={boards} onRefresh={onRefresh} />

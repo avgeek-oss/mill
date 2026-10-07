@@ -110,28 +110,6 @@ async function pauseFade(popover: Locator) {
   });
 }
 
-async function clickWhileOpening(page: Page, popover: Locator, item: Locator) {
-  expect(await pauseFade(popover)).toBe(true);
-  const bounds = (await item.boundingBox())!;
-  await page.mouse.move(
-    bounds.x + bounds.width / 2,
-    bounds.y + bounds.height / 2,
-  );
-  await page.mouse.down();
-  const before = await item.boundingBox();
-  await page.waitForTimeout(50);
-  expect(
-    await item.evaluate(
-      (element) =>
-        new DOMMatrixReadOnly(getComputedStyle(element).transform).isIdentity,
-    ),
-  ).toBe(true);
-  expect(await item.boundingBox()).toEqual(before);
-  await page.mouse.up();
-  await expect(popover).toHaveCount(0, { timeout: 1000 });
-  await expect(page.locator('[data-testid="underlay"]')).toHaveCount(0);
-}
-
 async function mobileNavigationMotion(page: Page, theme: "light" | "dark") {
   const toggle = page.getByRole("button", {
     name: "Toggle navigation",
@@ -343,94 +321,24 @@ for (const width of [1280, 390])
           await mobileNavigationMotion(page, theme);
           return;
         }
-        const trigger = page.getByRole("button", {
-          name: "Navigate account settings pages",
-          exact: true,
-        });
-        const popover = page.locator(".breadcrumb-popover");
-        const menu = page.getByRole("menu", {
-          name: "Navigate account settings pages",
-          exact: true,
-        });
-        for (let attempt = 0; attempt < 3; attempt++) {
-          await trigger.click();
-          await expect(menu).toBeVisible();
-          await stableFrames(popover);
-          await page.keyboard.press("Escape");
-          await expect(popover).toHaveCount(0, { timeout: 1000 });
-          await expect(trigger).toBeFocused();
-        }
-        // A paused opening fade must not hold navigation or the modal underlay open.
-        await trigger.click();
-        await clickWhileOpening(
-          page,
-          popover,
-          menu.getByRole("menuitem", { name: "Preferences", exact: true }),
-        );
-        await expect(page).toHaveURL(/\/settings\/preferences$/);
         await expect(
-          page.getByRole("heading", {
-            name: "Preferences",
-            exact: true,
-            level: 1,
-          }),
-        ).toBeVisible();
-        await expect(trigger).toBeFocused();
-
-        // Reopen the same mounted popover while its dismissal is still in progress.
-        await trigger.click();
-        await stableFrames(popover);
-        await page.keyboard.press("Escape");
-        const interrupted = await pauseFade(popover);
-        expect(interrupted).toBe(true);
-        await trigger.click();
-        await expect(menu).toBeVisible();
-        await stableFrames(popover);
-        await expect(popover).not.toHaveAttribute("data-exiting", "true");
-        await menu
-          .getByRole("menuitem", { name: "API Keys", exact: true })
-          .press("Enter");
-        await expect(page).toHaveURL(/\/settings\/api-keys$/);
-        await expect(popover).toHaveCount(0, { timeout: 1000 });
-        await expect(trigger).toBeFocused();
-
-        for (let attempt = 0; attempt < 8; attempt++) {
-          await trigger.click();
-          await page.keyboard.press("Escape");
-          const bounds = (await trigger.boundingBox())!;
-          await page.mouse.click(
-            bounds.x + bounds.width / 2,
-            bounds.y + bounds.height / 2,
-          );
-          await page.keyboard.press("Escape");
-          await expect(popover).toHaveCount(0, { timeout: 1000 });
-          await expect(trigger).toBeFocused();
-        }
-
-        await trigger.click();
-        await page.goBack();
-        await expect(page).toHaveURL(/\/settings\/preferences$/);
-        await expect(popover).toHaveCount(0);
-        await trigger.click();
-        await expect(menu).toBeVisible();
-        await page.keyboard.press("Escape");
-        await expect(popover).toHaveCount(0);
-
-        await page.goto("/settings/workspace");
-        const teamTrigger = page.getByRole("button", {
-          name: "Navigate team settings pages",
-          exact: true,
-        });
-        await teamTrigger.click();
-        await stableFrames(popover);
-        const membersItem = page.getByRole("menuitem", {
-          name: "Members",
-          exact: true,
-        });
-        await membersItem.click();
-        await expect(page).toHaveURL(/\/team-settings\/members$/);
-        await expect(popover).toHaveCount(0, { timeout: 1000 });
-
+          page.getByRole("button", { name: "Navigate account settings pages" }),
+        ).toHaveCount(0);
+        await page
+          .getByRole("navigation", { name: "Breadcrumb", exact: true })
+          .getByRole("link", { name: "Account Settings", exact: true })
+          .click();
+        await expect(page).toHaveURL(/\/settings\/profile$/);
+        await page.goto("/team-settings/members");
+        await expect(
+          page.getByRole("button", { name: "Navigate team settings pages" }),
+        ).toHaveCount(0);
+        await page
+          .getByRole("navigation", { name: "Breadcrumb", exact: true })
+          .getByRole("link", { name: "Team Settings", exact: true })
+          .click();
+        await expect(page).toHaveURL(/\/team-settings\/general$/);
+        const popover = page.locator(".breadcrumb-popover");
         await page.goto(taskPath);
         const boardTrigger = page.getByRole("button", {
           name: "Switch board: Popover first board",

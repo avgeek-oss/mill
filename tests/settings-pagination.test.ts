@@ -45,7 +45,12 @@ async function credential(cookie: string, name = "Older active access") {
   return json(
     await request("/api/credentials", {
       cookie,
-      body: { name },
+      body: {
+        name,
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );

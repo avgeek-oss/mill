@@ -59,7 +59,12 @@ test("workspace audit is absent for every role while task history retains human,
   const personalKey = await json(
     await request("/api/credentials", {
       cookie,
-      body: { name: "Human task client", expiresInDays: 30 },
+      body: {
+        name: "Human task client",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
     }),
     201,
   );
@@ -92,7 +97,7 @@ test("workspace audit is absent for every role while task history retains human,
   assert.equal(
     (await callMcpTool(personalKey.token, "get_task", { taskId: task.id }))
       .response.status,
-    403,
+    200,
   );
   const comment = (
     await json(
@@ -337,7 +342,12 @@ test("personal keys retain human task history across boards and follow current m
   const personalKey = await json(
     await request("/api/credentials", {
       cookie: writer.cookie,
-      body: { name: "Personal history client", expiresInDays: 60 },
+      body: {
+        name: "Personal history client",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+      },
     }),
     201,
   );

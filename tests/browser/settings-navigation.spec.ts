@@ -174,7 +174,7 @@ for (const width of [1280, 390])
                 name: "Edit Gravatar image (opens in a new tab)",
                 exact: true,
               }),
-            ).toBeVisible();
+            ).toHaveCount(0);
             if (width >= 1024) {
               const bounds = await profile.boundingBox();
               const mainBounds = await page.locator("main").boundingBox();
@@ -346,12 +346,11 @@ for (const width of [1280, 390])
         await expect(menu.getByRole("menuitem")).toHaveText([
           "Profile",
           "Preferences",
-          "Auth & Security",
-          "My API Keys",
+          "Email & Password",
+          "API Keys",
           "Changelog",
           "Documentation",
-          "Feedback",
-          "Repo / Contribute",
+          "Leave Feedback",
           "Sign out",
         ]);
         await context.route("https://mill.fyi/", (route) =>
@@ -370,21 +369,15 @@ for (const width of [1280, 390])
         await openNavigation(page);
         await page.getByRole("button", { name: /^Account menu for / }).click();
         await menu
-          .getByRole("menuitem", { name: "Auth & Security", exact: true })
+          .getByRole("menuitem", { name: "Email & Password", exact: true })
           .click();
         await expect(page).toHaveURL("/settings/email-password");
         await page.goBack();
         await expect(page).toHaveURL("/team-settings/members");
         if (width >= 1024) {
           await page
-            .getByRole("button", {
-              name: "Navigate team settings pages",
-              exact: true,
-            })
-            .click();
-          await page
-            .getByRole("menu")
-            .getByRole("menuitem", { name: "General", exact: true })
+            .getByRole("navigation", { name: "Breadcrumb", exact: true })
+            .getByRole("link", { name: "Team Settings", exact: true })
             .click();
         } else {
           await openNavigation(page);

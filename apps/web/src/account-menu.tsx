@@ -1,6 +1,5 @@
 import {
   BookOpen01Icon,
-  GithubIcon,
   Key01Icon,
   Mail01Icon,
   Message01Icon,
@@ -18,7 +17,6 @@ const externalLinks: Record<string, string> = {
   changelog: `${repository}/blob/main/CHANGELOG.md`,
   documentation: "https://mill.fyi",
   feedback: `${repository}/issues/new/choose`,
-  contribute: `${repository}/blob/main/CONTRIBUTING.md`,
 };
 
 export function AccountMenu({
@@ -46,10 +44,10 @@ export function AccountMenu({
             { id: "preferences", label: "Preferences", icon: Settings01Icon },
             {
               id: "email-password",
-              label: "Auth & Security",
+              label: "Email & Password",
               icon: Mail01Icon,
             },
-            { id: "api-keys", label: "My API Keys", icon: Key01Icon },
+            { id: "api-keys", label: "API Keys", icon: Key01Icon },
           ].map((item) => ({
             ...item,
             id: `account-${item.id}`,
@@ -66,8 +64,7 @@ export function AccountMenu({
               label: "Documentation",
               icon: BookOpen01Icon,
             },
-            { id: "feedback", label: "Feedback", icon: Message01Icon },
-            { id: "contribute", label: "Repo / Contribute", icon: GithubIcon },
+            { id: "feedback", label: "Leave Feedback", icon: Message01Icon },
           ].map((item) => ({
             ...item,
             icon: <HugeiconsIcon icon={item.icon} aria-hidden />,

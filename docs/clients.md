@@ -1,18 +1,18 @@
 # REST and MCP clients
 
-Mill lets external clients read and update work through REST or remote MCP. REST uses a personal API key with your current permissions. MCP uses OAuth approved by a person in Mill. You do not need an LLM key in Mill.
+Mill lets external clients read and update work through REST or remote MCP. Both transports accept personal and team API keys with explicit permissions. MCP also accepts OAuth approved by a person in Mill. You do not need an LLM key in Mill.
 
 Install Mill and complete [workspace setup](getting-started.md) before connecting a client. Use your final HTTPS URL for a remote connection. Loopback HTTP works for local development when `ALLOW_INSECURE_LOCALHOST=true`; this exception does not permit HTTP on a remote server.
 
 ## Create a personal API key
 
-Open **Account Settings → API Keys** at `/settings/api-keys` and choose **Create API key**. Enter a **Name** and choose **Expiry**: 30, 60, 90, or 365 days. The default is 30 days. There is no access-scope or board selector. A key belongs to the person creating it; another administrator does not own it.
+Open **Account Settings → API Keys** at `/settings/api-keys` and choose **Create API key**. Enter a **Name**, choose **Permissions** (Read-only, Edit, or Administrative permissions), and choose **Expires after** (30 days, 90 days, 1 year, or Never). All three selections are required. A personal key belongs to the person creating it. Administrators create and revoke team keys under **Team Settings → API Keys** at `/team-settings/team-api-keys`; a team key belongs to the team, not its creator.
 
 The **Copy your API key** dialog reveals the complete token once. Choose **Copy API key**, save it in the external client's secret store, and choose **Done**. Mill stores a hash. Keep the token out of prompts, repositories, browser screenshots, and task comments. Later metadata shows the name, expiry, last use, and revocation state without revealing the token.
 
-A personal API key uses its human owner's current role across all accessible boards, including boards created later. A Viewer can read; Members and Admins can change work within their role. Disabling the account, expiring the key, or revoking it ends access. Password changes and account recovery also revoke existing keys.
+A personal key uses its stored grant within its human owner's current active membership and role. Demotion permanently narrows the grant, even after later promotion. A team key uses its stored team grant independently of the creator's later membership. Read-only permits reads; Edit permits routine work changes; Administrative permissions permits permitted business administration such as board deletion. No key can exceed its issuer's authority at creation. Expiry or revocation ends access; disabling an owner also ends personal-key access. Password changes and account recovery revoke that owner's personal keys.
 
-Personal API keys use REST only. They cannot use `/mcp`, account/security routes, the team directory, invitations, workspace administration, credential management, or OAuth consent. Use a browser session for those human actions. See [access security](authentication.md#external-credential-boundaries) for the distinction from OAuth.
+API keys can use REST and `/mcp`. They cannot use account/security routes, the team directory, invitations, team settings, credential management, or OAuth consent. Use a browser session for those human actions. See [access security](authentication.md#external-credential-boundaries) for the distinction from OAuth.
 
 ## Use REST
 
@@ -40,11 +40,11 @@ Mill returns the task ID, stable identifier, and current `version`. Include that
 
 ## Use remote MCP
 
-Open **Account Settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration from its filename header, use the setup and troubleshooting link when needed, and approve the boards the client may use. These configurations use OAuth; they do not need a personal API key.
+Open **Account Settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration from its filename header, use the setup and troubleshooting link when needed, and approve the boards the client may use. These configurations use OAuth. A client that supports bearer-token MCP authentication can use an API key instead.
 
 The configuration formats follow the clients' own guides: [Codex](https://developers.openai.com/codex/mcp/), [Claude Code](https://code.claude.com/docs/en/mcp), [Cursor](https://cursor.com/docs/mcp), and [VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
 
-Set the MCP server URL to `https://tasks.example.com/mcp` in a client that supports Streamable HTTP. Connect using [MCP OAuth](#connect-with-oauth). Personal API keys do not authenticate MCP. An already authorized client sends its OAuth access token as a bearer header:
+Set the MCP server URL to `https://tasks.example.com/mcp` in a client that supports Streamable HTTP. Connect using [MCP OAuth](#connect-with-oauth) or an API key. An authorized client sends its OAuth token or API key as a bearer header:
 
 ```json
 {
@@ -90,9 +90,9 @@ Client metadata documents must be public HTTPS JSON, use their exact document UR
 
 ## Revoke or diagnose a connection
 
-Open **Account Settings → API Keys** to revoke a personal key, or **Account Settings → MCP Connections** to revoke an authorized app. Confirm **Revoke key** or **Revoke connection**. Revocation takes effect on the next request and removes the key from the list. Revoked keys and connections are omitted from every page; expired keys remain visible until revoked. Personal API-key activity identifies the human owner. OAuth activity identifies the person who approved the connection and distinguishes OAuth actions from direct human actions. Workspace-wide audit history is not included in v1.
+Open **Account Settings → API Keys** to revoke a personal key, **Team Settings → API Keys** to revoke a team key, or **Account Settings → MCP Connections** to revoke an authorized app. Confirm **Revoke key** or **Revoke connection**. Revocation takes effect on the next request and removes the key from the list. Revoked keys and connections are omitted from every page; expired keys remain visible until revoked. Personal API-key activity identifies the human owner. OAuth activity identifies the person who approved the connection and distinguishes OAuth actions from direct human actions. Workspace-wide audit history is not included in v1.
 
-Mill 1.0.0 starts from one initial database migration. Private pre-launch installations that used the older sequence need the maintainer's conversion procedure before starting this version; do not change their migration ledger by hand. See [upgrades](upgrades.md).
+Mill applies the checksummed initial schema and a forward key-policy migration. Private pre-launch installations that used an older sequence need the maintainer's conversion procedure; do not change their migration ledger by hand. See [upgrades](upgrades.md).
 
 Deleting a board removes it from OAuth approved-board grants. A restricted OAuth connection loses that board; when no approved boards remain, Mill revokes it rather than broadening access. Unrestricted OAuth connections and personal API keys continue to apply to remaining and future accessible boards.
 

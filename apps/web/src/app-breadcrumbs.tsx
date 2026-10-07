@@ -1,12 +1,6 @@
 import { ClipboardListIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import type { AppShellBreadcrumbItems } from "@avgeek-oss/design-system/layouts/application-shell-types";
 import {
   Autocomplete,
@@ -14,15 +8,10 @@ import {
   ListBox,
   SearchField,
 } from "@mill/web-design-system";
-import {
-  BreadcrumbDropdown,
-  BreadcrumbSelect,
-} from "@avgeek-oss/design-system/navigation/breadcrumbs";
+import { BreadcrumbSelect } from "@avgeek-oss/design-system/navigation/breadcrumbs";
 import type { Board } from "../../../packages/contracts/src/index.js";
 import { navigate } from "./api.js";
 import {
-  accountSections,
-  teamSections,
   isAccountSection,
   settingsTitles,
   settingsHref,
@@ -33,52 +22,6 @@ const BreadcrumbContext = createContext<AppShellBreadcrumbItems>([
 ]);
 export const usePageBreadcrumbs = () => useContext(BreadcrumbContext);
 
-function SettingsBreadcrumb({
-  category,
-  sections,
-  section,
-}: {
-  category: string;
-  sections: (typeof accountSections)[number]["items"];
-  section: string;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  useEffect(() => setIsOpen(false), [section]);
-  return (
-    <BreadcrumbDropdown.Root isOpen={isOpen} onOpenChange={setIsOpen}>
-      <BreadcrumbDropdown.Trigger
-        aria-label={`Navigate ${category.toLowerCase()} pages`}
-        className="transition-colors focus-visible:[box-shadow:none]! focus-visible:outline-none!"
-      >
-        {category}
-      </BreadcrumbDropdown.Trigger>
-      <BreadcrumbDropdown.Popover
-        placement="bottom start"
-        className="breadcrumb-popover w-56 max-w-[calc(100vw-2rem)]"
-      >
-        <BreadcrumbDropdown.Menu aria-label={`${category} pages`}>
-          {sections.map((item) => (
-            <BreadcrumbDropdown.Item
-              key={item.id}
-              id={item.id}
-              href={settingsHref(item.id)}
-              textValue={item.label}
-            >
-              <HugeiconsIcon
-                aria-hidden
-                icon={item.icon}
-                size={16}
-                className="size-4 shrink-0 text-muted"
-              />
-              {item.label}
-            </BreadcrumbDropdown.Item>
-          ))}
-        </BreadcrumbDropdown.Menu>
-      </BreadcrumbDropdown.Popover>
-    </BreadcrumbDropdown.Root>
-  );
-}
-
 function breadcrumbItems({
   boards,
   boardsHref,
@@ -87,7 +30,6 @@ function breadcrumbItems({
   taskId,
   taskIdentifier,
   settingsSection,
-  admin,
   search,
   fallback,
 }: {
@@ -98,7 +40,6 @@ function breadcrumbItems({
   taskId?: string;
   taskIdentifier?: string;
   settingsSection?: string;
-  admin: boolean;
   search: string;
   fallback: string;
 }): AppShellBreadcrumbItems {
@@ -195,7 +136,7 @@ function breadcrumbItems({
           <span className="flex min-w-0 items-center gap-1">
             <Link
               href={boardHref}
-              className="min-w-0 truncate text-sm font-normal text-muted hover:text-foreground"
+              className="min-w-0 truncate text-sm font-normal text-muted"
             >
               {boardName}
             </Link>
@@ -211,23 +152,8 @@ function breadcrumbItems({
   if (settingsSection && settingsTitles[settingsSection]) {
     const account = isAccountSection(settingsSection);
     const category = account ? "Account Settings" : "Team Settings";
-    const sections = account
-      ? accountSections.flatMap((group) => group.items)
-      : admin
-        ? teamSections.flatMap((group) => group.items)
-        : [];
     return [
-      {
-        label: category,
-        contentKey: `${category}:${admin}`,
-        content: (
-          <SettingsBreadcrumb
-            category={category}
-            sections={sections}
-            section={settingsSection}
-          />
-        ),
-      },
+      { label: category, href: settingsHref(account ? "profile" : "general") },
       { label: settingsTitles[settingsSection] },
     ];
   }

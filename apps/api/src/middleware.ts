@@ -248,12 +248,12 @@ async function currentAuthority(c: Context<Env>) {
   const a = c.get("actor");
   if (a.credentialId) {
     const [row] =
-      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at,c.token_type,c.resource,c.scopes,c.board_ids FROM credentials c JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId} AND u.id=${a.userId} FOR SHARE OF u,c`;
+      await sql`SELECT u.role,c.revoked_at,c.expires_at,u.disabled_at,c.token_type,c.resource,c.scopes,c.board_ids,c.access_level,c.include_admin FROM credentials c LEFT JOIN users u ON u.id=c.user_id WHERE c.id=${a.credentialId} AND (c.user_id=${a.userId} OR (c.user_id IS NULL AND c.created_by=${a.userId})) FOR SHARE OF c`;
     if (
       !row ||
-      row.disabledAt ||
+      (a.kind !== "team" && row.disabledAt) ||
       row.revokedAt ||
-      new Date(row.expiresAt).getTime() <= Date.now()
+      (row.expiresAt && new Date(row.expiresAt).getTime() <= Date.now())
     )
       throw new HTTPException(401, {
         message: "This credential is no longer valid",
@@ -268,16 +268,31 @@ async function currentAuthority(c: Context<Env>) {
         boardIds: row.boardIds ?? undefined,
         scopes: row.scopes,
       });
-    } else if (
-      row.tokenType !== "api-key" ||
-      a.kind !== "human" ||
-      row.boardIds !== null ||
-      row.scopes.length
-    )
-      throw new HTTPException(401, {
-        message: "This credential is no longer valid",
+    } else {
+      if (
+        row.tokenType !== "api-key" ||
+        !["human", "team"].includes(a.kind) ||
+        row.boardIds !== null ||
+        row.scopes.length
+      )
+        throw new HTTPException(401, {
+          message: "This credential is no longer valid",
+        });
+      c.set("actor", {
+        ...a,
+        role:
+          a.kind === "team"
+            ? row.includeAdmin
+              ? "admin"
+              : row.accessLevel === "edit"
+                ? "member"
+                : "viewer"
+            : row.role,
+        scopes: row.accessLevel === "edit" ? ["read", "write"] : ["read"],
+        includeAdmin: row.includeAdmin,
       });
-    if (row.role !== a.role)
+    }
+    if (a.kind !== "team" && row.role !== a.role)
       throw new HTTPException(403, {
         message: "Your permissions changed. Reload Mill before trying again.",
       });

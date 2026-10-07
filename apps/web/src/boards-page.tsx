@@ -32,23 +32,12 @@ export function BoardsPage({
     <div className="grid min-w-0" aria-busy={pending}>
       <PageHeading
         title="Boards"
-        actionsPlacement="inline"
-        icon={<HugeiconsIcon icon={ClipboardListIcon} size={20} aria-hidden />}
+        icon={<HugeiconsIcon icon={ClipboardListIcon} size={24} aria-hidden />}
         actions={
           canCreate && (
-            <Button
-              aria-label="Create board"
-              variant="ghost"
-              isIconOnly
-              className="board-create-button size-8 text-muted"
-              onPress={onCreate}
-            >
-              <HugeiconsIcon
-                icon={Add01Icon}
-                size={16}
-                className="size-4"
-                aria-hidden
-              />
+            <Button onPress={onCreate}>
+              <HugeiconsIcon icon={Add01Icon} aria-hidden />
+              Create Board
             </Button>
           )
         }
@@ -89,21 +78,21 @@ export function BoardsPage({
                       <div className="grid gap-1">
                         <dt className="text-xs text-muted">Backlog</dt>
                         <dd className="flex items-center gap-2 text-lg font-medium tabular-nums text-foreground">
-                          <StatusIcon status="backlog" />
+                          <StatusIcon status="backlog" size={20} />
                           {board.backlogCount}
                         </dd>
                       </div>
                       <div className="grid gap-1">
                         <dt className="text-xs text-muted">To Do</dt>
                         <dd className="flex items-center gap-2 text-lg font-medium tabular-nums text-foreground">
-                          <StatusIcon status="todo" />
+                          <StatusIcon status="todo" size={20} />
                           {board.todoCount}
                         </dd>
                       </div>
                       <div className="grid gap-1">
                         <dt className="text-xs text-muted">In Progress</dt>
                         <dd className="flex items-center gap-2 text-lg font-medium tabular-nums text-foreground">
-                          <StatusIcon status="in_progress" />
+                          <StatusIcon status="in_progress" size={20} />
                           {board.inProgressCount}
                         </dd>
                       </div>

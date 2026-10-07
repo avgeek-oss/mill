@@ -235,7 +235,6 @@ function ProfileSettings({
       <SettingsHeading section="profile" />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
         <SharedProfileSettings
-          email={session.user.email}
           value={session.user.name}
           maxLength={120}
           onSave={async (name) => {

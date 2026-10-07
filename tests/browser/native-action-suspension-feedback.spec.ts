@@ -75,6 +75,10 @@ for (const [index, operation] of operations.entries()) {
       scopes: [],
       boardIds: null,
       tokenType: "api-key",
+      userId: fixture.identity.user.id,
+      createdBy: fixture.identity.user.id,
+      accessLevel: "read",
+      includeAdmin: false,
       tokenPrefix: "redacted",
       createdAt: now,
       expiresAt,
@@ -82,7 +86,7 @@ for (const [index, operation] of operations.entries()) {
       revokedAt: null,
     };
     const keyOperation = operation.endsWith("key");
-    const path = keyOperation ? "/settings/api-keys" : "/settings/members";
+    const path = keyOperation ? "/settings/api-keys" : "/team-settings/members";
     const heading = keyOperation ? "API Keys" : "Members";
     const requestPath =
       operation === "create-key"
@@ -187,6 +191,14 @@ for (const [index, operation] of operations.entries()) {
           .getByRole("dialog", { name: dialogTitle, exact: true })
           .getByLabel("Name", { exact: true })
           .fill("Retained key draft");
+        await page.getByRole("button", { name: /Permissions\*$/ }).click();
+        await page
+          .getByRole("option", { name: "Read-only", exact: true })
+          .click();
+        await page.getByRole("button", { name: /Expires after\*$/ }).click();
+        await page
+          .getByRole("option", { name: "30 days", exact: true })
+          .click();
       } else if (operation === "revoke-key") {
         await page
           .getByRole("row")

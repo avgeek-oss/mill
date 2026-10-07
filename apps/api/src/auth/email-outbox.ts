@@ -16,6 +16,7 @@ const messageSchema = z
     to: z.email(),
     subject: z.string().max(200),
     text: z.string().max(10000),
+    html: z.string().max(100000).optional(),
   })
   .strict();
 type Message = z.infer<typeof messageSchema>;

@@ -206,7 +206,7 @@ async function submitSettingsWhilePending(
     await expect(
       nativeConfirmation
         ? dialog.getByRole("button", { name: "Please wait…", exact: true })
-        : submit,
+        : dialog.getByRole("button", { name: "Saving…", exact: true }),
     ).toBeDisabled();
     await expect(
       dialog.getByRole("button", {
@@ -964,7 +964,7 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
         await surface.goto("/settings/audit");
         await expect(
           surface.getByRole("heading", {
-            name: "This page could not be found",
+            name: "Page not found",
             exact: true,
           }),
         ).toBeVisible();
@@ -1287,14 +1287,14 @@ test("expired session preserves task route, and unknown route has recovery", asy
   );
   await page.goto("/missing-page");
   await expect(
-    page.getByRole("heading", { name: "This page could not be found" }),
+    page.getByRole("heading", { name: "Page not found" }),
   ).toBeVisible();
   await page.screenshot({
     path: "docs/screenshots/not-found-light.png",
     fullPage: true,
     animations: "disabled",
   });
-  await page.getByRole("button", { name: "Go to boards" }).click();
+  await page.getByRole("link", { name: "Go to boards" }).click();
   await expect(
     page.getByRole("heading", { name: "Release planning" }),
   ).toBeVisible();
@@ -1609,7 +1609,7 @@ test("reauth hides task drafts on access loss and after real deletion", async ({
     await expect(
       page.getByRole("button", { name: "Task actions" }),
     ).toHaveCount(0);
-    await page.getByRole("button", { name: "Go to boards" }).click();
+    await page.getByRole("link", { name: "Go to boards" }).click();
     await expect(
       page.getByRole("heading", { name: "Release planning", exact: true }),
     ).toBeVisible();
@@ -1699,7 +1699,10 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
       r.url().endsWith("/api/auth/invitations") &&
       r.request().method() === "POST",
   );
-  await page.getByRole("button", { name: "Create invitation" }).click();
+  await page
+    .getByRole("dialog", { name: "Create invitation", exact: true })
+    .getByRole("button", { name: "Create invitation", exact: true })
+    .click();
   const invitation = await (await invitationResponse).json();
   await expect(
     page
@@ -1815,12 +1818,13 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
     exact: true,
   });
   await keyForm.getByLabel("Name", { exact: true }).fill("Review automation");
+  await choose(page, "Permissions", "Edit");
   const expiry = keyForm.getByRole("button", { name: /Expires after\*$/ });
   await expiry.click();
-  await page.getByRole("option", { name: "60 days", exact: true }).click();
-  await expect(expiry).toContainText("60 days");
+  await page.getByRole("option", { name: "90 days", exact: true }).click();
+  await expect(expiry).toContainText("90 days");
   await expect(page.getByRole("listbox")).toBeHidden();
-  for (const removedLabel of ["Agent", "Access", "Board access"])
+  for (const removedLabel of ["Agent", "Board access"])
     await expect(
       keyForm.getByRole("button", { name: new RegExp(`${removedLabel}$`) }),
     ).toHaveCount(0);
@@ -1834,10 +1838,16 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
     .click();
   const keyCreation = await keyCreationResponse;
   expect(keyCreation.status()).toBe(201);
-  expect(keyCreation.request().postDataJSON()).toEqual({
+  const keyBody = keyCreation.request().postDataJSON();
+  expect(keyBody).toEqual({
     name: "Review automation",
-    expiresInDays: 60,
+    access: "edit",
+    includeAdmin: false,
+    expiresAt: expect.any(String),
   });
+  expect(new Date(keyBody.expiresAt).getTime() - Date.now()).toBeGreaterThan(
+    89 * 86400000,
+  );
   const createdKey = (await keyCreation.json()).credential;
   expect(createdKey).not.toHaveProperty("agentId");
   expect(createdKey).not.toHaveProperty("agentName");
@@ -1901,10 +1911,6 @@ test("invitations, viewer permissions, mentions, and personal API keys", async (
     expect((await unchangedWorkspace.json()).workspace.name).toBe(
       permissionsIdentity.workspace.name,
     );
-    const forbiddenMcp = await personalKey.post("/mcp", {
-      data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
-    });
-    expect(forbiddenMcp.status()).toBe(403);
     const credentialRow = page
       .getByRole("grid", { name: "API keys", exact: true })
       .getByRole("row")
@@ -2864,9 +2870,7 @@ test("task load failures preserve the deep link and recover without creating a t
   await expect(
     page.getByRole("heading", { name: "Task unavailable" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Go to boards" }),
-  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Go to boards" })).toBeVisible();
   expect(creations).toBe(0);
 });
 

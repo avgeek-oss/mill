@@ -169,7 +169,12 @@ for (const winner of ["delete", "issuance"] as const) {
     const issuance = () =>
       request("/api/credentials", {
         cookie,
-        body: { name: "Concurrent personal key" },
+        body: {
+          name: "Concurrent personal key",
+          access: "edit",
+          includeAdmin: false,
+          expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        },
       });
     let first: Promise<Response>;
     let second: Promise<Response>;
@@ -413,7 +418,12 @@ for (const change of ["role", "revoke"] as const) {
     const credential = await json(
       await request("/api/credentials", {
         cookie: memberCookie,
-        body: { name: "Pending personal delete" },
+        body: {
+          name: "Pending personal delete",
+          access: "edit",
+          includeAdmin: false,
+          expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+        },
       }),
       201,
     );

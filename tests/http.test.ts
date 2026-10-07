@@ -126,7 +126,9 @@ test("retry records encrypt credential issuance secrets", async () => {
     cookie,
     body: {
       name: "Retry credential",
-      expiresInDays: 30,
+      access: "edit",
+      includeAdmin: false,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
     },
     headers: { "Idempotency-Key": "integration-secret-001" },
   };

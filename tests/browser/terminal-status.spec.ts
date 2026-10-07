@@ -95,7 +95,7 @@ for (const width of [1280, 390]) {
       const linksPerTask = width >= 640 ? 2 : 1;
       const expectDefaultTasks = async () => {
         await expect(
-          page.getByText("1–4 of 4 tasks", { exact: true }),
+          page.getByText("Page 1 of 1", { exact: true }),
         ).toBeVisible();
         await expect(rows).toHaveCount(4);
         await expect(table.getByRole("link")).toHaveCount(4 * linksPerTask);
@@ -140,7 +140,7 @@ for (const width of [1280, 390]) {
         await selectStatus(label);
         await expect(page).toHaveURL(new RegExp(`status=${status}`));
         await expect(
-          page.getByText("1–2 of 2 tasks", { exact: true }),
+          page.getByText("Page 1 of 1", { exact: true }),
         ).toBeVisible();
         await expect(rows).toHaveCount(2);
         await expect(table.getByRole("link")).toHaveCount(2 * linksPerTask);
