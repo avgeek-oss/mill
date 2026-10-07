@@ -1,5 +1,5 @@
-import { ChoiceField } from "@avgeek-oss/design-system";
-import { useEffect, useId, useRef, useState } from "react";
+import { ChoiceField, useOverlaySuspension } from "@avgeek-oss/design-system";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import type { Member, Task } from "../../../packages/contracts/src/index.js";
 import {
   Avatar,
@@ -15,6 +15,7 @@ import { hasTaskResponse } from "./responses.js";
 import { taskTypeOptions } from "./task-type.js";
 import { priorityOptions } from "./task-priority.js";
 import { statusOptions } from "./task-status.js";
+import { useSettingsMutation } from "./use-settings-mutation.js";
 
 export type DuplicateTaskSource = Pick<
   Task,
@@ -38,6 +39,8 @@ export function CreateTaskDialog({
   onCreated: (task: Task) => void;
   duplicateSource?: DuplicateTaskSource;
 }) {
+  const suspension = useOverlaySuspension();
+  const mutate = useSettingsMutation(`${user.id}:${boardId}:${open}`);
   const formId = useId();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -52,7 +55,7 @@ export function CreateTaskDialog({
   const inFlight = useRef(false);
   const writable = user.role !== "viewer";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     requestGeneration.current++;
     inFlight.current = false;
     setPending(false);
@@ -74,7 +77,8 @@ export function CreateTaskDialog({
   }
 
   async function create() {
-    if (!open || !writable || inFlight.current) return;
+    if (!open || !writable || suspension.isSuspended || inFlight.current)
+      return;
     setError("");
     if (!title.trim()) {
       toast.danger("Enter a title.");
@@ -89,6 +93,9 @@ export function CreateTaskDialog({
       return;
     }
     const generation = requestGeneration.current;
+    const active = suspension.capture();
+    const isCurrent = () =>
+      active() && generation === requestGeneration.current;
     const path = `/boards/${boardId}/tasks`;
     const payload = {
       title: title.trim(),
@@ -103,19 +110,22 @@ export function CreateTaskDialog({
     setPending(true);
     setError("");
     try {
-      const result = await api<{ task: Task }>(path, payload, "POST", {
-        validateResponse: hasTaskResponse,
-        headers: {
-          "Idempotency-Key": retryKey.forRequest(path, payload),
-        },
-      });
-      if (generation !== requestGeneration.current) return;
+      const result = await mutate((signal) =>
+        api<{ task: Task }>(path, payload, "POST", {
+          signal,
+          validateResponse: hasTaskResponse,
+          headers: {
+            "Idempotency-Key": retryKey.forRequest(path, payload),
+          },
+        }),
+      );
+      if (!isCurrent()) return;
       retryKey.reset();
       toast.success("Task created.");
       onClose();
       onCreated(result.task);
     } catch (cause) {
-      if (generation === requestGeneration.current) setError(errorText(cause));
+      if (isCurrent()) setError(errorText(cause));
     } finally {
       if (generation === requestGeneration.current) {
         inFlight.current = false;
