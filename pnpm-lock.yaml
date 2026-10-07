@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@avgeek-oss/design-system':
-        specifier: file:/Users/praveen/.codex/tasks/attribute-list-polish/design-system-local-31.tgz
-        version: file:../../../tasks/attribute-list-polish/design-system-local-31.tgz(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
+        specifier: 1.2.8
+        version: 1.2.8(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
       '@hono/node-server':
         specifier: 2.0.11
         version: 2.0.11(hono@4.13.8)
@@ -79,8 +79,8 @@ importers:
   apps/web:
     dependencies:
       '@avgeek-oss/design-system':
-        specifier: file:/Users/praveen/.codex/tasks/attribute-list-polish/design-system-local-31.tgz
-        version: file:../../../tasks/attribute-list-polish/design-system-local-31.tgz(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
+        specifier: 1.2.8
+        version: 1.2.8(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
       '@heroui/react':
         specifier: 3.2.6
         version: 3.2.6(@internationalized/date@3.12.4)(@react-aria/ssr@3.10.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@react-aria/utils@3.34.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-aria-components@1.21.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-aria@3.52.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(tailwind-merge@3.7.0)(tailwindcss@4.3.3)
@@ -144,8 +144,8 @@ importers:
   packages/web-design-system:
     dependencies:
       '@avgeek-oss/design-system':
-        specifier: file:/Users/praveen/.codex/tasks/attribute-list-polish/design-system-local-31.tgz
-        version: file:../../../tasks/attribute-list-polish/design-system-local-31.tgz(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
+        specifier: 1.2.8
+        version: 1.2.8(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)
       '@fontsource-variable/geist-mono':
         specifier: 5.3.0
         version: 5.3.0
@@ -209,17 +209,13 @@ packages:
       react: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
       react-dom: ^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1
 
-  '@avgeek-oss/design-system@file:../../../tasks/attribute-list-polish/design-system-local-31.tgz':
-    resolution: {integrity: sha512-rC/8q2G2txr54KPtvqF4qldz5PLoKd6i2boRuG7rHzKH3sC4iUWoPPNTe2v0ZH3HuMuV8heI4Mbz1HbSsxq+mg==, tarball: file:../../../tasks/attribute-list-polish/design-system-local-31.tgz}
-    version: 1.2.7
+  '@avgeek-oss/design-system@1.2.8':
+    resolution: {integrity: sha512-0pm+3Q+uUP74D1k2KPgwW1I7OxbByWpSQ0uLv3GlvjT3UyFAU7gKCIGw82XpKR711OJz5RdajjHUZlAr2mQ/tg==, tarball: https://npm.pkg.github.com/download/@avgeek-oss/design-system/1.2.8/8dcdda9f4fd4d06880dc3ec6a27988b3cef3c850}
     engines: {node: '>=24'}
     peerDependencies:
       next: ^16.0.0
       react: ^19.0.0
       react-dom: ^19.0.0
-    peerDependenciesMeta:
-      next:
-        optional: true
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -3248,7 +3244,7 @@ snapshots:
       react-transition-group: 4.4.5(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       use-sync-external-store: 1.7.0(react@19.3.0)
 
-  '@avgeek-oss/design-system@file:../../../tasks/attribute-list-polish/design-system-local-31.tgz(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)':
+  '@avgeek-oss/design-system@1.2.8(@react-spectrum/provider@3.11.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)':
     dependencies:
       '@fontsource-variable/geist-mono': 5.3.0
       '@fontsource-variable/inter': 5.3.0
@@ -3261,6 +3257,7 @@ snapshots:
       '@react-aria/ssr': 3.10.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@react-aria/utils': 3.34.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       clsx: 2.1.1
+      next: 16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       prism-react-renderer: 2.4.1(react@19.3.0)
       react: 19.3.0
       react-aria: 3.52.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3272,8 +3269,6 @@ snapshots:
       tailwind-merge: 3.7.0
       tailwindcss: 4.3.3
       zod: 4.5.4
-    optionalDependencies:
-      next: 16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
     transitivePeerDependencies:
       - '@react-spectrum/provider'
       - '@sinclair/typebox'
@@ -3307,7 +3302,7 @@ snapshots:
       - vest
       - yup
 
-  '@avgeek-oss/design-system@file:../../../tasks/attribute-list-polish/design-system-local-31.tgz(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)':
+  '@avgeek-oss/design-system@1.2.8(@standard-schema/spec@1.1.0)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(ajv@8.20.0)(next@16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(react-dom@19.3.0(react@19.3.0))(react-is@16.13.1)(react@19.3.0)(redux@5.0.1)':
     dependencies:
       '@fontsource-variable/geist-mono': 5.3.0
       '@fontsource-variable/inter': 5.3.0
@@ -3320,6 +3315,7 @@ snapshots:
       '@react-aria/ssr': 3.10.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@react-aria/utils': 3.34.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       clsx: 2.1.1
+      next: 16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       prism-react-renderer: 2.4.1(react@19.3.0)
       react: 19.3.0
       react-aria: 3.52.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -3331,8 +3327,6 @@ snapshots:
       tailwind-merge: 3.7.0
       tailwindcss: 4.3.3
       zod: 4.5.4
-    optionalDependencies:
-      next: 16.3.8(@playwright/test@1.63.0)(@types/node@26.6.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
     transitivePeerDependencies:
       - '@react-spectrum/provider'
       - '@sinclair/typebox'
@@ -3838,8 +3832,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@next/env@16.3.8':
-    optional: true
+  '@next/env@16.3.8': {}
 
   '@next/swc-darwin-arm64@16.3.8':
     optional: true
@@ -4515,8 +4508,7 @@ snapshots:
 
   balanced-match@4.0.4: {}
 
-  baseline-browser-mapping@2.11.27:
-    optional: true
+  baseline-browser-mapping@2.11.27: {}
 
   body-parser@2.3.0:
     dependencies:
@@ -4555,8 +4547,7 @@ snapshots:
 
   callsites@3.1.0: {}
 
-  caniuse-lite@1.0.30001814:
-    optional: true
+  caniuse-lite@1.0.30001814: {}
 
   ccount@2.0.1: {}
 
@@ -5728,7 +5719,6 @@ snapshots:
       - '@babel/core'
       - '@types/node'
       - babel-plugin-macros
-    optional: true
 
   nodemailer@10.0.15: {}
 
@@ -5824,7 +5814,6 @@ snapshots:
       nanoid: 3.3.19
       picocolors: 1.1.1
       source-map-js: 1.2.2
-    optional: true
 
   postcss@8.5.28:
     dependencies:
@@ -6274,7 +6263,6 @@ snapshots:
     dependencies:
       client-only: 0.0.1
       react: 19.3.0
-    optional: true
 
   supports-color@7.2.0:
     dependencies:
