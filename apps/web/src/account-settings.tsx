@@ -52,6 +52,8 @@ import {
 } from "@hugeicons/core-free-icons";
 import { Save } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
+import { AppShellBreadcrumb } from "@avgeek-oss/design-system/layouts/app-shell-breadcrumb";
+import { usePageBreadcrumbs } from "./app-breadcrumbs.js";
 import { RelativeDateTime, useCurrentTime } from "./relative-date-time.js";
 import {
   api,
@@ -767,6 +769,7 @@ function PasskeysSettings({
   session: Session;
   onRefresh: () => void;
 }) {
+  const breadcrumbs = usePageBreadcrumbs();
   const appSuspended = useAppSuspended();
   const keys = useAccountList<Passkey>("/auth/passkeys");
   const [pending, setPending] = useState<{
@@ -851,6 +854,7 @@ function PasskeysSettings({
   }
   return (
     <section className="min-w-0">
+      <AppShellBreadcrumb items={breadcrumbs} title="Passkeys" />
       {keys.items === null && <PageHeading title="Passkeys" />}
       <div className="content-grid min-w-0">
         <div className="min-w-0">

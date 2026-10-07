@@ -123,6 +123,10 @@ for (const width of [1280, 390])
             page.getByRole("heading", { name: title, exact: true, level: 1 }),
           ).toBeVisible();
           await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+          if (section === "passkeys")
+            await expect(
+              page.getByRole("button", { name: "Add passkey", exact: true }),
+            ).toBeVisible();
           const breadcrumb = page.getByRole("navigation", {
             name: "Breadcrumb",
             exact: true,
