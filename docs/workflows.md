@@ -58,13 +58,13 @@ There is no archive, trash, or restore view. Save a [full database backup](backu
 | Permanently delete tasks                        | No     | Yes    | Yes                |
 | Moderate another person's comments              | No     | No     | Yes, human session |
 | Permanently delete a board                      | No     | No     | Yes, human session |
-| Manage membership and Team settings             | No     | No     | Yes, human session |
+| Manage membership and Team Settings             | No     | No     | Yes, human session |
 
 ## People and API keys
 
-People are accounts that sign in to Mill. Manage invitations and roles in People or **Team settings → Members**, and the workspace name in **Team settings → General**.
+People are accounts that sign in to Mill. Manage invitations and roles in People or **Team Settings → Members**, and the workspace name in **Team Settings → General**.
 
-Personal API keys belong to the person who creates them. Open **Account settings → API Keys** and choose Name and Expiry: 30, 60, 90, or 365 days. They use the owner's current permissions across all accessible boards. Another administrator does not own your keys.
+Personal API keys belong to the person who creates them. Open **Account Settings → API Keys** and choose Name and Expiry: 30, 60, 90, or 365 days. They use the owner's current permissions across all accessible boards. Another administrator does not own your keys.
 
 MCP OAuth connects a client to the person who approves it. Review the requested read or read/write scopes, and optionally limit the connection to selected boards. Every active member can read workspace boards. Personal API keys use that owner's role without OAuth's scope and board restrictions. Role changes, removal, or revocation prevent a waiting mutation from committing without current authority.
 

@@ -14,13 +14,13 @@ Search tasks above the table. Use the secondary panel for status, assignee and p
 
 ## Invite your team
 
-An administrator opens **Team settings → Members**, chooses **Invite a person**, and selects their role. Share the invitation link privately with the intended recipient; Mill does not deliver email. Invitations expire and create an account for the invited email address. Each person should use their own account.
+An administrator opens **Team Settings → Members**, chooses **Invite a person**, and selects their role. Share the invitation link privately with the intended recipient; Mill does not deliver email. Invitations expire and create an account for the invited email address. Each person should use their own account.
 
-Admins manage the team through **Team settings → Members** and **General**. Members create and edit work. Viewers can read boards and tasks but cannot change them. Personal API keys inherit their owner's current role across all accessible boards. Only MCP OAuth has approved-board and read/write scope restrictions. A key cannot administer the workspace.
+Admins manage the team through **Team Settings → Members** and **General**. Members create and edit work. Viewers can read boards and tasks but cannot change them. Personal API keys inherit their owner's current role across all accessible boards. Only MCP OAuth has approved-board and read/write scope restrictions. A key cannot administer the workspace.
 
 ## Secure your account
 
-Open **Account settings → Passkeys** to register a passkey and save its recovery codes. Password sign-in requires a registered passkey; a single-use recovery code can recover ordinary account access after password verification. Register your own device at the final HTTPS origin.
+Open **Account Settings → Passkeys** to register a passkey and save its recovery codes. Password sign-in requires a registered passkey; a single-use recovery code can recover ordinary account access after password verification. Register your own device at the final HTTPS origin.
 
 Review active sessions and revoke a device you no longer use. Select your name at the bottom of the sidebar to choose your time zone and notification preferences. If you lose access, use your saved recovery code, request a password reset when SMTP is configured, or ask the server administrator to follow the local account-recovery procedure in [operations](operations.md). Full database recovery is separate from account recovery.
 

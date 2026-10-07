@@ -40,7 +40,7 @@ Mill returns the task ID, stable identifier, and current `version`. Include that
 
 ## Use remote MCP
 
-Open **Account Settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration from its filename header, follow the sign-in guidance below it, and approve the boards the client may use. These configurations use OAuth; they do not need a personal API key.
+Open **Account Settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration from its filename header, use the setup and troubleshooting link when needed, and approve the boards the client may use. These configurations use OAuth; they do not need a personal API key.
 
 The configuration formats follow the clients' own guides: [Codex](https://developers.openai.com/codex/mcp/), [Claude Code](https://code.claude.com/docs/en/mcp), [Cursor](https://cursor.com/docs/mcp), and [VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
 
@@ -84,7 +84,7 @@ Mill does not verify the brand or ownership of a dynamically registered client n
 
 Mill supports authorization code grants with PKCE S256 and the exact MCP resource URL. The client must send `resource=https://tasks.example.com/mcp` at both authorization and token exchange. Redirect URIs must match the client's registration exactly and use HTTPS or loopback HTTP. Mill rejects duplicate parameters, invalid scopes, reused or expired codes, and cross-origin consent requests. Authorization codes expire after two minutes; pending consent expires after ten minutes.
 
-OAuth tokens expire after 30 days and apply only to `/mcp`. They cannot be used as REST API tokens. Mill does not issue refresh tokens; reconnect after expiry. A replayed authorization code revokes the token it issued. You can also revoke the connection from API keys or through the OAuth revocation endpoint. Current membership, role and approved access are checked during approval, token exchange and authenticated requests.
+OAuth tokens expire after 30 days and apply only to `/mcp`. They cannot be used as REST API tokens. Mill does not issue refresh tokens; reconnect after expiry. A replayed authorization code revokes the token it issued. You can also revoke the connection from MCP Connections or through the OAuth revocation endpoint. Current membership, role and approved access are checked during approval, token exchange and authenticated requests.
 
 Client metadata documents must be public HTTPS JSON, use their exact document URL as `client_id`, and declare `token_endpoint_auth_method: "none"`. Mill rejects private or reserved network addresses, IP-literal URLs, redirects, documents over 32 KiB, and requests exceeding five seconds. DNS answers are checked and pinned for the connection. A metadata document does not make a client trustworthy; review consent before granting access.
 

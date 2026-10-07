@@ -9,7 +9,7 @@ Passwords require 15-1,024 characters. Mill stores them with scrypt using N=3276
 
 ## Join a team
 
-An administrator opens **Team settings → Members**, chooses **Invite a person**, enters an email address, and selects a role. With SMTP configured, Mill queues an invitation email. Without SMTP, copy the private invitation link and send it to that person. The invitation expires after seven days, can be revoked, and can be accepted once. Issuing another invitation to the same address invalidates the earlier link. The inviter must remain an active administrator; removal or demotion invalidates their pending invitations.
+An administrator opens **Team Settings → Members**, chooses **Create invitation**, enters an email address, and selects a role. With SMTP configured, Mill queues an invitation email. Without SMTP, copy the private invitation link and send it to that person. The invitation expires after seven days, can be revoked, and can be accepted once. Issuing another invitation to the same address invalidates the earlier link. The inviter must remain an active administrator; removal or demotion invalidates their pending invitations.
 
 The invitation list shows relative expiry time, such as “Expires in 12 hours”. Expired invitations are hidden from the list.
 
@@ -17,7 +17,7 @@ The person following the link chooses their name and password. With SMTP configu
 
 | Role   | Access                                                                                                                                |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Admin  | Everyday task work, boards, permanent board deletion, Team settings, membership management.                                           |
+| Admin  | Everyday task work, boards, permanent board deletion, Team Settings, membership management.                                           |
 | Member | Read boards, create and edit tasks, add and delete their own comments, assign work, and use credentials within their own permissions. |
 | Viewer | Read boards, tasks, comments and activity; manage their own profile and security settings.                                            |
 
@@ -43,19 +43,20 @@ Store one-time tokens in the external client's secret store. Mill stores hashes 
 
 See [connection steps](/clients), [the API reference](/rest-reference), and [private vulnerability reporting](/security). Configuration and database backups remain private. The repository and artifacts stay private during v1 review; merging, deployment, release publication, and visibility changes need the applicable owner authorization.
 
-## Account settings
+## Account Settings
 
-Open **Settings → Account settings** in the primary sidebar, or use the account menu at the bottom left. The secondary sidebar separates your settings into focused pages:
+Open **Settings → Account Settings** in the primary sidebar, or use the account menu at the bottom left. The secondary sidebar separates your settings into focused pages:
 
-- **Profile**: your name, account email, and Gravatar preview. Email is read-only.
+- **Profile**: your profile image and name. Email changes are under Email & Password.
 - **Preferences**: your date format, time format, time zone, and in-app assignment and mention notifications.
 - **Email & Password**: your current email, verification state, pending email change, and password changes. Email changes require configured SMTP and recent identity confirmation.
 - **Passkeys**: registered passkeys and their recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
-- **API Keys**: your personal REST keys and authorized OAuth connections.
+- **API Keys**: your personal REST keys.
+- **MCP Connections**: authorized OAuth apps, their approved access, and individual revocation.
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 
-The account menu also links to Mill's changelog, documentation, feedback, and contribution guide. Administrators use **Team settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.
+The account menu also links to Mill's changelog, documentation, feedback, and contribution guide. Administrators use **Team Settings → General** for the team name and **Members** for invitations and roles. The primary navigation stays highlighted throughout each settings area.
 
 Display preferences use the same IDs during setup and profile updates. `dateFormat` accepts `day-short-month-year` (16 Sept 2026), `short-month-day-year` (Sept 16, 2026), `year-month-day` (2026-09-16), `day-month-year` (16/09/2026), or `month-day-year` (09/16/2026). `timeFormat` accepts `24-hour` (14:30), `12-hour` (2:30 PM), `24-hour-seconds` (14:30:45), or `12-hour-seconds` (2:30:45 PM). Defaults are `day-short-month-year`, `24-hour`, and the `UTC` time zone. These choices change display labels; task calendar dates remain `YYYY-MM-DD`, and timestamp wire values retain their UTC/offset semantics. Updating other profile fields preserves stored display preferences.
 
@@ -69,7 +70,7 @@ Public email requests acknowledge eligible and unknown addresses in the same way
 
 ## Passkeys and recovery codes
 
-Open **Account settings → Passkeys** to add a passkey. Security changes require a sign-in or identity verification within the previous ten minutes. If verification has expired, enter your password again and complete your configured second factor.
+Open **Account Settings → Passkeys** to add a passkey. Security changes require a sign-in or identity verification within the previous ten minutes. If verification has expired, enter your password again and complete your configured second factor.
 
 A passkey requires device verification such as a fingerprint, face recognition or device PIN. Mill verifies the public-key signature, the browser origin, the relying-party identifier and the single-use challenge. Passkey setup is bound to the session that requested it. You can name and remove each registered passkey. Use **Sign in with a passkey** for passwordless sign-in.
 
@@ -79,7 +80,7 @@ Passkeys are the only second factor. Password sign-in automatically requests you
 
 Registering your first passkey creates ten recovery codes. Save them somewhere private. When a passkey is unavailable, enter your password first and choose **Use a recovery code** from the passkey verification screen. Each code is accepted once. Recovery access allows ordinary account use, but security changes still require a fresh passkey proof. Replace recovery codes from the Passkeys page after confirming your identity with a passkey; replacement invalidates the previous set.
 
-Adding or removing a factor ends other browser sessions and invalidates pending authentication challenges. The initiating session stays signed in. Creating an API key or approving an OAuth connection also requires recent identity verification. Recovery-code access cannot grant those credentials until a passkey verifies the session. Credential revocation and OAuth denial remain available. Password changes revoke other browser sessions and all owned API keys and OAuth connections. Review devices under **Account settings → Sessions** to revoke a device individually, or use **Sign out** to end the current session.
+Adding or removing a factor ends other browser sessions and invalidates pending authentication challenges. The initiating session stays signed in. Creating an API key or approving an OAuth connection also requires recent identity verification. Recovery-code access cannot grant those credentials until a passkey verifies the session. Credential revocation and OAuth denial remain available. Password changes revoke other browser sessions and all owned API keys and OAuth connections. Review devices under **Account Settings → Sessions** to revoke a device individually, or use **Sign out** to end the current session.
 
 ## Recover an account
 
