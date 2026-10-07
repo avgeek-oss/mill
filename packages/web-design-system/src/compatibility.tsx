@@ -16,11 +16,24 @@ import {
   TextArea,
 } from "@heroui/react";
 import { Field, FieldDescription } from "@avgeek-oss/design-system/forms/field";
+import { OverlaySuspensionScope } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import { cn } from "./utils.js";
 import { useErrorToast } from "./feedback/toast-feedback.js";
 
 const SuspendedAppContext = createContext(false);
-export const SuspendedAppProvider = SuspendedAppContext.Provider;
+export function SuspendedAppProvider({
+  value,
+  children,
+}: {
+  value: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <OverlaySuspensionScope isSuspended={value}>
+      <SuspendedAppContext value={value}>{children}</SuspendedAppContext>
+    </OverlaySuspensionScope>
+  );
+}
 export const useAppSuspended = () => useContext(SuspendedAppContext);
 
 type TextFieldDetails = {
