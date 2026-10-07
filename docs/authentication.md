@@ -33,7 +33,7 @@ A browser session, personal API key, and MCP OAuth connection have different aut
 | Team API key     | REST/MCP within its stored team grant, independent of creator membership            | Denied: identity, membership, account security, credential management, and OAuth consent          |
 | MCP OAuth        | Human owner's current role, granted read/write scopes, and optional approved boards | Denied; an unscoped connection may resolve basic members through MCP for assignments and mentions |
 
-Keys require Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). The stored grant never exceeds the issuing Admin's authority; personal grants narrow permanently on owner demotion. Personal keys retain human attribution. Team keys have a team actor and remain valid independently of their creator's later membership. Identity and key management always require a browser session.
+Keys require Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). The stored grant never exceeds its issuer's authority; personal grants narrow permanently on owner demotion. Personal keys retain human attribution. Team keys have a team actor and remain valid independently of their creator's later membership. Identity and key management always require a browser session.
 
 OAuth belongs to the person approving consent and cannot use public REST. Its effective access comes from that person's current membership and role, the granted scopes and optional approved boards. The server rechecks authority at consent, token exchange and every authenticated request. Task activity identifies the person responsible for OAuth actions.
 
