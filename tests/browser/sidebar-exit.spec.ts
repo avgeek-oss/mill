@@ -205,7 +205,7 @@ for (const width of [390, 768])
           drawer(page).getByRole("button", { name: "Profile", exact: true }),
         ).toHaveCount(0);
         await drawer(page)
-          .getByRole("link", { name: "Account settings", exact: true })
+          .getByRole("link", { name: "Account Settings", exact: true })
           .click();
         await inspectExit(
           page,
@@ -218,7 +218,7 @@ for (const width of [390, 768])
         await openNavigation(page);
         const accountAgain = await navigationSnapshot(page);
         await drawer(page)
-          .getByRole("link", { name: "Team settings", exact: true })
+          .getByRole("link", { name: "Team Settings", exact: true })
           .click();
         await inspectExit(page, accountAgain);
         await expect(
@@ -387,7 +387,7 @@ test("desktop navigation updates immediately without a mobile exit snapshot", as
     ).toHaveCount(0);
     await expect(drawer(page)).toHaveCount(0);
     await primary
-      .getByRole("link", { name: "Team settings", exact: true })
+      .getByRole("link", { name: "Team Settings", exact: true })
       .click();
     await expect(
       page.getByRole("heading", { name: "General", exact: true }),

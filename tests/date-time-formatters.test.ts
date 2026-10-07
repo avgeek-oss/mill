@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
   availableTimeZones,
   dateTimePreferenceOptions,
-  dateTimePreview,
   formatDate,
   formatDateTime,
   isTimeZone,
@@ -35,7 +34,6 @@ test("all displayed preference examples format the same fixed instant", () => {
       };
       const expected = `${time.label}, ${date.label}`;
       assert.equal(formatDateTime(example, preferences), expected);
-      assert.equal(dateTimePreview(preferences, example), expected);
     }
   }
 });

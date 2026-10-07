@@ -50,10 +50,7 @@ export function SettingsPage({
         onRefresh={onRefresh}
       />
     );
-  if (
-    ["members", "workspace"].includes(section) &&
-    session.user.role !== "admin"
-  )
+  if (["members", "general"].includes(section) && session.user.role !== "admin")
     return (
       <section className="settings-page">
         <SettingsHeading
@@ -92,7 +89,7 @@ export function SettingsPage({
       <SettingsHeading
         section={section === "members" ? "members" : "general"}
       />
-      {section === "workspace" && (
+      {section === "general" && (
         <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
           <TeamGeneralSettings
             value={session.workspace.name}

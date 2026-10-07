@@ -116,8 +116,8 @@ for (const width of [1280, 390])
         const page = await context.newPage();
         await authenticateBrowserFixture(page, fixture);
         for (const [path, title, category] of [
-          ["/settings/api-keys", "API keys", "Account"],
-          ["/settings/workspace", "General", "Team"],
+          ["/settings/api-keys", "API Keys", "Account Settings"],
+          ["/team-settings/general", "General", "Team Settings"],
         ]) {
           await page.goto(path!);
           await expect(
@@ -138,7 +138,7 @@ for (const width of [1280, 390])
             });
             await expect(
               drawer.getByRole("link", {
-                name: `${category === "Account" ? "Account" : "Team"} settings`,
+                name: category!,
                 exact: true,
               }),
             ).toBeVisible();

@@ -139,10 +139,3 @@ export function formatDateTime(
   const time = `${twelveHour ? hour % 12 || 12 : parts.hour}:${parts.minute}${seconds}${twelveHour ? (hour < 12 ? " AM" : " PM") : ""}`;
   return `${time}, ${date}`;
 }
-
-export function dateTimePreview(
-  value: DateTimePreferences,
-  instant = new Date(),
-) {
-  return formatDateTime(instant, value);
-}

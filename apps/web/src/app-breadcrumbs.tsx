@@ -25,6 +25,7 @@ import {
   teamSections,
   isAccountSection,
   settingsTitles,
+  settingsHref,
 } from "./settings-navigation.js";
 
 const BreadcrumbContext = createContext<AppShellBreadcrumbItems>([
@@ -60,7 +61,7 @@ function SettingsBreadcrumb({
             <BreadcrumbDropdown.Item
               key={item.id}
               id={item.id}
-              href={`/settings/${item.id}`}
+              href={settingsHref(item.id)}
               textValue={item.label}
             >
               <HugeiconsIcon
@@ -209,7 +210,7 @@ function breadcrumbItems({
   }
   if (settingsSection && settingsTitles[settingsSection]) {
     const account = isAccountSection(settingsSection);
-    const category = account ? "Account" : "Team";
+    const category = account ? "Account Settings" : "Team Settings";
     const sections = account
       ? accountSections.flatMap((group) => group.items)
       : admin

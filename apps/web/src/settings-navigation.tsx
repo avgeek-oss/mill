@@ -78,7 +78,7 @@ export const teamSections: SettingsGroup[] = [
     title: "Team",
     items: [
       {
-        id: "workspace",
+        id: "general",
         label: settingsPageLabels.general,
         icon: Settings01Icon,
       },
@@ -97,6 +97,7 @@ export const settingsTitles: Record<string, string> = {
       group.items.map((item) => [item.id, item.label]),
     ),
   ),
+  workspace: settingsPageLabels.general,
   security: settingsPageLabels["email-password"],
   "two-factor": settingsPageLabels.passkeys,
 };
@@ -106,7 +107,9 @@ export const canonicalSettingsSection = (section: string) =>
     ? "email-password"
     : section === "two-factor"
       ? "passkeys"
-      : section;
+      : section === "workspace"
+        ? "general"
+        : section;
 
 export function isAccountSection(section?: string) {
   return (
@@ -115,6 +118,23 @@ export function isAccountSection(section?: string) {
       group.items.some((item) => item.id === canonicalSettingsSection(section)),
     )
   );
+}
+
+export function settingsHref(section: string) {
+  const canonical = canonicalSettingsSection(section);
+  return `${isAccountSection(canonical) ? "/settings" : "/team-settings"}/${canonical}`;
+}
+
+export function settingsRoute(path: string) {
+  if (path === "/settings" || path === "/settings/") return "profile";
+  if (path === "/team-settings" || path === "/team-settings/") return "general";
+  const match = path.match(/^\/(settings|team-settings)\/([^/]+)\/?$/);
+  if (!match) return undefined;
+  const section = canonicalSettingsSection(match[2]!);
+  if (!Object.hasOwn(settingsTitles, section)) return undefined;
+  if (match[1] === "team-settings" && isAccountSection(section))
+    return undefined;
+  return section;
 }
 
 export function SettingsNavigation({ section }: { section: string }) {
@@ -126,7 +146,7 @@ export function SettingsNavigation({ section }: { section: string }) {
           key={group.title}
           title={group.title}
           selected={canonicalSettingsSection(section)}
-          onSelect={(id) => navigate(`/settings/${id}`)}
+          onSelect={(id) => navigate(settingsHref(id))}
           items={group.items.map((item) => ({
             id: item.id,
             label: item.label,

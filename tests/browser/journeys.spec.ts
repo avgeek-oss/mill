@@ -915,7 +915,7 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
           exact: true,
         });
         const reference = nav.getByRole("link", {
-          name: "Account settings",
+          name: "Account Settings",
           exact: true,
         });
         await expect(reference).toBeVisible();

@@ -290,7 +290,7 @@ async function mobileNavigationMotion(page: Page, theme: "light" | "dark") {
   await pageNavigation
     .getByRole("button", { name: "Members", exact: true })
     .tap();
-  await expect(page).toHaveURL(/\/settings\/members$/);
+  await expect(page).toHaveURL(/\/team-settings\/members$/);
   await expect(drawer).toHaveCount(0, { timeout: 1000 });
   await expect(toggle).toBeFocused();
   await page.goto(taskPath);
@@ -334,7 +334,7 @@ for (const width of [1280, 390])
         await page.goto("/settings/api-keys");
         await expect(
           page.getByRole("heading", {
-            name: "API keys",
+            name: "API Keys",
             exact: true,
             level: 1,
           }),
@@ -344,12 +344,12 @@ for (const width of [1280, 390])
           return;
         }
         const trigger = page.getByRole("button", {
-          name: "Navigate account pages",
+          name: "Navigate account settings pages",
           exact: true,
         });
         const popover = page.locator(".breadcrumb-popover");
         const menu = page.getByRole("menu", {
-          name: "Navigate account pages",
+          name: "Navigate account settings pages",
           exact: true,
         });
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -418,7 +418,7 @@ for (const width of [1280, 390])
 
         await page.goto("/settings/workspace");
         const teamTrigger = page.getByRole("button", {
-          name: "Navigate team pages",
+          name: "Navigate team settings pages",
           exact: true,
         });
         await teamTrigger.click();
@@ -428,7 +428,7 @@ for (const width of [1280, 390])
           exact: true,
         });
         await membersItem.click();
-        await expect(page).toHaveURL(/\/settings\/members$/);
+        await expect(page).toHaveURL(/\/team-settings\/members$/);
         await expect(popover).toHaveCount(0, { timeout: 1000 });
 
         await page.goto(taskPath);

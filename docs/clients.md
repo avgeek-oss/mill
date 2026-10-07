@@ -6,7 +6,7 @@ Install Mill and complete [workspace setup](getting-started.md) before connectin
 
 ## Create a personal API key
 
-Open **Account settings → API Keys** at `/settings/api-keys` and choose **Create API key**. Enter a **Name** and choose **Expiry**: 30, 60, 90, or 365 days. The default is 30 days. There is no access-scope or board selector. A key belongs to the person creating it; another administrator does not own it.
+Open **Account Settings → API Keys** at `/settings/api-keys` and choose **Create API key**. Enter a **Name** and choose **Expiry**: 30, 60, 90, or 365 days. The default is 30 days. There is no access-scope or board selector. A key belongs to the person creating it; another administrator does not own it.
 
 The **Copy your API key** dialog reveals the complete token once. Choose **Copy API key**, save it in the external client's secret store, and choose **Done**. Mill stores a hash. Keep the token out of prompts, repositories, browser screenshots, and task comments. Later metadata shows the name, expiry, last use, and revocation state without revealing the token.
 
@@ -40,7 +40,7 @@ Mill returns the task ID, stable identifier, and current `version`. Include that
 
 ## Use remote MCP
 
-Open **Account settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration from its filename header, follow the sign-in guidance below it, and approve the boards the client may use. These configurations use OAuth; they do not need a personal API key.
+Open **Account Settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration from its filename header, follow the sign-in guidance below it, and approve the boards the client may use. These configurations use OAuth; they do not need a personal API key.
 
 The configuration formats follow the clients' own guides: [Codex](https://developers.openai.com/codex/mcp/), [Claude Code](https://code.claude.com/docs/en/mcp), [Cursor](https://cursor.com/docs/mcp), and [VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
 
@@ -90,7 +90,7 @@ Client metadata documents must be public HTTPS JSON, use their exact document UR
 
 ## Revoke or diagnose a connection
 
-Open **Account settings → API Keys** to revoke a personal key, or **Account settings → MCP Connections** to revoke an authorized app. Confirm **Revoke key** or **Revoke connection**. Revocation takes effect on the next request and removes the key from the list. Revoked keys and connections are omitted from every page; expired keys remain visible until revoked. Personal API-key activity identifies the human owner. OAuth activity identifies the person who approved the connection and distinguishes OAuth actions from direct human actions. Workspace-wide audit history is not included in v1.
+Open **Account Settings → API Keys** to revoke a personal key, or **Account Settings → MCP Connections** to revoke an authorized app. Confirm **Revoke key** or **Revoke connection**. Revocation takes effect on the next request and removes the key from the list. Revoked keys and connections are omitted from every page; expired keys remain visible until revoked. Personal API-key activity identifies the human owner. OAuth activity identifies the person who approved the connection and distinguishes OAuth actions from direct human actions. Workspace-wide audit history is not included in v1.
 
 Mill 1.0.0 starts from one initial database migration. Private pre-launch installations that used the older sequence need the maintainer's conversion procedure before starting this version; do not change their migration ledger by hand. See [upgrades](upgrades.md).
 

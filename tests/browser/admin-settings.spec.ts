@@ -75,7 +75,7 @@ async function login(page: Page, path = "/settings/members") {
     }),
   ).toBeVisible();
 }
-async function openSettings(page: Page, section: "People" | "Team settings") {
+async function openSettings(page: Page, section: "People" | "Team Settings") {
   const openNavigation = page.getByRole("button", {
     name: "Toggle navigation",
     exact: true,
@@ -88,7 +88,7 @@ async function openSettings(page: Page, section: "People" | "Team settings") {
   }
   if ((await openNavigation.getAttribute("aria-expanded")) !== "true")
     await openNavigation.click();
-  await page.getByRole("link", { name: "Team settings", exact: true }).click();
+  await page.getByRole("link", { name: "Team Settings", exact: true }).click();
   if (section === "People")
     await page
       .getByRole("navigation", {
@@ -487,7 +487,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
     );
     for (const [section, name] of [
       ["People", "people"],
-      ["Team settings", "workspace"],
+      ["Team Settings", "workspace"],
     ] as const) {
       await openSettings(page, section);
       const switcher = page.getByRole("button", {
@@ -755,7 +755,7 @@ test("People and team settings layouts remain usable in both themes at desktop a
         });
       }
     }
-    await openSettings(touch, "Team settings");
+    await openSettings(touch, "Team Settings");
     await expect(
       touch.getByRole("heading", {
         name: "General",

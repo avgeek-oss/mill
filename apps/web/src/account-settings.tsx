@@ -34,15 +34,11 @@ import {
   PreferencesSettings,
   PasswordChangeSettings,
   SessionsSettings,
-  ProfileImageSettings,
   PasskeySettings,
   EmailChangeSettings,
   type PendingEmailChange,
 } from "@avgeek-oss/design-system";
-import {
-  dateTimePreferenceOptions,
-  dateTimePreview,
-} from "./date-time-preferences.js";
+import { dateTimePreferenceOptions } from "./date-time-preferences.js";
 import { Save } from "./icons.js";
 import { SettingsHeading } from "./settings-heading.js";
 import { AppShellBreadcrumb } from "@avgeek-oss/design-system/layouts/app-shell-breadcrumb";
@@ -238,11 +234,8 @@ function ProfileSettings({
     <section className="min-w-0">
       <SettingsHeading section="profile" />
       <div className="content-grid min-w-0 lg:grid-cols-2 lg:items-start">
-        <ProfileImageSettings
-          email={session.user.email}
-          name={session.user.name}
-        />
         <SharedProfileSettings
+          email={session.user.email}
           value={session.user.name}
           maxLength={120}
           onSave={async (name) => {
@@ -327,7 +320,6 @@ function PreferenceSettings({
             timeZone: session.user.timeZone,
           }}
           options={preferenceOptions}
-          formatPreview={dateTimePreview}
           onSave={async (preferences) => {
             const isCurrent = suspension.capture();
             await mutate((signal) =>
@@ -840,86 +832,82 @@ function PasskeysSettings({
     <section className="min-w-0">
       <AppShellBreadcrumb items={breadcrumbs} title="Passkeys" />
       {keys.items === null && <SettingsHeading section="passkeys" />}
-      <div className="content-grid min-w-0">
-        <div className="min-w-0">
-          <ListState
-            loaded={keys.items !== null}
-            error={keys.error}
-            retry={() => void keys.refresh()}
-            noun="passkeys"
-          >
-            <PasskeySettings
-              items={keys.items ?? []}
-              maxNameLength={120}
-              recoveryCodes={recoveryCodes}
-              recoveryCodesFilename="mill-recovery-codes.txt"
-              onDismissRecoveryCodes={() => setRecoveryCodes([])}
-              onReplaceRecoveryCodes={() =>
-                securePasskey(async (signal) => {
-                  const result = await api<{ recoveryCodes: string[] }>(
-                    "/auth/passkeys/recovery-codes",
-                    {},
-                    "POST",
-                    { signal },
-                  );
-                  if (active.current && !signal.aborted)
-                    setRecoveryCodes(result.recoveryCodes);
-                })
-              }
-              formatDate={(value) => (
-                <RelativeDateTime
-                  value={value}
-                  dateFormat={session.user.dateFormat}
-                  timeFormat={session.user.timeFormat}
-                  timeZone={session.user.timeZone}
-                />
-              )}
-              onAdd={(name) =>
-                securePasskey(async (signal) => {
-                  const options = await api<{
-                    challengeId: string;
-                    options: PublicKeyCredentialCreationOptionsJSON;
-                  }>("/auth/passkeys/register/options", { name }, "POST", {
-                    signal,
-                  });
-                  signal.throwIfAborted();
-                  const cancelRegistration = () =>
-                    WebAuthnAbortService.cancelCeremony();
-                  signal.addEventListener("abort", cancelRegistration, {
-                    once: true,
-                  });
-                  let response;
-                  try {
-                    response = await startRegistration({
-                      optionsJSON: options.options,
-                    });
-                  } finally {
-                    signal.removeEventListener("abort", cancelRegistration);
-                  }
-                  signal.throwIfAborted();
-                  const result = await api<{ recoveryCodes?: string[] }>(
-                    "/auth/passkeys/register/verify",
-                    {
-                      challengeId: options.challengeId,
-                      response,
-                      name,
-                    },
-                    "POST",
-                    { signal },
-                  );
-                  if (active.current && !signal.aborted && result.recoveryCodes)
-                    setRecoveryCodes(result.recoveryCodes);
-                })
-              }
-              onRemove={(id) =>
-                securePasskey(async (signal) => {
-                  await api(`/auth/passkeys/${id}`, {}, "DELETE", { signal });
-                })
-              }
+      <ListState
+        loaded={keys.items !== null}
+        error={keys.error}
+        retry={() => void keys.refresh()}
+        noun="passkeys"
+      >
+        <PasskeySettings
+          items={keys.items ?? []}
+          maxNameLength={120}
+          recoveryCodes={recoveryCodes}
+          recoveryCodesFilename="mill-recovery-codes.txt"
+          onDismissRecoveryCodes={() => setRecoveryCodes([])}
+          onReplaceRecoveryCodes={() =>
+            securePasskey(async (signal) => {
+              const result = await api<{ recoveryCodes: string[] }>(
+                "/auth/passkeys/recovery-codes",
+                {},
+                "POST",
+                { signal },
+              );
+              if (active.current && !signal.aborted)
+                setRecoveryCodes(result.recoveryCodes);
+            })
+          }
+          formatDate={(value) => (
+            <RelativeDateTime
+              value={value}
+              dateFormat={session.user.dateFormat}
+              timeFormat={session.user.timeFormat}
+              timeZone={session.user.timeZone}
             />
-          </ListState>
-        </div>
-      </div>
+          )}
+          onAdd={(name) =>
+            securePasskey(async (signal) => {
+              const options = await api<{
+                challengeId: string;
+                options: PublicKeyCredentialCreationOptionsJSON;
+              }>("/auth/passkeys/register/options", { name }, "POST", {
+                signal,
+              });
+              signal.throwIfAborted();
+              const cancelRegistration = () =>
+                WebAuthnAbortService.cancelCeremony();
+              signal.addEventListener("abort", cancelRegistration, {
+                once: true,
+              });
+              let response;
+              try {
+                response = await startRegistration({
+                  optionsJSON: options.options,
+                });
+              } finally {
+                signal.removeEventListener("abort", cancelRegistration);
+              }
+              signal.throwIfAborted();
+              const result = await api<{ recoveryCodes?: string[] }>(
+                "/auth/passkeys/register/verify",
+                {
+                  challengeId: options.challengeId,
+                  response,
+                  name,
+                },
+                "POST",
+                { signal },
+              );
+              if (active.current && !signal.aborted && result.recoveryCodes)
+                setRecoveryCodes(result.recoveryCodes);
+            })
+          }
+          onRemove={(id) =>
+            securePasskey(async (signal) => {
+              await api(`/auth/passkeys/${id}`, {}, "DELETE", { signal });
+            })
+          }
+        />
+      </ListState>
       {!appSuspended && pending && (
         <ReauthenticationDialog
           onClose={() => {

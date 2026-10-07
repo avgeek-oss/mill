@@ -106,12 +106,12 @@ for (const width of [1280, 390])
           ).toBeVisible();
           await expect(
             primary.getByRole("link", {
-              name: "Account settings",
+              name: "Account Settings",
               exact: true,
             }),
           ).toHaveClass(/\bbg-default\b/);
           await expect(
-            primary.getByRole("link", { name: "Team settings", exact: true }),
+            primary.getByRole("link", { name: "Team Settings", exact: true }),
           ).not.toHaveClass(/\bbg-default\b/);
           await expect(accountNavigation.getByRole("button")).toHaveText(
             accountPages.map(([, pageLabel]) => pageLabel),
@@ -124,34 +124,70 @@ for (const width of [1280, 390])
             page.getByRole("heading", { name: title, exact: true, level: 1 }),
           ).toBeVisible();
           await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
-          const headingStyle = await page
-            .getByRole("heading", { level: 1 })
-            .evaluate((heading) => {
-              const icon = heading.querySelector("svg");
-              if (!icon) throw new Error("Settings heading icon missing");
-              const bounds = icon.getBoundingClientRect();
-              return {
-                fontSize: getComputedStyle(heading).fontSize,
-                iconWidth: bounds.width,
-                iconHeight: bounds.height,
-              };
-            });
-          expect(headingStyle).toEqual({
-            fontSize: "18px",
-            iconWidth: 24,
-            iconHeight: 24,
-          });
-          if (section === "passkeys")
+          await expect
+            .poll(() =>
+              page.getByRole("heading", { level: 1 }).evaluate((heading) => {
+                const icon = heading.querySelector("svg");
+                if (!icon) throw new Error("Settings heading icon missing");
+                const bounds = icon.getBoundingClientRect();
+                return {
+                  fontSize: getComputedStyle(heading).fontSize,
+                  iconWidth: bounds.width,
+                  iconHeight: bounds.height,
+                };
+              }),
+            )
+            .toEqual({ fontSize: "18px", iconWidth: 24, iconHeight: 24 });
+          if (section === "passkeys") {
             await expect(
               page.getByRole("button", { name: "Add passkey", exact: true }),
             ).toBeVisible();
+            const empty = page.getByRole("heading", {
+              name: "No passkeys added",
+              exact: true,
+            });
+            await expect(empty).toBeVisible();
+            const gap = await empty.evaluate((title) => {
+              const panel = title.closest('[data-slot="widget"]');
+              const heading = document.querySelector(
+                'h1[data-slot="application-page-heading"]',
+              );
+              if (!panel || !heading)
+                throw new Error("Passkeys layout is incomplete");
+              return (
+                panel.getBoundingClientRect().top -
+                heading.getBoundingClientRect().bottom
+              );
+            });
+            expect(gap).toBeGreaterThanOrEqual(20);
+            expect(gap).toBeLessThanOrEqual(28);
+          }
+          if (section === "profile") {
+            await expect(page.locator('main [data-slot="widget"]')).toHaveCount(
+              1,
+            );
+            const profile = page
+              .locator('[data-slot="widget"]')
+              .filter({ has: page.getByLabel("Your Name", { exact: true }) });
+            await expect(
+              profile.getByRole("link", {
+                name: "Edit Gravatar image (opens in a new tab)",
+                exact: true,
+              }),
+            ).toBeVisible();
+            if (width >= 1024) {
+              const bounds = await profile.boundingBox();
+              const mainBounds = await page.locator("main").boundingBox();
+              expect(bounds!.width).toBeLessThan(mainBounds!.width * 0.55);
+            }
+          }
           const breadcrumb = page.getByRole("navigation", {
             name: "Breadcrumb",
             exact: true,
             includeHidden: true,
           });
           if (width >= 1024) {
-            await expect(breadcrumb).toContainText("Account");
+            await expect(breadcrumb).toContainText("Account Settings");
             await expect(breadcrumb).toContainText(title);
           } else await expect(breadcrumb).toBeHidden();
           if (section === "mcp") {
@@ -256,9 +292,9 @@ for (const width of [1280, 390])
           ).toHaveAttribute("aria-current", "page");
         }
         await primary
-          .getByRole("link", { name: "Team settings", exact: true })
+          .getByRole("link", { name: "Team Settings", exact: true })
           .click();
-        await expect(page).toHaveURL("/settings/workspace");
+        await expect(page).toHaveURL("/team-settings/general");
         const teamNavigation = page.getByRole("navigation", {
           name: "Page navigation",
           exact: true,
@@ -270,13 +306,13 @@ for (const width of [1280, 390])
         await teamNavigation
           .getByRole("button", { name: "Members", exact: true })
           .click();
-        await expect(page).toHaveURL("/settings/members");
+        await expect(page).toHaveURL("/team-settings/members");
         await openNavigation(page);
         await expect(
-          primary.getByRole("link", { name: "Team settings", exact: true }),
+          primary.getByRole("link", { name: "Team Settings", exact: true }),
         ).toHaveClass(/\bbg-default\b/);
         await expect(
-          primary.getByRole("link", { name: "Account settings", exact: true }),
+          primary.getByRole("link", { name: "Account Settings", exact: true }),
         ).not.toHaveClass(/\bbg-default\b/);
         await expect(teamNavigation.getByRole("button")).toHaveText([
           "General",
@@ -338,10 +374,13 @@ for (const width of [1280, 390])
           .click();
         await expect(page).toHaveURL("/settings/email-password");
         await page.goBack();
-        await expect(page).toHaveURL("/settings/members");
+        await expect(page).toHaveURL("/team-settings/members");
         if (width >= 1024) {
           await page
-            .getByRole("button", { name: "Navigate team pages", exact: true })
+            .getByRole("button", {
+              name: "Navigate team settings pages",
+              exact: true,
+            })
             .click();
           await page
             .getByRole("menu")
@@ -353,7 +392,7 @@ for (const width of [1280, 390])
             .getByRole("button", { name: "General", exact: true })
             .click();
         }
-        await expect(page).toHaveURL("/settings/workspace");
+        await expect(page).toHaveURL("/team-settings/general");
         await page.goto("/settings/security");
         await expect(
           page.getByRole("heading", {
@@ -455,5 +494,55 @@ test("MCP configuration remains available when clipboard access fails", async ({
     ).toBeVisible();
   } finally {
     await context.close();
+  }
+});
+
+test("settings aliases preserve query and fragment while selecting canonical account and team pages", async ({
+  page,
+}) => {
+  await authenticateBrowserFixture(page, fixture);
+  for (const [alias, canonical, title, category] of [
+    ["/settings", "/settings/profile", "Profile", "Account Settings"],
+    ["/team-settings", "/team-settings/general", "General", "Team Settings"],
+    [
+      "/settings/workspace",
+      "/team-settings/general",
+      "General",
+      "Team Settings",
+    ],
+    ["/settings/members", "/team-settings/members", "Members", "Team Settings"],
+    [
+      "/settings/security",
+      "/settings/email-password",
+      "Email & Password",
+      "Account Settings",
+    ],
+    [
+      "/settings/two-factor",
+      "/settings/passkeys",
+      "Passkeys",
+      "Account Settings",
+    ],
+  ]) {
+    await page.goto(`${alias}?review=canonical#section`);
+    await expect(page).toHaveURL(`${canonical}?review=canonical#section`);
+    await expect(
+      page.getByRole("heading", { name: title!, exact: true, level: 1 }),
+    ).toBeVisible();
+    const breadcrumb = page.getByRole("navigation", {
+      name: "Breadcrumb",
+      exact: true,
+    });
+    await expect(breadcrumb).toContainText(category!);
+    await expect(
+      page
+        .locator('[data-slot="toast"]')
+        .filter({ hasText: "The link may be outdated" }),
+    ).toHaveCount(0);
+    await page.reload();
+    await expect(page).toHaveURL(`${canonical}?review=canonical#section`);
+    await expect(
+      page.getByRole("heading", { name: title!, exact: true, level: 1 }),
+    ).toBeVisible();
   }
 });

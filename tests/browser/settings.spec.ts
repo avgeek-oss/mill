@@ -624,7 +624,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
 }) => {
   await login(page, admin);
   const workspaceName = (await json(adminApi, "/auth/me")).workspace.name;
-  await page.getByRole("link", { name: "Team settings", exact: true }).click();
+  await page.getByRole("link", { name: "Team Settings", exact: true }).click();
   await page
     .getByRole("navigation", { name: "Page navigation", exact: true })
     .getByRole("button", { name: "Members", exact: true })
@@ -686,13 +686,13 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
       });
       await expect(
         personalNavigation.getByRole("link", {
-          name: "Account settings",
+          name: "Account Settings",
           exact: true,
         }),
       ).toBeVisible();
       await expect(
         personalNavigation.getByRole("link", {
-          name: "Team settings",
+          name: "Team Settings",
           exact: true,
         }),
       ).toHaveCount(0);
@@ -705,7 +705,7 @@ test("UI invitations admit viewer and member roles, show read-only controls and 
       ).toBeVisible();
       await expect(
         personalNavigation.getByRole("link", {
-          name: "Account settings",
+          name: "Account Settings",
           exact: true,
         }),
       ).toHaveAttribute("aria-current", "page");
@@ -985,7 +985,7 @@ test("team settings persist without backup or portable data surfaces", async ({
   await expect(
     page.getByRole("link", { name: "Export and import", exact: true }),
   ).toHaveCount(0);
-  await page.getByRole("link", { name: "Team settings", exact: true }).click();
+  await page.getByRole("link", { name: "Team Settings", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "General", exact: true, level: 1 }),
   ).toBeVisible();

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import postgres from "postgres";
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import {
   authenticateBrowserFixture,
   getBrowserBootstrap,
@@ -19,45 +19,6 @@ const selected = {
   timeFormat: "24-hour-seconds",
   timeZone: "Asia/Kathmandu",
 };
-const previewPattern = /^\d{2}:\d{2}:\d{2}, [A-Za-z]+ \d{1,2}, \d{4}$/;
-
-async function expectPreview(preview: Locator, since: number) {
-  const text = preview.getByText(previewPattern);
-  await expect(text).toBeVisible();
-  await expect(
-    preview.getByText(selected.timeZone, { exact: true }),
-  ).toBeVisible();
-  const rendered = await text.innerText();
-  const now = Date.now();
-  const formatter = new Intl.DateTimeFormat("en-GB", {
-    timeZone: selected.timeZone,
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-  const expected = new Set<string>();
-  for (
-    let instant = Math.floor(since / 1000) * 1000;
-    instant <= now;
-    instant += 1000
-  ) {
-    const parts = Object.fromEntries(
-      formatter.formatToParts(instant).map((part) => [part.type, part.value]),
-    );
-    expected.add(
-      `${parts.hour}:${parts.minute}:${parts.second}, ${parts.month} ${parts.day}, ${parts.year}`,
-    );
-  }
-  expect(
-    expected.has(rendered),
-    "Preview uses the selected format and Kathmandu time",
-  ).toBe(true);
-}
-
 for (const width of [1280, 390])
   for (const theme of ["light", "dark"] as const)
     test(`native display preferences persist at ${width}px in ${theme}`, async ({
@@ -129,15 +90,11 @@ for (const width of [1280, 390])
           .getByRole("option", { name: /Asia\/Kathmandu/ });
         await expect(zone).toContainText("+05:45");
         await expect(zone).not.toContainText("UTC");
-        const previewSince = Date.now();
         await zone.click();
         await expect(
           form.getByRole("button", { name: /Time zone/ }),
         ).toContainText("+05:45");
-        const preview = form
-          .locator('[aria-live="polite"]')
-          .filter({ has: page.getByText("Preview", { exact: true }) });
-        await expectPreview(preview, previewSince);
+        await expect(form.getByText("Preview", { exact: true })).toHaveCount(0);
         let acknowledgements = 0;
         page.on("response", (response) => {
           if (
@@ -179,7 +136,6 @@ for (const width of [1280, 390])
         const me = await page.request.get("/api/auth/me");
         expect(me.status()).toBe(200);
         expect((await me.json()).user).toMatchObject(selected);
-        const reloadSince = Date.now();
         await page.reload();
         await expect(
           form.getByRole("button", { name: /Date format/ }),
@@ -190,7 +146,7 @@ for (const width of [1280, 390])
         await expect(
           form.getByRole("button", { name: /Time zone/ }),
         ).toContainText("Asia/Kathmandu");
-        await expectPreview(preview, reloadSince);
+        await expect(form.getByText("Preview", { exact: true })).toHaveCount(0);
         await expect(save).toBeDisabled();
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       } finally {
@@ -242,11 +198,8 @@ test("changing date and time preserves an older stored offset time zone", async 
       .getByRole("listbox")
       .getByRole("option", { name: "14:30:45", exact: true })
       .click();
-    const preview = form
-      .locator('[aria-live="polite"]')
-      .filter({ has: page.getByText("Preview", { exact: true }) });
-    await expect(preview.getByText(previewPattern)).toBeVisible();
-    await expect(preview.getByText("—", { exact: true })).toHaveCount(0);
+    await expect(form.getByText("Preview", { exact: true })).toHaveCount(0);
+    await expect(zone).toContainText("+05:30");
     const patch = page.waitForRequest(
       (request) =>
         new URL(request.url()).pathname === "/api/auth/profile" &&
@@ -281,7 +234,7 @@ test("changing date and time preserves an older stored offset time zone", async 
     await expect(
       form.getByRole("button", { name: /Time format/ }),
     ).toContainText("14:30:45");
-    await expect(preview.getByText(previewPattern)).toBeVisible();
+    await expect(form.getByText("Preview", { exact: true })).toHaveCount(0);
   } finally {
     try {
       if (original)

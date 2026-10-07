@@ -50,6 +50,8 @@ import {
   SettingsNavigation,
   isAccountSection,
   settingsTitles,
+  settingsRoute,
+  settingsHref,
 } from "./settings-navigation.js";
 import { MillMark, millBrand, millVersion } from "./brand.js";
 import {
@@ -175,6 +177,7 @@ function usePath() {
 export function App() {
   const location = usePath();
   const path = location.split(/[?#]/)[0];
+  const settingsSection = settingsRoute(path);
   const activeBoardId = path.match(/^\/boards\/([^/]+)/)?.[1];
   const activeTaskId = path.match(/^\/boards\/[^/]+\/tasks\/([^/]+)\/?$/)?.[1];
   const [session, setSession] = useState<Session | null>(null);
@@ -430,10 +433,8 @@ export function App() {
       focused.focus({ preventScroll: true });
   }, [expired]);
   useEffect(() => {
-    if (session && path.startsWith("/settings/")) {
-      const section = path.split("/").pop() ?? "";
-      document.title = `${settingsTitles[section] ?? "Settings"} · Mill`;
-    }
+    if (session && settingsSection)
+      document.title = `${settingsTitles[settingsSection]} · Mill`;
     if (session && (path === "/" || path === "/boards"))
       document.title = "Boards · Mill";
   }, [path, session?.user.id]);
@@ -453,6 +454,18 @@ export function App() {
       window.dispatchEvent(new Event("mill:navigate"));
     }
   }, [canonicalizeToBoards, path]);
+  useEffect(() => {
+    if (!session || expired || !settingsSection) return;
+    const canonical = settingsHref(settingsSection);
+    if (path !== canonical) {
+      window.history.replaceState(
+        window.history.state,
+        "",
+        `${canonical}${location.slice(path.length)}`,
+      );
+      window.dispatchEvent(new Event("mill:navigate"));
+    }
+  }, [session?.user.id, expired, settingsSection, path, location]);
   function interruptAccountActions(clearDraft = false) {
     accountActionGeneration.current++;
     logoutRequest.current?.abort();
@@ -646,7 +659,6 @@ export function App() {
         <AppConsent session={session} />
       </Suspense>
     );
-  const settingsSection = path.match(/^\/settings\/([^/]+)/)?.[1];
   const knownSettings = Object.keys(settingsTitles);
   function nav(
     label: string,
@@ -705,7 +717,7 @@ export function App() {
             label: "Settings",
             items: [
               {
-                ...nav("Account settings", "/settings/profile", AccountIcon),
+                ...nav("Account Settings", "/settings/profile", AccountIcon),
                 activePath: isAccountSection(settingsSection)
                   ? "/settings"
                   : "/settings/profile",
@@ -713,11 +725,8 @@ export function App() {
               ...(admin
                 ? [
                     {
-                      ...nav("Team settings", "/settings/workspace", Users),
-                      activePath:
-                        settingsSection === "members"
-                          ? "/settings/members"
-                          : "/settings/workspace",
+                      ...nav("Team Settings", "/team-settings/general", Users),
+                      activePath: "/team-settings",
                     },
                   ]
                 : []),
