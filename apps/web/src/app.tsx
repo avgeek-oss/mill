@@ -495,7 +495,9 @@ export function App() {
     setExpired(false);
     if (
       !changedPerson &&
-      (path.startsWith("/invite") || path.startsWith("/recover"))
+      (path === "/login" ||
+        path.startsWith("/invite") ||
+        path.startsWith("/recover"))
     )
       navigate("/");
   }

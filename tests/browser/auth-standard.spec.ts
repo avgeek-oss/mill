@@ -187,3 +187,69 @@ for (const [width, theme] of [
     await expect(page.getByLabel("Password", { exact: true })).toHaveValue("");
   });
 }
+
+for (const path of ["/login", "/login?source=preview#sign-in"]) {
+  test(`successful password sign-in leaves ${path} for boards`, async ({
+    page,
+  }) => {
+    await page.goto(path);
+    await page
+      .getByLabel("Email", { exact: true })
+      .fill(browserBootstrap.email);
+    await page
+      .getByLabel("Password", { exact: true })
+      .fill(browserBootstrap.password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Boards", exact: true }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(
+      new URL(
+        "/boards",
+        process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323",
+      ).href,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Page not found", exact: true }),
+    ).toHaveCount(0);
+  });
+}
+
+test("sign-in retains a protected deep link through session expiry", async ({
+  page,
+}) => {
+  const origin = process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323";
+  const path = "/settings/profile?source=preview#details";
+  const signIn = async () => {
+    await page
+      .getByLabel("Email", { exact: true })
+      .fill(browserBootstrap.email);
+    await page
+      .getByLabel("Password", { exact: true })
+      .fill(browserBootstrap.password);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(
+      page.getByRole("heading", { name: "Profile", exact: true }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(new URL(path, origin).href);
+  };
+  await page.goto(path);
+  await signIn();
+  await page
+    .getByLabel("Your Name", { exact: true })
+    .fill("Retained profile draft");
+  const logout = await page.request.post("/api/auth/logout", {
+    headers: { Origin: origin },
+    data: {},
+  });
+  expect(logout.ok()).toBe(true);
+  await page.evaluate(() => window.dispatchEvent(new Event("mill:expired")));
+  await expect(
+    page.getByRole("heading", { name: "Sign in", exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(new URL(path, origin).href);
+  await signIn();
+  await expect(page.getByLabel("Your Name", { exact: true })).toHaveValue(
+    "Retained profile draft",
+  );
+});
