@@ -1,18 +1,20 @@
 # Upgrades
 
-Read the new version's release notes, record your current API and UI image versions or digests, and make a tested [full backup](backup.md) before upgrading. Preserve `MILL_SECRET`, the database password and the PostgreSQL volume.
+Read the new version's release notes, record your current API and UI image versions or digests, and make a tested [full backup](backup.md) before upgrading. Preserve `MILL_SECRET` and the database connection settings. Keep existing PostgreSQL storage intact.
 
 ## Upgrade published images
 
 Download the new release's `docker-compose.yml` and `.env.example` into a temporary directory. Compare the configuration options with your installation and apply any required changes. Do not overwrite your existing `.env` or replace its secrets with the empty example values.
 
-Set `MILL_VERSION` in your existing `.env` to the new published version, without `v`. Keep the API and UI on that same version. If `MILL_API_IMAGE` or `MILL_WEB_IMAGE` digest overrides are set, update both from the new release's `mill-images.json`; an override takes precedence over `MILL_VERSION`.
+Use the new release's Compose file, preserving any local port or hosting changes. Alternatively, update both services' `image` fields to the new release version. If you pin digests, copy both references from the same release's `mill-images.json`. Image selection does not require an environment variable.
 
 ```sh
 docker compose --project-name mill pull api web
 docker compose --project-name mill up --detach --wait --wait-timeout 180
 curl --fail http://localhost:4321/health/ready
 ```
+
+For bundled PostgreSQL, include `-f docker-compose.yml -f docker-compose.postgres.yml` in both Compose commands and keep the existing volume. Download the new release's PostgreSQL overlay too, compare it before replacing your copy, and preserve any reviewed local changes.
 
 The API applies new migrations at startup and verifies old migration checksums. The UI waits for a healthy API. After readiness succeeds, test sign-in, a board, a task edit, notifications and any REST/MCP clients you rely on. Image pulls and readiness alone do not prove your team's workflow.
 
@@ -40,11 +42,11 @@ PostgreSQL major-version upgrades require a tested database upgrade plan. Changi
 
 ## Contributor source builds
 
-Source builds are optional for contributors, not required for a normal installation. In a checkout of the reviewed revision, use the [package registry credentials](package-registry.md), contributor configuration and explicit source-build overlay:
+Source builds are optional for contributors, not required for a normal installation. In a checkout of the reviewed revision, use the [package registry credentials](package-registry.md), container database URL and explicit source-build overlay:
 
 ```sh
-node tools/with-package-token.mjs docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-source.yml build --pull api web
-docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-source.yml up --no-build --detach --wait --wait-timeout 180
+node tools/with-package-token.mjs docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-source.yml build --pull api web
+docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-source.yml up --no-build --detach --wait --wait-timeout 180
 ```
 
 Back up first and verify the same workflow and recovery checks. Source builds do not change migration compatibility or secret-preservation requirements.

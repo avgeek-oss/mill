@@ -13,7 +13,12 @@ for (const failRestore of [false, true])
       const docker = join(directory, "docker");
       const envFile = join(directory, "recovery.env");
       const backup = join(directory, "backup.dump");
-      await writeFile(envFile, "MILL_VERSION=1.0.1\n");
+      const overlay = join(directory, "images.yml");
+      await writeFile(overlay, "services: {}\n");
+      await writeFile(
+        envFile,
+        "DATABASE_URL=postgres://mill:disposable@postgres:5432/mill\nMILL_SECRET=disposable-test-secret\nMILL_BASE_URL=http://localhost:4321\nPOSTGRES_PASSWORD=disposable\n",
+      );
       await writeFile(backup, "disposable test backup");
       await writeFile(
         docker,
@@ -30,6 +35,8 @@ for (const failRestore of [false, true])
           "mill-recovery",
           "--env-file",
           envFile,
+          "--compose-file",
+          overlay,
           "--input",
           backup,
         ],
@@ -53,6 +60,12 @@ for (const failRestore of [false, true])
         args.some((arg) => arg.includes("--single-transaction")),
       );
       assert.ok(stop >= 0 && restore > stop);
+      assert.ok(
+        calls.every((args) =>
+          args.some((arg) => arg.endsWith("docker-compose.postgres.yml")),
+        ),
+      );
+      assert.ok(calls.every((args) => args.includes(overlay)));
       assert.deepEqual(calls[stop].slice(-3), ["stop", "api", "web"]);
       assert.ok(calls[restore].includes("postgres"));
       const start = calls.findIndex((args) => args.includes("up"));

@@ -29,7 +29,6 @@ const child = spawn(
       MILL_BASE_URL: baseURL,
       PORT: port,
       NODE_ENV: "test",
-      ALLOW_INSECURE_LOCALHOST: "true",
     },
   },
 );

@@ -4,7 +4,7 @@ Mill exposes a remote MCP server at your installation's `/mcp` URL. A compatible
 
 ## Connect a client with OAuth
 
-Open **Account Settings → MCP Guide** and choose your client: Codex, Claude Code, Cursor, VS Code, or Other clients. Copy the configuration shown for your installation. The guide uses the current origin plus `/mcp`; remote connections need HTTPS. If you run Mill on loopback HTTP for development, set `ALLOW_INSECURE_LOCALHOST=true` in that installation.
+Open **Account Settings → MCP Guide** and choose your client: Codex, Claude Code, Cursor, VS Code, or Other clients. Copy the configuration shown for your installation. The guide uses the current origin plus `/mcp`; remote connections need HTTPS. Local HTTP OAuth works automatically when `MILL_BASE_URL` is an exact loopback origin.
 
 Start the connection in your client. It opens Mill's consent page. Sign in, check the client name and callback, and review whether it asks for read-only or read/write access. A dynamically registered client name is unverified; an HTTPS metadata document describes a client but does not verify who started the request. Approve only a connection you started.
 

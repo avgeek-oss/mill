@@ -5,7 +5,6 @@ process.env.DATABASE_URL ??=
 process.env.MILL_BASE_URL ??= "http://localhost:4321";
 process.env.MILL_SECRET ??=
   "mill-integration-only-32-byte-secret-never-production";
-process.env.ALLOW_INSECURE_LOCALHOST = "true";
 process.env.NODE_ENV = "test";
 process.env.MILL_DB_SCHEMA ??= `test_${randomBytes(8).toString("hex")}`;
 const admin = postgres(process.env.DATABASE_URL, { max: 1 });

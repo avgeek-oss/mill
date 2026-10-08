@@ -5,44 +5,35 @@ description: "Required and optional environment settings."
 
 import { Screenshot } from "/snippets/oss/screenshot.jsx";
 
-Copy `.env.example` to `.env` and fill in the required secrets before running Compose. Compose reads `.env` automatically and expands the database URL's `${POSTGRES_PASSWORD}` placeholder. You can instead supply environment variables from a deployment platform or secret manager. Both images read their configuration at runtime; neither requires a baked-in `.env` file.
+The API needs three values. Copy `.env.example` to `.env` for Compose, or supply them as runtime environment variables through your deployment platform:
 
-## Required settings and image selection
+| Variable        | Purpose                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`  | Complete PostgreSQL connection URL for your dedicated Mill database. Include the provider's required TLS settings.                    |
+| `MILL_SECRET`   | Random secret of at least 32 characters. Recommend 64 hexadecimal characters. Keep private and preserve across upgrades and restores. |
+| `MILL_BASE_URL` | Public HTTP(S) origin without path, query or credentials, such as `https://tasks.example.com`. Use `http://localhost:4321` locally.   |
 
-| Variable                   | Used by              | Purpose                                                                                                                                                                               |
-| -------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_PASSWORD`        | PostgreSQL / Compose | Required database password for the bundled PostgreSQL service. Use a random hexadecimal value to avoid URL-escaping errors.                                                           |
-| `DATABASE_URL`             | API                  | Required PostgreSQL connection URL. The Compose example expands the configured password and uses private `postgres:5432`; an external provider can supply a complete URL.             |
-| `MILL_SECRET`              | API                  | Required random secret with at least 32 characters. Recommend 64 hexadecimal characters. Keep private and preserve across restarts, upgrades and restores.                            |
-| `MILL_BASE_URL`            | API                  | Required public HTTP(S) origin without path, query or credentials. Remote access requires HTTPS. Loopback HTTP is for local use.                                                      |
-| `MILL_API_URL`             | UI                   | Required private API origin, for example `http://api:4321`. The UI serves static files and forwards requests to this address. No database URL or encryption secret belongs in the UI. |
-| `MILL_VERSION`             | Compose              | Published release version for both images, without the `v` prefix. Keep API and UI versions aligned.                                                                                  |
-| `MILL_API_IMAGE`           | Compose              | Optional full API image override, usually `ghcr.io/avgeek-oss/mill-api@sha256:...` from the release manifest.                                                                         |
-| `MILL_WEB_IMAGE`           | Compose              | Optional full UI image override, usually `ghcr.io/avgeek-oss/mill-web@sha256:...` from the same release manifest.                                                                     |
-| `MILL_PORT`                | Compose              | Published UI host port, default `4321`. UI container port is `4322`; API private port is `4321`.                                                                                      |
-| `MILL_BIND_ADDRESS`        | Compose              | Published UI binding, default `127.0.0.1`. Keep private behind an HTTPS reverse proxy.                                                                                                |
-| `ALLOW_INSECURE_LOCALHOST` | API                  | Explicit loopback HTTP exception for local MCP OAuth. Use `false` for a remote origin.                                                                                                |
+Percent-encode special characters in the database URL's username or password. Mill rejects missing or invalid configuration before it serves requests; there is no fallback production database or default login. It applies the migrations packaged in the API image automatically.
 
-`DATABASE_URL` is an actual URL when passed to the API. Compose expands the example's password placeholder; other deployment platforms may not interpolate placeholders. Supply a complete URL there and percent-encode special characters in its username or password.
+For [bundled PostgreSQL](/installation#optional-run-postgresql-with-compose), also set `POSTGRES_PASSWORD` and put that same password in `DATABASE_URL=postgres://mill:<password>@postgres:5432/mill`. An existing or managed database needs no `POSTGRES_PASSWORD` variable.
 
-## Runtime defaults
+The UI needs only the private API origin. Compose already connects it to `http://api:4321`. On another deployment platform, set `MILL_API_URL` if the API lives at a different private origin. Never give the UI database credentials or `MILL_SECRET`.
 
-| Variable              | Purpose                                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                | Direct process port. Packaged API defaults to `4321`; packaged UI defaults to `4322`. Compose sets each explicitly. |
-| `NODE_ENV`            | `development`, `test`, or `production`. Packaged services use production.                                           |
-| `SOURCE_COMMIT`       | Image build metadata identifying the source revision. Operators do not need to set it.                              |
-| `MILL_MIGRATIONS_DIR` | API migration directory override. The API image uses its packaged migrations; operators normally leave it unset.    |
+Image versions and published ports belong in the Compose file. Both API and UI image references must come from the same release. Runtime internals such as migration paths, production mode and password-work limits are already set by the images and their safe defaults; they are not installation fields.
 
-The server rejects missing or invalid required configuration before it serves requests. It does not use a fallback production database or default credentials. A base URL change can invalidate passkey origin checks; read [operations](/operations) before changing an established installation's URL.
+Environment changes take effect when you recreate the affected service using your installation's Compose command. A container restart alone keeps its old environment. Preserve the original `MILL_SECRET` with encrypted backups of your configuration.
 
-For browser passkeys, use `localhost` during local development or an HTTPS DNS hostname in production. A loopback IP origin such as `http://127.0.0.1:4321` supports password sign-in and API testing, but browsers do not allow passkey registration with an IP address as the relying-party domain.
+## Public URL
 
-`MILL_TRUSTED_PROXY_IPS` is an optional comma-separated list of exact proxy peer IP addresses as seen by the Node service. The default is empty. Mill accepts a forwarded client IP only from one of these peers; arbitrary `X-Forwarded-For` headers from untrusted clients do not bypass rate limits. The API's immediate peer is normally the UI proxy, not the public browser or host HTTPS proxy. By default the UI replaces incoming forwarded client IPs with its socket peer, and the API ignores forwarded IPs. To use the real client address behind a controlled HTTPS proxy, set `MILL_WEB_TRUSTED_PROXY_IPS` to the exact HTTPS proxy peer addresses seen by the UI, and `MILL_TRUSTED_PROXY_IPS` to the UI peer addresses seen by the API. The UI accepts the last forwarded address only from a trusted peer. Do not trust arbitrary public clients or broad address ranges. Keep both API and database private.
+Remote access requires HTTPS. Local HTTP OAuth is permitted automatically only for an exact loopback `MILL_BASE_URL`; there is no insecure-origin switch. For browser passkeys, use `localhost` locally or an HTTPS DNS hostname remotely. Browsers do not allow passkey registration with an IP address as the relying-party domain.
 
-The UI image includes the built frontend and never needs access to database credentials. The API image includes the server and migrations. Environment changes take effect when you recreate the affected service with `docker compose --project-name mill up --detach --wait`; a container restart alone keeps its old environment.
+The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys. A base URL change can invalidate passkey origin checks; read [operations](/operations) before changing an established installation's URL.
 
-Password hashing and verification share a bounded queue. `MILL_PASSWORD_VERIFY_CONCURRENCY` defaults to 2 and accepts 1–8 concurrent operations. `MILL_PASSWORD_VERIFY_QUEUE_LIMIT` defaults to 16 and accepts 0–100 waiting operations; 0 rejects work whenever all operation slots are occupied. Excess requests return `503 AUTHENTICATION_BUSY` with `Retry-After: 1`, before starting expensive password work. Keep concurrency low on small installations. Authentication throttles persist in PostgreSQL and return the remaining window through `Retry-After`; successful complete sign-in clears the account bucket while address throttling remains in place.
+## Advanced: forwarded client addresses
+
+Proxy trust is optional and defaults to empty. Mill ignores forwarded client addresses from untrusted connections, preventing a client from choosing its own address to bypass rate limits. A normal installation works with the defaults.
+
+If you need per-client address throttling behind a controlled HTTPS proxy, `MILL_WEB_TRUSTED_PROXY_IPS` lists the exact proxy peer IPs seen by the UI, and `MILL_TRUSTED_PROXY_IPS` lists the exact UI peer IPs seen by the API. Configure them in the respective service environments, not in the basic installation file. Trust only peers you control; keep the API and database private.
 
 ## Notifications
 

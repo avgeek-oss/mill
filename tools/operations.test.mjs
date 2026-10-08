@@ -18,8 +18,22 @@ test("configuration generator makes private unique secrets and refuses overwrite
     const contents = await readFile(file, "utf8");
     assert.match(contents, /^POSTGRES_PASSWORD=[a-f0-9]{64}$/m);
     assert.match(contents, /^MILL_SECRET=[a-f0-9]{96}$/m);
-    assert.match(contents, /^MILL_API_IMAGE=mill-api:local$/m);
-    assert.match(contents, /^MILL_WEB_IMAGE=mill-web:local$/m);
+    const password = /^POSTGRES_PASSWORD=(.+)$/m.exec(contents)[1];
+    assert.match(contents, /^MILL_BASE_URL=http:\/\/localhost:4321$/m);
+    assert.ok(
+      contents.includes(
+        `DATABASE_URL=postgres://mill:${password}@127.0.0.1:55432/mill`,
+      ),
+    );
+    assert.notEqual(/^MILL_SECRET=(.+)$/m.exec(contents)[1], password);
+    assert.deepEqual(
+      contents
+        .trim()
+        .split("\n")
+        .map((line) => line.split("=")[0])
+        .sort(),
+      ["DATABASE_URL", "MILL_BASE_URL", "MILL_SECRET", "POSTGRES_PASSWORD"],
+    );
     assert.equal((await stat(file)).mode & 0o777, 0o600);
     result = spawnSync(
       process.execPath,
@@ -27,45 +41,6 @@ test("configuration generator makes private unique secrets and refuses overwrite
       { encoding: "utf8" },
     );
     assert.notEqual(result.status, 0);
-    result = spawnSync(
-      process.execPath,
-      [
-        "tools/init-env.mjs",
-        "--file",
-        join(directory, "release.env"),
-        "--api-image",
-        `ghcr.io/avgeek-oss/mill-api@sha256:${"a".repeat(64)}`,
-        "--web-image",
-        `ghcr.io/avgeek-oss/mill-web@sha256:${"b".repeat(64)}`,
-      ],
-      { encoding: "utf8" },
-    );
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(
-      await readFile(join(directory, "release.env"), "utf8"),
-      /^MILL_API_IMAGE=ghcr\.io\/avgeek-oss\/mill-api@sha256:[a-f0-9]{64}$/m,
-    );
-    assert.match(
-      await readFile(join(directory, "release.env"), "utf8"),
-      /^MILL_WEB_IMAGE=ghcr\.io\/avgeek-oss\/mill-web@sha256:[a-f0-9]{64}$/m,
-    );
-    for (const reference of [
-      `ghcr.io/avgeek-oss/mill-api@sha256:${"a".repeat(64)}`,
-      "ghcr.io/avgeek-oss/mill-web:v1.0.1",
-    ]) {
-      result = spawnSync(
-        process.execPath,
-        [
-          "tools/init-env.mjs",
-          "--file",
-          join(directory, "invalid.env"),
-          "--api-image",
-          reference,
-        ],
-        { encoding: "utf8" },
-      );
-      assert.notEqual(result.status, 0);
-    }
     assert.equal(await readFile(file, "utf8"), contents);
     result = spawnSync(
       process.execPath,

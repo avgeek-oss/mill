@@ -1,0 +1,23 @@
+services:
+  postgres:
+    image: postgres:17.9-alpine@sha256:c7526c0f6c3f30260a563d7bcf8ad778effac59a44f8ffa86678c35418338609
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mill
+      POSTGRES_USER: mill
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for bundled PostgreSQL}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mill -d mill"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  api:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

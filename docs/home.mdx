@@ -243,16 +243,16 @@ import { ThemeImage } from "/snippets/oss/screenshot.jsx";
       <Eyebrow>Self-hosting</Eyebrow>
       <h2 id="hosting-heading">Run Mill on infrastructure you control.</h2>
       <p>
-        PostgreSQL, a versioned API image and a versioned UI image. Configure
-        runtime environment variables and start them with Docker Compose.
+        Connect the API and UI images to your PostgreSQL database. Set the
+        database URL, application secret and public origin, then start Compose.
       </p>
     </SectionIntro>
     <Points>
       <div>
         <h3>Install published images</h3>
         <p>
-          Choose a release, set two private values and start Docker Compose. API
-          and UI images share the same version; digest pinning is optional.
+          Choose a release and supply three environment values. Use your own
+          PostgreSQL database or add the optional Compose database service.
         </p>
         <InlineLink href="/installation">Installation guide →</InlineLink>
       </div>

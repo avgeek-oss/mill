@@ -88,6 +88,7 @@ await writeFile(
 );
 for (const file of [
   "docker-compose.yml",
+  "docker-compose.postgres.yml",
   ".env.example",
   "LICENSE",
   "NOTICE",

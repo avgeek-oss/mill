@@ -40,7 +40,14 @@ test("curated installed guides retain commands, resolve every local link and exc
     for (const match of html.matchAll(/href="(\/guides\/[^"#]+)(?:#[^"]*)?"/g))
       assert.ok(guides.has(match[1].slice(1)), `${file}: ${match[1]}`);
     assert.doesNotMatch(html, /href="(?!https?:\/\/)[^"#]*\.md(?:#|")/);
-    assert.doesNotMatch(html, /\/Users\/|node_modules\/|DATABASE_URL=postgres/);
+    assert.doesNotMatch(html, /\/Users\/|node_modules\//);
+    for (const name of ["DATABASE_URL", "MILL_SECRET", "POSTGRES_PASSWORD"])
+      if (process.env[name])
+        assert.equal(
+          html.includes(process.env[name]),
+          false,
+          `${file} must not contain the current ${name}`,
+        );
   }
 });
 

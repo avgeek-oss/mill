@@ -142,18 +142,18 @@ function databaseArguments(configuration, statement) {
     statement,
   ];
 }
-async function configuration(name, targetPort, publicOrigin) {
+async function configuration(
+  name,
+  targetPort,
+  publicOrigin,
+  bundledPostgres = true,
+) {
   const envFile = join(privateDirectory, `${name}.env`);
   const settings = {
-    POSTGRES_PASSWORD: secrets[0],
+    DATABASE_URL: `postgres://mill:${secrets[0]}@postgres:5432/mill`,
     MILL_SECRET: secrets[1],
     MILL_BASE_URL: publicOrigin ?? `http://127.0.0.1:${targetPort}`,
-    MILL_PORT: String(targetPort),
-    MILL_BIND_ADDRESS: "127.0.0.1",
-    ALLOW_INSECURE_LOCALHOST: String(!publicOrigin),
-    MILL_API_IMAGE: images.api,
-    MILL_WEB_IMAGE: images.web,
-    SOURCE_COMMIT: `${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
+    ...(bundledPostgres ? { POSTGRES_PASSWORD: secrets[0] } : {}),
   };
   const template = await readFile(join(root, ".env.example"), "utf8");
   const lines = template.split("\n").map((line) => {
@@ -168,6 +168,43 @@ async function configuration(name, targetPort, publicOrigin) {
     "",
   );
   await writeFile(envFile, lines.join("\n"), { mode: 0o600 });
+  const composeFile = join(privateDirectory, `${name}.compose.yml`);
+  await writeFile(
+    composeFile,
+    [
+      "services:",
+      "  api:",
+      `    image: ${images.api}`,
+      ...(!releaseImages && bundledPostgres
+        ? [
+            "    build:",
+            "      args:",
+            `        SOURCE_COMMIT: ${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
+          ]
+        : []),
+      "  web:",
+      `    image: ${images.web}`,
+      "    ports: !override",
+      `      - "127.0.0.1:${targetPort}:4322"`,
+      ...(!releaseImages && bundledPostgres
+        ? [
+            "    build:",
+            "      args:",
+            `        SOURCE_COMMIT: ${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
+          ]
+        : []),
+      ...(!bundledPostgres
+        ? [
+            "networks:",
+            "  default:",
+            "    external: true",
+            `    name: ${project}_default`,
+          ]
+        : []),
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
   const compose = [
     "compose",
     "--project-name",
@@ -176,11 +213,17 @@ async function configuration(name, targetPort, publicOrigin) {
     envFile,
     "--file",
     "docker-compose.yml",
-    ...(!releaseImages ? ["--file", "tools/compose-source.yml"] : []),
+    ...(bundledPostgres ? ["--file", "docker-compose.postgres.yml"] : []),
+    ...(!releaseImages && bundledPostgres
+      ? ["--file", "tools/compose-source.yml"]
+      : []),
+    "--file",
+    composeFile,
   ];
   projects.push(compose);
   return {
     envFile,
+    composeFile,
     compose,
     url: publicOrigin ?? `http://127.0.0.1:${targetPort}`,
   };
@@ -387,6 +430,58 @@ try {
     "-e",
     "import assert from 'node:assert/strict';import{existsSync}from'node:fs';assert.equal(process.env.DATABASE_URL,undefined);assert.equal(process.env.MILL_SECRET,undefined);assert.equal(existsSync('/app/dist/apps/api/src/index.js'),false);assert.equal(existsSync('/app/node_modules/postgres'),false);",
   ]);
+  const external = await configuration(
+    `${project}-external`,
+    Number(new URL(primary.url).port),
+    undefined,
+    false,
+  );
+  const externalConfig = JSON.parse(
+    await run("external-database-configuration", "docker", [
+      ...external.compose,
+      "config",
+      "--format",
+      "json",
+    ]),
+  );
+  assert.deepEqual(Object.keys(externalConfig.services).sort(), ["api", "web"]);
+  assert.equal(
+    externalConfig.services.api.environment.DATABASE_URL,
+    `postgres://mill:${secrets[0]}@postgres:5432/mill`,
+  );
+  await run("external-database-original-app-stop", "docker", [
+    ...primary.compose,
+    "stop",
+    "api",
+    "web",
+  ]);
+  await run(
+    "external-database-app-start",
+    "docker",
+    [
+      ...external.compose,
+      "up",
+      "--no-build",
+      "--detach",
+      "--wait",
+      "--wait-timeout",
+      "180",
+    ],
+    {},
+    240_000,
+  );
+  await run(
+    "external-database-api-oauth-mcp-persistence",
+    "node",
+    ["tools/install-smoke.mjs"],
+    verifyEnv,
+  );
+  await run("external-database-app-stop", "docker", [
+    ...external.compose,
+    "down",
+    "--timeout",
+    "20",
+  ]);
   await run(
     "persistent-container-recreation",
     "docker",
@@ -553,6 +648,8 @@ try {
     project,
     "--env-file",
     primary.envFile,
+    "--compose-file",
+    primary.composeFile,
     "--output",
     backup,
   ]);
@@ -578,6 +675,8 @@ try {
       recoveryProject,
       "--env-file",
       recovery.envFile,
+      "--compose-file",
+      recovery.composeFile,
       "--input",
       backup,
     ],
@@ -757,6 +856,8 @@ try {
           "Fresh current-schema custom-format PostgreSQL backup restored into an isolated empty project; all rows match before traffic, followed by real REST/OAuth/MCP persistence checks at the retained resource origin.",
         prelaunchCompatibility:
           "Historical prelaunch ledgers are rejected without modification. Conversion requires the explicitly guarded prelaunch conversion tool and a verified backup; this fresh-install gate does not claim a historical upgrade.",
+        externalDatabase:
+          "A separate API/UI-only Compose project connects to the existing PostgreSQL through DATABASE_URL; retained REST, OAuth and MCP client journeys pass without a PostgreSQL service in that project.",
         httpsProxy: {
           origin: proxyOrigin,
           project: proxyProject,
@@ -796,7 +897,7 @@ try {
     secureProxy.closeAllConnections();
     await new Promise((resolveClose) => secureProxy.close(resolveClose));
   }
-  for (const [index, compose] of projects.entries()) {
+  for (const [index, compose] of projects.toReversed().entries()) {
     await run(
       `cleanup-project-${index}`,
       "docker",

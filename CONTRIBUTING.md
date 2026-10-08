@@ -4,7 +4,7 @@ Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before 
 
 ## Local setup
 
-Follow the [README development steps](README.md#develop). Use Node 24.16.0, pnpm 11.5.3, and PostgreSQL 17. Keep `pnpm-lock.yaml` in the change whenever a package changes. Commit source files, not `.env`, database dumps, dependencies, screenshots with private data, or generated build output.
+Follow the [README development steps](README.md#develop). The optional `docker-compose.postgres.yml` supplies the database, and `tools/compose-development.yml` publishes its loopback development port. Use Node 24.16.0, pnpm 11.5.3, and PostgreSQL 17. Keep `pnpm-lock.yaml` in the change whenever a package changes. Commit source files, not `.env`, database dumps, dependencies, screenshots with private data, or generated build output.
 
 ## Verification
 

@@ -5,9 +5,9 @@ description: "Protect an installation and report a vulnerability privately."
 
 import { Screenshot } from "/snippets/oss/screenshot.jsx";
 
-Use HTTPS for every remote installation. Keep the Mill HTTP service bound to a private address behind your reverse proxy, and keep PostgreSQL private. Set `MILL_BASE_URL` to the exact public origin. If you configure `MILL_TRUSTED_PROXY_IPS`, list only the proxy peers that actually connect to Mill so forwarded client addresses cannot bypass rate limits. See [configuration](/configuration) for the proxy and TLS settings.
+Use HTTPS for every remote installation. Keep the Mill HTTP service bound to a private address behind your reverse proxy, and keep PostgreSQL private. Set `MILL_BASE_URL` to the exact public origin. The default proxy behavior ignores untrusted forwarded addresses. See [configuration](/configuration) if you need advanced client-address forwarding.
 
-Protect `.env`, the Docker host, and full database backups. A backup contains accounts, password hashes, client credential records, and encrypted authentication data. Preserve the original `MILL_SECRET` in your recovery plan so a restore can read protected values. Store encrypted backup copies away from the host and [practice a restore](/backup#practice-a-restore).
+Protect `.env`, the Docker host, and full database backups. A backup contains accounts, password hashes, client credential records, and encrypted authentication data. Preserve the original `MILL_SECRET` in your recovery plan so a restore can read protected values. Store encrypted backup copies away from the host and [practice a restore](/backup#back-up-an-existing-or-managed-database).
 
 Grant people and external clients only the access they need. Review **Account Settings → Sessions**, personal API keys and MCP Connections when a device or client is no longer trusted. Admins should also review **Team Settings → Members** and **Team API Keys** when a person leaves. Revoke credentials that are no longer needed; removing a member immediately ends their personal access, while a team key remains governed by its stored team policy. See [accounts and team access](/authentication#external-credential-boundaries).
 

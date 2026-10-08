@@ -3,7 +3,7 @@ title: "Operations"
 description: "Health checks, migrations, recovery, and routine care."
 ---
 
-Use the same explicit Compose project and environment file for every command. The examples below target `mill`; replace it with the exact project name you created.
+Use the same explicit Compose project and environment file for every command. The examples below target `mill`; replace it with the exact project name you created. If you installed bundled PostgreSQL, include `-f docker-compose.yml -f docker-compose.postgres.yml` in each Compose command.
 
 ```sh
 docker compose --project-name mill --env-file .env ps
@@ -14,7 +14,7 @@ docker compose --project-name mill --env-file .env restart api web
 
 `/health/live` checks that the HTTP service is responsive. `/health/ready` runs a bounded PostgreSQL check after migration and returns 503 when the database is unavailable. Liveness can still return 200 during that database outage. Health endpoints do not expose configuration or account data. Container readiness and a successful sign-in/task edit prove different things; check both after recovery or upgrades.
 
-Both Mill images run as the non-root `node` user, with a read-only application filesystem, no added capabilities, and a small temporary directory. PostgreSQL writes to its own persistent volume. There is no Docker socket mount, external process execution, or separate queue service.
+Both Mill images run as the non-root `node` user, with a read-only application filesystem, no added capabilities, and a small temporary directory. Bundled PostgreSQL writes to its own persistent volume; an existing database uses its provider's storage. There is no Docker socket mount, external process execution, or separate queue service.
 
 ## Migrations
 

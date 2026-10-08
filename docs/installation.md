@@ -1,6 +1,6 @@
 # Installation
 
-Mill needs three services: **PostgreSQL, the API image, and the UI image**. Docker with Compose v2 is enough to run all three. You do not need Git, Node.js, a package-registry token, or a source build.
+Mill needs **PostgreSQL, an API image and a UI image**. Use an existing PostgreSQL database or let Compose run one for you. The default Compose file runs only the API and UI; it needs three environment values. You do not need Git, Node.js, a package-registry token or a source build.
 
 The first public release is proposed as `v1.0.1`. Choose a release only after its GitHub release and both public images have been published.
 
@@ -18,22 +18,21 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Keep these files together and run the remaining commands from this directory. Compose reads `.env` automatically; `--env-file /path/to/your.env` is available if you store it elsewhere.
+Keep these files together and run the remaining commands from this directory. Compose reads `.env` automatically; `--env-file /path/to/your.env` is available if you store it elsewhere. Image versions are already set in the release's Compose file.
 
-## 2. Set the environment variables
+## 2. Set three environment values
 
-Edit `.env` and set:
+Edit `.env`:
 
-| Variable            | Value                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------- |
-| `MILL_VERSION`      | The downloaded release version, without `v`; for example `1.0.1`.                                     |
-| `POSTGRES_PASSWORD` | A new random password for this PostgreSQL database.                                                   |
-| `MILL_SECRET`       | A different random value for protected authentication data. Preserve it across upgrades and restores. |
-| `MILL_BASE_URL`     | Leave `http://localhost:4321` for local use. Use your HTTPS origin for remote access.                 |
+```dotenv
+DATABASE_URL=postgres://user:password@your-database-host:5432/mill
+MILL_SECRET=<a random secret of at least 32 characters>
+MILL_BASE_URL=http://localhost:4321
+```
 
-Use 64 hexadecimal characters for each secret. A password manager can generate them, or run `openssl rand -hex 32` separately for each value. Hexadecimal database passwords avoid URL-escaping issues. Do not leave either field blank or use the same value twice.
+Use a dedicated PostgreSQL database with a user that can create and modify its tables. Supply the provider's complete connection URL, including any required TLS parameters. Percent-encode special characters in a URL's username or password. The database host must be reachable from the API container; `localhost` inside that container refers to the container itself.
 
-The remaining defaults connect the API to `postgres:5432` and the UI to `api:4321` inside the private Compose network. `MILL_PORT=4321` exposes the UI at [localhost:4321](http://localhost:4321). PostgreSQL and the API have no host ports.
+Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`. Keep it private and preserve it across upgrades and restores: Mill uses it to protect authentication data. Leave `MILL_BASE_URL` as shown for local use, or use your final HTTPS origin for remote access.
 
 ## 3. Start Mill
 
@@ -41,7 +40,7 @@ The remaining defaults connect the API to `postgres:5432` and the UI to `api:432
 docker compose --project-name mill up --detach --wait
 ```
 
-Compose pulls both versioned images and waits for PostgreSQL, the API and UI to become healthy. Open [localhost:4321](http://localhost:4321) and create your workspace, name, email and password. The first account becomes an administrator; there is no default login. The setup form closes after that first account is created.
+Compose pulls both versioned images and waits for the API and UI to become healthy. The API applies its packaged database migrations automatically. Open [localhost:4321](http://localhost:4321) and create your workspace, name, email and password. The first account becomes an administrator; there is no default login. The setup form closes after that first account is created.
 
 Check the running services and the complete UI-to-API path:
 
@@ -50,19 +49,34 @@ docker compose --project-name mill ps
 curl --fail http://localhost:4321/health/ready
 ```
 
-Continue with [your first board and task](getting-started.md). No GitHub login or npm token is needed to pull public release images. A missing image or denied anonymous pull means that release is not ready for the public installation path.
+Continue with [your first board and task](getting-started.md). No GitHub login or npm token is needed to pull public release images. Only the UI publishes a host port; it forwards authentication, API and streaming MCP requests privately to the API. The API holds the database URL and application secret; the UI has neither.
 
-Use `--project-name mill` consistently so Compose reuses the same database volume. `docker compose --project-name mill down` stops the containers and leaves the volume intact. Adding `--volumes` permanently removes it.
+## Optional: run PostgreSQL with Compose
+
+If you do not have a database, download `docker-compose.postgres.yml` from the same release:
+
+```sh
+curl --fail --location --output docker-compose.postgres.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.postgres.yml"
+```
+
+Generate a separate database password with `openssl rand -hex 32`. Add `POSTGRES_PASSWORD` to `.env` and use the same value in `DATABASE_URL`:
+
+```dotenv
+POSTGRES_PASSWORD=<your generated database password>
+DATABASE_URL=postgres://mill:<the same database password>@postgres:5432/mill
+```
+
+Keep the existing `MILL_SECRET` and `MILL_BASE_URL` values. Start all three services with the optional overlay:
+
+```sh
+docker compose --project-name mill -f docker-compose.yml -f docker-compose.postgres.yml up --detach --wait
+```
+
+Use both `-f` options for subsequent commands on this installation. The overlay creates persistent PostgreSQL storage, waits for database readiness before starting the API, and publishes no database port. Use `--project-name mill` consistently so Compose reuses the same volume. `down` stops the containers and leaves the volume intact; `down --volumes` permanently removes it.
 
 ## Host Mill with HTTPS
 
-Set `MILL_BASE_URL` to the exact browser origin, for example `https://tasks.example.com`, and set `ALLOW_INSECURE_LOCALHOST=false`. Keep `MILL_BIND_ADDRESS=127.0.0.1` when an HTTPS reverse proxy runs on the same host. Apply the environment change:
-
-```sh
-docker compose --project-name mill up --detach --wait
-```
-
-A host reverse proxy forwards to the UI, which forwards API, cookies, OAuth and streaming MCP requests to the private API. For example, a Caddy configuration can use:
+Set `MILL_BASE_URL` to the exact browser origin, for example `https://tasks.example.com`, and recreate the services using your installation's Compose command. The default UI port binds to `127.0.0.1:4321`, ready for a reverse proxy on the same host. For example, a Caddy configuration can use:
 
 ```caddyfile
 tasks.example.com {
@@ -70,34 +84,34 @@ tasks.example.com {
 }
 ```
 
-Use a current supported reverse proxy, preserve the public host, support streaming HTTP at `/mcp`, and do not cache `/api`, `/mcp` or OAuth responses. A proxy on the Compose network can use `web:4322` instead of the host port. Do not publish PostgreSQL or the API directly.
+A proxy on the Compose network can use `web:4322` instead. Preserve the public host, support streaming HTTP at `/mcp`, and do not cache `/api`, `/mcp` or OAuth responses. Keep the database and API private. To change the local port or bind address, edit the web service's `ports` entry in Compose and keep `MILL_BASE_URL` aligned with the browser URL.
 
-The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys; changing it later requires a recovery plan. [Configuration](configuration.md) covers exact proxy trust and the local HTTP exception.
+The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys; changing it later requires a recovery plan. Remote access requires HTTPS. Local HTTP OAuth works automatically only when `MILL_BASE_URL` is an exact loopback origin; no extra switch is needed.
 
-## Use deployment-platform environment variables
+## Use a deployment platform
 
-The `.env` file is a Compose convenience. Images read runtime environment variables directly; there is no required environment file inside either image. A platform or secret manager can supply the same settings:
+Images read runtime environment variables directly. A platform or secret manager can supply them without an `.env` file:
 
-| Service    | Image                                   | Runtime configuration                                                                                      |
-| ---------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| PostgreSQL | Supported PostgreSQL 17 image           | `POSTGRES_DB=mill`, `POSTGRES_USER=mill`, `POSTGRES_PASSWORD`, persistent database storage.                |
-| API        | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_BASE_URL`; optional SMTP and other API settings. Private port `4321`. |
-| UI         | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` set to the private API origin. UI port `4322`.                                              |
+| Service | Image                                   | Runtime configuration                                                                         |
+| ------- | --------------------------------------- | --------------------------------------------------------------------------------------------- |
+| API     | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_BASE_URL`. Private port `4321`.                          |
+| UI      | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` only if the private API origin differs from `http://api:4321`. UI port `4322`. |
 
-Keep the API and UI at the same release version. If your platform supplies a managed PostgreSQL database, use its connection URL as the API's `DATABASE_URL`; you do not need the Compose PostgreSQL service. Use the provider's supported secure connection settings and backups. Route the public HTTPS hostname to the UI, and keep database and API access private.
+Use your PostgreSQL instance's connection URL as `DATABASE_URL`. Keep the API and UI at the same release version, and route the public HTTPS hostname to the UI. Optional email and advanced proxy settings are covered in [configuration](configuration.md).
 
 ## Optional: pin images by digest
 
-Release tags keep the basic setup short. If your deployment policy requires immutable references, download `mill-images.json` from the matching GitHub release. It records version, commit, supported platforms, and separate `images.api` and `images.web` references.
+If your deployment policy requires immutable references, download `mill-images.json` from the matching GitHub release. Replace the two services' `image` fields in Compose with its `images.api` and `images.web` values:
 
-Set `MILL_API_IMAGE` and `MILL_WEB_IMAGE` in `.env` to those full references:
-
-```dotenv
-MILL_API_IMAGE=ghcr.io/avgeek-oss/mill-api@sha256:<api digest from the manifest>
-MILL_WEB_IMAGE=ghcr.io/avgeek-oss/mill-web@sha256:<web digest from the manifest>
+```yaml
+services:
+  api:
+    image: ghcr.io/avgeek-oss/mill-api@sha256:<api digest from the manifest>
+  web:
+    image: ghcr.io/avgeek-oss/mill-web@sha256:<web digest from the manifest>
 ```
 
-Replace both placeholders with the actual manifest values. Compose uses these overrides instead of version tags. Keep the manifest with your installation records; you do not need `jq` or a helper script to read its two image references.
+These are image references, not application environment variables. Keep both images from the same release and retain the manifest with your installation records.
 
 ## Protect your installation
 

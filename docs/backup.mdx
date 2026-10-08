@@ -7,37 +7,41 @@ A full PostgreSQL backup preserves accounts, sessions, passkeys and their recove
 
 Also save the original `MILL_SECRET` and runtime settings securely. Protected database values require that secret even after a successful restore. Record both API/UI versions or digests, the Compose project name and PostgreSQL major version with each backup.
 
-## Create a backup
+## Back up an existing or managed database
 
-From the installation directory, use PostgreSQL's packaged `pg_dump`. You do not need Git, Node or a source checkout:
+Use your PostgreSQL provider's supported backup and restore procedures, or PostgreSQL's `pg_dump` and `pg_restore` against the database in `DATABASE_URL`. The backup must cover the complete Mill database, not just task tables. Rehearse restoration into a separate database, configure a separate Mill API/UI pair with its connection URL and the original `MILL_SECRET`, and verify the restored workspace before relying on the backup.
+
+## Back up bundled PostgreSQL
+
+If you installed the optional PostgreSQL Compose overlay, use its packaged `pg_dump`. You do not need Git, Node or a source checkout:
 
 ```sh
 umask 077
 mkdir -p backups
 backup_file="backups/mill-$(date +%Y%m%d-%H%M%S).dump"
-docker compose --project-name mill exec -T postgres sh -c 'exec pg_dump --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom --no-owner --no-acl' > "$backup_file"
+docker compose --project-name mill -f docker-compose.yml -f docker-compose.postgres.yml exec -T postgres sh -c 'exec pg_dump --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom --no-owner --no-acl' > "$backup_file"
 ```
 
 Confirm the command succeeded before relying on the file. A failed dump may leave a partial file; remove that file and investigate the failure. Do not overwrite an existing backup. `pg_dump` takes a consistent database snapshot while ordinary writes continue.
 
-Encrypt backups and a separate copy of the runtime secrets, store a copy off the Docker host and periodically rehearse recovery. Keep enough free space for both the archive and a separate restored database. For managed PostgreSQL, use the provider's supported backup/restore procedures and verify that they preserve the complete Mill database.
+Encrypt backups and a separate copy of the runtime secrets, store a copy off the Docker host and periodically rehearse recovery. Keep enough free space for both the archive and a separate restored database.
 
-## Rehearse recovery in a separate project
+## Rehearse bundled PostgreSQL recovery
 
-Use the same compatible API and UI images as the backup. Copy `.env` to `recovery.env`, preserve `MILL_SECRET` and the database settings, and change `MILL_PORT` and `MILL_BASE_URL` to a spare loopback port such as `4322`. Keep the new file private. A separate Compose project creates its own PostgreSQL volume.
+Use the same compatible API and UI images as the backup. Copy the installation's two Compose files and `.env` into a separate recovery directory. In the copied `docker-compose.yml`, change the web service's host port from `127.0.0.1:4321:4322` to `127.0.0.1:4322:4322`. In the copied `.env`, set `MILL_BASE_URL=http://localhost:4322` and preserve `MILL_SECRET`, `POSTGRES_PASSWORD` and the private PostgreSQL URL. Keep the copy private. The separate project name below creates its own PostgreSQL volume.
+
+Run these commands from that recovery directory:
 
 ```sh
-cp .env recovery.env
-chmod 600 recovery.env
-# Edit recovery.env: MILL_PORT=4322 and MILL_BASE_URL=http://localhost:4322.
-docker compose --project-name mill-recovery --env-file recovery.env up --detach --wait postgres
+chmod 600 .env
+docker compose --project-name mill-recovery -f docker-compose.yml -f docker-compose.postgres.yml up --detach --wait postgres
 ```
 
 Restore into that new empty database. Replace the example filename with your backup:
 
 ```sh
-docker compose --project-name mill-recovery --env-file recovery.env exec -T postgres sh -c 'exec pg_restore --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --no-owner --no-acl --exit-on-error --single-transaction' < backups/mill-YYYYMMDD-HHMMSS.dump
-docker compose --project-name mill-recovery --env-file recovery.env up --detach --wait
+docker compose --project-name mill-recovery -f docker-compose.yml -f docker-compose.postgres.yml exec -T postgres sh -c 'exec pg_restore --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --no-owner --no-acl --exit-on-error --single-transaction' < backups/mill-YYYYMMDD-HHMMSS.dump
+docker compose --project-name mill-recovery -f docker-compose.yml -f docker-compose.postgres.yml up --detach --wait
 curl --fail http://localhost:4322/health/ready
 ```
 
@@ -48,7 +52,7 @@ Sign in at the recovery URL and check a board, task, comment, member, notificati
 After the rehearsal, remove only the disposable recovery project:
 
 ```sh
-docker compose --project-name mill-recovery --env-file recovery.env down --volumes
+docker compose --project-name mill-recovery -f docker-compose.yml -f docker-compose.postgres.yml down --volumes
 ```
 
 ## Recover the running installation
@@ -59,13 +63,13 @@ If you deliberately need to replace an existing database, use PostgreSQL's docum
 
 ## Optional repository helpers
 
-Operators who keep a source checkout can use the guarded scripts. They create private backup files, reject overwrite, validate the archive and require explicit target confirmation:
+Operators using bundled PostgreSQL who keep a source checkout can use the guarded scripts. They create private backup files, reject overwrite, validate the archive and require explicit target confirmation:
 
 ```sh
 bash tools/backup.sh --project mill --env-file .env --output backups/mill.dump
 bash tools/restore.sh --project mill-recovery --confirm-project mill-recovery --env-file recovery.env --input backups/mill.dump
 ```
 
-The restore helper stops both API and UI, rejects a nonempty target unless `--replace` is explicitly supplied, restores in one transaction, and starts both services only after success. A failed restore leaves them stopped. These helpers are optional; a published-image installation does not require them.
+For these repository helpers, `recovery.env` identifies the separate bundled project; if its copied Compose file has a different port, use the direct recovery commands above. The restore helper stops both API and UI, rejects a nonempty target unless `--replace` is explicitly supplied, restores in one transaction, and starts both services only after success. A failed restore leaves them stopped. These helpers are optional; a published-image installation does not require them.
 
 See [upgrades](/upgrades) for schema compatibility and private pre-launch conversion. Historical portable JSON exports have no importer in v1; retain them separately if needed, but use database backups for supported recovery.

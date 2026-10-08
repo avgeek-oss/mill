@@ -1,7 +1,6 @@
 services:
   api:
-    environment:
-      DATABASE_URL: postgres://mill:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/mill
+    image: mill-api:local
     build:
       context: .
       target: api
@@ -10,6 +9,7 @@ services:
       args:
         SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
   web:
+    image: mill-web:local
     build:
       context: .
       target: web

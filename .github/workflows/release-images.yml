@@ -44,6 +44,10 @@ jobs:
           test "$(jq -r .version package.json)" = "$version"
           test "$(jq -r .version apps/web/package.json)" = "$version"
           test "$(jq -r .version apps/web-server/package.json)" = "$version"
+          for component in api web; do
+            image="$(sed -n "s/^    image: ghcr.io\/avgeek-oss\/mill-$component://p" docker-compose.yml)"
+            test "$image" = "$version"
+          done
           commit="$(git rev-parse 'HEAD^{commit}')"
           test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$commit"
           if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-state"; then

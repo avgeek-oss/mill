@@ -1,6 +1,6 @@
 # Mill
 
-Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs PostgreSQL, an API image, and a UI image. You own the data; everyday task management needs no LLM key or paid service.
+Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs an API image and a UI image connected to PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
 
 Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, and activity. Team members use Admin, Member, or Viewer access.
 
@@ -26,17 +26,27 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-In `.env`, fill in `POSTGRES_PASSWORD` and `MILL_SECRET` with different random values. Use 64 hexadecimal characters for each; a password manager or `openssl rand -hex 32` can generate them. Set `MILL_VERSION` to the release you downloaded, without the `v` prefix. Leave the local URL and port defaults for your first installation.
+Set just three values in `.env`:
+
+```dotenv
+DATABASE_URL=postgres://user:password@your-database-host:5432/mill
+MILL_SECRET=<a random secret of at least 32 characters>
+MILL_BASE_URL=http://localhost:4321
+```
+
+Use a dedicated PostgreSQL database and its connection URL. Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`, and preserve it across upgrades and restores. For remote access, use your final HTTPS origin as `MILL_BASE_URL`.
 
 ```sh
 docker compose --project-name mill up --detach --wait
 ```
 
-Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the same version and starts PostgreSQL. Only the UI publishes a host port; it forwards API, authentication and MCP requests privately to the API.
+Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the release version already written in the Compose file. Only the UI publishes a host port; it forwards API, authentication and MCP requests privately to the API.
 
 Open [localhost:4321](http://localhost:4321), create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
 
-Keep `.env` private and preserve `MILL_SECRET` with your database backups. `docker compose --project-name mill down` stops the containers and keeps the database volume. See [installation](docs/installation.md) for HTTPS hosting, deployment-platform environment variables and optional digest pinning.
+If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation.md#optional-run-postgresql-with-compose). Your existing or managed PostgreSQL instance works directly with the default Compose file.
+
+Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 
 ## Develop
 
@@ -46,7 +56,7 @@ The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source a
 npm install --global pnpm@11.5.3
 node tools/with-package-token.mjs pnpm install --frozen-lockfile
 node tools/init-env.mjs
-docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-development.yml up --detach --wait postgres
+docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-development.yml up --detach --wait postgres
 pnpm migrate
 MILL_BASE_URL=http://localhost:4322 pnpm dev
 ```

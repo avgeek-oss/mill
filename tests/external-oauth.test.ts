@@ -27,6 +27,7 @@ import {
 } from "../apps/api/src/external/clients.js";
 import {
   digest,
+  externalAccessAllowed,
   secret,
   tokenLifetimeSeconds,
 } from "../apps/api/src/external/protocol.js";
@@ -167,13 +168,25 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           challenge.headers.get("www-authenticate")!,
           /oauth-protected-resource\/mcp/,
         );
-        const previous = process.env.ALLOW_INSECURE_LOCALHOST;
-        process.env.ALLOW_INSECURE_LOCALHOST = "false";
-        assert.equal(
-          (await request("/.well-known/oauth-authorization-server")).status,
-          403,
-        );
-        process.env.ALLOW_INSECURE_LOCALHOST = previous;
+        const previous = process.env.MILL_BASE_URL;
+        try {
+          for (const hostname of ["localhost", "127.0.0.1", "[::1]"]) {
+            process.env.MILL_BASE_URL = `http://${hostname}:4321`;
+            assert.equal(externalAccessAllowed(), true);
+          }
+          for (const hostname of [
+            "mill.example",
+            "localhost.example",
+            "10.0.0.1",
+          ]) {
+            process.env.MILL_BASE_URL = `http://${hostname}:4321`;
+            assert.equal(externalAccessAllowed(), false);
+          }
+          process.env.MILL_BASE_URL = "https://mill.example";
+          assert.equal(externalAccessAllowed(), true);
+        } finally {
+          process.env.MILL_BASE_URL = previous;
+        }
         for (const address of [
           "127.0.0.1",
           "10.0.0.1",
