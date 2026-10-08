@@ -36,7 +36,7 @@ test("curated installed guides retain commands, resolve every local link and exc
     if (!file.endsWith(".html")) continue;
     assert.ok(html.includes('href="/assets/index-guide.css"'));
     assert.ok(html.includes('name="viewport"'));
-    assert.doesNotMatch(html, /<script[\s>]/);
+    assert.doesNotMatch(html, /<script[\s>]/i);
     for (const match of html.matchAll(/href="(\/guides\/[^"#]+)(?:#[^"]*)?"/g))
       assert.ok(guides.has(match[1].slice(1)), `${file}: ${match[1]}`);
     assert.doesNotMatch(html, /href="(?!https?:\/\/)[^"#]*\.md(?:#|")/);
@@ -56,7 +56,7 @@ test("rendering escapes unsafe content, preserves useful Markdown and fails dead
   try {
     await writeFile(
       join(root, "guide.md"),
-      '# A <safe> guide\n\n<script>alert(1)</script>\n\n[Bad](javascript:alert(1)) [Local](second.md#account-recovery) [Source](https://github.com/avgeek-oss/mill/blob/main/SECURITY.md)\n\n```sh\ncurl --fail "$MILL_URL/api/boards"\n```\n\n| Field | Value |\n| --- | --- |\n| mode | read |',
+      '# A <safe> guide\n\n<script>alert(1)</script>\n<SCRIPT>alert(2)</SCRIPT>\n<ScRiPt>alert(3)</ScRiPt>\n\n[Bad](javascript:alert(1)) [Local](second.md#account-recovery) [Source](https://github.com/avgeek-oss/mill/blob/main/SECURITY.md)\n\n```sh\ncurl --fail "$MILL_URL/api/boards"\n```\n\n| Field | Value |\n| --- | --- |\n| mode | read |',
     );
     await writeFile(
       join(root, "second.md"),
@@ -77,7 +77,7 @@ test("rendering escapes unsafe content, preserves useful Markdown and fails dead
     );
     assert.ok(html.includes("<table>"));
     assert.ok(html.includes('class="language-sh"'));
-    assert.doesNotMatch(html, /<script[\s>]|href="javascript:/);
+    assert.doesNotMatch(html, /<script[\s>]|href="javascript:/i);
     await writeFile(
       join(root, "guide.md"),
       "# Dead link\n\n[Missing](missing.md)",

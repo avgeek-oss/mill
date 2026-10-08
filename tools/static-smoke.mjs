@@ -229,7 +229,7 @@ export async function staticManifest(directory) {
   );
   assert.equal(appStyles.length, 1, "The app loads one hashed stylesheet");
   const scripts = [
-    ...index.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi),
+    ...index.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi),
   ];
   const startupScripts = scripts.filter(
     (match) => attribute(match[1], "src") === "/startup-recovery.js",

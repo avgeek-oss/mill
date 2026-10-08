@@ -73,6 +73,7 @@ async function run(
   try {
     const child = spawn(command, args, {
       cwd: root,
+      shell: false,
       env: {
         ...process.env,
         ...(packageToken ? { NODE_AUTH_TOKEN: packageToken } : {}),
