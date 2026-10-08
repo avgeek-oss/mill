@@ -648,12 +648,20 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     "assignments",
     "mentions",
   ]);
+  await request(
+    "/api/credentials",
+    "POST",
+    { name: "Incomplete production key", expiresInDays: 30 },
+    400,
+  );
   const external = await request(
     "/api/credentials",
     "POST",
     {
       name: "Disposable production capability check",
-      expiresInDays: 30,
+      access: "edit",
+      includeAdmin: false,
+      expiresAt: new Date(Date.now() + 30 * 86400_000).toISOString(),
     },
     201,
   );
@@ -661,9 +669,37 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
   assert.equal("agentName" in external.credential, false);
   assert.equal(external.credential.boardIds, null);
   assert.deepEqual(external.credential.scopes, []);
-  await request("/mcp", "POST", {}, 403, new Map(), {
-    Authorization: `Bearer ${external.token}`,
-  });
+  const keyTransport = { id: 0, protocolVersion: undefined };
+  const keyInitialized = await mcpRequest(
+    external.token,
+    keyTransport,
+    "initialize",
+    {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: {
+        name: "mill-production-key-verification",
+        version: "1.0.0",
+      },
+    },
+  );
+  assert.ok(keyInitialized.capabilities.tools);
+  keyTransport.protocolVersion = keyInitialized.protocolVersion;
+  await mcpRequest(
+    external.token,
+    keyTransport,
+    "notifications/initialized",
+    undefined,
+    true,
+  );
+  const keyTools = await mcpRequest(
+    external.token,
+    keyTransport,
+    "tools/list",
+    {},
+  );
+  assert.ok(keyTools.tools.some((tool) => tool.name === "update_task"));
+  assert.ok(!keyTools.tools.some((tool) => tool.name === "list_members"));
   await request(
     `/api/tasks/${state.taskId}`,
     "GET",
