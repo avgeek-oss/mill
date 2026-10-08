@@ -20,6 +20,12 @@ Use your GitHub username and a classic personal access token with `read:packages
 
 The generator creates `.env` with owner-only permissions. It refuses to overwrite an existing file. Mill's database volume belongs to the `mill` Compose project, so use `--project-name mill` consistently. `down` stops and removes containers; it leaves the database volume in place. `down --volumes` permanently removes it.
 
+## Install a published image
+
+After a release is published, its `mill-images.json` asset records an immutable `ghcr.io/avgeek-oss/mill@sha256:…` reference for the combined web/API service. Check out the matching release tag for Compose, migrations, and backup tools. Authenticate to GHCR with a GitHub account that has access to this private package, then set `MILL_IMAGE` in `.env` to the manifest's digest reference. Run `docker compose --project-name mill --env-file .env pull mill` followed by `docker compose --project-name mill --env-file .env up --no-build --detach --wait`. The running image needs no npm package token. Keep a compatible `NODE_AUTH_TOKEN` in the shell if Compose requires its build-secret declaration while reading the file.
+
+Check the image reference against the release asset and the tag before starting or upgrading. The release workflow installs that same digest on native AMD64 and ARM64 runners, including a database restore and restart exercise.
+
 ## Remote access
 
 Point a DNS name you own to the server, then configure an HTTPS reverse proxy. Generate the Mill configuration with that public origin:

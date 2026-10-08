@@ -14,7 +14,14 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const runId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
 const project = `mill-verify-${runId}`;
 const recoveryProject = `${project}-restore`;
-const image = `mill:verify-${runId}`;
+const releaseImage = process.env.MILL_VERIFY_RELEASE_IMAGE;
+if (releaseImage)
+  assert.match(
+    releaseImage,
+    /^ghcr\.io\/avgeek-oss\/mill@sha256:[0-9a-f]{64}$/,
+    "Release verification requires the immutable Mill GHCR digest",
+  );
+const image = releaseImage ?? `mill:verify-${runId}`;
 const scannerCache = `${project}-scanner-cache`;
 const evidence = resolve(root, "tmp", "verification", project);
 const privateDirectory = await mkdtemp(join(tmpdir(), "mill-verify-"));
@@ -158,8 +165,10 @@ let secureProxy;
 let sourceRevision;
 let sourceDirty;
 try {
-  packageToken = await githubPackagesToken();
-  secrets.push(packageToken);
+  if (!releaseImage) {
+    packageToken = await githubPackagesToken();
+    secrets.push(packageToken);
+  }
   sourceRevision = await run("source-revision", "git", ["rev-parse", "HEAD"]);
   sourceDirty = Boolean(
     await run("source-working-tree", "git", ["status", "--porcelain"]),
@@ -190,13 +199,44 @@ try {
     "config",
     "--quiet",
   ]);
-  await run(
-    "production-image-build",
-    "docker",
-    [...primary.compose, "build", "--pull", "mill"],
-    {},
-    1_800_000,
-  );
+  if (releaseImage) {
+    await run(
+      "production-image-pull",
+      "docker",
+      ["pull", releaseImage],
+      {},
+      600_000,
+    );
+    const metadata = JSON.parse(
+      await run("release-image-metadata", "docker", [
+        "image",
+        "inspect",
+        releaseImage,
+        "--format",
+        "{{json .}}",
+      ]),
+    );
+    assert.equal(
+      metadata.Config.Labels["org.opencontainers.image.revision"],
+      sourceRevision,
+    );
+    assert.equal(
+      metadata.Config.Labels["org.opencontainers.image.version"],
+      JSON.parse(await readFile(join(root, "package.json"), "utf8")).version,
+    );
+    assert.equal(
+      metadata.Config.Labels["org.opencontainers.image.source"],
+      "https://github.com/avgeek-oss/mill",
+    );
+  } else {
+    await run(
+      "production-image-build",
+      "docker",
+      [...primary.compose, "build", "--pull", "mill"],
+      {},
+      1_800_000,
+    );
+  }
   assert.equal(
     architecture(
       await run("production-image-architecture", "docker", [
@@ -225,6 +265,23 @@ try {
     {},
     240_000,
   );
+  if (releaseImage) {
+    const container = await run("release-container-id", "docker", [
+      ...primary.compose,
+      "ps",
+      "--quiet",
+      "mill",
+    ]);
+    assert.equal(
+      await run("release-container-image", "docker", [
+        "inspect",
+        "--format",
+        "{{.Config.Image}}",
+        container,
+      ]),
+      releaseImage,
+    );
+  }
   const builtStaticManifest = await run(
     "production-static-manifest",
     "docker",

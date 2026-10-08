@@ -16,11 +16,13 @@ RUN --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
 
 FROM base AS runtime
 ARG SOURCE_COMMIT=development
+ARG RELEASE_VERSION=development
 LABEL org.opencontainers.image.title="Mill" \
       org.opencontainers.image.description="Self-hosted task board for teams" \
       org.opencontainers.image.source="https://github.com/avgeek-oss/mill" \
       org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.revision="${SOURCE_COMMIT}"
+      org.opencontainers.image.revision="${SOURCE_COMMIT}" \
+      org.opencontainers.image.version="${RELEASE_VERSION}"
 WORKDIR /app
 ENV NODE_ENV=production PORT=4321 \
     MILL_MIGRATIONS_DIR=/app/packages/database/migrations
