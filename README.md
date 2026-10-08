@@ -8,6 +8,8 @@ Personal and team API keys have explicit Read-only, Edit, or Administrative perm
 
 The proposed release is `v1.0.1`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Release results belong to the reviewed pull request and its CI artifacts; publication and deployment require their applicable authorization.
 
+The staged image publisher produces the combined web/API image at `ghcr.io/avgeek-oss/mill`. It runs only when dispatched for an existing stable tag on current `main`, verifies exact-commit CI, and publishes a GitHub release after native AMD64 and ARM64 registry-image installation checks pass. The repository and GHCR package remain private; see [installation](docs/installation.md) for authenticated digest-pinned pulls after publication.
+
 ## Install locally
 
 Install Docker with Compose v2, Git, and Node.js 24. Clone the repository into a directory you control, then run:
