@@ -1,3 +1,4 @@
+import { millVersion } from "../version.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import {
@@ -41,7 +42,7 @@ export async function serveMcp(c: Context<Env>) {
         !tool.path.startsWith("/api/notifications")),
   );
   const server = new Server(
-    { name: "mill", version: "1.0.0" },
+    { name: "mill", version: millVersion },
     {
       capabilities: { tools: {} },
       instructions:

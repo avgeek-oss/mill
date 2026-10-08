@@ -6,7 +6,7 @@ Create boards and work in a task list with six fixed statuses: Backlog, Todo, In
 
 Personal and team API keys have explicit Read-only, Edit, or Administrative permissions for REST and MCP. Personal keys remain bounded by their owner's active membership and current role; administrators issue team keys against the team policy. MCP clients can also connect through OAuth with approved read/write scopes and optional board limits.
 
-The proposed release is `v1.0.0`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Release results belong to the reviewed pull request and its CI artifacts; publication and deployment require their applicable authorization.
+The proposed release is `v1.0.1`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Release results belong to the reviewed pull request and its CI artifacts; publication and deployment require their applicable authorization.
 
 ## Install locally
 

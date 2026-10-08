@@ -1,3 +1,8 @@
+import { readStartup, isBackendUnavailable } from "./startup.js";
+import {
+  BackendUnavailable,
+  useBackendReconnect,
+} from "@avgeek-oss/design-system/patterns/feedback/backend-unavailable";
 import {
   Component,
   Suspense,
@@ -68,7 +73,6 @@ import {
   createRetryKey,
   errorText,
   hasSessionResponse,
-  isResponseObject,
   initializeNavigation,
   navigate,
   navigationIndex,
@@ -185,6 +189,7 @@ export function App() {
   const [emailDeliveryConfigured, setEmailDeliveryConfigured] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
+  const [backendUnavailable, setBackendUnavailable] = useState(false);
   const [expired, setExpired] = useState(false);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [boards, setBoards] = useState<BoardSummary[]>([]);
@@ -239,39 +244,34 @@ export function App() {
       .querySelector<HTMLMetaElement>('meta[name="theme-color"]')
       ?.setAttribute("content", millBrand.themeColor[theme]);
   }, [theme]);
-  async function initial() {
-    setReady(false);
-    setError("");
+  async function initial(signal: AbortSignal, first = false) {
+    if (first) setReady(false);
+    const requestSignal = AbortSignal.any([
+      signal,
+      AbortSignal.timeout(20_000),
+    ]);
     try {
-      const status = await api<{
-        setupRequired: boolean;
-        emailDeliveryConfigured: boolean;
-      }>("/auth/status", undefined, "GET", {
-        validateResponse: (value) =>
-          isResponseObject(value) &&
-          typeof value.setupRequired === "boolean" &&
-          typeof value.emailDeliveryConfigured === "boolean",
-      });
+      const { status, session: nextSession } = await readStartup(requestSignal);
+      if (signal.aborted) return false;
       setEmailDeliveryConfigured(status.emailDeliveryConfigured);
       setSetup(status.setupRequired);
-      if (!status.setupRequired) {
-        try {
-          setSession(
-            await api<Session>("/auth/me", undefined, "GET", {
-              validateResponse: hasSessionResponse,
-            }),
-          );
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 401) setSession(null);
-          else throw e;
-        }
-      }
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
+      setSession(nextSession);
+      setError("");
+      setBackendUnavailable(false);
       setReady(true);
+      return true;
+    } catch (e) {
+      if (signal.aborted) return false;
+      const unavailable = isBackendUnavailable(e);
+      setError(errorText(e));
+      setBackendUnavailable(unavailable);
+      setReady(true);
+      return !unavailable;
     }
   }
+  useBackendReconnect(backendUnavailable && !session, (signal) =>
+    initial(signal),
+  );
   async function refresh() {
     const request = ++lastRefreshRequest.current;
     setError("");
@@ -369,7 +369,8 @@ export function App() {
     }
   }
   useEffect(() => {
-    void initial();
+    const startup = new AbortController();
+    void initial(startup.signal, true);
     const listener = () => {
       if (suspensionActive.current) return;
       suspensionActive.current = true;
@@ -387,7 +388,10 @@ export function App() {
       setExpired(true);
     };
     window.addEventListener("mill:expired", listener);
-    return () => window.removeEventListener("mill:expired", listener);
+    return () => {
+      startup.abort();
+      window.removeEventListener("mill:expired", listener);
+    };
   }, []);
   useEffect(() => {
     if (session && !expired) {
@@ -623,6 +627,8 @@ export function App() {
       </Suspense>
     </>
   );
+  if (backendUnavailable && !session)
+    return <BackendUnavailable appName="Mill" />;
   if (!ready)
     return (
       <main aria-busy className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6" />
@@ -644,7 +650,7 @@ export function App() {
           <ErrorPage
             title="Mill could not load"
             description={error}
-            onRetry={() => void initial()}
+            onRetry={() => void initial(AbortSignal.timeout(20_000))}
             showBoards={false}
           />
         </main>

@@ -89,3 +89,30 @@ test("an ordinary permission denial never invokes identity confirmation", async 
   );
   assert.equal(confirmations, 0);
 });
+
+import { readStartup, isBackendUnavailable } from "../apps/web/src/startup.js";
+
+test("startup distinguishes an expired session from an unreachable backend", async () => {
+  let status = 401;
+  mock.method(globalThis, "fetch", async (path: string) =>
+    path.endsWith("/auth/status")
+      ? Response.json({ setupRequired: false, emailDeliveryConfigured: true })
+      : Response.json({ error: { message: "Request failed" } }, { status }),
+  );
+  const state = await readStartup(new AbortController().signal);
+  assert.equal(state.session, null);
+  assert.equal(state.status.setupRequired, false);
+  status = 503;
+  await assert.rejects(readStartup(new AbortController().signal), (error) =>
+    isBackendUnavailable(error),
+  );
+  assert.equal(isBackendUnavailable(new ApiError(403, "No access")), false);
+  assert.equal(
+    isBackendUnavailable(new ApiError(500, "Application failure")),
+    false,
+  );
+  assert.equal(
+    isBackendUnavailable(new ApiError(200, "Invalid response")),
+    false,
+  );
+});
