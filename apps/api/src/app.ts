@@ -1,3 +1,4 @@
+import { millVersion } from "./version.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { secureHeaders } from "hono/secure-headers";
@@ -90,7 +91,7 @@ app.get("/health/ready", async (c) => {
         }, 3000);
       }),
     ]);
-    return c.json({ status: "ready", version: "1.0.0" });
+    return c.json({ status: "ready", version: millVersion });
   } catch {
     return c.json({ status: "unavailable" }, 503);
   } finally {
