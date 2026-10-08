@@ -1,0 +1,242 @@
+@import "@avgeek-oss/design-system/styles.css";
+@import "./mill-theme.css";
+@source "./";
+
+@layer components {
+  .table__content.task-table {
+    width: 100%;
+    min-width: 880px !important;
+    table-layout: auto;
+  }
+
+  .task-table .table__column:nth-child(2),
+  .task-table .table__cell:nth-child(2) {
+    width: 100%;
+    max-width: 0;
+  }
+}
+.mill-dialog.wide {
+  width: min(900px, calc(100vw - 40px));
+  max-width: min(900px, calc(100vw - 40px));
+}
+.modal__container:has(.mill-dialog.wide) {
+  width: min(980px, 100vw);
+}
+.task-back-button {
+  width: fit-content;
+  height: auto;
+  min-height: 32px;
+  min-width: 0;
+  padding: 0;
+  gap: 4px;
+  background: transparent !important;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 20px;
+  font-weight: 400;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: color-mix(in oklab, currentColor 30%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.task-back-button:hover {
+  background: transparent !important;
+  color: var(--foreground);
+}
+.task-back-button:is(:hover, :focus-visible) {
+  text-decoration-color: color-mix(in oklab, currentColor 45%, transparent);
+}
+.task-page-title {
+  min-height: 32px;
+  padding: 4px 0;
+  line-height: 28px;
+  letter-spacing: -0.025em;
+  white-space: pre-wrap;
+}
+@media (pointer: coarse) {
+  .task-back-button {
+    min-height: 34px;
+  }
+}
+.markdown {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.markdown p {
+  margin: 0 0 12px;
+}
+.markdown p:last-child {
+  margin: 0;
+}
+.markdown ul,
+.markdown ol {
+  padding-left: 24px;
+  margin: 8px 0 12px;
+}
+.markdown ul {
+  list-style-type: disc;
+}
+.markdown ol {
+  list-style-type: decimal;
+}
+.markdown ul ul {
+  list-style-type: circle;
+}
+.markdown ul ul ul {
+  list-style-type: square;
+}
+.markdown .contains-task-list {
+  list-style-type: none;
+}
+.markdown li {
+  margin: 4px 0;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  margin: 12px 0 8px;
+}
+.markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.markdown pre {
+  background: var(--default);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  overflow-x: auto;
+}
+.markdown blockquote {
+  padding-left: 12px;
+  border-left: 3px solid var(--separator);
+  margin: 8px 0;
+  color: var(--muted);
+}
+.markdown table {
+  border-collapse: collapse;
+  display: block;
+  overflow: auto;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--separator);
+  padding: 8px;
+}
+.task-page-discussion .tabs__panel {
+  padding-inline: 0;
+}
+.task-comment .markdown {
+  line-height: 1.55;
+}
+.task-comment .markdown p:not(:last-child) {
+  margin-bottom: 8px;
+}
+.task-comment-delete {
+  --button-bg: transparent;
+  --button-bg-hover: transparent;
+  --button-bg-pressed: transparent;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  margin-block: -3px;
+  padding: 0;
+  color: var(--muted);
+}
+@media (pointer: fine) {
+  .task-comment-delete {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    margin-block: -2px;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .task-comment-delete {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 100ms ease-out;
+  }
+  .task-comment:hover .task-comment-delete,
+  .task-comment:focus-within .task-comment-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .task-comment-delete:hover {
+    color: var(--danger-soft-foreground);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-comment-delete {
+    transition: none;
+  }
+}
+.settings-page {
+  width: 100%;
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .mill-dialog.wide {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.startup-recovery {
+  display: flex;
+  min-height: 100dvh;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--background);
+  color: var(--foreground);
+}
+.startup-recovery img {
+  margin-bottom: 24px;
+}
+.startup-recovery h1 {
+  font-size: 30px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+.startup-recovery p {
+  max-width: 36ch;
+  margin-top: 12px;
+  color: var(--muted);
+}
+.startup-recovery button {
+  min-width: 34px;
+  min-height: 34px;
+  font-size: var(--text-xs);
+  line-height: 16px;
+  margin-top: 24px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--accent-foreground);
+  cursor: pointer;
+}
+@media (pointer: fine) {
+  .startup-recovery button {
+    min-height: 32px;
+  }
+}
+.startup-recovery button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

@@ -1,0 +1,528 @@
+import { after, beforeEach, test } from "node:test";
+import assert from "node:assert/strict";
+import type { Task } from "../packages/contracts/src/index.js";
+import {
+  callMcpTool,
+  cleanupDatabase,
+  request,
+  resetDatabase,
+  setupOAuth,
+  setupUser,
+  sql,
+} from "./support.js";
+
+beforeEach(resetDatabase);
+after(cleanupDatabase);
+async function json(response: Response, status = 200) {
+  assert.equal(response.status, status, await response.clone().text());
+  return response.json();
+}
+async function oauthTask(token: string, args: Record<string, unknown>) {
+  const called = await callMcpTool(token, "update_task", args);
+  assert.equal(called.response.status, 200);
+  assert.equal(called.result?.isError, false, JSON.stringify(called.result));
+  return called.result!.structuredContent as { task: Task };
+}
+async function member(cookie: string, role: "member" | "viewer") {
+  const invitation = await json(
+    await request("/api/auth/invitations", {
+      cookie,
+      body: { email: `${role}@example.test`, role },
+    }),
+    201,
+  );
+  const response = await request("/api/auth/accept-invitation", {
+    body: {
+      token: invitation.token,
+      name: role,
+      password: "Another secure passphrase 42!",
+    },
+  });
+  const body = await json(response, 201);
+  return {
+    cookie: response.headers.get("set-cookie")!.split(";")[0],
+    user: body.user,
+  };
+}
+
+test("workspace audit is absent for every role while task history retains human, OAuth and comment actions", async () => {
+  const { cookie, user } = await setupUser();
+  const writer = await member(cookie, "member");
+  const viewer = await member(cookie, "viewer");
+  const { board } = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "Task history", prefix: "HISTORY" },
+    }),
+    201,
+  );
+  const personalKey = await json(
+    await request("/api/credentials", {
+      cookie,
+      body: {
+        name: "Human task client",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      },
+    }),
+    201,
+  );
+  const credential = await setupOAuth(cookie, {
+    boardIds: [board.id],
+  });
+  for (const access of [
+    {},
+    { cookie },
+    { cookie: writer.cookie },
+    { cookie: viewer.cookie },
+    { token: personalKey.token },
+  ])
+    assert.equal((await request("/api/audit", access)).status, 404);
+  let task = (
+    await json(
+      await request(`/api/boards/${board.id}/tasks`, {
+        cookie,
+        body: { title: "Retain task actions" },
+      }),
+      201,
+    )
+  ).task;
+  assert.equal(task.status, "todo");
+  assert.equal(
+    (await request(`/api/tasks/${task.id}`, { token: credential.token }))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await callMcpTool(personalKey.token, "get_task", { taskId: task.id }))
+      .response.status,
+    200,
+  );
+  const comment = (
+    await json(
+      await request(`/api/tasks/${task.id}/comments`, {
+        cookie: writer.cookie,
+        body: { body: "Human comment" },
+      }),
+      201,
+    )
+  ).comment;
+  await json(
+    await request(`/api/comments/${comment.id}`, {
+      cookie: writer.cookie,
+      method: "DELETE",
+      body: { version: comment.version },
+    }),
+  );
+  task = (
+    await json(
+      await request(`/api/tasks/${task.id}`, {
+        token: personalKey.token,
+        method: "PATCH",
+        body: {
+          version: task.version,
+          assigneeId: writer.user.id,
+          priority: "high",
+        },
+      }),
+    )
+  ).task;
+  task = (
+    await oauthTask(credential.token, {
+      taskId: task.id,
+      version: task.version,
+      description: "OAuth edit",
+    })
+  ).task;
+  task = (
+    await oauthTask(credential.token, {
+      taskId: task.id,
+      version: task.version,
+      status: "in_progress",
+    })
+  ).task;
+  const oauthComment = await callMcpTool(credential.token, "add_comment", {
+    taskId: task.id,
+    body: "OAuth comment",
+  });
+  assert.equal(oauthComment.response.status, 200);
+  assert.equal(
+    oauthComment.result?.isError,
+    false,
+    JSON.stringify(oauthComment.result),
+  );
+  const history = await json(
+    await request(`/api/tasks/${task.id}/activity`, { cookie: viewer.cookie }),
+  );
+  assert.equal(history.items.length, 7);
+  assert.deepEqual(
+    history.items.map((event: { action: string }) => event.action).sort(),
+    [
+      "task.created",
+      "task.updated",
+      "task.updated",
+      "task.moved",
+      "comment.created",
+      "comment.deleted",
+      "comment.created",
+    ].sort(),
+  );
+  const oauthEvents = history.items.filter(
+    (event: { actorKind: string }) => event.actorKind === "oauth",
+  );
+  assert.equal(oauthEvents.length, 3);
+  assert.ok(
+    oauthEvents.every(
+      (event: { actorId: string; actorName: string }) =>
+        event.actorId === user.id && event.actorName === "Admin",
+    ),
+  );
+  const personalKeyEvent = history.items.find(
+    (event: { action: string; actorKind: string }) =>
+      event.action === "task.updated" && event.actorKind === "human",
+  );
+  assert.equal(personalKeyEvent.actorId, user.id);
+  assert.equal(personalKeyEvent.actorName, "Admin");
+  const { connection: personalConnection, ...personalDetails } =
+    personalKeyEvent.detail;
+  assert.equal(personalConnection.type, "api-key");
+  assert.deepEqual(personalDetails, { fields: ["assigneeId", "priority"] });
+  assert.ok(
+    history.items.every(
+      (event: { taskId: string; boardId: string }) =>
+        event.taskId === task.id && event.boardId === board.id,
+    ),
+  );
+  const before = await sql`SELECT * FROM activity ORDER BY id`;
+  await json(
+    await request("/api/workspace", {
+      cookie,
+      method: "PATCH",
+      body: { name: "Updated workspace" },
+    }),
+  );
+  await json(
+    await request(`/api/credentials/${credential.credential.id}`, {
+      cookie,
+      method: "DELETE",
+    }),
+  );
+  await json(
+    await request(`/api/credentials/${personalKey.credential.id}`, {
+      cookie,
+      method: "DELETE",
+    }),
+  );
+  await json(
+    await request(`/api/auth/members/${writer.user.id}`, {
+      cookie,
+      method: "PATCH",
+      body: { role: "viewer" },
+    }),
+  );
+  assert.deepEqual(await sql`SELECT * FROM activity ORDER BY id`, before);
+  const [tables] =
+    await sql`SELECT to_regclass(${process.env.MILL_DB_SCHEMA + ".auth_audit"}) AS auth_audit`;
+  assert.equal(tables.authAudit, null);
+  await json(
+    await request(`/api/tasks/${task.id}`, {
+      cookie,
+      method: "DELETE",
+      body: { version: task.version },
+    }),
+  );
+  assert.equal((await sql`SELECT * FROM activity`).length, 0);
+});
+
+test("status changes retain attributed history, reject stale versions and deduplicate retries", async () => {
+  const { cookie, user } = await setupUser();
+  const { board } = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "Status history", prefix: "STATUS" },
+    }),
+    201,
+  );
+  const { task } = await json(
+    await request(`/api/boards/${board.id}/tasks`, {
+      cookie,
+      body: { title: "Change status", status: "backlog" },
+    }),
+    201,
+  );
+  const { task: unrelated } = await json(
+    await request(`/api/boards/${board.id}/tasks`, {
+      cookie,
+      body: { title: "Keep completed task", status: "done" },
+    }),
+    201,
+  );
+  const taskBefore = await sql`SELECT * FROM tasks WHERE id=${task.id}`;
+  const historyBefore = await sql`SELECT * FROM activity ORDER BY id`;
+  const unrelatedBefore =
+    await sql`SELECT * FROM tasks WHERE id=${unrelated.id}`;
+  const unrelatedHistory =
+    await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY id`;
+  const credential = await setupOAuth(cookie, {
+    boardIds: [board.id],
+  });
+  const stale = await callMcpTool(credential.token, "update_task", {
+    taskId: task.id,
+    version: task.version + 1,
+    status: "in_progress",
+  });
+  assert.equal(stale.response.status, 200);
+  assert.equal(stale.result?.isError, true);
+  const staleError = stale.result?.structuredContent?.error as {
+    code: string;
+    message: string;
+    requestId: string;
+  };
+  assert.equal(staleError.code, "CONFLICT");
+  assert.equal(
+    staleError.message,
+    "This item changed. Reload it before saving.",
+  );
+  assert.equal(
+    staleError.requestId,
+    stale.response.headers.get("X-Request-Id"),
+  );
+  assert.deepEqual(
+    await sql`SELECT * FROM tasks WHERE id=${task.id}`,
+    taskBefore,
+  );
+  assert.deepEqual(
+    await sql`SELECT * FROM activity ORDER BY id`,
+    historyBefore,
+  );
+  const patchArgs = {
+    taskId: task.id,
+    version: task.version,
+    status: "in_progress",
+    idempotencyKey: "status-change-history",
+  };
+  const changed = await oauthTask(credential.token, patchArgs);
+  const replayed = await oauthTask(credential.token, patchArgs);
+  assert.deepEqual(replayed, changed);
+  assert.equal(changed.task.status, "in_progress");
+  assert.equal(changed.task.version, task.version + 1);
+  const history = await json(
+    await request(`/api/tasks/${task.id}/activity`, { cookie }),
+  );
+  assert.equal(history.items.length, 2);
+  assert.deepEqual(
+    history.items.map((event: { action: string }) => event.action).sort(),
+    ["task.created", "task.moved"],
+  );
+  const event = history.items.find(
+    (event: { action: string }) => event.action === "task.moved",
+  );
+  assert.equal(event.taskId, task.id);
+  assert.equal(event.boardId, board.id);
+  assert.equal(event.actorId, user.id);
+  assert.equal(event.actorKind, "oauth");
+  assert.equal(event.actorName, "Admin");
+  const { connection, ...details } = event.detail;
+  assert.equal(connection.type, "oauth");
+  assert.deepEqual(details, { fromStatus: "backlog", status: "in_progress" });
+  assert.deepEqual(
+    await sql`SELECT * FROM tasks WHERE id=${unrelated.id}`,
+    unrelatedBefore,
+  );
+  assert.deepEqual(
+    await sql`SELECT * FROM activity WHERE task_id=${unrelated.id} ORDER BY id`,
+    unrelatedHistory,
+  );
+});
+
+test("personal keys retain human task history across boards and follow current membership", async () => {
+  const { cookie } = await setupUser();
+  const writer = await member(cookie, "member");
+  const personalKey = await json(
+    await request("/api/credentials", {
+      cookie: writer.cookie,
+      body: {
+        name: "Personal history client",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+      },
+    }),
+    201,
+  );
+  assert.equal("agentId" in personalKey.credential, false);
+  assert.equal("agentName" in personalKey.credential, false);
+  assert.deepEqual(personalKey.credential.scopes, []);
+  assert.equal(personalKey.credential.boardIds, null);
+  const tasks: Task[] = [];
+  for (const [name, prefix] of [
+    ["First history board", "FIRST"],
+    ["Second history board", "SECOND"],
+  ]) {
+    const { board } = await json(
+      await request("/api/boards", { cookie, body: { name, prefix } }),
+      201,
+    );
+    const { task } = await json(
+      await request(`/api/boards/${board.id}/tasks`, {
+        token: personalKey.token,
+        body: { title: `Work on ${name}`, status: "backlog" },
+      }),
+      201,
+    );
+    tasks.push(task);
+  }
+  const task = tasks[0]!;
+  const patchOptions = {
+    token: personalKey.token,
+    method: "PATCH",
+    headers: { "Idempotency-Key": "personal-status-history" },
+    body: { version: task.version, status: "in_progress" },
+  };
+  const changed = await json(
+    await request(`/api/tasks/${task.id}`, patchOptions),
+  );
+  const replayResponse = await request(`/api/tasks/${task.id}`, patchOptions);
+  assert.equal(replayResponse.headers.get("Idempotency-Replayed"), "true");
+  assert.deepEqual(await json(replayResponse), changed);
+  const history = await json(
+    await request(`/api/tasks/${task.id}/activity`, {
+      token: personalKey.token,
+    }),
+  );
+  assert.deepEqual(
+    history.items.map((event: { action: string }) => event.action).sort(),
+    ["task.created", "task.moved"],
+  );
+  assert.ok(
+    history.items.every(
+      (event: { actorKind: string; actorId: string; actorName: string }) =>
+        event.actorKind === "human" &&
+        event.actorId === writer.user.id &&
+        event.actorName === writer.user.name,
+    ),
+  );
+  const taskBefore = await sql`SELECT * FROM tasks ORDER BY id`;
+  const historyBefore = await sql`SELECT * FROM activity ORDER BY id`;
+  await json(
+    await request(`/api/auth/members/${writer.user.id}`, {
+      cookie,
+      method: "PATCH",
+      body: { role: "viewer" },
+    }),
+  );
+  assert.equal(
+    (
+      await request(`/api/tasks/${task.id}`, {
+        token: personalKey.token,
+        method: "PATCH",
+        body: { version: changed.task.version, status: "done" },
+      })
+    ).status,
+    403,
+  );
+  const { task: other } = await json(
+    await request(`/api/tasks/${tasks[1]!.id}`, { token: personalKey.token }),
+  );
+  assert.equal(other.id, tasks[1]!.id);
+  assert.equal(other.status, "backlog");
+  assert.deepEqual(await sql`SELECT * FROM tasks ORDER BY id`, taskBefore);
+  assert.deepEqual(
+    await sql`SELECT * FROM activity ORDER BY id`,
+    historyBefore,
+  );
+});
+
+test("a status change rolls back when its task history cannot be persisted", async () => {
+  const { cookie } = await setupUser();
+  const { board } = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "Atomic history", prefix: "ATOMIC" },
+    }),
+    201,
+  );
+  const { task } = await json(
+    await request(`/api/boards/${board.id}/tasks`, {
+      cookie,
+      body: { title: "Keep task and history consistent" },
+    }),
+    201,
+  );
+  const before = await sql`SELECT * FROM tasks WHERE id=${task.id}`;
+  const historyBefore = await sql`SELECT * FROM activity ORDER BY id`;
+  await sql.unsafe(`
+    CREATE FUNCTION reject_task_move_history() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      IF NEW.action='task.moved' THEN
+        RAISE EXCEPTION 'Simulated task history failure';
+      END IF;
+      RETURN NEW;
+    END;
+    $$;
+    CREATE TRIGGER reject_task_move_history BEFORE INSERT ON activity
+    FOR EACH ROW EXECUTE FUNCTION reject_task_move_history();
+  `);
+  try {
+    assert.equal(
+      (
+        await request(`/api/tasks/${task.id}`, {
+          cookie,
+          method: "PATCH",
+          body: { version: task.version, status: "in_progress" },
+        })
+      ).status,
+      500,
+    );
+    assert.deepEqual(
+      await sql`SELECT * FROM tasks WHERE id=${task.id}`,
+      before,
+    );
+    assert.deepEqual(
+      await sql`SELECT * FROM activity ORDER BY id`,
+      historyBefore,
+    );
+  } finally {
+    await sql.unsafe("DROP TRIGGER reject_task_move_history ON activity");
+    await sql.unsafe("DROP FUNCTION reject_task_move_history()");
+  }
+});
+
+test("fresh activity rows require an owning task in the same board", async () => {
+  const { cookie, user } = await setupUser();
+  const { board: first } = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "First", prefix: "FIRST" },
+    }),
+    201,
+  );
+  const { board: second } = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "Second", prefix: "SECOND" },
+    }),
+    201,
+  );
+  const { task } = await json(
+    await request(`/api/boards/${first.id}/tasks`, {
+      cookie,
+      body: { title: "Owned work" },
+    }),
+    201,
+  );
+  for (const [taskId, boardId, code] of [
+    [null, first.id, "23502"],
+    [task.id, null, "23502"],
+    [task.id, second.id, "23503"],
+  ] as const)
+    await assert.rejects(
+      sql.begin(
+        (tx) =>
+          tx`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action) VALUES(${taskId},${boardId},${user.id},'Admin','human','task.updated')`,
+      ),
+      { code },
+    );
+  assert.equal((await sql`SELECT * FROM activity`).length, 1);
+});

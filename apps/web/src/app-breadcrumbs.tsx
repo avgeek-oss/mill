@@ -1,0 +1,173 @@
+import { ClipboardListIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { createContext, useContext, type ReactNode } from "react";
+import type { AppShellBreadcrumbItems } from "@avgeek-oss/design-system/layouts/application-shell-types";
+import {
+  Autocomplete,
+  Link,
+  ListBox,
+  SearchField,
+} from "@mill/web-design-system";
+import { BreadcrumbSelect } from "@avgeek-oss/design-system/navigation/breadcrumbs";
+import type { Board } from "../../../packages/contracts/src/index.js";
+import { navigate } from "./api.js";
+import {
+  isAccountSection,
+  settingsTitles,
+  settingsHref,
+} from "./settings-navigation.js";
+
+const BreadcrumbContext = createContext<AppShellBreadcrumbItems>([
+  { label: "Mill", href: "/boards" },
+]);
+export const usePageBreadcrumbs = () => useContext(BreadcrumbContext);
+
+function breadcrumbItems({
+  boards,
+  boardsHref,
+  boardId,
+  boardName,
+  taskId,
+  taskIdentifier,
+  settingsSection,
+  search,
+  fallback,
+}: {
+  boards: Board[];
+  boardsHref: string;
+  boardId?: string;
+  boardName: string;
+  taskId?: string;
+  taskIdentifier?: string;
+  settingsSection?: string;
+  search: string;
+  fallback: string;
+}): AppShellBreadcrumbItems {
+  if (boardId) {
+    const boardHref = `/boards/${boardId}${search}`;
+    const options = boards.some((board) => board.id === boardId)
+      ? boards
+      : [{ id: boardId, name: boardName }, ...boards];
+    const switcher = (
+      <BreadcrumbSelect.Root
+        className="min-w-0"
+        aria-label="Switch board"
+        selectedKey={boardId}
+        onSelectionChange={(key) => {
+          if (
+            typeof key === "string" &&
+            key !== boardId &&
+            boards.some((board) => board.id === key)
+          )
+            navigate(`/boards/${key}`);
+        }}
+      >
+        <BreadcrumbSelect.Trigger
+          className="transition-colors focus-visible:[box-shadow:none]! focus-visible:outline-none!"
+          aria-label={taskId ? `Switch board: ${boardName}` : undefined}
+        >
+          {!taskId && (
+            <BreadcrumbSelect.Value>{boardName}</BreadcrumbSelect.Value>
+          )}
+        </BreadcrumbSelect.Trigger>
+        <BreadcrumbSelect.Popover className="breadcrumb-popover w-72 max-w-[calc(100vw-2rem)] overflow-hidden">
+          <Autocomplete.Filter
+            filter={(text, query) =>
+              text
+                .toLocaleLowerCase()
+                .includes(query.trim().toLocaleLowerCase())
+            }
+          >
+            <SearchField
+              aria-label="Search boards"
+              className="px-2 pt-2"
+              variant="secondary"
+            >
+              <SearchField.Group className="rounded-md">
+                <SearchField.SearchIcon />
+                <SearchField.Input
+                  placeholder="Search boards…"
+                  maxLength={200}
+                />
+                <SearchField.ClearButton aria-label="Clear board search" />
+              </SearchField.Group>
+            </SearchField>
+            <ListBox
+              className="max-h-80 overflow-y-auto"
+              renderEmptyState={() => (
+                <p className="px-3 py-4 text-sm text-muted">
+                  No matching boards.
+                </p>
+              )}
+            >
+              {options.map((board) => (
+                <ListBox.Item
+                  key={board.id}
+                  id={board.id}
+                  textValue={board.name}
+                >
+                  <HugeiconsIcon
+                    aria-hidden
+                    icon={ClipboardListIcon}
+                    size={16}
+                    className="shrink-0 text-muted"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{board.name}</span>
+                  <ListBox.ItemIndicator />
+                </ListBox.Item>
+              ))}
+            </ListBox>
+          </Autocomplete.Filter>
+        </BreadcrumbSelect.Popover>
+      </BreadcrumbSelect.Root>
+    );
+    return [
+      { label: "Boards", href: boardsHref },
+      {
+        label: boardName,
+        contentKey: JSON.stringify({
+          boardId,
+          taskId,
+          boardName,
+          search,
+          options: options.map(({ id, name }) => ({ id, name })),
+        }),
+        content: taskId ? (
+          <span className="flex min-w-0 items-center gap-1">
+            <Link
+              href={boardHref}
+              className="min-w-0 truncate text-sm font-normal text-muted"
+            >
+              {boardName}
+            </Link>
+            {switcher}
+          </span>
+        ) : (
+          switcher
+        ),
+      },
+      ...(taskId ? [{ label: taskIdentifier ?? "Task" }] : []),
+    ];
+  }
+  if (settingsSection && settingsTitles[settingsSection]) {
+    const account = isAccountSection(settingsSection);
+    const category = account ? "Account Settings" : "Team Settings";
+    return [
+      { label: category, href: settingsHref(account ? "profile" : "general") },
+      { label: settingsTitles[settingsSection] },
+    ];
+  }
+  return [{ label: fallback }];
+}
+
+export function AppBreadcrumbs({
+  children,
+  ...props
+}: Parameters<typeof breadcrumbItems>[0] & { children: ReactNode }) {
+  const items = breadcrumbItems(props);
+  return (
+    <BreadcrumbContext.Provider value={items}>
+      {children}
+    </BreadcrumbContext.Provider>
+  );
+}

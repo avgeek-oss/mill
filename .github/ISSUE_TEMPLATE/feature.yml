@@ -1,0 +1,17 @@
+name: Feature request
+description: Propose a concrete improvement to the task board.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and where does the current board get in the way?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the user's resulting workflow, including permission and client-access effects.
+    validations:
+      required: true

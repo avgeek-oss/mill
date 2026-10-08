@@ -1,0 +1,176 @@
+---
+title: "Self-hosted task lists"
+description: "Mill is a self-hosted task list for teams."
+mode: "custom"
+---
+
+<div className="mill-home">
+  <section className="mill-hero" aria-labelledby="hero-heading">
+    <h1 id="hero-heading">Self-hosted<br /><span>task lists</span></h1>
+    <p className="mill-lead">
+      <span>Organize work with your team.</span>
+      <span>Run Mill on your own infrastructure.</span>
+    </p>
+    <div className="mill-actions">
+      <a className="mill-button" href="https://github.com/avgeek-inc/mill">Explore in GitHub <span aria-hidden="true">↗</span></a>
+      <a className="mill-secondary" href="/getting-started">Get started <span aria-hidden="true">→</span></a>
+    </div>
+  </section>
+
+<div className="mill-product-frame mill-product-hero">
+  <div className="mill-product-light">
+    <img
+      src="/assets/screenshots/release-v1/board-light.png"
+      alt="A Mill board with tasks, assignees, priorities and status filters."
+      width="1280"
+      height="900"
+      sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 1200px) calc(100vw - 66px), 1134px"
+      fetchPriority="high"
+    />
+  </div>
+  <div className="mill-product-dark">
+    <img
+      src="/assets/screenshots/release-v1/board-dark.png"
+      alt="A Mill board with tasks, assignees, priorities and status filters."
+      width="1280"
+      height="900"
+      sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 1200px) calc(100vw - 66px), 1134px"
+      fetchPriority="high"
+    />
+  </div>
+</div>
+
+<section className="mill-highlights" aria-label="What you can do with Mill">
+  <div>
+    <h2>Keep a focused task list</h2>
+    <p>
+      Track tasks through six fixed statuses. Search, filter and sort each board
+      to find the work you need.
+    </p>
+    <a className="mill-link" href="/workflows">
+      Explore tasks <span aria-hidden="true">→</span>
+    </a>
+  </div>
+  <div>
+    <h2>Work with your team</h2>
+    <p>
+      Assign responsibility to a teammate. Keep discussions and attributed
+      activity with the task.
+    </p>
+    <a className="mill-link" href="/clients">
+      Connect a client <span aria-hidden="true">→</span>
+    </a>
+  </div>
+  <div>
+    <h2>Host your own workspace</h2>
+    <p>
+      Run the web app and PostgreSQL with Docker Compose. Back up your data and
+      choose where Mill is available.
+    </p>
+    <a className="mill-link" href="/installation">
+      Install Mill <span aria-hidden="true">→</span>
+    </a>
+  </div>
+</section>
+
+  <div className="mill-features">
+    <section className="mill-feature" aria-labelledby="boards-heading">
+      <div className="mill-feature-copy">
+        <h2 id="boards-heading">Organize work in boards.</h2>
+        <p>Create a board for a project or team. The boards page shows Backlog, To Do and In Progress counts, so you can see where work is waiting. Open a board to search its tasks or combine assignee, priority and status filters.</p>
+        <a className="mill-link" href="/workflows">Explore boards <span aria-hidden="true">→</span></a>
+      </div>
+      <div className="mill-product-frame mill-feature-image">
+    <div className="mill-product-light">
+      <img src="/assets/screenshots/release-v1/boards-light.png" alt="Mill boards with Backlog, To Do and In Progress task counts." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+    <div className="mill-product-dark">
+      <img src="/assets/screenshots/release-v1/boards-dark.png" alt="Mill boards with Backlog, To Do and In Progress task counts." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+      </div>
+    </section>
+
+    <section className="mill-feature" aria-labelledby="task-heading">
+      <div className="mill-feature-copy">
+        <h2 id="task-heading">Keep the details with the task.</h2>
+        <p>Write a Markdown description, set a due date and discuss the work in comments. Status, assignment and priority changes save independently. Activity records who changed the task, including actions from connected clients.</p>
+        <a className="mill-link" href="/workflows">Explore task pages <span aria-hidden="true">→</span></a>
+      </div>
+      <div className="mill-product-frame mill-feature-image">
+    <div className="mill-product-light">
+      <img src="/assets/screenshots/release-v1/task-light.png" alt="A task page with a description, comments and independently editable properties." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+    <div className="mill-product-dark">
+      <img src="/assets/screenshots/release-v1/task-dark.png" alt="A task page with a description, comments and independently editable properties." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+      </div>
+    </section>
+
+    <section className="mill-feature" aria-labelledby="clients-heading">
+      <div className="mill-feature-copy">
+        <h2 id="clients-heading">Connect the tools you already use.</h2>
+        <p>Connect an MCP client through OAuth, or use a personal API key for REST. Approve the scopes and boards your MCP client can use. Task activity records the person who authorized each connection.</p>
+        <a className="mill-link" href="/clients">Explore REST and MCP <span aria-hidden="true">→</span></a>
+      </div>
+      <div className="mill-product-frame mill-feature-image">
+    <div className="mill-product-light">
+      <img src="/assets/screenshots/release-v1/api-keys-light.png" alt="Personal API keys and connected clients in Mill." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+    <div className="mill-product-dark">
+      <img src="/assets/screenshots/release-v1/api-keys-dark.png" alt="Personal API keys and connected clients in Mill." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+      </div>
+    </section>
+
+    <section className="mill-feature" aria-labelledby="people-heading">
+      <div className="mill-feature-copy">
+        <h2 id="people-heading">Choose who can use your workspace.</h2>
+        <p>Invite people and set Admin, Member or Viewer access. Board permissions and current team membership apply to the web app, REST and MCP. Manage invitations and active people in one place.</p>
+        <a className="mill-link" href="/authentication">Explore team access <span aria-hidden="true">→</span></a>
+      </div>
+      <div className="mill-product-frame mill-feature-image">
+    <div className="mill-product-light">
+      <img src="/assets/screenshots/release-v1/people-light.png" alt="People in a Mill workspace with roles and invitations." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+    <div className="mill-product-dark">
+      <img src="/assets/screenshots/release-v1/people-dark.png" alt="People in a Mill workspace with roles and invitations." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+      </div>
+    </section>
+
+    <section className="mill-feature" aria-labelledby="notifications-heading">
+      <div className="mill-feature-copy">
+        <h2 id="notifications-heading">Follow assignments and mentions.</h2>
+        <p>In-app notifications bring you back to the task when someone assigns you work or mentions you in a comment. Open the task directly from the notification and keep the discussion alongside its details.</p>
+        <a className="mill-link" href="/workflows">Explore comments and notifications <span aria-hidden="true">→</span></a>
+      </div>
+      <div className="mill-product-frame mill-feature-image">
+    <div className="mill-product-light">
+      <img src="/assets/screenshots/release-v1/notifications-light.png" alt="In-app notifications for task assignments and mentions." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+    <div className="mill-product-dark">
+      <img src="/assets/screenshots/release-v1/notifications-dark.png" alt="In-app notifications for task assignments and mentions." width="1280" height="900" sizes="(max-width: 640px) calc(100vw - 42px), (max-width: 900px) calc(100vw - 66px), (max-width: 1200px) calc(59.524vw - 78.19px), 636px" loading="lazy" />
+    </div>
+      </div>
+    </section>
+
+  </div>
+
+  <section className="mill-documentation" aria-labelledby="documentation-heading">
+    <h2 id="documentation-heading">Documentation</h2>
+    <CardGroup cols={2}>
+      <Card title="Your first board" icon="clipboard-list" href="/getting-started">
+        Set up your workspace, make a board and add a task.
+      </Card>
+      <Card title="Using Mill" icon="users" href="/workflows">
+        Work with tasks, comments, notifications and team access.
+      </Card>
+      <Card title="Self-hosting" icon="server" href="/installation">
+        Install, configure, back up and upgrade Mill.
+      </Card>
+      <Card title="API and MCP" icon="plug" href="/clients">
+        Connect external clients with API keys or OAuth.
+      </Card>
+    </CardGroup>
+  </section>
+</div>

@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "deviceScaleFactor": 2,
+  "output": "docs/screenshots/release-v1",
+  "themes": ["light", "dark"],
+  "devices": {
+    "desktop": {
+      "width": 1280,
+      "height": 900
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "screenshots": [
+    {
+      "name": "setup",
+      "route": "/",
+      "heading": "Set up your team",
+      "anonymous": true,
+      "beforeSetup": true,
+      "guides": ["installation", "getting-started"]
+    },
+    {
+      "name": "boards",
+      "route": "/boards",
+      "heading": "Boards",
+      "guides": ["overview", "getting-started", "workflows"]
+    },
+    {
+      "name": "board",
+      "route": "/boards/{boardId}",
+      "heading": "Release planning",
+      "guides": ["overview", "workflows"]
+    },
+    {
+      "name": "task",
+      "route": "/boards/{boardId}/tasks/{taskId}",
+      "heading": "Prepare the release notes",
+      "guides": ["workflows"]
+    },
+    {
+      "name": "task-activity",
+      "route": "/boards/{boardId}/tasks/{taskId}",
+      "heading": "Prepare the release notes",
+      "action": "activity",
+      "guides": ["workflows", "clients"]
+    },
+    {
+      "name": "create-task",
+      "route": "/boards/{boardId}",
+      "heading": "Release planning",
+      "action": "create-task",
+      "guides": ["getting-started"]
+    },
+    {
+      "name": "board-settings",
+      "route": "/boards/{boardId}",
+      "heading": "Release planning",
+      "action": "board-settings",
+      "guides": ["workflows"]
+    },
+    {
+      "name": "empty-board",
+      "route": "/boards/{emptyBoardId}",
+      "heading": "Ideas",
+      "guides": ["getting-started"]
+    },
+    {
+      "name": "people",
+      "route": "/settings/members",
+      "heading": "People",
+      "guides": ["workflows", "authentication"]
+    },
+    {
+      "name": "api-keys",
+      "route": "/settings/api-keys",
+      "heading": "API keys",
+      "guides": ["clients", "rest-reference"]
+    },
+    {
+      "name": "account",
+      "route": "/settings/profile",
+      "heading": "Profile",
+      "guides": ["authentication"]
+    },
+    {
+      "name": "preferences",
+      "route": "/settings/preferences",
+      "heading": "Preferences",
+      "guides": ["authentication"]
+    },
+    {
+      "name": "email-password",
+      "route": "/settings/email-password",
+      "heading": "Email & Password",
+      "guides": ["authentication"]
+    },
+    {
+      "name": "sessions",
+      "route": "/settings/sessions",
+      "heading": "Sessions",
+      "guides": ["authentication"]
+    },
+    {
+      "name": "mcp-guide",
+      "route": "/settings/mcp",
+      "heading": "MCP Guide",
+      "guides": ["clients"]
+    },
+    {
+      "name": "security",
+      "route": "/settings/passkeys",
+      "heading": "Passkeys",
+      "guides": ["authentication", "security"]
+    },
+    {
+      "name": "team",
+      "route": "/settings/workspace",
+      "heading": "General",
+      "guides": ["workflows", "configuration"]
+    },
+    {
+      "name": "notifications",
+      "route": "/boards/{boardId}",
+      "heading": "Release planning",
+      "action": "notifications",
+      "guides": ["workflows"]
+    },
+    {
+      "name": "sign-in",
+      "route": "/",
+      "heading": "Sign in",
+      "anonymous": true,
+      "guides": ["authentication"]
+    },
+    {
+      "name": "not-found",
+      "route": "/this-page-does-not-exist",
+      "heading": "This page could not be found",
+      "guides": ["troubleshooting"]
+    },
+    {
+      "name": "server-error",
+      "route": "/boards/{boardId}/tasks/{taskId}",
+      "heading": "Task unavailable",
+      "action": "server-error",
+      "guides": ["troubleshooting"]
+    }
+  ]
+}

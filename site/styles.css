@@ -1,0 +1,366 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: #30251f;
+  background: #faf6f3;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  margin: 0;
+}
+a {
+  color: inherit;
+}
+img {
+  display: block;
+  max-width: 100%;
+}
+.wrap {
+  width: min(1180px, calc(100% - 48px));
+  margin-inline: auto;
+}
+.site-header {
+  border-bottom: 1px solid #e8dcd1;
+  background: #faf6f3;
+}
+.header-inner,
+.brand,
+.site-header nav,
+.actions,
+.footer-inner {
+  display: flex;
+  align-items: center;
+}
+.header-inner {
+  justify-content: space-between;
+  min-height: 78px;
+}
+.brand {
+  text-decoration: none;
+  gap: 9px;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+}
+.site-header nav {
+  gap: 30px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.site-header nav a,
+footer a {
+  text-decoration: none;
+}
+.site-header nav a:hover,
+footer a:hover,
+.text-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.hero {
+  padding-block: 88px 108px;
+}
+.eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: #765137;
+  margin: 0 0 22px;
+}
+.hero h1 {
+  font-size: clamp(48px, 5.4vw, 76px);
+  line-height: 1.03;
+  letter-spacing: -0.065em;
+  margin: 0 0 25px;
+  max-width: 600px;
+}
+.lede {
+  font-size: 19px;
+  line-height: 1.62;
+  color: #66564b;
+  margin: 0;
+  max-width: 560px;
+}
+.actions {
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 36px;
+}
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15px;
+  text-decoration: none;
+  min-height: 47px;
+  border-radius: 10px;
+  padding: 0 19px;
+  font-size: 14px;
+  font-weight: 700;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    transform 0.15s;
+}
+.button:hover {
+  transform: translateY(-1px);
+}
+.button-primary {
+  color: #fffaf6;
+  background: #704628;
+}
+.button-primary:hover {
+  background: #5b371f;
+}
+.button-secondary {
+  border: 1px solid #d9c8b9;
+  background: #fffdfa;
+}
+.button-secondary:hover {
+  background: #f4ece4;
+}
+.hero-note {
+  font-size: 12px;
+  color: #816e61;
+  line-height: 1.5;
+  margin: 22px 0 0;
+}
+.hero-copy {
+  max-width: 850px;
+}
+.product-shot {
+  margin: 62px 0 0;
+}
+.product-shot picture {
+  display: block;
+  overflow: hidden;
+  border: 1px solid #decdbf;
+  border-radius: 16px;
+  box-shadow:
+    0 26px 60px #3c281326,
+    0 3px 10px #3c28130c;
+  background: #fffdfa;
+}
+.product-shot img {
+  width: 100%;
+  height: clamp(320px, 42vw, 480px);
+  object-fit: cover;
+  object-position: top;
+}
+.product-shot figcaption {
+  margin-top: 16px;
+  color: #816e61;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.section {
+  padding-block: 98px;
+}
+.section-light {
+  background: #f3eae2;
+}
+.section h2,
+.closing h2 {
+  font-size: clamp(33px, 3.8vw, 50px);
+  line-height: 1.13;
+  letter-spacing: -0.05em;
+  margin: 0;
+  max-width: 670px;
+}
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 30px;
+  margin-top: 62px;
+}
+.feature-grid article {
+  border-top: 1px solid #cdb8a7;
+  padding-top: 22px;
+}
+.feature-number {
+  font-size: 12px;
+  color: #86664c;
+}
+.feature-grid h3 {
+  font-size: 20px;
+  margin: 24px 0 10px;
+  letter-spacing: -0.025em;
+}
+.feature-grid p,
+.split p {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #66564b;
+  margin: 0 0 18px;
+}
+.section-dark {
+  background: #34261f;
+  color: #fff8f1;
+}
+.section-dark .eyebrow {
+  color: #d7b18e;
+}
+.section-dark .split p {
+  color: #e1d0c3;
+}
+.split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 100px;
+}
+.split .text-link {
+  display: inline-flex;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 12px;
+  text-decoration: none;
+  text-underline-offset: 4px;
+}
+.closing {
+  text-align: center;
+  padding-block: 95px 110px;
+}
+.closing h2 {
+  margin-inline: auto;
+}
+.closing p {
+  color: #66564b;
+  font-size: 17px;
+  margin: 18px 0 28px;
+}
+.closing .button {
+  margin-inline: auto;
+}
+footer {
+  border-top: 1px solid #e8dcd1;
+  padding-block: 42px;
+  color: #66564b;
+  font-size: 13px;
+}
+.footer-inner {
+  justify-content: space-between;
+  align-items: start;
+  gap: 30px;
+}
+.footer-brand {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: #30251f;
+}
+.footer-inner p {
+  margin: 8px 0 0;
+}
+.footer-inner nav {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+a:focus-visible {
+  outline: 3px solid #a96634;
+  outline-offset: 4px;
+  border-radius: 3px;
+}
+@media (max-width: 900px) {
+  .hero {
+    padding-block: 72px;
+  }
+  .split {
+    gap: 60px;
+  }
+  .feature-grid {
+    gap: 18px;
+  }
+}
+@media (max-width: 620px) {
+  .wrap {
+    width: min(100% - 32px, 1180px);
+  }
+  .header-inner {
+    min-height: 69px;
+  }
+  .site-header nav {
+    gap: 15px;
+    font-size: 12px;
+  }
+  .site-header nav a:first-child {
+    display: none;
+  }
+  .brand {
+    font-size: 20px;
+  }
+  .brand img {
+    width: 37px;
+    height: 37px;
+  }
+  .hero {
+    padding-block: 58px 72px;
+  }
+  .hero h1 {
+    font-size: 49px;
+  }
+  .lede {
+    font-size: 17px;
+  }
+  .product-shot {
+    margin-top: 44px;
+  }
+  .product-shot img {
+    height: auto;
+    aspect-ratio: 390 / 960;
+    object-fit: contain;
+  }
+  .section {
+    padding-block: 69px;
+  }
+  .feature-grid,
+  .split {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+  .feature-grid {
+    margin-top: 36px;
+  }
+  .feature-grid article {
+    padding-top: 16px;
+  }
+  .feature-grid h3 {
+    margin-top: 13px;
+  }
+  .closing {
+    padding-block: 76px 85px;
+  }
+  .footer-inner {
+    display: block;
+  }
+  .footer-inner nav {
+    margin-top: 25px;
+    gap: 15px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .button {
+    transition: none;
+  }
+  .button:hover {
+    transform: none;
+  }
+}

@@ -5,9 +5,14 @@ dist/
 coverage/
 playwright-report/
 test-results/
+test-results-*/
 .env
 .env.*
 !.env.example
 .DS_Store
 *.tsbuildinfo
 local-data/
+tmp/
+backups/
+*.dump
+*.tar

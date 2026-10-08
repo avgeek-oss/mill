@@ -1,0 +1,28 @@
+{
+  "name": "@mill/web-design-system",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./date-picker-field": "./src/forms/date-picker-field.tsx"
+  },
+  "dependencies": {
+    "@avgeek-oss/design-system": "1.2.8",
+    "@fontsource-variable/geist-mono": "5.3.0",
+    "@fontsource-variable/inter": "5.3.0",
+    "@heroui/react": "3.2.6",
+    "@heroui/styles": "3.2.6",
+    "@hugeicons/core-free-icons": "4.3.0",
+    "@hugeicons/react": "1.1.10",
+    "@internationalized/date": "3.12.4",
+    "clsx": "2.1.1",
+    "react": "19.3.0",
+    "react-aria": "3.52.1",
+    "react-aria-components": "1.21.1",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "3.7.0",
+    "tailwindcss": "4.2.4"
+  }
+}

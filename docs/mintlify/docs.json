@@ -1,0 +1,110 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Mill",
+  "description": "Self-hosted task lists for teams.",
+  "logo": {
+    "light": "/assets/mill-lockup-light.svg",
+    "dark": "/assets/mill-lockup-dark.svg",
+    "href": "/"
+  },
+  "favicon": "/assets/mill-favicon.png",
+  "colors": { "primary": "#704628", "light": "#704628", "dark": "#c89b6d" },
+  "appearance": { "default": "system" },
+  "icons": { "library": "lucide" },
+  "styling": { "eyebrows": "breadcrumbs", "codeblocks": "system" },
+  "interaction": { "drilldown": false },
+  "navigation": {
+    "dropdowns": [
+      {
+        "dropdown": "Introduction",
+        "icon": "book-open",
+        "groups": [
+          { "group": "Get started", "pages": ["overview", "getting-started"] }
+        ]
+      },
+      {
+        "dropdown": "Using Mill",
+        "icon": "clipboard-list",
+        "groups": [
+          {
+            "group": "Tasks and people",
+            "pages": ["workflows", "authentication"]
+          }
+        ]
+      },
+      {
+        "dropdown": "Self-hosting",
+        "icon": "server",
+        "groups": [
+          {
+            "group": "Install and configure",
+            "pages": [
+              "installation",
+              "package-registry",
+              "configuration",
+              "security"
+            ]
+          },
+          {
+            "group": "Operate Mill",
+            "pages": [
+              "operations",
+              "backup",
+              "upgrades",
+              "troubleshooting",
+              "release-notes"
+            ]
+          }
+        ]
+      },
+      {
+        "dropdown": "API and MCP",
+        "icon": "plug",
+        "groups": [
+          {
+            "group": "Connect a client",
+            "pages": ["clients", "rest-reference"]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      { "label": "v1.0.0", "href": "/release-notes" },
+      { "type": "github", "href": "https://github.com/avgeek-inc/mill" }
+    ],
+    "primary": { "type": "button", "label": "Docs", "href": "/overview" }
+  },
+  "footer": {
+    "socials": { "github": "https://github.com/avgeek-inc/mill" },
+    "links": [
+      {
+        "header": "Documentation",
+        "items": [
+          { "label": "Your first board", "href": "/getting-started" },
+          { "label": "Install Mill", "href": "/installation" },
+          { "label": "REST and MCP", "href": "/clients" }
+        ]
+      },
+      {
+        "header": "Project",
+        "items": [
+          { "label": "GitHub", "href": "https://github.com/avgeek-inc/mill" },
+          { "label": "Release notes", "href": "/release-notes" },
+          { "label": "Security", "href": "/security" }
+        ]
+      }
+    ]
+  },
+  "contextual": { "options": ["copy", "view", "chatgpt", "claude"] },
+  "seo": {
+    "organization": {
+      "name": "Mill",
+      "url": "https://mill.fyi",
+      "logo": "https://mill.fyi/assets/mill-mark.png",
+      "sameAs": ["https://github.com/avgeek-inc/mill"]
+    }
+  }
+}

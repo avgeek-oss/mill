@@ -1,0 +1,277 @@
+/* Homepage layout adapted from Towbar (Apache-2.0). Guides keep native Mintlify typography. */
+:root {
+  --mill-accent: #704628;
+  --mill-on-accent: #fff;
+}
+.dark {
+  --mill-accent: #c89b6d;
+  --mill-on-accent: #261b12;
+}
+#navbar a:has(> .bg-primary-dark) > .bg-primary-dark {
+  background-color: var(--mill-accent);
+}
+#navbar a:has(> .bg-primary-dark) .text-white,
+#navbar a:has(> .bg-primary-dark) svg {
+  color: var(--mill-on-accent);
+}
+.mill-home {
+  --mill-ink: oklch(0.23 0.016 55);
+  --mill-muted: oklch(0.46 0.014 55);
+  --mill-line: oklch(0.9 0.009 55);
+  --mill-panel: oklch(0.97 0.006 55);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 32px;
+  color: var(--mill-ink);
+  -webkit-font-smoothing: antialiased;
+}
+.dark .mill-home {
+  --mill-ink: oklch(0.955 0.012 65);
+  --mill-muted: oklch(0.74 0.008 65);
+  --mill-line: oklch(0.285 0.004 55);
+  --mill-panel: oklch(0.17 0.003 55);
+}
+.mill-home h1,
+.mill-feature h2,
+.mill-highlights h2,
+.mill-documentation > h2 {
+  color: var(--mill-ink);
+  font-weight: 500;
+  text-wrap: balance;
+  margin: 0;
+}
+.mill-home h1 {
+  font-size: clamp(44px, 6.2vw, 80px);
+  line-height: 1.06;
+  letter-spacing: -0.055em;
+  font-weight: 600;
+}
+.mill-home h1 span {
+  color: var(--mill-accent);
+}
+.mill-home p {
+  color: var(--mill-muted);
+  line-height: 1.65;
+  margin: 0;
+  text-wrap: pretty;
+}
+.mill-home a {
+  text-decoration: none;
+}
+.mill-home a:focus-visible {
+  outline: 2px solid var(--mill-accent);
+  outline-offset: 5px;
+  border-radius: 4px;
+}
+.mill-hero {
+  text-align: center;
+  padding: 56px 0 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
+}
+.mill-home .mill-lead {
+  font-size: 19px;
+  line-height: 1.6;
+}
+.mill-lead > span {
+  display: block;
+}
+.mill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+}
+.mill-home .mill-button,
+.mill-home .mill-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--mill-accent);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--mill-accent);
+  color: var(--mill-on-accent);
+}
+.mill-home .mill-button:hover {
+  background: color-mix(in oklch, var(--mill-accent) 92%, var(--mill-ink));
+}
+.mill-home .mill-secondary {
+  border-color: var(--mill-line);
+  background: var(--mill-panel);
+  color: var(--mill-ink);
+}
+.mill-home .mill-secondary:hover {
+  background: var(--mill-line);
+}
+.mill-product-frame {
+  background: var(--mill-panel);
+  border: 1px solid var(--mill-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.mill-product-hero {
+  box-shadow:
+    0 2px 4px oklch(0.2 0.01 55 / 0.03),
+    0 18px 48px -20px oklch(0.2 0.01 55 / 0.2);
+}
+.mill-product-dark,
+.dark .mill-product-light {
+  display: none;
+}
+.dark .mill-product-dark {
+  display: block;
+}
+.mill-product-frame img,
+.mill-guide-screenshot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0;
+  border-radius: 0;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.mill-guide-screenshot {
+  overflow: hidden;
+  border-radius: 12px;
+}
+.mill-guide-screenshot-mobile {
+  width: 100%;
+  max-width: 390px;
+  margin: 0 auto;
+}
+.mill-link {
+  color: var(--mill-accent);
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+}
+.mill-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 5px;
+}
+.mill-highlights {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 48px;
+  padding: 64px 0 48px;
+}
+.mill-highlights > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.mill-highlights .mill-link {
+  margin-top: auto;
+}
+.mill-highlights h2 {
+  font-size: 19px;
+  line-height: 1.4;
+  letter-spacing: -0.02em;
+  text-wrap: pretty;
+}
+.mill-highlights p {
+  font-size: 14px;
+  margin: 12px 0 4px;
+}
+.mill-feature {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr);
+  grid-template-areas: "copy image";
+  align-items: center;
+  gap: 64px;
+  padding: 72px 0;
+  border-top: 1px solid var(--mill-line);
+}
+.mill-feature:nth-child(even) {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr);
+  grid-template-areas: "image copy";
+}
+.mill-feature-copy {
+  grid-area: copy;
+  min-width: 0;
+}
+.mill-feature h2,
+.mill-documentation > h2 {
+  font-size: clamp(26px, 2.5vw, 34px);
+  line-height: 1.18;
+  letter-spacing: -0.035em;
+}
+.mill-feature-copy > p {
+  margin: 20px 0 14px;
+  font-size: 15px;
+  line-height: 1.7;
+}
+.mill-feature-image {
+  grid-area: image;
+  min-width: 0;
+}
+.mill-documentation {
+  padding: 72px 0;
+  border-top: 1px solid var(--mill-line);
+}
+.mill-documentation > h2 {
+  margin-bottom: 28px;
+}
+@media (max-width: 900px) {
+  .mill-feature,
+  .mill-feature:nth-child(even) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "copy" "image";
+    gap: 28px;
+    padding: 44px 0;
+  }
+  .mill-feature-copy {
+    max-width: 540px;
+  }
+  .mill-highlights {
+    gap: 28px;
+  }
+  .mill-hero {
+    padding-top: 48px;
+  }
+}
+@media (max-width: 640px) {
+  .mill-home {
+    padding: 0 20px;
+  }
+  .mill-hero {
+    padding: 36px 0 32px;
+    gap: 22px;
+  }
+  .mill-home h1 {
+    font-size: clamp(36px, 9.5vw, 60px);
+  }
+  .mill-home .mill-lead {
+    font-size: 16px;
+    max-width: 34ch;
+  }
+  .mill-actions {
+    gap: 8px;
+  }
+  .mill-highlights {
+    grid-template-columns: 1fr;
+    padding: 36px 0 24px;
+    gap: 24px;
+  }
+  .mill-documentation {
+    padding: 40px 0;
+  }
+}
+/* Mintlify hides its shared footer on custom pages with an important utility. */
+@layer base {
+  body:has(.mill-home) #footer {
+    display: flex !important;
+  }
+}
