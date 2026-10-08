@@ -555,6 +555,8 @@ test("real browser passkey enrollment issues recovery codes and verifies passkey
   await keyDialog
     .getByLabel("Name", { exact: true })
     .fill("Recovery proof gate");
+  await choose(page, "Permissions", "Edit", keyDialog);
+  await choose(page, "Expires after", "30 days", keyDialog);
   const issuanceAttempts: { body: unknown; retryKey: string | null }[] = [];
   await page.route("**/api/credentials", async (route) => {
     if (route.request().method() === "POST")
@@ -906,12 +908,13 @@ test("a personal API key uses current human permissions and loses access when re
   await expect(
     create.getByRole("button", { name: /(?:Agent|Access|Board access)$/ }),
   ).toHaveCount(0);
+  await choose(page, "Permissions", "Edit", create);
   await create.getByRole("button", { name: /Expires after\*$/ }).click();
   await expect(page.getByRole("option")).toHaveText([
     "30 days",
-    "60 days",
     "90 days",
-    "365 days",
+    "1 year",
+    "Never",
   ]);
   await page.getByRole("option", { name: "90 days", exact: true }).click();
   await create.getByRole("button", { name: "Create key", exact: true }).click();

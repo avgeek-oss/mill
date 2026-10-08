@@ -45,10 +45,21 @@ for (const width of [1280, 390])
         if (route.request().method() === "POST") requests++;
         return route.continue();
       });
+      const create = dialog.getByRole("button", {
+        name: "Create key",
+        exact: true,
+      });
+      await expect(create).toBeDisabled();
+      await expect(name).toHaveValue("   ");
+      expect(requests).toBe(0);
+      await dialog.getByRole("button", { name: /Permissions\*$/ }).click();
+      await page.getByRole("option", { name: "Edit", exact: true }).click();
+      await expect(create).toBeDisabled();
+      await dialog.getByRole("button", { name: /Expires after\*$/ }).click();
+      await page.getByRole("option", { name: "30 days", exact: true }).click();
+      await expect(create).toBeEnabled();
       for (let attempt = 0; attempt < 2; attempt++) {
-        await dialog
-          .getByRole("button", { name: "Create key", exact: true })
-          .click();
+        await create.click();
         const alert = notification(page, "Enter a value for Name.");
         await expect(alert).toBeVisible();
         await expect(name).toBeFocused();
@@ -79,9 +90,8 @@ for (const width of [1280, 390])
       }
       expect(requests).toBe(0);
       await name.fill(`Valid name ${width}`);
-      await dialog
-        .getByRole("button", { name: "Create key", exact: true })
-        .click();
+      await expect(create).toBeEnabled();
+      await create.click();
       await expect(
         page.getByRole("dialog", { name: "Copy your API key", exact: true }),
       ).toBeVisible();
@@ -113,6 +123,10 @@ test("API key copy failures toast on every attempt when the clipboard API is una
   await form
     .getByLabel("Name", { exact: true })
     .fill("Clipboard failure verification");
+  await form.getByRole("button", { name: /Permissions\*$/ }).click();
+  await page.getByRole("option", { name: "Edit", exact: true }).click();
+  await form.getByRole("button", { name: /Expires after\*$/ }).click();
+  await page.getByRole("option", { name: "30 days", exact: true }).click();
   await form.getByRole("button", { name: "Create key", exact: true }).click();
   const result = page.getByRole("dialog", {
     name: "Copy your API key",
