@@ -403,7 +403,7 @@ try {
     "node",
     "--input-type=module",
     "-e",
-    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
+    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
   ]);
   await run("backup-quiesce-application", "docker", [
     ...primary.compose,
