@@ -911,7 +911,7 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
           name: "Workspace navigation",
         });
         const create = surface.getByRole("main").getByRole("button", {
-          name: "Create board",
+          name: "Create Board",
           exact: true,
         });
         const reference = nav.getByRole("link", {
@@ -936,8 +936,7 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
               iconGeometry: { width: icon.width, height: icon.height },
             };
           });
-        const { iconGeometry: referenceIcon, ...referenceStyles } =
-          await metrics(reference);
+        const referenceStyles = await metrics(reference);
         if (width === 390) {
           await surface.keyboard.press("Escape");
           await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -946,18 +945,22 @@ test("sidebar header action sizing and removed audit routes stay unavailable", a
         await expect(create).toBeVisible();
         const { iconGeometry: createIcon, ...createStyles } =
           await metrics(create);
-        expect(createStyles.height).toBe(32);
+        expect(createStyles.height).toBe(width === 390 ? 40 : 36);
         expect(referenceStyles.height).toBe(36);
         expect(referenceStyles.fontSize).toBe("14px");
         expect(referenceStyles.gap).toBe("12px");
         expect(referenceStyles.fontWeight).toBe("400");
-        expect(createStyles.iconCssWidth).toBe("16px");
-        expect(createStyles.iconCssHeight).toBe("16px");
+        expect(createStyles.iconCssWidth).toBe(width === 390 ? "20px" : "16px");
+        expect(createStyles.iconCssHeight).toBe(
+          width === 390 ? "20px" : "16px",
+        );
         for (const dimension of ["width", "height"] as const)
           expect(
-            Math.abs(createIcon[dimension] - referenceIcon[dimension]),
+            Math.abs(createIcon[dimension] - (width === 390 ? 20 : 16)),
           ).toBeLessThanOrEqual(0.001);
-        expect((await create.boundingBox())!.height).toBe(32);
+        expect((await create.boundingBox())!.height).toBe(
+          width === 390 ? 40 : 36,
+        );
         await expect(
           nav.getByRole("link", { name: "Audit history", exact: true }),
         ).toHaveCount(0);
@@ -2608,19 +2611,17 @@ test("large-board pagination keeps URL state, recovers a changed page and suppor
     .locator('[data-slot="select-popover"]')
     .filter({ has: members });
   await expect(memberPopover).toBeVisible();
-  await expect(memberPopover).toHaveCSS("overflow-y", "auto");
+  await expect(members).toHaveCSS("overflow-y", "auto");
   expect(
-    await memberPopover.evaluate(
+    await members.evaluate(
       (element) => element.scrollHeight > element.clientHeight,
     ),
   ).toBe(true);
-  const beforeWheel = await memberPopover.evaluate(
-    (element) => element.scrollTop,
-  );
-  await memberPopover.hover();
+  const beforeWheel = await members.evaluate((element) => element.scrollTop);
+  await members.hover();
   await page.mouse.wheel(0, 2000);
   await expect
-    .poll(() => memberPopover.evaluate((element) => element.scrollTop))
+    .poll(() => members.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(beforeWheel);
   await expect(members.getByRole("option").last()).toBeInViewport();
   await page
@@ -2911,7 +2912,7 @@ test("overview autoloads every board, retries directory failures, and keeps muta
     const main = page.getByRole("main");
     const cards = main.getByRole("link", { name: /^Directory board / });
     const create = main.getByRole("button", {
-      name: "Create board",
+      name: "Create Board",
       exact: true,
     });
     const checkOverview = async (count: number) => {

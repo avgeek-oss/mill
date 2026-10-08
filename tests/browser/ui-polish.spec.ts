@@ -157,7 +157,7 @@ for (const width of [1280, 390])
           { iconOnly: true, iconSize: buttonIconSize },
         );
         for (const [headerButton, expectedHeight] of [
-          [page.locator(".navigation-toggle"), 32],
+          [page.locator(".navigation-toggle"), 44],
           [
             page.getByRole("button", {
               name: /^Notifications(?:, \d+ unread)?$/,
@@ -356,7 +356,7 @@ for (const width of [1280, 390])
           height: compactHeight,
           fontSize: "14px",
           lineHeight: "20px",
-          icons: 0,
+          icons: 1,
           decoration: "underline",
           decorationStyle: "dashed",
         });

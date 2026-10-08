@@ -559,6 +559,9 @@ test("Viewer members and their personal API key preserve notification ownership"
   const outside = await seed(other, 1);
   const credential = await json(who.api, "/credentials", {
     name: "Viewer Inbox personal key",
+    access: "read",
+    includeAdmin: false,
+    expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
   });
   expect(credential.credential.userId).toBe(who.id);
   const read = await admin.get("/api/notifications?limit=100", {
@@ -574,11 +577,10 @@ test("Viewer members and their personal API key preserve notification ownership"
     headers: { Origin: origin, Authorization: `Bearer ${credential.token}` },
     data: { ids: [fixture.items[0]!.id], read: true },
   });
-  expect(marked.status()).toBe(200);
-  expect(await marked.json()).toEqual({ ok: true, updated: 1 });
+  expect(marked.status()).toBe(403);
   const [ownRead] =
     await database`SELECT read_at FROM notifications WHERE id=${fixture.items[0]!.id}`;
-  expect(ownRead.readAt).not.toBeNull();
+  expect(ownRead.readAt).toBeNull();
   const denied = await admin.patch("/api/notifications", {
     headers: { Origin: origin, Authorization: `Bearer ${credential.token}` },
     data: { ids: [outside.items[0]!.id], read: true },

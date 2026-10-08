@@ -124,10 +124,13 @@ for (const width of [1920, 1280, 390]) {
       }
       await page.goto("/settings/profile");
       await expect(
+        page.getByRole("heading", { name: "Profile", exact: true, level: 1 }),
+      ).toBeVisible();
+      await expect(
         page.getByRole("link", {
-          name: "Edit Gravatar image (opens in a new tab)",
+          name: /^Edit (?:avatar|Gravatar image)/,
         }),
-      ).toHaveAttribute("href", "https://gravatar.com/profile/avatars");
+      ).toHaveCount(0);
     });
   }
 }

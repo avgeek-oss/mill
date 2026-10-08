@@ -199,7 +199,7 @@ for (const [width, theme] of [
       const page = await context.newPage();
       await page.goto("/boards");
       await page
-        .getByRole("button", { name: "Create board", exact: true })
+        .getByRole("button", { name: "Create Board", exact: true })
         .click();
       const dialog = page.getByRole("dialog", {
         name: "Create a board",
@@ -374,7 +374,7 @@ for (const [width, theme] of [
       const page = await context.newPage();
       await page.goto("/boards");
       await page
-        .getByRole("button", { name: "Create board", exact: true })
+        .getByRole("button", { name: "Create Board", exact: true })
         .click();
       const dialog = page.getByRole("dialog", {
         name: "Create a board",
@@ -401,7 +401,7 @@ for (const [width, theme] of [
       await signIn(page, newEmail);
       await expect(dialog).toHaveCount(0);
       await page
-        .getByRole("button", { name: "Create board", exact: true })
+        .getByRole("button", { name: "Create Board", exact: true })
         .click();
       await expect(
         dialog.getByLabel("Board name", { exact: true }),

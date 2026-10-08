@@ -171,8 +171,7 @@ for (const width of [1280, 390])
               .filter({ has: page.getByLabel("Your Name", { exact: true }) });
             await expect(
               profile.getByRole("link", {
-                name: "Edit Gravatar image (opens in a new tab)",
-                exact: true,
+                name: /^Edit (?:avatar|Gravatar image)/,
               }),
             ).toHaveCount(0);
             if (width >= 1024) {
@@ -317,7 +316,41 @@ for (const width of [1280, 390])
         await expect(teamNavigation.getByRole("button")).toHaveText([
           "General",
           "Members",
+          "Team API Keys",
         ]);
+        await expect(
+          teamNavigation.getByRole("button", { name: "Members", exact: true }),
+        ).toHaveAttribute("aria-current", "page");
+        await teamNavigation
+          .getByRole("button", { name: "Team API Keys", exact: true })
+          .click();
+        await expect(page).toHaveURL("/team-settings/team-api-keys");
+        await expect(
+          page.getByRole("heading", {
+            name: "Team API Keys",
+            exact: true,
+            level: 1,
+          }),
+        ).toBeVisible();
+        await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
+        await openNavigation(page);
+        await expect(
+          teamNavigation.getByRole("button", {
+            name: "Team API Keys",
+            exact: true,
+          }),
+        ).toHaveAttribute("aria-current", "page");
+        await expect(
+          primary.getByRole("link", { name: "Team Settings", exact: true }),
+        ).toHaveClass(/\bbg-default\b/);
+        await expect(
+          primary.getByRole("link", { name: "Account Settings", exact: true }),
+        ).not.toHaveClass(/\bbg-default\b/);
+        await teamNavigation
+          .getByRole("button", { name: "Members", exact: true })
+          .click();
+        await expect(page).toHaveURL("/team-settings/members");
+        await openNavigation(page);
         await expect(
           teamNavigation.getByRole("button", { name: "Members", exact: true }),
         ).toHaveAttribute("aria-current", "page");

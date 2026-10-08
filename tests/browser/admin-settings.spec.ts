@@ -88,7 +88,10 @@ async function openSettings(page: Page, section: "People" | "Team Settings") {
   }
   if ((await openNavigation.getAttribute("aria-expanded")) !== "true")
     await openNavigation.click();
-  await page.getByRole("link", { name: "Team Settings", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Workspace navigation", exact: true })
+    .getByRole("link", { name: "Team Settings", exact: true })
+    .click();
   if (section === "People")
     await page
       .getByRole("navigation", {

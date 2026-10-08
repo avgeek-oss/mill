@@ -324,19 +324,29 @@ for (const width of [1280, 390])
         await expect(
           page.getByRole("button", { name: "Navigate account settings pages" }),
         ).toHaveCount(0);
-        await page
+        const accountBreadcrumb = page
           .getByRole("navigation", { name: "Breadcrumb", exact: true })
-          .getByRole("link", { name: "Account Settings", exact: true })
-          .click();
+          .getByRole("link", { name: "Account Settings", exact: true });
+        await expect(accountBreadcrumb).toHaveAttribute(
+          "href",
+          "/settings/profile",
+        );
+        await expect(accountBreadcrumb).toHaveClass(/\btext-muted\b/);
+        await accountBreadcrumb.click();
         await expect(page).toHaveURL(/\/settings\/profile$/);
         await page.goto("/team-settings/members");
         await expect(
           page.getByRole("button", { name: "Navigate team settings pages" }),
         ).toHaveCount(0);
-        await page
+        const teamBreadcrumb = page
           .getByRole("navigation", { name: "Breadcrumb", exact: true })
-          .getByRole("link", { name: "Team Settings", exact: true })
-          .click();
+          .getByRole("link", { name: "Team Settings", exact: true });
+        await expect(teamBreadcrumb).toHaveAttribute(
+          "href",
+          "/team-settings/general",
+        );
+        await expect(teamBreadcrumb).toHaveClass(/\btext-muted\b/);
+        await teamBreadcrumb.click();
         await expect(page).toHaveURL(/\/team-settings\/general$/);
         const popover = page.locator(".breadcrumb-popover");
         await page.goto(taskPath);

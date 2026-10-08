@@ -360,7 +360,6 @@ for (const width of [1280, 390])
             })),
             headingFontSize: getComputedStyle(heading).fontSize,
             headingColor: getComputedStyle(heading).color,
-            foregroundColor: getComputedStyle(nav).color,
           };
         });
         expect(filterGeometry.sections).toEqual(["Sort tasks", "Filter tasks"]);
@@ -378,9 +377,9 @@ for (const width of [1280, 390])
           "Status",
         ]);
         for (const label of filterGeometry.labels) {
-          expect(label.paddingLeft).toBe("0px");
-          expect(label.fontSize).toBe("14px");
-          expect(label.color).toBe(filterGeometry.foregroundColor);
+          expect(label.paddingLeft).toBe("8px");
+          expect(label.fontSize).toBe("12px");
+          expect(label.color).toBe(filterGeometry.headingColor);
         }
         for (const label of ["Assignee", "Priority", "Status", "Sort order"]) {
           const value = filters.getByRole("button", {
@@ -525,7 +524,12 @@ for (const width of [1280, 390])
         await page
           .getByRole("option", { name: "10 per page", exact: true })
           .click();
-        await page.getByRole("button", { name: "Next", exact: true }).click();
+        const nextPage = page.getByRole("button", {
+          name: "Next",
+          exact: true,
+        });
+        await expect(nextPage).toBeEnabled();
+        await nextPage.click();
         await expect(page).toHaveURL(/page=2/);
         const viewUrl = page.url();
         await page.reload();
@@ -534,7 +538,8 @@ for (const width of [1280, 390])
         ).toBeVisible();
         await expect(
           page
-            .getByRole("grid", { name: "Task list", exact: true })
+            .getByRole("main")
+            .getByRole("grid")
             .getByRole("row")
             .filter({ has: page.getByRole("link") }),
         ).toHaveCount(3);

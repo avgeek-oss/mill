@@ -97,9 +97,39 @@ async function pressWithoutScaling(
   ).toEqual({ shadow: "none", outline: "none" });
 }
 
+async function followWithoutScaling(
+  page: Page,
+  link: Locator,
+  href: string,
+  heading: string,
+) {
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", href);
+  const before = await metrics(link);
+  expect(before.identity).toBe(true);
+  const bounds = (await link.boundingBox())!;
+  await page.mouse.move(
+    bounds.x + bounds.width / 2,
+    bounds.y + bounds.height / 2,
+  );
+  await page.mouse.down();
+  try {
+    await expect
+      .poll(() => link.evaluate((element) => element.matches(":active")))
+      .toBe(true);
+    expect(await metrics(link)).toEqual(before);
+  } finally {
+    await page.mouse.up();
+  }
+  await expect(page).toHaveURL(new URL(href, page.url()).href);
+  await expect(
+    page.getByRole("heading", { name: heading, exact: true, level: 1 }),
+  ).toBeVisible();
+}
+
 for (const width of [1280, 390])
   for (const theme of ["light", "dark"] as const)
-    test(`breadcrumb menus retain their size during pointer and keyboard presses at ${width}px in ${theme}`, async ({
+    test(`breadcrumb links and menus retain their size during pointer and keyboard presses at ${width}px in ${theme}`, async ({
       browser,
     }) => {
       const context = await browser.newContext({
@@ -115,9 +145,21 @@ for (const width of [1280, 390])
         );
         const page = await context.newPage();
         await authenticateBrowserFixture(page, fixture);
-        for (const [path, title, category] of [
-          ["/settings/api-keys", "API Keys", "Account Settings"],
-          ["/team-settings/general", "General", "Team Settings"],
+        for (const [path, title, category, ancestorHref, ancestorTitle] of [
+          [
+            "/settings/api-keys",
+            "API Keys",
+            "Account Settings",
+            "/settings/profile",
+            "Profile",
+          ],
+          [
+            "/team-settings/members",
+            "Members",
+            "Team Settings",
+            "/team-settings/general",
+            "General",
+          ],
         ]) {
           await page.goto(path!);
           await expect(
@@ -146,17 +188,30 @@ for (const width of [1280, 390])
             await expect(drawer).toHaveCount(0);
             continue;
           }
-          await pressWithoutScaling(
+          const ancestor = breadcrumb.getByRole("link", {
+            name: category!,
+            exact: true,
+          });
+          await followWithoutScaling(
             page,
-            breadcrumb.getByRole("button", {
-              name: `Navigate ${category!.toLowerCase()} pages`,
-              exact: true,
-            }),
-            page.getByRole("menu", {
-              name: `Navigate ${category!.toLowerCase()} pages`,
-              exact: true,
-            }),
+            ancestor,
+            ancestorHref!,
+            ancestorTitle!,
           );
+          await page.goBack();
+          await expect(page).toHaveURL(new URL(path!, page.url()).href);
+          await expect(
+            page.getByRole("heading", { name: title!, exact: true, level: 1 }),
+          ).toBeVisible();
+          await ancestor.press("Enter");
+          await expect(page).toHaveURL(new URL(ancestorHref!, page.url()).href);
+          await expect(
+            page.getByRole("heading", {
+              name: ancestorTitle!,
+              exact: true,
+              level: 1,
+            }),
+          ).toBeVisible();
         }
         await page.goto(taskPath);
         await expect(

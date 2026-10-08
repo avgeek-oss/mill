@@ -114,7 +114,7 @@ test("a committed board retries with the original key after a lost response", as
   await open(page);
   const attempts = await interruptFirstResponse(page, "/boards");
   await page.goto("/boards");
-  await page.getByRole("button", { name: "Create board", exact: true }).click();
+  await page.getByRole("button", { name: "Create Board", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Create a board" });
   const name = `Lost board response ${randomBytes(3).toString("hex")}`;
   const description = "Release planning\nScope, owners, and delivery notes.";
@@ -164,7 +164,7 @@ test("a committed board retries with the original key after a lost response", as
   ).toHaveValue(description);
   await page.getByRole("button", { name: "Close dialog", exact: true }).click();
   await page.goto("/boards");
-  await page.getByRole("button", { name: "Create board", exact: true }).click();
+  await page.getByRole("button", { name: "Create Board", exact: true }).click();
   await expect(dialog.getByLabel("Description", { exact: true })).toHaveValue(
     "",
   );
