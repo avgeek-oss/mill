@@ -25,12 +25,13 @@ node tools/init-env.mjs
 node tools/with-package-token.mjs docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-source.yml up --build --detach --wait
 ```
 
-The source-build overlay sends `NODE_AUTH_TOKEN` as the `npm_token` BuildKit secret. The Dockerfile creates the npm configuration in a temporary filesystem only during dependency installation. It does not use a token build argument or runtime environment variable. The default Compose file is image-only and needs no npm token. See [Docker's build secret documentation](https://docs.docker.com/build/building/secrets/).
+The source-build overlay builds separate `api` and `web` targets and sends `NODE_AUTH_TOKEN` as the `npm_token` BuildKit secret. The Dockerfile creates the npm configuration in a temporary filesystem only during dependency installation. It does not use a token build argument or runtime environment variable. The default Compose file is image-only and needs no npm token. See [Docker's build secret documentation](https://docs.docker.com/build/building/secrets/).
 
 For a direct Docker build, run:
 
 ```sh
-node tools/with-package-token.mjs docker build --secret id=npm_token,env=NODE_AUTH_TOKEN --tag mill:local .
+node tools/with-package-token.mjs docker build --secret id=npm_token,env=NODE_AUTH_TOKEN --target api --tag mill-api:local .
+node tools/with-package-token.mjs docker build --secret id=npm_token,env=NODE_AUTH_TOKEN --target web --tag mill-web:local .
 ```
 
 The production verification runner resolves the same credentials automatically:

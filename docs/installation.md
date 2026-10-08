@@ -1,68 +1,104 @@
 # Installation
 
-Mill needs Docker with the Compose v2 plugin, Git, Node.js 24, `curl`, and `jq`. A published image contains the frontend and server together. PostgreSQL is the only required backing service.
+Mill needs three services: **PostgreSQL, the API image, and the UI image**. Docker with Compose v2 is enough to run all three. You do not need Git, Node.js, a package-registry token, or a source build.
 
-## Install a published image
+The first public release is proposed as `v1.0.1`. Choose a release only after its GitHub release and both public images have been published.
 
-Choose a tag from [Mill releases](https://github.com/avgeek-oss/mill/releases) that has a `mill-images.json` asset. The proposed `v1.0.1` tag is usable only after publication. The manifest names the image by immutable digest; keep it with your installation records. Use the matching tag for Compose and maintenance scripts.
+## 1. Download the installation files
+
+Choose a version from [Mill releases](https://github.com/avgeek-oss/mill/releases). Download `docker-compose.yml` and `.env.example` from that release's source tag into an empty directory. You can use your browser or these commands:
 
 ```sh
-git clone https://github.com/avgeek-oss/mill.git
+mkdir mill
 cd mill
-release_tag=v1.0.1 # replace with the published release tag
-git checkout "$release_tag"
-curl --fail --location --output mill-images.json "https://github.com/avgeek-oss/mill/releases/download/$release_tag/mill-images.json"
-test "$(jq -r .version mill-images.json)" = "$release_tag"
-test "$(jq -r .commit mill-images.json)" = "$(git rev-parse HEAD)"
-jq -e '.platforms == ["linux/amd64", "linux/arm64"] and (.image | test("^ghcr[.]io/avgeek-oss/mill@sha256:[0-9a-f]{64}$"))' mill-images.json
-image="$(jq -r .image mill-images.json)"
-anonymous_config="$(mktemp -d)"
-DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$image" >/dev/null
-rmdir "$anonymous_config"
-node tools/init-env.mjs --image "$image"
-docker compose --project-name mill --env-file .env pull mill
-docker compose --project-name mill --env-file .env up --no-build --detach --wait
-docker compose --project-name mill --env-file .env ps
+release_tag=v1.0.1 # choose a published release
+curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
+curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
+cp .env.example .env
+chmod 600 .env
+```
+
+Keep these files together and run the remaining commands from this directory. Compose reads `.env` automatically; `--env-file /path/to/your.env` is available if you store it elsewhere.
+
+## 2. Set the environment variables
+
+Edit `.env` and set:
+
+| Variable            | Value                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------- |
+| `MILL_VERSION`      | The downloaded release version, without `v`; for example `1.0.1`.                                     |
+| `POSTGRES_PASSWORD` | A new random password for this PostgreSQL database.                                                   |
+| `MILL_SECRET`       | A different random value for protected authentication data. Preserve it across upgrades and restores. |
+| `MILL_BASE_URL`     | Leave `http://localhost:4321` for local use. Use your HTTPS origin for remote access.                 |
+
+Use 64 hexadecimal characters for each secret. A password manager can generate them, or run `openssl rand -hex 32` separately for each value. Hexadecimal database passwords avoid URL-escaping issues. Do not leave either field blank or use the same value twice.
+
+The remaining defaults connect the API to `postgres:5432` and the UI to `api:4321` inside the private Compose network. `MILL_PORT=4321` exposes the UI at [localhost:4321](http://localhost:4321). PostgreSQL and the API have no host ports.
+
+## 3. Start Mill
+
+```sh
+docker compose --project-name mill up --detach --wait
+```
+
+Compose pulls both versioned images and waits for PostgreSQL, the API and UI to become healthy. Open [localhost:4321](http://localhost:4321) and create your workspace, name, email and password. The first account becomes an administrator; there is no default login. The setup form closes after that first account is created.
+
+Check the running services and the complete UI-to-API path:
+
+```sh
+docker compose --project-name mill ps
 curl --fail http://localhost:4321/health/ready
 ```
 
-Open [localhost:4321](http://localhost:4321). Create a workspace, your name, email, and a strong password. The first account becomes an administrator. There is no default login, and later attempts to repeat setup are rejected.
+Continue with [your first board and task](getting-started.md). No GitHub login or npm token is needed to pull public release images. A missing image or denied anonymous pull means that release is not ready for the public installation path.
 
-The image pull needs no GitHub login when the GHCR package is public. If the anonymous manifest check fails, the release is not ready for this installation path; the package owner must make the GHCR package public and rerun release verification. No npm token is needed to run the published image. Contributors building from source should follow [package registry setup](package-registry.md).
+Use `--project-name mill` consistently so Compose reuses the same database volume. `docker compose --project-name mill down` stops the containers and leaves the volume intact. Adding `--volumes` permanently removes it.
 
-The generator creates `.env` with owner-only permissions. It refuses to overwrite an existing file. Mill's database volume belongs to the `mill` Compose project, so use `--project-name mill` consistently. `down` stops and removes containers; it leaves the database volume in place. `down --volumes` permanently removes it.
+## Host Mill with HTTPS
 
-The release workflow installs that same digest on native AMD64 and ARM64 runners, including a database restore and restart exercise. It must pass before the release is published.
-
-## Remote access
-
-Point a DNS name you own to the server, then configure an HTTPS reverse proxy. For a new remote installation, follow the published-image steps through the `image` assignment, then generate configuration with your public origin and start the same digest:
+Set `MILL_BASE_URL` to the exact browser origin, for example `https://tasks.example.com`, and set `ALLOW_INSECURE_LOCALHOST=false`. Keep `MILL_BIND_ADDRESS=127.0.0.1` when an HTTPS reverse proxy runs on the same host. Apply the environment change:
 
 ```sh
-node tools/init-env.mjs --base-url https://tasks.example.com --image "$image"
-docker compose --project-name mill --env-file .env pull mill
-docker compose --project-name mill --env-file .env up --no-build --detach --wait
+docker compose --project-name mill up --detach --wait
 ```
 
-Keep `MILL_BIND_ADDRESS=127.0.0.1` when the reverse proxy runs on the same host. Mill's URL must match the browser's origin; it is used for cookies, passkeys, links, and OAuth checks. HTTP OAuth access is restricted to explicit loopback development.
-
-Related reverse-proxy configuration:
+A host reverse proxy forwards to the UI, which forwards API, cookies, OAuth and streaming MCP requests to the private API. For example, a Caddy configuration can use:
 
 ```caddyfile
-# /etc/caddy/Caddyfile
 tasks.example.com {
     reverse_proxy 127.0.0.1:4321
 }
 ```
 
-Use a current, supported Caddy release and follow its service setup instructions. The proxy must preserve the host and support streaming HTTP at `/mcp`. Do not cache `/api`, `/mcp`, or OAuth responses. PostgreSQL has no host port in the production Compose file.
+Use a current supported reverse proxy, preserve the public host, support streaming HTTP at `/mcp`, and do not cache `/api`, `/mcp` or OAuth responses. A proxy on the Compose network can use `web:4322` instead of the host port. Do not publish PostgreSQL or the API directly.
 
-Set `MILL_TRUSTED_PROXY_IPS` to the reverse proxy's exact peer IP as Mill sees it, then recreate the service. This lets rate limits use the real client IP. The default trusts no forwarded IP headers. For a host proxy using the published port, inspect the `mill_default` Docker network's gateway and verify that is the proxy peer. Do not trust arbitrary public clients or a whole address range. See [configuration](configuration.md).
+The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys; changing it later requires a recovery plan. [Configuration](configuration.md) covers exact proxy trust and the local HTTP exception.
 
-If your reverse proxy runs in a separate container, connect it to the Mill Compose network and proxy to `mill:4321`. You can remove Mill's published port in a Compose override. Do not expose PostgreSQL or bind unencrypted Mill HTTP to a public address.
+## Use deployment-platform environment variables
 
-## First checks
+The `.env` file is a Compose convenience. Images read runtime environment variables directly; there is no required environment file inside either image. A platform or secret manager can supply the same settings:
 
-Sign in, create a board and task, and reload. Check [readiness](operations.md), then take your first [backup](backup.md). Save an encrypted copy of `.env` alongside your recovery plan. Preserve the same `MILL_SECRET` to restore protected values and retry records.
+| Service    | Image                                   | Runtime configuration                                                                                      |
+| ---------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| PostgreSQL | Supported PostgreSQL 17 image           | `POSTGRES_DB=mill`, `POSTGRES_USER=mill`, `POSTGRES_PASSWORD`, persistent database storage.                |
+| API        | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_BASE_URL`; optional SMTP and other API settings. Private port `4321`. |
+| UI         | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` set to the private API origin. UI port `4322`.                                              |
 
-Before upgrades, read [upgrades](upgrades.md). For configuration options see [configuration](configuration.md), and for common installation errors see [troubleshooting](troubleshooting.md).
+Keep the API and UI at the same release version. If your platform supplies a managed PostgreSQL database, use its connection URL as the API's `DATABASE_URL`; you do not need the Compose PostgreSQL service. Use the provider's supported secure connection settings and backups. Route the public HTTPS hostname to the UI, and keep database and API access private.
+
+## Optional: pin images by digest
+
+Release tags keep the basic setup short. If your deployment policy requires immutable references, download `mill-images.json` from the matching GitHub release. It records version, commit, supported platforms, and separate `images.api` and `images.web` references.
+
+Set `MILL_API_IMAGE` and `MILL_WEB_IMAGE` in `.env` to those full references:
+
+```dotenv
+MILL_API_IMAGE=ghcr.io/avgeek-oss/mill-api@sha256:<api digest from the manifest>
+MILL_WEB_IMAGE=ghcr.io/avgeek-oss/mill-web@sha256:<web digest from the manifest>
+```
+
+Replace both placeholders with the actual manifest values. Compose uses these overrides instead of version tags. Keep the manifest with your installation records; you do not need `jq` or a helper script to read its two image references.
+
+## Protect your installation
+
+Take a [first backup](backup.md), keep an encrypted copy of the environment settings, and preserve the original `MILL_SECRET`. Before changing versions, read [upgrades](upgrades.md). [Troubleshooting](troubleshooting.md) covers startup, authentication and connectivity issues. Source builds are for contributors; see [package registry setup](package-registry.md).

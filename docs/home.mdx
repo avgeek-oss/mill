@@ -243,16 +243,16 @@ import { ThemeImage } from "/snippets/oss/screenshot.jsx";
       <Eyebrow>Self-hosting</Eyebrow>
       <h2 id="hosting-heading">Run Mill on infrastructure you control.</h2>
       <p>
-        A Node.js application, PostgreSQL and a versioned container image. No
-        hosted task service is required.
+        PostgreSQL, a versioned API image and a versioned UI image. Configure
+        runtime environment variables and start them with Docker Compose.
       </p>
     </SectionIntro>
     <Points>
       <div>
-        <h3>Install a reviewed image</h3>
+        <h3>Install published images</h3>
         <p>
-          Pin the published release digest in Docker Compose. Source builds
-          remain available through an explicit overlay.
+          Choose a release, set two private values and start Docker Compose. API
+          and UI images share the same version; digest pinning is optional.
         </p>
         <InlineLink href="/installation">Installation guide →</InlineLink>
       </div>

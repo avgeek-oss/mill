@@ -6,21 +6,33 @@ const options = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--file", "--base-url", "--port", "--image"].includes(key) || !value) {
+  if (
+    !["--file", "--base-url", "--port", "--api-image", "--web-image"].includes(
+      key,
+    ) ||
+    !value
+  ) {
     throw new Error(
-      "Usage: node tools/init-env.mjs [--file .env] [--base-url http://localhost:4321] [--port 4321] [--image ghcr.io/avgeek-oss/mill@sha256:<digest>]",
+      "Usage: node tools/init-env.mjs [--file .env] [--base-url http://localhost:4321] [--port 4321] [--api-image ghcr.io/avgeek-oss/mill-api@sha256:<digest> --web-image ghcr.io/avgeek-oss/mill-web@sha256:<digest>]",
     );
   }
   options.set(key, value);
 }
 const port = options.get("--port") ?? "4321";
-const image = options.get("--image") ?? "mill:local";
-if (
-  options.has("--image") &&
-  !/^ghcr\.io\/avgeek-oss\/mill@sha256:[0-9a-f]{64}$/.test(image)
-) {
-  throw new Error("Release image must be an immutable Mill GHCR digest");
-}
+if (options.has("--api-image") !== options.has("--web-image"))
+  throw new Error("Set both --api-image and --web-image for a release");
+const apiImage = options.get("--api-image") ?? "mill-api:local";
+const webImage = options.get("--web-image") ?? "mill-web:local";
+for (const component of ["api", "web"])
+  if (
+    options.has(`--${component}-image`) &&
+    !new RegExp(
+      `^ghcr\\.io/avgeek-oss/mill-${component}@sha256:[0-9a-f]{64}$`,
+    ).test(options.get(`--${component}-image`))
+  )
+    throw new Error(
+      `Release ${component} image must be its immutable Mill GHCR digest`,
+    );
 if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
   throw new Error("Port must be between 1 and 65535");
 }
@@ -56,7 +68,9 @@ await writeFile(
     `ALLOW_INSECURE_LOCALHOST=${baseUrl.protocol === "http:" && loopback}`,
     "MILL_TRUSTED_PROXY_IPS=",
     `DATABASE_URL=postgres://mill:${password}@127.0.0.1:55432/mill`,
-    `MILL_IMAGE=${image}`,
+    `MILL_API_IMAGE=${apiImage}`,
+    `MILL_WEB_IMAGE=${webImage}`,
+    "MILL_API_URL=http://api:4321",
     "",
   ].join("\n"),
   { flag: "wx", mode: 0o600 },

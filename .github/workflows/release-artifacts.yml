@@ -91,11 +91,13 @@ jobs:
         run: |
           set -euo pipefail
           version="$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")"
-          image="mill:$version-$RELEASE_ARCHITECTURE"
           mkdir -p tmp/release
-          docker build --secret id=npm_token,env=NODE_AUTH_TOKEN --platform "$RELEASE_PLATFORM" --build-arg "SOURCE_COMMIT=$RELEASE_COMMIT" --tag "$image" .
-          docker save --output "tmp/release/mill-image-$RELEASE_ARCHITECTURE.tar" "$image"
-          node tools/package-release.mjs --image-archive "tmp/release/mill-image-$RELEASE_ARCHITECTURE.tar" --platform "$RELEASE_PLATFORM" --output "tmp/release/package-$RELEASE_ARCHITECTURE"
+          for component in api web; do
+            image="mill-$component:$version-$RELEASE_ARCHITECTURE"
+            docker build --secret id=npm_token,env=NODE_AUTH_TOKEN --platform "$RELEASE_PLATFORM" --target "$component" --build-arg "SOURCE_COMMIT=$RELEASE_COMMIT" --tag "$image" .
+            docker save --output "tmp/release/mill-$component-image-$RELEASE_ARCHITECTURE.tar" "$image"
+          done
+          node tools/package-release.mjs --api-image-archive "tmp/release/mill-api-image-$RELEASE_ARCHITECTURE.tar" --web-image-archive "tmp/release/mill-web-image-$RELEASE_ARCHITECTURE.tar" --platform "$RELEASE_PLATFORM" --output "tmp/release/package-$RELEASE_ARCHITECTURE"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: mill-release-${{ matrix.architecture }}

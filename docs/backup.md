@@ -1,50 +1,68 @@
 # Backup and recovery
 
-A full PostgreSQL backup preserves accounts, sessions, passkeys and their recovery-code digests, boards, tasks, comments, members, attributed task history, in-app notifications, and API key/OAuth records. A retained prelaunch archive is also included in a full-database backup when present. This is the supported recovery method. Mill v1 does not offer portable work export/import.
+A full PostgreSQL backup preserves accounts, sessions, passkeys and their recovery-code digests, boards, tasks, comments, members, activity, notifications and API-key/OAuth records. Retained pre-launch archive schemas are included when present. Database backup is the supported recovery method; Mill has no portable work export/import.
 
-## Create a full backup
+Also save the original `MILL_SECRET` and runtime settings securely. Protected database values require that secret even after a successful restore. Record both API/UI versions or digests, the Compose project name and PostgreSQL major version with each backup.
 
-Run this from the Mill checkout with the correct Compose project:
+## Create a backup
+
+From the installation directory, use PostgreSQL's packaged `pg_dump`. You do not need Git, Node or a source checkout:
 
 ```sh
+umask 077
 mkdir -p backups
-bash tools/backup.sh --project mill --env-file .env --output backups/mill-2026-09-28.dump
+backup_file="backups/mill-$(date +%Y%m%d-%H%M%S).dump"
+docker compose --project-name mill exec -T postgres sh -c 'exec pg_dump --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom --no-owner --no-acl' > "$backup_file"
 ```
 
-The script uses `pg_dump` from the running PostgreSQL container and creates an owner-readable custom-format archive. It refuses to overwrite an existing output file and removes a partial archive if dumping fails. `pg_dump` takes a consistent snapshot while normal writes continue.
+Confirm the command succeeded before relying on the file. A failed dump may leave a partial file; remove that file and investigate the failure. Do not overwrite an existing backup. `pg_dump` takes a consistent database snapshot while ordinary writes continue.
 
-Back up `.env` separately using encryption. A dump contains private account and credential data, and the original `MILL_SECRET` is needed to decrypt protected values. Store encrypted copies off the host. Record the Mill release tag or source commit, image digest when using a published image, Compose project name, and PostgreSQL major version with the backup. Keep enough free space for the archive and a rehearsal restore.
+Encrypt backups and a separate copy of the runtime secrets, store a copy off the Docker host and periodically rehearse recovery. Keep enough free space for both the archive and a separate restored database. For managed PostgreSQL, use the provider's supported backup/restore procedures and verify that they preserve the complete Mill database.
 
-## Practice a restore
+## Rehearse recovery in a separate project
 
-Use a separate project so your running workspace stays available. Create `recovery.env` from `.env`, preserve `MILL_SECRET` and the compatible image reference, and change `MILL_PORT` and `MILL_BASE_URL` to a spare loopback port such as 4322. Keep this file private. The separate Compose project gets a separate PostgreSQL volume.
+Use the same compatible API and UI images as the backup. Copy `.env` to `recovery.env`, preserve `MILL_SECRET` and the database settings, and change `MILL_PORT` and `MILL_BASE_URL` to a spare loopback port such as `4322`. Keep the new file private. A separate Compose project creates its own PostgreSQL volume.
 
 ```sh
+cp .env recovery.env
+chmod 600 recovery.env
+# Edit recovery.env: MILL_PORT=4322 and MILL_BASE_URL=http://localhost:4322.
 docker compose --project-name mill-recovery --env-file recovery.env up --detach --wait postgres
-bash tools/restore.sh --project mill-recovery --confirm-project mill-recovery --env-file recovery.env --input backups/mill-2026-09-28.dump
-curl --fail http://127.0.0.1:4322/health/ready
 ```
 
-The restore command validates the archive before stopping Mill. It rejects a target with existing tables unless `--replace` is explicitly supplied. It restores in one PostgreSQL transaction and starts Mill only after the restore succeeds. A failed restore leaves the application stopped for investigation.
+Restore into that new empty database. Replace the example filename with your backup:
 
-Sign in at the recovery URL and verify a board, task, comment, member, notification and a client credential that you can safely test. A copied OAuth connection may need reconnection if its resource URL points to the original installation. Password sign-in works at the changed origin; physical passkeys remain bound to the original origin. To test production passkeys, restore behind the original HTTPS origin in a controlled recovery environment.
+```sh
+docker compose --project-name mill-recovery --env-file recovery.env exec -T postgres sh -c 'exec pg_restore --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --no-owner --no-acl --exit-on-error --single-transaction' < backups/mill-YYYYMMDD-HHMMSS.dump
+docker compose --project-name mill-recovery --env-file recovery.env up --detach --wait
+curl --fail http://localhost:4322/health/ready
+```
 
-When the recovery check is complete, remove only that project:
+Run the second command only after restore succeeds. Keep the API and UI stopped if restore fails. Do not run this empty-database recipe against an existing workspace.
+
+Sign in at the recovery URL and check a board, task, comment, member, notification and a client credential that you can safely test. OAuth may require reconnection if its resource URL points to the original installation. Password sign-in works at the recovery origin; physical passkeys stay bound to their original origin. To test production passkeys, use the original HTTPS origin in a controlled recovery environment.
+
+After the rehearsal, remove only the disposable recovery project:
 
 ```sh
 docker compose --project-name mill-recovery --env-file recovery.env down --volumes
 ```
 
-## Replace an existing installation
+## Recover the running installation
 
-Put the installation into maintenance, make a backup of its current state, and double-check the explicit target. Add `--replace` only when you intend to replace that project's database:
+Put the public UI into maintenance. Back up the existing database before replacing it, then stop **both `api` and `web`**. Restore to a separate project first using the compatible images, verify it, and switch the HTTPS proxy to its UI. Retain the original database until the recovered installation is confirmed.
+
+If you deliberately need to replace an existing database, use PostgreSQL's documented restore process or the reviewed repository helper with explicit project confirmation. Do not add `--clean` casually to a restore command: it removes existing database objects.
+
+## Optional repository helpers
+
+Operators who keep a source checkout can use the guarded scripts. They create private backup files, reject overwrite, validate the archive and require explicit target confirmation:
 
 ```sh
-bash tools/restore.sh --project mill --confirm-project mill --env-file .env --input backups/mill-2026-09-28.dump --replace
+bash tools/backup.sh --project mill --env-file .env --output backups/mill.dump
+bash tools/restore.sh --project mill-recovery --confirm-project mill-recovery --env-file recovery.env --input backups/mill.dump
 ```
 
-Use the application version compatible with the backup and check `/health/ready` after the restore. PostgreSQL dumps are not a substitute for testing a major-version database upgrade. See [upgrades](upgrades.md).
+The restore helper stops both API and UI, rejects a nonempty target unless `--replace` is explicitly supplied, restores in one transaction, and starts both services only after success. A failed restore leaves them stopped. These helpers are optional; a published-image installation does not require them.
 
-## Work from older versions
-
-Keep a full backup from before the list-only migration if you need to recover the earlier model. [Upgrade guidance](upgrades.md) explains how existing tasks and former subtasks become independent tasks and how old status names are mapped. Restoring an older dump requires its compatible application version before applying newer migrations. Historical portable JSON files have no importer in v1; retain them separately if needed, but use a database backup for supported recovery.
+See [upgrades](upgrades.md) for schema compatibility and private pre-launch conversion. Historical portable JSON exports have no importer in v1; retain them separately if needed, but use database backups for supported recovery.

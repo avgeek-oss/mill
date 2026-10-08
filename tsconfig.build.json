@@ -3,6 +3,8 @@
   "compilerOptions": { "noEmit": false, "outDir": "dist", "rootDir": "." },
   "include": [
     "apps/api/**/*.ts",
+    "apps/shared/**/*.ts",
+    "apps/web-server/**/*.ts",
     "packages/database/**/*.ts",
     "packages/contracts/**/*.ts"
   ],

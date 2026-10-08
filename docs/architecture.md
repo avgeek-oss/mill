@@ -1,6 +1,6 @@
 # Mill v1 architecture and interfaces
 
-Mill runs one Hono HTTP service serving the built React application, REST API, and MCP endpoint, with PostgreSQL as its only required backing service. Node 24 and pnpm 11.5.3 are pinned. The web app uses the public `@avgeek-oss/design-system` package through GitHub Packages alongside local Mill components; a source build needs GitHub Packages authentication, while a built image does not. No hosted runtime, separate queue service, or LLM key is needed.
+Mill runs a private Hono API service, a separate UI service, and PostgreSQL. The API owns REST, authentication, MCP, persistence and migrations. The UI serves the built React application and forwards API, OAuth, health and streaming MCP requests to the API at the same browser origin. Node 24 and pnpm 11.5.3 are pinned. The web app uses the public `@avgeek-oss/design-system` package through GitHub Packages alongside local Mill components; a source build needs GitHub Packages authentication, while a built image does not. No hosted runtime, separate queue service, or LLM key is needed.
 
 ## Current product model
 

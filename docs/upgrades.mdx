@@ -3,64 +3,51 @@ title: "Upgrades"
 description: "Migrate an existing installation with a tested backup."
 ---
 
-Read the new version's release notes before changing an installation. Record your current source commit or immutable image digest, then make and test a [full backup](/backup).
+Read the new version's release notes, record your current API and UI image versions or digests, and make a tested [full backup](/backup) before upgrading. Preserve `MILL_SECRET`, the database password and the PostgreSQL volume.
 
-## The first release
+## Upgrade published images
 
-Mill 1.0.0 uses one `001_initial.sql` migration that creates the supported schema directly. There is no earlier public release to upgrade from. Private pre-launch builds used a different migration sequence; the server rejects those ledgers rather than applying the new baseline over existing tables. Stop the old application and follow the maintainer's pre-launch conversion procedure before using this build. Keep the retained original schema and a tested full backup.
+Download the new release's `docker-compose.yml` and `.env.example` into a temporary directory. Compare the configuration options with your installation and apply any required changes. Do not overwrite your existing `.env` or replace its secrets with the empty example values.
 
-After 1.0.0 is published, applied migrations remain unchanged. Later versions add forward migrations, and their release notes describe compatibility and any required operator steps. Never edit `mill_migrations` or an applied SQL file to bypass a startup error.
-
-## Check client access
-
-Personal REST keys use the human owner's current membership and role. MCP OAuth connections also enforce approved scopes and optional board restrictions. Test a connection's permitted boards and denied actions after changing the installation. Revoking a connection or removing its owner ends access immediately.
-
-## Task visibility
-
-The default task list hides Done and Won't Do tasks after 24 hours in their current status. An explicit Status filter includes older matching tasks, and direct task links continue to work. Search, totals and pagination use the same rule. Status changes restart the clock; unrelated edits preserve it. This does not delete tasks.
-
-## Upgrade a source installation
+Set `MILL_VERSION` in your existing `.env` to the new published version, without `v`. Keep the API and UI on that same version. If `MILL_API_IMAGE` or `MILL_WEB_IMAGE` digest overrides are set, update both from the new release's `mill-images.json`; an override takes precedence over `MILL_VERSION`.
 
 ```sh
-bash tools/backup.sh --project mill --env-file .env --output backups/before-upgrade.dump
-git fetch --tags origin
-git checkout <reviewed-release-tag-or-commit>
-node tools/with-package-token.mjs docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-source.yml build --pull mill
-docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-source.yml up --no-build --detach --wait --wait-timeout 180
-curl --fail http://127.0.0.1:4321/health/ready
+docker compose --project-name mill pull api web
+docker compose --project-name mill up --detach --wait --wait-timeout 180
+curl --fail http://localhost:4321/health/ready
 ```
 
-Replace the placeholder with the exact reviewed revision. Keep `.env` and the PostgreSQL volume. Mill applies new migrations at startup and checks the hashes of old ones. Test sign-in, a board, a task edit, and client access after readiness succeeds.
+The API applies new migrations at startup and verifies old migration checksums. The UI waits for a healthy API. After readiness succeeds, test sign-in, a board, a task edit, notifications and any REST/MCP clients you rely on. Image pulls and readiness alone do not prove your team's workflow.
 
-## Upgrade a published image
+The publisher verifies both images on native AMD64 and ARM64 hosts, including installation, restart, database recovery, HTTPS proxy behavior and image security. Review the release notes and evidence before pointing an existing database at a new release.
 
-Choose a published release and read its notes. Back up the existing database before changing the installation:
+## The first public release
 
-```sh
-bash tools/backup.sh --project mill --env-file .env --output backups/before-upgrade.dump
-git fetch --tags origin
-release_tag=v1.0.1 # replace with the published release tag
-git checkout "$release_tag"
-curl --fail --location --output mill-images.json "https://github.com/avgeek-oss/mill/releases/download/$release_tag/mill-images.json"
-test "$(jq -r .version mill-images.json)" = "$release_tag"
-test "$(jq -r .commit mill-images.json)" = "$(git rev-parse HEAD)"
-jq -e '.platforms == ["linux/amd64", "linux/arm64"] and (.image | test("^ghcr[.]io/avgeek-oss/mill@sha256:[0-9a-f]{64}$"))' mill-images.json
-```
+The proposed first public release is `1.0.1`. Its schema starts with the immutable `001_initial.sql` baseline and the forward `002_key_policies.sql` migration. There is no earlier public release to upgrade from.
 
-Set the existing `.env` file's `MILL_IMAGE` line to the manifest's `image` value. Keep exactly one `MILL_IMAGE` line and preserve every other setting and the PostgreSQL volume. The [installation guide](/installation#install-a-published-image) shows an anonymous image check. Then pull and start the new digest:
+Private pre-launch builds used a different migration sequence. The API rejects those ledgers rather than applying the new baseline over existing tables. Stop the old application and follow the maintainer's [pre-launch conversion procedure](https://github.com/avgeek-oss/mill/blob/main/docs/rebase-prelaunch.md). Retain the original schema and a tested full backup. Never edit `mill_migrations` or an applied SQL file to bypass a startup error.
 
-```sh
-docker compose --project-name mill --env-file .env pull mill
-docker compose --project-name mill --env-file .env up --no-build --detach --wait --wait-timeout 180
-curl --fail http://127.0.0.1:4321/health/ready
-```
+After publication, changes use new forward migrations; release notes describe compatibility and any required operator steps.
 
-The release workflow verifies the registry image on native AMD64 and ARM64 hosts, including installation, restart, and database recovery. Review its evidence and the release notes for any compatibility limits before pointing an existing database at the new image. The separate review-artifact workflow creates architecture-specific archives for inspection; those are not the published installation path.
+## Check client access and task visibility
+
+Personal keys enforce their stored grant and the human owner's active membership and current role. Team keys enforce their stored team grant. MCP OAuth connections also enforce their owner's membership, approved scopes and optional board restrictions. Test allowed and denied actions after an upgrade.
+
+The default task list hides Done and Won't Do tasks after 24 hours in their current status. Explicit Status filters and direct task links still reach them. This rule does not delete tasks; unrelated edits do not reset the clock.
 
 ## Roll back
 
-An older application image may not support an upgraded schema. Do not point it at the new database unless the release notes explicitly confirm compatibility. Restore the pre-upgrade backup into a separate project with the matching old image first. Verify the data, then move the original HTTPS proxy to the recovered service during maintenance.
+An older API may not support an upgraded database schema. Do not point it at the new database unless the release notes explicitly confirm compatibility. Restore the pre-upgrade backup into a separate project using the matching old API and UI images. Verify the data and workflow, then move the original HTTPS proxy to the recovered UI during maintenance.
 
-Database major-version upgrades need a tested PostgreSQL upgrade plan. Changing the container tag across majors while reusing a volume is not a supported shortcut.
+PostgreSQL major-version upgrades require a tested database upgrade plan. Changing the container tag across majors while reusing a volume is not a supported shortcut.
 
-Fresh installation, repeated startup, backup/restore, permissions and production container checks must pass for the reviewed release. Private pre-launch conversion is verified separately from the public upgrade path.
+## Contributor source builds
+
+Source builds are optional for contributors, not required for a normal installation. In a checkout of the reviewed revision, use the [package registry credentials](/package-registry), contributor configuration and explicit source-build overlay:
+
+```sh
+node tools/with-package-token.mjs docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-source.yml build --pull api web
+docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-source.yml up --no-build --detach --wait --wait-timeout 180
+```
+
+Back up first and verify the same workflow and recovery checks. Source builds do not change migration compatibility or secret-preservation requirements.

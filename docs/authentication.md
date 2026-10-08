@@ -84,16 +84,10 @@ Adding or removing a factor ends other browser sessions and invalidates pending 
 
 With SMTP configured, use **Forgot password** to request a one-time reset link. The public acknowledgement does not disclose whether an address belongs to an account. Password recovery leaves registered passkeys in place; a reset link is not a substitute for a lost passkey.
 
-Operator account recovery also works without an email provider. Contact the person operating your Mill installation. They run this command inside the installed application directory, with the same database and secret configuration as the server:
+Operator account recovery also works without an email provider. Contact the person operating your Mill installation. For an image-based installation, they run this command from the Compose installation directory using the API service's existing database and secret configuration:
 
 ```sh
-pnpm recover-account --email person@example.com
-```
-
-For the production Compose installation:
-
-```sh
-docker compose --project-name mill --env-file .env exec -T mill node dist/apps/api/src/auth/recovery-cli.js --email person@example.com
+docker compose --project-name mill --env-file .env exec -T api node dist/apps/api/src/auth/recovery-cli.js --email person@example.com
 ```
 
 The command prints a private, single-use link valid for thirty minutes. Share it privately with the account owner. The link grants password-reset access, so keep it out of tickets, screenshots, shared terminal recordings and ordinary logs. Mill stores only a hash of the link token.
@@ -101,8 +95,10 @@ The command prints a private, single-use link valid for thirty minutes. Share it
 When passkeys and their recovery codes have been lost, the operator can explicitly remove those factors:
 
 ```sh
-pnpm recover-account --email person@example.com --reset-mfa
+docker compose --project-name mill --env-file .env exec -T api node dist/apps/api/src/auth/recovery-cli.js --email person@example.com --reset-mfa
 ```
+
+In a contributor checkout, `pnpm recover-account --email person@example.com` uses the development database configuration. Add `--reset-mfa` there only for the same explicit recovery case.
 
 The owner follows the link, chooses a new password and signs in again. Completing recovery ends all browser sessions, invalidates pending challenges and recovery links, and revokes the owner's API keys and OAuth connections. `--reset-mfa` also removes passkeys and their recovery codes. Add new passkeys and issue new credentials afterward. Issuing a link alone does not change the account.
 

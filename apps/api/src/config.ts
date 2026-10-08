@@ -2,6 +2,7 @@ import { z } from "zod";
 import { isIP } from "node:net";
 const schema = z
   .object({
+    MILL_SERVE_WEB: z.enum(["true", "false"]).default("true"),
     MILL_TRUSTED_PROXY_IPS: z
       .string()
       .default("")

@@ -2,17 +2,21 @@
 
 ## Compose rejects a variable
 
-Generate `.env` with `node tools/init-env.mjs` and use `--env-file .env` in the command. The generator refuses to overwrite a file. If one exists, inspect its required variable names without sharing its values. `POSTGRES_PASSWORD`, `MILL_SECRET`, and `MILL_BASE_URL` cannot be blank.
+Copy `.env.example` to `.env` next to `docker-compose.yml`, then fill in `POSTGRES_PASSWORD` and `MILL_SECRET` with different random values. Compose reads this file automatically. Use `--env-file /path/to/your.env` when it lives elsewhere. Check that `MILL_BASE_URL` is the correct browser origin and `MILL_VERSION` names a published release. Do not share secret values when reporting an error.
+
+## An image cannot be pulled
+
+Check that `MILL_VERSION` matches a published release, without its `v` prefix. Both `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` must allow anonymous pulls. A proposed release is not a published image. If you use digest overrides, copy `images.api` and `images.web` from the same release's `mill-images.json`; do not mix versions.
 
 ## Mill does not become ready
 
 ```sh
 docker compose --project-name mill --env-file .env ps
-docker compose --project-name mill --env-file .env logs --tail 100 postgres mill
+docker compose --project-name mill --env-file .env logs --tail 100 postgres api web
 curl --include http://127.0.0.1:4321/health/ready
 ```
 
-Check PostgreSQL health, the application's migration error, and disk space. If the port is in use, stop the conflicting service or change `MILL_PORT` and `MILL_BASE_URL` together. Do not delete volumes or migration records to clear an error.
+Check PostgreSQL health, the API's migration error, the UI's private `MILL_API_URL`, and disk space. A UI readiness failure can mean its API is unreachable. Keep API and UI on the same release version. If the port is in use, stop the conflicting service or change `MILL_PORT` and `MILL_BASE_URL` together. Do not delete volumes or migration records to clear an error.
 
 ## Sign-in works locally but fails through the proxy
 

@@ -16,7 +16,14 @@ function member(archive, name) {
   );
   return result.stdout;
 }
-export function inspectImageArchive(archive, { version, platform, revision }) {
+export function inspectImageArchive(
+  archive,
+  { version, platform, revision, component },
+) {
+  assert.ok(
+    ["api", "web"].includes(component),
+    "Release image component must be api or web",
+  );
   const manifest = JSON.parse(
     member(archive, "manifest.json").toString("utf8"),
   );
@@ -27,7 +34,7 @@ export function inspectImageArchive(archive, { version, platform, revision }) {
   );
   const [image] = manifest;
   const architecture = platform.split("/")[1];
-  const tag = `mill:${version}-${architecture}`;
+  const tag = `mill-${component}:${version}-${architecture}`;
   assert.deepEqual(
     image.RepoTags,
     [tag],

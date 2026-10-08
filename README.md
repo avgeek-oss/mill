@@ -1,6 +1,6 @@
 # Mill
 
-Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs one web/API service and PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
+Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs PostgreSQL, an API image, and a UI image. You own the data; everyday task management needs no LLM key or paid service.
 
 Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, and activity. Team members use Admin, Member, or Viewer access.
 
@@ -8,39 +8,39 @@ Personal and team API keys have explicit Read-only, Edit, or Administrative perm
 
 ![Mill task list with sample tasks, statuses, assignees and filters](docs/assets/screenshots/release-v1/board-light.png)
 
-The proposed release is `v1.0.1`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Use a published release and its image manifest for an installation; a proposed tag is not a published image.
+The proposed release is `v1.0.1`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Use a published release for an installation; a proposed tag is not a published image.
 
-The release publisher produces the combined web/API image at `ghcr.io/avgeek-oss/mill`. It runs for an existing stable tag on current `main`, verifies exact-commit CI, and publishes a GitHub release after native AMD64 and ARM64 installation checks pass. The release asset `mill-images.json` records the immutable image digest. See [installation](docs/installation.md) for the public, digest-pinned image path.
+## Install
 
-## Install locally
+You need Docker with Compose v2. Download `docker-compose.yml` and `.env.example` from the same [published release](https://github.com/avgeek-oss/mill/releases), put them in an empty directory, and copy `.env.example` to `.env`.
 
-Install Docker with Compose v2, Git, Node.js 24, `curl`, and `jq`. Choose a tag that has a published GitHub release, then run:
+If you prefer the terminal:
 
 ```sh
-git clone https://github.com/avgeek-oss/mill.git
+mkdir mill
 cd mill
-release_tag=v1.0.1 # replace with the published release tag
-git checkout "$release_tag"
-curl --fail --location --output mill-images.json "https://github.com/avgeek-oss/mill/releases/download/$release_tag/mill-images.json"
-test "$(jq -r .version mill-images.json)" = "$release_tag"
-test "$(jq -r .commit mill-images.json)" = "$(git rev-parse HEAD)"
-image="$(jq -r .image mill-images.json)"
-node tools/init-env.mjs --image "$image"
-docker compose --project-name mill --env-file .env pull mill
-docker compose --project-name mill --env-file .env up --no-build --detach --wait
+release_tag=v1.0.1 # choose a published release
+curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
+curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
+cp .env.example .env
+chmod 600 .env
 ```
 
-Open [localhost:4321](http://localhost:4321), create your workspace and first administrator, and [make your first board](docs/getting-started.md). The setup form is available only until the first administrator exists. Mill has no default account or password.
+In `.env`, fill in `POSTGRES_PASSWORD` and `MILL_SECRET` with different random values. Use 64 hexadecimal characters for each; a password manager or `openssl rand -hex 32` can generate them. Set `MILL_VERSION` to the release you downloaded, without the `v` prefix. Leave the local URL and port defaults for your first installation.
 
-The published image needs no package-registry credentials or source build. To build from source, follow [package registry setup](docs/package-registry.md). GitHub Packages authentication is required for public npm packages used by contributors.
+```sh
+docker compose --project-name mill up --detach --wait
+```
 
-The generated `.env` contains private keys and the database password. Keep it out of Git and save an encrypted copy with your database backups. Stop the services with `docker compose --project-name mill --env-file .env down`. Data stays in the project volume unless you explicitly remove it.
+Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the same version and starts PostgreSQL. Only the UI publishes a host port; it forwards API, authentication and MCP requests privately to the API.
 
-For remote access, generate `.env` with `--base-url` set to your HTTPS origin and configure a reverse proxy as shown in [installation](docs/installation.md). Do not expose the local HTTP installation on the internet.
+Open [localhost:4321](http://localhost:4321), create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
+
+Keep `.env` private and preserve `MILL_SECRET` with your database backups. `docker compose --project-name mill down` stops the containers and keeps the database volume. See [installation](docs/installation.md) for HTTPS hosting, deployment-platform environment variables and optional digest pinning.
 
 ## Develop
 
-The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source and available from npm or GitHub Packages; there is no dependency on another Avgeek checkout. Authenticate to GitHub Packages as described above before installing.
+The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source and available from npm or GitHub Packages; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.
 
 ```sh
 npm install --global pnpm@11.5.3

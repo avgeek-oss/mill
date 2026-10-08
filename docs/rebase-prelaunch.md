@@ -1,6 +1,6 @@
 # Rebase a prelaunch installation
 
-Before publishing v1.0.1, Mill uses one clean migration, `packages/database/migrations/001_initial.sql`. This is a maintainer procedure for the known earlier prelaunch schemas, including the clean baselines immediately before task types and start dates. It is not a general upgrade or import tool. After publication, applied migrations must remain unchanged and future releases must add forward migrations.
+Before publishing v1.0.1, Mill retains the clean `packages/database/migrations/001_initial.sql` baseline and adds the forward `002_key_policies.sql` migration. This is a maintainer procedure for the known earlier prelaunch schemas, including the clean baselines immediately before task types and start dates. It is not a general upgrade or import tool. After publication, applied migrations must remain unchanged and future releases must add forward migrations.
 
 Startup refuses a retired migration ledger without modifying its data. Do not clear the ledger, point the baseline at populated tables, or remove an existing database to get past that guard.
 
@@ -38,6 +38,6 @@ Tasks without a start date receive `null`; all prior task fields remain unchange
 
 ## Review before restarting
 
-Run the normal migration command and confirm that the ledger contains only `001_initial.sql` with its expected checksum. Start Mill and review existing accounts, boards, direct task links, comments, activity and OAuth connections. Check that approved board restrictions still apply and that unassigned tasks remain unassigned.
+Run the normal migration command and confirm that the ledger contains the expected `001_initial.sql` baseline and forward `002_key_policies.sql` migration with their reviewed checksums. Start Mill and review existing accounts, boards, direct task links, comments, activity and OAuth connections. Check that approved board restrictions still apply and that unassigned tasks remain unassigned.
 
 Keep the archive name and the conversion receipt with the local review evidence. Do not present conversion of one local installation as a production upgrade or publication. If restoring an external backup, restore it into a separate database and follow the normal installation and restore verification first.

@@ -23,7 +23,7 @@ pnpm verify:production
 
 Use a disposable PostgreSQL database for `pnpm verify` and provide its `DATABASE_URL` explicitly. Tests create and clear fixture data; never point them at a live workspace. The full check covers documentation links, tooling tests, formatting, lint, types, real PostgreSQL integration tests, production dependency advisories and builds. The quick tests do not replace this check.
 
-The production runner builds the image, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
+The production runner builds the API and UI images, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
 
 The production runner accepts `NODE_AUTH_TOKEN` or your stored GitHub Packages npm login. It passes the credential to BuildKit as a build secret and redacts it from saved evidence. CI uses `GITHUB_TOKEN` with `packages:read`; the shared package must grant the Mill repository Actions access. See [package registry setup](docs/package-registry.md#continuous-integration).
 

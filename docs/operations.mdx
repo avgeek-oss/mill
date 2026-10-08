@@ -8,13 +8,13 @@ Use the same explicit Compose project and environment file for every command. Th
 ```sh
 docker compose --project-name mill --env-file .env ps
 curl --fail http://127.0.0.1:4321/health/ready
-docker compose --project-name mill --env-file .env logs --tail 100 mill
-docker compose --project-name mill --env-file .env restart mill
+docker compose --project-name mill --env-file .env logs --tail 100 api web
+docker compose --project-name mill --env-file .env restart api web
 ```
 
 `/health/live` checks that the HTTP service is responsive. `/health/ready` runs a bounded PostgreSQL check after migration and returns 503 when the database is unavailable. Liveness can still return 200 during that database outage. Health endpoints do not expose configuration or account data. Container readiness and a successful sign-in/task edit prove different things; check both after recovery or upgrades.
 
-Mill runs as the non-root `node` user, with a read-only application filesystem, no added capabilities, and a small temporary directory. PostgreSQL writes to its own persistent volume. There is no Docker socket mount, external process execution, or separate queue service.
+Both Mill images run as the non-root `node` user, with a read-only application filesystem, no added capabilities, and a small temporary directory. PostgreSQL writes to its own persistent volume. There is no Docker socket mount, external process execution, or separate queue service.
 
 ## Migrations
 
@@ -29,7 +29,7 @@ Passkey recovery codes let a person regain ordinary account access after passwor
 This command requires shell and database access to the installation; it is an operator action, not an unauthenticated web endpoint. Save the database first, then run:
 
 ```sh
-docker compose --project-name mill --env-file .env exec -T mill node dist/apps/api/src/auth/recovery-cli.js --email person@example.com
+docker compose --project-name mill --env-file .env exec -T api node dist/apps/api/src/auth/recovery-cli.js --email person@example.com
 ```
 
 Add `--reset-mfa` only when the account owner also lost their second factor. In a development checkout, `pnpm recover-account --email person@example.com` runs the same command against `.env`. Consult `pnpm recover-account --help` for the supported arguments. Do not include recovery links in a terminal recording or support issue.

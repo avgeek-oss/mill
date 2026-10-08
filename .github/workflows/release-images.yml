@@ -1,4 +1,4 @@
-name: Publish release image
+name: Publish release images
 
 on:
   workflow_dispatch:
@@ -43,6 +43,7 @@ jobs:
           version="${RELEASE_TAG#v}"
           test "$(jq -r .version package.json)" = "$version"
           test "$(jq -r .version apps/web/package.json)" = "$version"
+          test "$(jq -r .version apps/web-server/package.json)" = "$version"
           commit="$(git rev-parse 'HEAD^{commit}')"
           test "$(git rev-parse "$RELEASE_TAG^{commit}")" = "$commit"
           if gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft > "$RUNNER_TEMP/release-state"; then
@@ -92,9 +93,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - architecture: amd64
+          - component: api
+            architecture: amd64
             runner: ubuntu-24.04
-          - architecture: arm64
+          - component: api
+            architecture: arm64
+            runner: ubuntu-24.04-arm
+          - component: web
+            architecture: amd64
+            runner: ubuntu-24.04
+          - component: web
+            architecture: arm64
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -110,12 +119,13 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
+          target: ${{ matrix.component }}
           platforms: linux/${{ matrix.architecture }}
-          outputs: type=image,name=ghcr.io/avgeek-oss/mill,push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=ghcr.io/avgeek-oss/mill-${{ matrix.component }},push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=release-mill-${{ matrix.architecture }}
-          cache-to: type=gha,mode=max,scope=release-mill-${{ matrix.architecture }}
+          cache-from: type=gha,scope=release-mill-${{ matrix.component }}-${{ matrix.architecture }}
+          cache-to: type=gha,mode=max,scope=release-mill-${{ matrix.component }}-${{ matrix.architecture }}
           secrets: npm_token=${{ github.token }}
           build-args: |
             SOURCE_COMMIT=${{ needs.prepare.outputs.commit }}
@@ -135,7 +145,7 @@ jobs:
           touch "digests/${DIGEST#sha256:}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: digest-${{ matrix.architecture }}
+          name: digest-${{ matrix.component }}-${{ matrix.architecture }}
           path: digests/*
           if-no-files-found: error
           retention-days: 14
@@ -171,34 +181,39 @@ jobs:
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
           set -euo pipefail
-          sources=()
-          for architecture in amd64 arm64; do
-            files=(digests/digest-"$architecture"/*)
-            test "${#files[@]}" -eq 1
-            digest="$(basename "${files[0]}")"
-            [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
-            sources+=("ghcr.io/avgeek-oss/mill@sha256:$digest")
+          for component in api web; do
+            repository="ghcr.io/avgeek-oss/mill-$component"
+            sources=()
+            for architecture in amd64 arm64; do
+              files=(digests/digest-"$component"-"$architecture"/*)
+              test "${#files[@]}" -eq 1
+              digest="$(basename "${files[0]}")"
+              [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+              sources+=("$repository@sha256:$digest")
+            done
+            docker buildx imagetools create \
+              --tag "$repository:$RELEASE_TAG" \
+              --tag "$repository:$RELEASE_VERSION" \
+              --tag "$repository:$RELEASE_COMMIT" \
+              "${sources[@]}"
           done
-          docker buildx imagetools create \
-            --tag "ghcr.io/avgeek-oss/mill:$RELEASE_TAG" \
-            --tag "ghcr.io/avgeek-oss/mill:$RELEASE_VERSION" \
-            --tag "ghcr.io/avgeek-oss/mill:$RELEASE_COMMIT" \
-            "${sources[@]}"
-      - name: Inspect authenticated registry image and write release manifest
+      - name: Inspect both registry images and write release manifest
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
         run: node tools/release-images.mjs "$RELEASE_TAG" "$RELEASE_COMMIT" mill-images.json
-      - name: Require anonymous access to the immutable release image
+      - name: Require anonymous access to both immutable release images
         run: |
           set -euo pipefail
           anonymous_config="$(mktemp -d)"
           trap 'rm -rf "$anonymous_config"' EXIT
-          image="$(jq -r .image mill-images.json)"
-          if ! DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$image" >/dev/null; then
-            echo '::error::Make the Mill GHCR package public, then rerun this release workflow.'
-            exit 1
-          fi
+          for component in api web; do
+            image="$(jq -r ".images.$component" mill-images.json)"
+            if ! DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$image" >/dev/null; then
+              echo "::error::Make the Mill $component GHCR package public, then rerun this release workflow."
+              exit 1
+            fi
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-images
@@ -237,7 +252,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: release-images
-      - name: Verify the pulled image through the production installation gate
+      - name: Verify both pulled images through the production installation gate
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
@@ -245,8 +260,10 @@ jobs:
           NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          image="$(node --input-type=module -e 'import {readReleaseImages} from "./tools/release-images.mjs"; console.log((await readReleaseImages("mill-images.json", process.env.RELEASE_TAG, process.env.RELEASE_COMMIT)).image)')"
-          MILL_VERIFY_RELEASE_IMAGE="$image" node tools/production-verify.mjs
+          node --input-type=module -e 'import {readReleaseImages} from "./tools/release-images.mjs"; await readReleaseImages("mill-images.json", process.env.RELEASE_TAG, process.env.RELEASE_COMMIT)'
+          MILL_VERIFY_API_IMAGE="$(jq -r .images.api mill-images.json)" \
+          MILL_VERIFY_WEB_IMAGE="$(jq -r .images.web mill-images.json)" \
+          node tools/production-verify.mjs
       - name: Preserve installation and recovery evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

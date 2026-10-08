@@ -1,7 +1,18 @@
 services:
-  mill:
+  api:
+    environment:
+      DATABASE_URL: postgres://mill:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/mill
     build:
       context: .
+      target: api
+      secrets:
+        - npm_token
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
+  web:
+    build:
+      context: .
+      target: web
       secrets:
         - npm_token
       args:

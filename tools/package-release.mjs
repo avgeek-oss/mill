@@ -15,12 +15,18 @@ import { inspectImageArchive } from "./image-archive.mjs";
 const options = new Map();
 for (let index = 2; index < process.argv.length; index += 2)
   options.set(process.argv[index], process.argv[index + 1]);
-const archive = options.get("--image-archive");
+const archives = {
+  api: options.get("--api-image-archive"),
+  web: options.get("--web-image-archive"),
+};
 const platform = options.get("--platform");
 const output = options.get("--output");
 assert.ok(
-  archive && output && ["linux/amd64", "linux/arm64"].includes(platform),
-  "Usage: node tools/package-release.mjs --image-archive image.tar --platform linux/amd64 --output directory",
+  archives.api &&
+    archives.web &&
+    output &&
+    ["linux/amd64", "linux/arm64"].includes(platform),
+  "Usage: node tools/package-release.mjs --api-image-archive api.tar --web-image-archive web.tar --platform linux/amd64 --output directory",
 );
 function git(args) {
   const result = spawnSync("git", args, { encoding: "utf8" });
@@ -34,15 +40,20 @@ assert.equal(
   "Package only a clean reviewed commit",
 );
 const { version } = JSON.parse(await readFile("package.json", "utf8"));
-const imageMetadata = inspectImageArchive(archive, {
-  version,
-  platform,
-  revision,
-});
 const directory = resolve(output);
 await mkdir(directory, { recursive: false });
-const imageFile = `mill-${version}-${platform.split("/")[1]}.tar`;
-await copyFile(archive, join(directory, imageFile));
+const images = {};
+for (const [component, archive] of Object.entries(archives)) {
+  const metadata = inspectImageArchive(archive, {
+    version,
+    platform,
+    revision,
+    component,
+  });
+  const imageFile = `mill-${component}-${version}-${platform.split("/")[1]}.tar`;
+  await copyFile(archive, join(directory, imageFile));
+  images[component] = { archive: imageFile, ...metadata };
+}
 const sourceFile = `mill-${version}-source.tar.gz`;
 const source = spawnSync(
   "git",
@@ -90,10 +101,9 @@ await writeFile(
       version,
       revision,
       platform,
-      imageArchive: imageFile,
+      images,
       sourceArchive: sourceFile,
       sourceManifest: "source-manifest.json",
-      ...imageMetadata,
       publication:
         "Review artifact only. This workflow does not publish a registry image or deploy Mill.",
     },

@@ -25,7 +25,7 @@ if [[ "$existing" != "0" && "$replace" != "true" ]]; then
   exit 2
 fi
 echo "Stopping Mill in project $project for database restore."
-"${compose[@]}" stop mill
+"${compose[@]}" stop api web
 "${compose[@]}" exec -T postgres sh -c 'exec pg_restore --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --clean --if-exists --no-owner --no-acl --exit-on-error --single-transaction' <"$input"
-"${compose[@]}" up --detach --wait --wait-timeout 180 mill
+"${compose[@]}" up --detach --wait --wait-timeout 180 api web
 echo "Restored project $project. Check /health/ready and sign in to verify your boards."
