@@ -7,7 +7,6 @@ import {
   type IncomingHttpHeaders,
 } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { isIP } from "node:net";
 import { registerStaticRoutes } from "../../shared/static.js";
 import { httpSecurity } from "../../shared/security.js";
 
@@ -27,15 +26,7 @@ export function webConfiguration(environment = process.env) {
   const port = Number(environment.PORT ?? 4322);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("PORT must be between 1 and 65535");
-  const trustedProxies = (environment.MILL_WEB_TRUSTED_PROXY_IPS ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean);
-  if (trustedProxies.some((value) => !isIP(value)))
-    throw new Error(
-      "MILL_WEB_TRUSTED_PROXY_IPS must contain exact IP addresses",
-    );
-  return { api, port, trustedProxies };
+  return { api, port };
 }
 
 function endToEndHeaders(source: IncomingHttpHeaders) {
@@ -89,20 +80,9 @@ export function createWebServer(
       void staticListener(incoming, outgoing);
       return;
     }
-    const peer = incoming.socket.remoteAddress?.replace(/^::ffff:/, "") ?? "";
-    const forwarded = incoming.headers["x-forwarded-for"]
-      ?.toString()
-      .split(",")
-      .at(-1)
-      ?.trim();
     const headers = endToEndHeaders(incoming.headers);
     delete headers.forwarded;
-    headers["x-forwarded-for"] =
-      configuration.trustedProxies.includes(peer) &&
-      forwarded &&
-      isIP(forwarded)
-        ? forwarded
-        : peer;
+    delete headers["x-forwarded-for"];
     const request =
       configuration.api.protocol === "https:" ? httpsRequest : httpRequest;
     const upstream = request(

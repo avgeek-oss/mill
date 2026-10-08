@@ -512,11 +512,10 @@ for (const action of ["remove", "downgrade"] as const) {
     changeAccessWhileWriteWaits(action, "personal-key"));
 }
 
-test("anonymous rate limits isolate actual peers and ignore untrusted forwarded headers", async () => {
+test("anonymous rate limits isolate socket peers and ignore claimed client-address headers", async () => {
   const { app } = await import("../apps/api/src/app.js");
   const { IncomingMessage } = await import("node:http");
   const { Socket } = await import("node:net");
-  const previous = process.env.MILL_TRUSTED_PROXY_IPS;
   const fromPeer = async (peer: string, forwarded?: string) => {
     const socket = new Socket();
     Object.defineProperty(socket, "remoteAddress", { value: peer });
@@ -524,7 +523,13 @@ test("anonymous rate limits isolate actual peers and ignore untrusted forwarded 
     try {
       return await app.fetch(
         new Request("http://localhost:4321/api/auth/status", {
-          headers: forwarded ? { "X-Forwarded-For": forwarded } : {},
+          headers: forwarded
+            ? {
+                "X-Forwarded-For": forwarded,
+                "CF-Connecting-IP": forwarded,
+                "X-Real-IP": forwarded,
+              }
+            : {},
         }),
         { incoming },
       );
@@ -532,22 +537,17 @@ test("anonymous rate limits isolate actual peers and ignore untrusted forwarded 
       socket.destroy();
     }
   };
-  try {
-    process.env.MILL_TRUSTED_PROXY_IPS = "";
-    await sql`INSERT INTO request_limits(key,count,reset_at) VALUES('anonymous:203.0.113.10',120,now()+interval '1 minute')`;
-    assert.equal((await fromPeer("203.0.113.10", "198.51.100.10")).status, 429);
-    assert.equal((await fromPeer("203.0.113.11", "203.0.113.10")).status, 200);
-    process.env.MILL_TRUSTED_PROXY_IPS = "203.0.113.10";
-    assert.equal((await fromPeer("203.0.113.10", "198.51.100.10")).status, 200);
-    await sql`UPDATE request_limits SET count=120 WHERE key='anonymous:198.51.100.10'`;
-    assert.equal(
-      (await fromPeer("203.0.113.10", "198.51.100.20, 198.51.100.10")).status,
-      429,
-    );
-  } finally {
-    if (previous === undefined) delete process.env.MILL_TRUSTED_PROXY_IPS;
-    else process.env.MILL_TRUSTED_PROXY_IPS = previous;
-  }
+  await sql`INSERT INTO request_limits(key,count,reset_at) VALUES('anonymous:203.0.113.10',120,now()+interval '1 minute')`;
+  assert.equal((await fromPeer("203.0.113.10", "198.51.100.10")).status, 429);
+  assert.equal((await fromPeer("203.0.113.11", "203.0.113.10")).status, 200);
+  assert.equal(
+    (await fromPeer("::ffff:203.0.113.10", "198.51.100.20")).status,
+    429,
+  );
+  assert.equal(
+    (await fromPeer("203.0.113.10", "198.51.100.20, 198.51.100.10")).status,
+    429,
+  );
 });
 
 test("retrying credential creation returns the same secret while encrypting stored retry responses", async () => {

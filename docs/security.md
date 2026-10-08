@@ -1,6 +1,6 @@
 # Security
 
-Use HTTPS for every remote installation. Keep the Mill HTTP service bound to a private address behind your reverse proxy, and keep PostgreSQL private. Set `MILL_BASE_URL` to the exact public origin. The default proxy behavior ignores untrusted forwarded addresses. See [configuration](configuration.md) if you need advanced client-address forwarding.
+Use HTTPS for every remote installation. Keep the Mill HTTP service bound to a private address behind your reverse proxy, and keep PostgreSQL private. Set `MILL_BASE_URL` to the exact public origin. Authenticated request limits use the account or API credential. Anonymous address limits use the direct connection address, so requests arriving through the same UI service share an address limit.
 
 Protect `.env`, the Docker host, and full database backups. A backup contains accounts, password hashes, client credential records, and encrypted authentication data. Preserve the original `MILL_SECRET` in your recovery plan so a restore can read protected values. Store encrypted backup copies away from the host and [practice a restore](backup.md#back-up-an-existing-or-managed-database).
 

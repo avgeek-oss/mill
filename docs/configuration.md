@@ -24,12 +24,6 @@ Remote access requires HTTPS. Local HTTP OAuth is permitted automatically only f
 
 The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys. A base URL change can invalidate passkey origin checks; read [operations](operations.md) before changing an established installation's URL.
 
-## Advanced: forwarded client addresses
-
-Proxy trust is optional and defaults to empty. Mill ignores forwarded client addresses from untrusted connections, preventing a client from choosing its own address to bypass rate limits. A normal installation works with the defaults.
-
-If you need per-client address throttling behind a controlled HTTPS proxy, `MILL_WEB_TRUSTED_PROXY_IPS` lists the exact proxy peer IPs seen by the UI, and `MILL_TRUSTED_PROXY_IPS` lists the exact UI peer IPs seen by the API. Configure them in the respective service environments, not in the basic installation file. Trust only peers you control; keep the API and database private.
-
 ## Notifications
 
 Mill v1 uses in-app assignment and mention notifications; task email notifications are excluded. Identity and invitation email is optional. Configure `MILL_SMTP_HOST` and `MILL_SMTP_FROM` together to enable verification links, email changes, password reset links, and invitation email verification. `MILL_SMTP_FROM` is a plain email address. `MILL_SMTP_PORT` defaults to 587; `MILL_SMTP_SECURE=false` requires STARTTLS for remote hosts, while `true` uses implicit TLS (usually port 465). Configure `MILL_SMTP_USER` and `MILL_SMTP_PASSWORD` together when authentication is required. Certificate validation stays enabled; only exact loopback SMTP hosts may use a plaintext development fixture.

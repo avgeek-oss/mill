@@ -102,7 +102,7 @@ Images read runtime environment variables directly. A platform or secret manager
 | API     | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_BASE_URL`. Private port `4321`.                          |
 | UI      | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` only if the private API origin differs from `http://api:4321`. UI port `4322`. |
 
-Use your PostgreSQL instance's connection URL as `DATABASE_URL`. Keep the API and UI at the same release version, and route the public HTTPS hostname to the UI. Optional email and advanced proxy settings are covered in [configuration](/configuration).
+Use your PostgreSQL instance's connection URL as `DATABASE_URL`. Keep the API and UI at the same release version, and route the public HTTPS hostname to the UI. Optional email settings are covered in [configuration](/configuration).
 
 ## Optional: pin images by digest
 

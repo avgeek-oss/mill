@@ -23,7 +23,7 @@ async function close(server: Server) {
   );
 }
 
-test("UI configuration needs only its API origin and rejects invalid proxy settings", () => {
+test("UI configuration needs only its API origin and rejects invalid origins or ports", () => {
   assert.equal(webConfiguration({}).api.origin, "http://api:4321");
   for (const value of [
     "file:///etc/passwd",
@@ -32,12 +32,9 @@ test("UI configuration needs only its API origin and rejects invalid proxy setti
   ])
     assert.throws(() => webConfiguration({ MILL_API_URL: value }));
   assert.throws(() => webConfiguration({ PORT: "0" }));
-  assert.throws(() =>
-    webConfiguration({ MILL_WEB_TRUSTED_PROXY_IPS: "10.0.0.0/8" }),
-  );
 });
 
-test("UI serves client routes and proxies API bodies, cookies and trusted client addresses", async () => {
+test("UI serves client routes and proxies API bodies and cookies without forwarding client-address headers", async () => {
   const root = await mkdtemp(join(tmpdir(), "mill-web-server-"));
   await writeFile(join(root, "index.html"), "<html>Mill UI fixture</html>");
   const api = createServer(async (request, response) => {
@@ -65,14 +62,6 @@ test("UI serves client routes and proxies API bodies, cookies and trusted client
     webConfiguration({ MILL_API_URL: upstream }),
   );
   const origin = await listen(web);
-  const trustedWeb = createWebServer(
-    root,
-    webConfiguration({
-      MILL_API_URL: upstream,
-      MILL_WEB_TRUSTED_PROXY_IPS: "127.0.0.1",
-    }),
-  );
-  const trustedOrigin = await listen(trustedWeb);
   try {
     for (const path of [
       "/",
@@ -102,6 +91,7 @@ test("UI serves client routes and proxies API bodies, cookies and trusted client
           "Content-Type": "application/json",
           Cookie: "session=synthetic",
           "X-Forwarded-For": "203.0.113.42",
+          Forwarded: "for=203.0.113.42",
         },
         body: '{"name":"synthetic"}',
       });
@@ -113,7 +103,8 @@ test("UI serves client routes and proxies API bodies, cookies and trusted client
       assert.equal(actual.headers.origin, origin);
       assert.equal(actual.headers.host, new URL(origin).host);
       assert.equal(actual.headers.cookie, "session=synthetic");
-      assert.equal(actual.headers["x-forwarded-for"], "127.0.0.1");
+      assert.equal(actual.headers["x-forwarded-for"], undefined);
+      assert.equal(actual.headers.forwarded, undefined);
     }
     await new Promise<void>((resolve, reject) => {
       const request = httpRequest(
@@ -153,13 +144,6 @@ test("UI serves client routes and proxies API bodies, cookies and trusted client
       request.end();
     });
     assert.equal((await fetch(`${origin}/`)).status, 200);
-    const trusted = await fetch(`${trustedOrigin}/api/boards`, {
-      headers: { "X-Forwarded-For": "198.51.100.1, 203.0.113.42" },
-    });
-    assert.equal(
-      (await trusted.json()).headers["x-forwarded-for"],
-      "203.0.113.42",
-    );
     await close(api);
     const unavailable = await fetch(`${origin}/api/boards`);
     assert.equal(unavailable.status, 503);
@@ -167,7 +151,6 @@ test("UI serves client routes and proxies API bodies, cookies and trusted client
   } finally {
     if (api.listening) await close(api);
     await close(web);
-    await close(trustedWeb);
     await rm(root, { recursive: true, force: true });
   }
 });
