@@ -1,4 +1,5 @@
 import { QueryFeedback } from "./query-feedback.js";
+import { ErrorPage } from "./error-page.js";
 import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
 import { Add01Icon, ClipboardListIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -42,14 +43,23 @@ export function BoardsPage({
           )
         }
       />
-      {error && (
+      {error && !boards.length ? (
+        <ErrorPage
+          code="500"
+          title="Boards unavailable"
+          description={error}
+          pending={pending}
+          showBoards={false}
+          onRetry={onRetry}
+        />
+      ) : error ? (
         <QueryFeedback
           message={error}
           onRetry={() => {
             if (!pending) onRetry();
           }}
         />
-      )}
+      ) : null}
       {boards.length ? (
         <ul
           aria-label="Boards"

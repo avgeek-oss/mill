@@ -6,14 +6,21 @@ const options = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--file", "--base-url", "--port"].includes(key) || !value) {
+  if (!["--file", "--base-url", "--port", "--image"].includes(key) || !value) {
     throw new Error(
-      "Usage: node tools/init-env.mjs [--file .env] [--base-url http://localhost:4321] [--port 4321]",
+      "Usage: node tools/init-env.mjs [--file .env] [--base-url http://localhost:4321] [--port 4321] [--image ghcr.io/avgeek-oss/mill@sha256:<digest>]",
     );
   }
   options.set(key, value);
 }
 const port = options.get("--port") ?? "4321";
+const image = options.get("--image") ?? "mill:local";
+if (
+  options.has("--image") &&
+  !/^ghcr\.io\/avgeek-oss\/mill@sha256:[0-9a-f]{64}$/.test(image)
+) {
+  throw new Error("Release image must be an immutable Mill GHCR digest");
+}
 if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
   throw new Error("Port must be between 1 and 65535");
 }
@@ -49,7 +56,7 @@ await writeFile(
     `ALLOW_INSECURE_LOCALHOST=${baseUrl.protocol === "http:" && loopback}`,
     "MILL_TRUSTED_PROXY_IPS=",
     `DATABASE_URL=postgres://mill:${password}@127.0.0.1:55432/mill`,
-    "MILL_IMAGE=mill:local",
+    `MILL_IMAGE=${image}`,
     "",
   ].join("\n"),
   { flag: "wx", mode: 0o600 },

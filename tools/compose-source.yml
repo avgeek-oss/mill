@@ -1,0 +1,12 @@
+services:
+  mill:
+    build:
+      context: .
+      secrets:
+        - npm_token
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
+
+secrets:
+  npm_token:
+    environment: NODE_AUTH_TOKEN

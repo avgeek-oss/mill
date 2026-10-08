@@ -82,15 +82,3 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           node -e 'for (const [name, job] of Object.entries(JSON.parse(process.env.RESULTS))) { if (job.result !== "success") { console.error(name + ": " + job.result); process.exitCode = 1; } }'
-
-  private-release-artifacts:
-    name: Prepare private native artifacts
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/codex/') && github.event.repository.private == true && needs.required-ci.result == 'success'
-    needs: required-ci
-    permissions:
-      contents: read
-      checks: read
-      packages: read
-    uses: ./.github/workflows/release-artifacts.yml
-    with:
-      source_revision: ${{ github.sha }}

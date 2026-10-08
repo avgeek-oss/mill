@@ -325,14 +325,6 @@ export function TaskPage({
     />
   );
   if (!editor.loading && (!task || !values)) {
-    if (![403, 404].includes(editor.loadErrorStatus)) {
-      return (
-        <QueryFeedback
-          message={error || "This task could not be opened."}
-          onRetry={() => void editor.reload()}
-        />
-      );
-    }
     return loadFailure;
   }
   if (task && task.boardId !== boardId)

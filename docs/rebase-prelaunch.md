@@ -1,6 +1,6 @@
 # Rebase a prelaunch installation
 
-Before publishing v1.0.0, Mill uses one clean migration, `packages/database/migrations/001_initial.sql`. This is a maintainer procedure for the known earlier prelaunch schemas, including the clean baselines immediately before task types and start dates. It is not a general upgrade or import tool. After publication, applied migrations must remain unchanged and future releases must add forward migrations.
+Before publishing v1.0.1, Mill uses one clean migration, `packages/database/migrations/001_initial.sql`. This is a maintainer procedure for the known earlier prelaunch schemas, including the clean baselines immediately before task types and start dates. It is not a general upgrade or import tool. After publication, applied migrations must remain unchanged and future releases must add forward migrations.
 
 Startup refuses a retired migration ledger without modifying its data. Do not clear the ledger, point the baseline at populated tables, or remove an existing database to get past that guard.
 

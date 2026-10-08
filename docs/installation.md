@@ -1,38 +1,47 @@
 # Installation
 
-Mill needs Docker with the Compose v2 plugin, Git, and Node.js 24 to generate configuration. The production image builds the frontend and server together. PostgreSQL is the only required backing service.
+Mill needs Docker with the Compose v2 plugin, Git, Node.js 24, `curl`, and `jq`. A published image contains the frontend and server together. PostgreSQL is the only required backing service.
 
-## Local installation
+## Install a published image
+
+Choose a tag from [Mill releases](https://github.com/avgeek-oss/mill/releases) that has a `mill-images.json` asset. The proposed `v1.0.1` tag is usable only after publication. The manifest names the image by immutable digest; keep it with your installation records. Use the matching tag for Compose and maintenance scripts.
 
 ```sh
 git clone https://github.com/avgeek-oss/mill.git
 cd mill
-npm login --scope=@avgeek-oss --registry=https://npm.pkg.github.com --auth-type=legacy
-node tools/init-env.mjs
-node tools/with-package-token.mjs docker compose --project-name mill --env-file .env up --build --detach --wait
+release_tag=v1.0.1 # replace with the published release tag
+git checkout "$release_tag"
+curl --fail --location --output mill-images.json "https://github.com/avgeek-oss/mill/releases/download/$release_tag/mill-images.json"
+test "$(jq -r .version mill-images.json)" = "$release_tag"
+test "$(jq -r .commit mill-images.json)" = "$(git rev-parse HEAD)"
+jq -e '.platforms == ["linux/amd64", "linux/arm64"] and (.image | test("^ghcr[.]io/avgeek-oss/mill@sha256:[0-9a-f]{64}$"))' mill-images.json
+image="$(jq -r .image mill-images.json)"
+anonymous_config="$(mktemp -d)"
+DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$image" >/dev/null
+rmdir "$anonymous_config"
+node tools/init-env.mjs --image "$image"
+docker compose --project-name mill --env-file .env pull mill
+docker compose --project-name mill --env-file .env up --no-build --detach --wait
 docker compose --project-name mill --env-file .env ps
 curl --fail http://localhost:4321/health/ready
 ```
 
 Open [localhost:4321](http://localhost:4321). Create a workspace, your name, email, and a strong password. The first account becomes an administrator. There is no default login, and later attempts to repeat setup are rejected.
 
-Use your GitHub username and a classic personal access token with `read:packages` at the npm login prompt. The frontend's public shared design system is hosted in GitHub Packages, which requires authentication even for public npm packages. The wrapper uses your stored login or `NODE_AUTH_TOKEN` and sends it as a BuildKit secret. Registry credentials are needed only while building from source; they do not enter the running application. See [package registry setup](package-registry.md).
+The image pull needs no GitHub login when the GHCR package is public. If the anonymous manifest check fails, the release is not ready for this installation path; the package owner must make the GHCR package public and rerun release verification. No npm token is needed to run the published image. Contributors building from source should follow [package registry setup](package-registry.md).
 
 The generator creates `.env` with owner-only permissions. It refuses to overwrite an existing file. Mill's database volume belongs to the `mill` Compose project, so use `--project-name mill` consistently. `down` stops and removes containers; it leaves the database volume in place. `down --volumes` permanently removes it.
 
-## Install a published image
-
-After a release is published, its `mill-images.json` asset records an immutable `ghcr.io/avgeek-oss/mill@sha256:…` reference for the combined web/API service. Check out the matching release tag for Compose, migrations, and backup tools. Authenticate to GHCR with a GitHub account that has access to this private package, then set `MILL_IMAGE` in `.env` to the manifest's digest reference. Run `docker compose --project-name mill --env-file .env pull mill` followed by `docker compose --project-name mill --env-file .env up --no-build --detach --wait`. The running image needs no npm package token. Keep a compatible `NODE_AUTH_TOKEN` in the shell if Compose requires its build-secret declaration while reading the file.
-
-Check the image reference against the release asset and the tag before starting or upgrading. The release workflow installs that same digest on native AMD64 and ARM64 runners, including a database restore and restart exercise.
+The release workflow installs that same digest on native AMD64 and ARM64 runners, including a database restore and restart exercise. It must pass before the release is published.
 
 ## Remote access
 
-Point a DNS name you own to the server, then configure an HTTPS reverse proxy. Generate the Mill configuration with that public origin:
+Point a DNS name you own to the server, then configure an HTTPS reverse proxy. For a new remote installation, follow the published-image steps through the `image` assignment, then generate configuration with your public origin and start the same digest:
 
 ```sh
-node tools/init-env.mjs --base-url https://tasks.example.com
-node tools/with-package-token.mjs docker compose --project-name mill --env-file .env up --build --detach --wait
+node tools/init-env.mjs --base-url https://tasks.example.com --image "$image"
+docker compose --project-name mill --env-file .env pull mill
+docker compose --project-name mill --env-file .env up --no-build --detach --wait
 ```
 
 Keep `MILL_BIND_ADDRESS=127.0.0.1` when the reverse proxy runs on the same host. Mill's URL must match the browser's origin; it is used for cookies, passkeys, links, and OAuth checks. HTTP OAuth access is restricted to explicit loopback development.

@@ -1,0 +1,44 @@
+---
+title: "Security"
+description: "Protect an installation and report a vulnerability privately."
+---
+
+import { Screenshot } from "/snippets/oss/screenshot.jsx";
+
+Use HTTPS for every remote installation. Keep the Mill HTTP service bound to a private address behind your reverse proxy, and keep PostgreSQL private. Set `MILL_BASE_URL` to the exact public origin. If you configure `MILL_TRUSTED_PROXY_IPS`, list only the proxy peers that actually connect to Mill so forwarded client addresses cannot bypass rate limits. See [configuration](/configuration) for the proxy and TLS settings.
+
+Protect `.env`, the Docker host, and full database backups. A backup contains accounts, password hashes, client credential records, and encrypted authentication data. Preserve the original `MILL_SECRET` in your recovery plan so a restore can read protected values. Store encrypted backup copies away from the host and [practice a restore](/backup#practice-a-restore).
+
+Grant people and external clients only the access they need. Review **Account Settings → Sessions**, personal API keys and MCP Connections when a device or client is no longer trusted. Admins should also review **Team Settings → Members** and **Team API Keys** when a person leaves. Revoke credentials that are no longer needed; removing a member immediately ends their personal access, while a team key remains governed by its stored team policy. See [accounts and team access](/authentication#external-credential-boundaries).
+
+Passkeys require `localhost` or an HTTPS DNS hostname. Save single-use recovery codes when you register your first passkey. Password recovery does not remove passkeys; if the passkey and codes are lost, the server operator must use the explicit [account-recovery procedure](/authentication#recover-an-account). Mill does not execute external code or connect to an LLM provider. The server checks authorization for UI, REST, and MCP requests.
+
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/avgeek-oss/mill/security/advisories/new) once the repository is public and the reporting form is enabled. If that form is unavailable, contact a repository owner through their GitHub profile and request a private reporting channel. Include the affected version, a reproduction with secrets removed, and likely impact. Do not post exploit details, passwords, tokens, recovery links, or backups in a public issue.
+
+For endpoint limits, OAuth consent and retry behavior, see the [REST API](/rest-reference) and [client guide](/clients).
+
+## In the app
+
+### Passkeys
+
+<Tabs>
+  <Tab title="Desktop">
+    <Screenshot
+      light="/assets/screenshots/release-v1/security-light.png"
+      dark="/assets/screenshots/release-v1/security-dark.png"
+      alt="Passkeys in Mill with sample data."
+      width={2560}
+      height={1800}
+    />
+  </Tab>
+  <Tab title="Mobile">
+    <Screenshot
+      light="/assets/screenshots/release-v1/security-mobile-light.png"
+      dark="/assets/screenshots/release-v1/security-mobile-dark.png"
+      alt="Passkeys in Mill with sample data."
+      width={780}
+      height={1688}
+      portrait
+    />
+  </Tab>
+</Tabs>

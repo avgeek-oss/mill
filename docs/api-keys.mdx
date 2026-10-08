@@ -1,0 +1,87 @@
+---
+title: "API keys"
+description: "Create personal and team keys with explicit permissions and expiry."
+---
+
+import { Screenshot } from "/snippets/oss/screenshot.jsx";
+
+API keys let an external client use Mill's REST API or MCP endpoint without a browser session. Create a personal key for your own client or, as an administrator, a team key for a shared integration. Each key has a name, explicit permissions and an expiry selection. Keep one key per integration so you can revoke it without interrupting others.
+
+## Create a key
+
+For a personal key, open **Account Settings → API Keys**. For a team key, an administrator opens **Team Settings → Team API Keys**. Choose **Create API key**, then enter a **Name**, choose **Permissions**, and choose **Expires after**. All three are required. You may be asked to confirm your identity before the key is issued.
+
+| Permission                 | What it allows                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| Read-only                  | Read accessible work.                                                                 |
+| Edit                       | Read and make routine changes allowed by the key's effective role.                    |
+| Administrative permissions | Admin-level domain actions such as board deletion when the issuer has that authority. |
+
+Choose 30 days, 90 days or 1 year for expiry. Only an administrator can choose **Never**. A key's grant cannot exceed its issuer's authority at creation. A personal key also remains bounded by its owner's current active membership and role. If that owner is demoted, the stored grant narrows permanently, even if the owner is promoted later. A team key uses its stored team grant independently of its creator's later membership.
+
+The **Copy your API key** dialog shows the complete token once. Copy it into the client's secret store before closing the dialog. Mill stores a hash; the key list later shows metadata such as name, expiry and last use, but cannot reveal the token again. Never put it in a repository, task comment, prompt or screenshot.
+
+## Use and revoke a key
+
+Send the token as a bearer credential to REST or `/mcp`. For example, after loading it into `MILL_TOKEN` from your secret store:
+
+```sh
+curl --fail-with-body 'https://tasks.example.com/api/boards' \
+  -H "Authorization: Bearer $MILL_TOKEN"
+```
+
+Use a new `Idempotency-Key` for each intended REST mutation and reuse that same key when retrying an uncertain request. Task edits and deletes also need the current task `version`. See [REST and MCP clients](/clients) for a complete connection example and [the REST API](/rest-reference) for fields and errors.
+
+Use the key's **Revoke** action when the integration no longer needs access. Revocation ends access on the next request and removes the key from the active list. Expired keys remain listed until revoked. Password changes and account recovery revoke personal keys owned by that person. Team keys remain subject to their stored team policy, so administrators should review them separately when membership changes.
+
+An Administrative personal key can delete a board only while its owner remains an active Admin with that stored grant. An Administrative team key uses its stored team policy even if its creator later leaves or is disabled. Neither key type can manage accounts, invitations, membership, sessions, credentials, or OAuth consent; those actions require a browser session. OAuth connections cannot delete boards. For a client connection tied to a person's approved scopes and boards, use [MCP OAuth](/mcp-connections).
+
+## In the app
+
+### Personal API keys
+
+<Tabs>
+  <Tab title="Desktop">
+    <Screenshot
+      light="/assets/screenshots/release-v1/api-keys-light.png"
+      dark="/assets/screenshots/release-v1/api-keys-dark.png"
+      alt="Personal API keys in Mill with sample data."
+      width={2560}
+      height={1800}
+    />
+  </Tab>
+  <Tab title="Mobile">
+    <Screenshot
+      light="/assets/screenshots/release-v1/api-keys-mobile-light.png"
+      dark="/assets/screenshots/release-v1/api-keys-mobile-dark.png"
+      alt="Personal API keys in Mill with sample data."
+      width={780}
+      height={1688}
+      portrait
+    />
+  </Tab>
+</Tabs>
+
+### Team API keys
+
+<Tabs>
+  <Tab title="Desktop">
+    <Screenshot
+      light="/assets/screenshots/release-v1/team-api-keys-light.png"
+      dark="/assets/screenshots/release-v1/team-api-keys-dark.png"
+      alt="Team API keys in Mill with sample data."
+      width={2560}
+      height={1800}
+    />
+  </Tab>
+  <Tab title="Mobile">
+    <Screenshot
+      light="/assets/screenshots/release-v1/team-api-keys-mobile-light.png"
+      dark="/assets/screenshots/release-v1/team-api-keys-mobile-dark.png"
+      alt="Team API keys in Mill with sample data."
+      width={780}
+      height={1688}
+      portrait
+    />
+  </Tab>
+</Tabs>

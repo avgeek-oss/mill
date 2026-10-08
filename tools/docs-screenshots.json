@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "deviceScaleFactor": 2,
-  "output": "docs/screenshots/release-v1",
+  "output": "docs/assets/screenshots/release-v1",
   "themes": ["light", "dark"],
   "devices": {
     "desktop": {
@@ -26,33 +26,34 @@
       "name": "boards",
       "route": "/boards",
       "heading": "Boards",
-      "guides": ["overview", "getting-started", "workflows"]
+      "guides": ["overview", "getting-started", "workflows", "task-lists"]
     },
     {
       "name": "board",
       "route": "/boards/{boardId}",
       "heading": "Release planning",
-      "guides": ["overview", "workflows"]
+      "guides": ["overview", "workflows", "task-lists"],
+      "deviceScaleFactor": 4
     },
     {
       "name": "task",
       "route": "/boards/{boardId}/tasks/{taskId}",
       "heading": "Prepare the release notes",
-      "guides": ["workflows"]
+      "guides": ["workflows", "task-details"]
     },
     {
       "name": "task-activity",
       "route": "/boards/{boardId}/tasks/{taskId}",
       "heading": "Prepare the release notes",
       "action": "activity",
-      "guides": ["workflows", "clients"]
+      "guides": ["workflows", "clients", "task-details"]
     },
     {
       "name": "create-task",
       "route": "/boards/{boardId}",
       "heading": "Release planning",
       "action": "create-task",
-      "guides": ["getting-started"]
+      "guides": ["getting-started", "task-details"]
     },
     {
       "name": "board-settings",
@@ -69,15 +70,15 @@
     },
     {
       "name": "people",
-      "route": "/settings/members",
-      "heading": "People",
+      "route": "/team-settings/members",
+      "heading": "Members",
       "guides": ["workflows", "authentication"]
     },
     {
       "name": "api-keys",
       "route": "/settings/api-keys",
-      "heading": "API keys",
-      "guides": ["clients", "rest-reference"]
+      "heading": "API Keys",
+      "guides": ["clients", "rest-reference", "api-keys"]
     },
     {
       "name": "account",
@@ -89,7 +90,7 @@
       "name": "preferences",
       "route": "/settings/preferences",
       "heading": "Preferences",
-      "guides": ["authentication"]
+      "guides": ["authentication", "notifications"]
     },
     {
       "name": "email-password",
@@ -107,7 +108,7 @@
       "name": "mcp-guide",
       "route": "/settings/mcp",
       "heading": "MCP Guide",
-      "guides": ["clients"]
+      "guides": ["clients", "mcp-connections"]
     },
     {
       "name": "security",
@@ -117,7 +118,7 @@
     },
     {
       "name": "team",
-      "route": "/settings/workspace",
+      "route": "/team-settings/general",
       "heading": "General",
       "guides": ["workflows", "configuration"]
     },
@@ -126,7 +127,7 @@
       "route": "/boards/{boardId}",
       "heading": "Release planning",
       "action": "notifications",
-      "guides": ["workflows"]
+      "guides": ["workflows", "notifications"]
     },
     {
       "name": "sign-in",
@@ -138,7 +139,7 @@
     {
       "name": "not-found",
       "route": "/this-page-does-not-exist",
-      "heading": "This page could not be found",
+      "heading": "Page not found",
       "guides": ["troubleshooting"]
     },
     {
@@ -147,6 +148,18 @@
       "heading": "Task unavailable",
       "action": "server-error",
       "guides": ["troubleshooting"]
+    },
+    {
+      "name": "team-api-keys",
+      "route": "/team-settings/team-api-keys",
+      "heading": "Team API Keys",
+      "guides": ["api-keys"]
+    },
+    {
+      "name": "mcp-connections",
+      "route": "/settings/mcp-connections",
+      "heading": "MCP Connections",
+      "guides": ["mcp-connections"]
     }
   ]
 }

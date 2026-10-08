@@ -20,13 +20,17 @@ Check PostgreSQL health, the application's migration error, and disk space. If t
 
 Passkeys are bound to the registration origin. If you changed domains and cannot use a passkey, use your password and a passkey recovery code for ordinary account access. Ask the operator to recover the account with `--reset-mfa` before adding passkeys at the final origin; recovery-code access cannot approve security changes. Keep one administrator with a verified recovery path before changing the URL.
 
-## Send an invitation or recover an account
+## An invitation or reset email does not arrive
 
-Mill has in-app notifications; email delivery is unavailable. Administrators share an invitation link privately with the intended recipient. The server operator handles [local account recovery](operations.md#account-recovery) when a person loses access. Neither procedure requires an email provider.
+Check whether `MILL_SMTP_HOST` and `MILL_SMTP_FROM` are configured together. Without SMTP, administrators copy and share private invitation links; a server operator uses [local account recovery](operations.md#account-recovery) when a person loses access. With SMTP, a successful request queues an email but does not confirm delivery. Check the application's logs and the mail server, then use the resend action if the proof is still needed. Invitation verification codes expire after ten minutes; reset and verification links have their own expiry. Task assignment and mention notifications appear in Mill and are never sent by email.
+
+## A completed task disappeared from the board
+
+Done and Won't Do tasks leave the default list 24 hours after entering that status. Select **Done** or **Won't Do** in the Status filter to include older tasks. Direct task links continue to work. The Boards overview still counts all Backlog, To Do and In Progress tasks, independent of the board's current search, filters, and page.
 
 ## A task save reports a conflict
 
-Another person or client changed the task or its status after you opened it. Reload the current task and apply your change to that version. Mill checks row versions so one edit does not silently replace another. API clients must also send the current version and handle HTTP 409.
+Another person or client changed the task or its status after you opened it. Review the saved value and your draft in the task page; choose **Retry**, **Use saved value**, or **Keep my change** as appropriate. Mill checks row versions so one edit does not silently replace another. API clients must read the latest task, send its current `version`, and reconcile an HTTP `409` before a new mutation. If a board list returns `409 task_list_changed`, restart that filtered and sorted list from its first page.
 
 ## A client gets permission denied
 
@@ -34,10 +38,14 @@ For a personal key on REST or MCP, check the owner's active membership and role,
 
 For MCP OAuth, check the connection owner's active membership, current role, approved scopes and approved boards. A board-restricted connection cannot create boards or list the team directory. If its last approved board is deleted, the connection is revoked; reconnect and review the new access request. See [the connection guide](clients.md) and [access security](authentication.md#external-credential-boundaries).
 
+## An MCP client cannot connect
+
+Use the exact URL shown in **Account Settings → MCP Guide**, ending in `/mcp`. Remote connections need HTTPS; loopback HTTP needs `ALLOW_INSECURE_LOCALHOST=true`. A connection approved for OAuth cannot use its token on REST routes. Check the client's consent, current scopes, optional approved boards, and expiry under **MCP Connections**. OAuth does not issue refresh tokens, so reconnect after expiry. API-key clients should use a current personal or team key as a bearer token. Do not place tokens in logs or support reports.
+
 ## A restore is rejected
 
 Use an explicit `--project`, matching `--confirm-project`, a valid custom-format backup, and a running PostgreSQL target. An existing database needs `--replace`; make a backup before using it. A changed encryption secret prevents decrypting protected authentication data even when the database restores successfully.
 
 ## Report a bug
 
-Include the exact commit/version, failed action, HTTP status, and configuration names with values removed. Use a disposable reproduction when possible. Do not attach `.env`, a database dump, account recovery links, cookies, or API tokens. Follow [security reporting](../SECURITY.md) for security reports.
+Include the exact commit/version, failed action, HTTP status, and configuration names with values removed. Use a disposable reproduction when possible. Do not attach `.env`, a database dump, account recovery links, cookies, or API tokens. Follow [security reporting](https://github.com/avgeek-oss/mill/blob/main/SECURITY.md) for security reports.

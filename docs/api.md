@@ -41,23 +41,23 @@ An expired identity-confirmation window returns `403 REAUTHENTICATION_REQUIRED`;
 
 ## Permissions
 
-Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Human Admins additionally manage membership/workspace settings and permanently delete boards. Every active member can access workspace boards. Personal API keys are bounded by current access and their stored grant. Team keys use their stored team grant. OAuth connections can narrow access to approved boards and read or read/write scope.
+Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Admin browser sessions can also permanently delete boards and manage membership/workspace settings. An Administrative personal or team API key can perform permitted domain administration, including board deletion, but cannot manage people or security. Every active member can access workspace boards. Personal API keys are bounded by current access and their stored grant. Team keys use their stored team grant. OAuth connections can narrow access to approved boards and read or read/write scope.
 
 Personal credentials require the owner's active membership and current role. Team keys use a stored team policy independent of the creator's later membership. Identity, membership, account security, credential management, and consent require a browser session. API keys cannot call any `/api/auth` route, including the team directory. Board-restricted OAuth connections cannot create boards or list members; unscoped OAuth can resolve basic member metadata through MCP. Notifications stay within the owner's account and, for scoped OAuth, approved boards. Authorization is rechecked before a mutation commits.
 
 ## Boards
 
-| Method and path          | Request                                 | Response                                    |
-| ------------------------ | --------------------------------------- | ------------------------------------------- |
-| `GET /api/boards`        | Optional `directory`, `limit`, `cursor` | `{items,hasMore,nextCursor}` alphabetically |
-| `POST /api/boards`       | `{name,prefix?,description?}`           | `201 {board}`                               |
-| `GET /api/boards/:id`    | Board UUID                              | `{board}`                                   |
-| `PATCH /api/boards/:id`  | `{version,name?,description?}`          | `{board}`                                   |
-| `DELETE /api/boards/:id` | `{version}`; human Admin                | `{ok:true}`                                 |
+| Method and path          | Request                                              | Response                                    |
+| ------------------------ | ---------------------------------------------------- | ------------------------------------------- |
+| `GET /api/boards`        | Optional `directory`, `limit`, `cursor`              | `{items,hasMore,nextCursor}` alphabetically |
+| `POST /api/boards`       | `{name,prefix?,description?}`                        | `201 {board}`                               |
+| `GET /api/boards/:id`    | Board UUID                                           | `{board}`                                   |
+| `PATCH /api/boards/:id`  | `{version,name?,description?}`                       | `{board}`                                   |
+| `DELETE /api/boards/:id` | `{version}`; Admin session or Administrative API key | `{ok:true}`                                 |
 
 Names are 1–100 characters and descriptions at most 10,000. Custom prefixes match `^[A-Z][A-Z0-9]{1,9}$` and stay fixed after creation. There is no manual board order.
 
-Board list items include `backlogCount`, `inProgressCount`, `todoCount` and `activeCount` for all tasks in each board. The first three count only their corresponding `backlog`, `in_progress` and `todo` statuses. The retained Active aggregate counts `todo`, `in_progress` and `in_review`, excluding Backlog and terminal states. Cards show In Progress, Todo and Backlog. These counts are independent of task pagination. Individual board, create and update responses keep their existing fields.
+Board list items include `backlogCount`, `todoCount`, `inProgressCount` and `activeCount` for all tasks in each board. The first three count only their corresponding statuses. The `activeCount` aggregate counts `todo`, `in_progress` and `in_review`, excluding Backlog and terminal states. Cards show Backlog, To Do and In Progress. These counts are independent of task pagination. Individual board, create and update responses keep their existing fields.
 
 Board deletion permanently removes its tasks, comments, notifications, and task activity. Explicit OAuth board scopes lose that board and are revoked when no approved boards remain. There is no archive, trash, or restore API.
 
@@ -105,8 +105,6 @@ Task deletion removes only that task and its discussion, notifications, and acti
 
 Task detail returns the complete requested task. `commentLimit` and `activityLimit` accept 0–100 and default to 100 for REST. Each preview has `{hasMore,nextCursor}`; use the corresponding comments/activity endpoint to continue. A zero-sized preview has a null cursor; start that endpoint without a cursor.
 
-Task list queries can be combined:
-
 Task responses include `type`, either `task` or `bug`. Creation defaults to `task`; updates can change `type` with the current `version` and record it in activity. Type edits preserve the task identifier and status-change clock.
 
 Without a `status` filter, Done and Won't Do tasks remain visible for 24 hours after entering that status, then leave the default list. Search and other filters retain this rule. Set `status=done` or `status=wont_do` to include all tasks in that status, including older ones. Tasks remain accessible by their direct links. Task responses include read-only `statusChangedAt`; unrelated edits do not restart the window. Counts and pagination cover the visible results, and expiry invalidates default-list pagination revisions.
@@ -141,7 +139,7 @@ curl --fail-with-body "$MILL_URL/api/tasks/TASK_UUID" \
 | `DELETE /api/comments/:id`     | `{version}`          | `{ok:true}`                                |
 | `GET /api/tasks/:id/activity`  | `limit`, `cursor`    | `{items,hasMore,nextCursor}`; newest first |
 
-Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. Only the author or a human Admin can delete a comment. An OAuth client can delete its owner's comments within approved boards and write scope, but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human` or `oauth`), identifying the person responsible for the action.
+Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. The author or an Admin can delete a comment. An OAuth client can delete its owner's comments within approved boards and write scope, but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human`, `oauth`, or `team`) so readers can distinguish a person from a team key.
 
 New activity records also include `detail.connection` with `type` (`session`, `api-key`, or `oauth`) and the originating `requestId`. This distinguishes browser, REST and MCP changes; team-key actions carry a team actor. It contains no tokens or credential values and survives revocation. Historical records without this metadata remain unattributed to a connection type.
 

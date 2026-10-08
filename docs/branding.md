@@ -4,10 +4,10 @@ Mill uses a literal tower mill mark and a brown accent with neutral light and da
 
 ## Assets
 
-- Source: [tower mill master](../assets/brand/mill-mark-source.png), generated with the built-in image tool.
-- Application mark: [128px PNG](../apps/web/public/brand/mill-mark.png), supporting the 32px lockup at up to 4× density.
-- Browser icon: [64px PNG](../apps/web/public/brand/mill-favicon.png).
-- Touch icon: [180px PNG](../apps/web/public/brand/mill-touch-icon.png).
+- Source: [tower mill master](https://github.com/avgeek-oss/mill/blob/main/assets/brand/mill-mark-source.png), generated with the built-in image tool.
+- Application mark: [128px PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-mark.png), supporting the 32px lockup at up to 4× density.
+- Browser icon: [64px PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-favicon.png).
+- Touch icon: [180px PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-touch-icon.png).
 
 The same transparent mark works on light and dark surfaces. Asset derivatives retain the source artwork and alpha; they only change pixel dimensions for delivery. The application uses the shared MillMark component in navigation and the identity frame, including consent. Images have reserved dimensions, preserve their proportions, and are decorative beside the visible Mill name.
 
@@ -15,16 +15,16 @@ The generation prompt was: “Literal tower mill with four cream sails, tapered 
 
 The asset pack also includes light/dark wordmarks and lockups, a currentColor monochrome SVG, and a 1200×630 social preview. SVG wordmarks use Inter with system sans-serif fallback; lockups embed the delivered mark, while the social composition embeds the full-resolution source. The monochrome mark is a separate flat vector adaptation for single-color use.
 
-- [Light lockup](../apps/web/public/brand/mill-lockup-light.svg) and [dark lockup](../apps/web/public/brand/mill-lockup-dark.svg)
-- [Light wordmark](../apps/web/public/brand/mill-wordmark-light.svg) and [dark wordmark](../apps/web/public/brand/mill-wordmark-dark.svg)
-- [Monochrome mark](../apps/web/public/brand/mill-mark-monochrome.svg)
-- [Social preview PNG](../apps/web/public/brand/mill-social.png) and [editable SVG composition](../apps/web/public/brand/mill-social.svg)
+- [Light lockup](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-lockup-light.svg) and [dark lockup](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-lockup-dark.svg)
+- [Light wordmark](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-wordmark-light.svg) and [dark wordmark](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-wordmark-dark.svg)
+- [Monochrome mark](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-mark-monochrome.svg)
+- [Social preview PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-social.png) and [editable SVG composition](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-social.svg)
 
 ## Theme
 
-[Theme tokens](../apps/web/src/mill-theme.css) override HeroUI's semantic roles through the existing CSS base layer. Cocoa accents sit on nearly neutral white and gray surfaces in light mode, with light brown accents on near-black surfaces in dark mode. Secondary controls, tables, menus, dialogs, focus rings and accent chips derive their colors from those roles. Success, warning and danger hues retain their existing semantic definitions.
+[Theme tokens](https://github.com/avgeek-oss/mill/blob/main/apps/web/src/mill-theme.css) override HeroUI's semantic roles through the existing CSS base layer. Cocoa accents sit on nearly neutral white and gray surfaces in light mode, with light brown accents on near-black surfaces in dark mode. Secondary controls, tables, menus, dialogs, focus rings and accent chips derive their colors from those roles. Success, warning and danger hues retain their existing semantic definitions.
 
-The [brand module](../apps/web/src/brand.tsx) and browser theme-color use the matching background values. Metadata uses their sRGB hex equivalents for browser compatibility: light `#f7f7f6` and dark `#060605`. The initial browser theme-color matches the light background and tracks the active theme after initialization. CSS tokens remain OKLCH.
+The [brand module](https://github.com/avgeek-oss/mill/blob/main/apps/web/src/brand.tsx) and browser theme-color use the matching background values. Metadata uses their sRGB hex equivalents for browser compatibility: light `#f7f7f6` and dark `#060605`. The initial browser theme-color matches the light background and tracks the active theme after initialization. CSS tokens remain OKLCH.
 
 The declarations below set Mill's semantic colors. Derived hover, soft, foreground, and focus roles use the shared theme formulas. Review contrast in the rendered component states when changing these tokens.
 

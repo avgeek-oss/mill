@@ -18,6 +18,7 @@ test("configuration generator makes private unique secrets and refuses overwrite
     const contents = await readFile(file, "utf8");
     assert.match(contents, /^POSTGRES_PASSWORD=[a-f0-9]{64}$/m);
     assert.match(contents, /^MILL_SECRET=[a-f0-9]{96}$/m);
+    assert.match(contents, /^MILL_IMAGE=mill:local$/m);
     assert.equal((await stat(file)).mode & 0o777, 0o600);
     result = spawnSync(
       process.execPath,
@@ -25,6 +26,22 @@ test("configuration generator makes private unique secrets and refuses overwrite
       { encoding: "utf8" },
     );
     assert.notEqual(result.status, 0);
+    result = spawnSync(
+      process.execPath,
+      [
+        "tools/init-env.mjs",
+        "--file",
+        join(directory, "release.env"),
+        "--image",
+        `ghcr.io/avgeek-oss/mill@sha256:${"a".repeat(64)}`,
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      await readFile(join(directory, "release.env"), "utf8"),
+      /^MILL_IMAGE=ghcr\.io\/avgeek-oss\/mill@sha256:[a-f0-9]{64}$/m,
+    );
     assert.equal(await readFile(file, "utf8"), contents);
     result = spawnSync(
       process.execPath,

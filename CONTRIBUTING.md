@@ -31,7 +31,7 @@ When editing UI, manually review the running routes in light and dark themes, on
 
 ## Documentation
 
-Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and its styles in `docs/home.css`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated pages in `docs/mintlify` are replaced by the build.
+Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and the navigation/branding in `docs/site.json`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated `.mdx` pages, `docs.json`, and the shared snippets/styles live directly in `docs/`. Do not edit generated files; the build and `docs:check` keep them aligned with the pinned `@avgeek-oss/docs` package.
 
 For documentation images after a visible application change, use the optional [manual screenshot refresh workflow](docs/screenshot-refresh.md). `pnpm docs:screenshots` refreshes every application section from an isolated example workspace; `pnpm docs:screenshots --docs-url http://localhost:4174` also captures every documentation page. Review the desktop and mobile images in both themes before including them in the docs.
 

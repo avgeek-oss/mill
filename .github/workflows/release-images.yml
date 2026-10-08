@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$GITHUB_REF" = "refs/heads/main"
-          test "$(gh api "repos/$GH_REPO" --jq .private)" = "true"
+          test "$(gh api "repos/$GH_REPO" --jq .private)" = "false"
           [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           version="${RELEASE_TAG#v}"
           test "$(jq -r .version package.json)" = "$version"
@@ -189,6 +189,16 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
         run: node tools/release-images.mjs "$RELEASE_TAG" "$RELEASE_COMMIT" mill-images.json
+      - name: Require anonymous access to the immutable release image
+        run: |
+          set -euo pipefail
+          anonymous_config="$(mktemp -d)"
+          trap 'rm -rf "$anonymous_config"' EXIT
+          image="$(jq -r .image mill-images.json)"
+          if ! DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$image" >/dev/null; then
+            echo '::error::Make the Mill GHCR package public, then rerun this release workflow.'
+            exit 1
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-images

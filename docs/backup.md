@@ -13,11 +13,11 @@ bash tools/backup.sh --project mill --env-file .env --output backups/mill-2026-0
 
 The script uses `pg_dump` from the running PostgreSQL container and creates an owner-readable custom-format archive. It refuses to overwrite an existing output file and removes a partial archive if dumping fails. `pg_dump` takes a consistent snapshot while normal writes continue.
 
-Back up `.env` separately using encryption. A dump contains private account and credential data, and the original `MILL_SECRET` is needed to decrypt protected values. Store encrypted copies off the host. Record the Mill commit/image digest and PostgreSQL major version with the backup.
+Back up `.env` separately using encryption. A dump contains private account and credential data, and the original `MILL_SECRET` is needed to decrypt protected values. Store encrypted copies off the host. Record the Mill release tag or source commit, image digest when using a published image, Compose project name, and PostgreSQL major version with the backup. Keep enough free space for the archive and a rehearsal restore.
 
 ## Practice a restore
 
-Use a separate project so your running workspace stays available. Create `recovery.env` from `.env`, preserve `MILL_SECRET`, and change `MILL_PORT` and `MILL_BASE_URL` to a spare loopback port such as 4322. Keep this file private.
+Use a separate project so your running workspace stays available. Create `recovery.env` from `.env`, preserve `MILL_SECRET` and the compatible image reference, and change `MILL_PORT` and `MILL_BASE_URL` to a spare loopback port such as 4322. Keep this file private. The separate Compose project gets a separate PostgreSQL volume.
 
 ```sh
 docker compose --project-name mill-recovery --env-file recovery.env up --detach --wait postgres
@@ -27,7 +27,7 @@ curl --fail http://127.0.0.1:4322/health/ready
 
 The restore command validates the archive before stopping Mill. It rejects a target with existing tables unless `--replace` is explicitly supplied. It restores in one PostgreSQL transaction and starts Mill only after the restore succeeds. A failed restore leaves the application stopped for investigation.
 
-Sign in at the recovery URL and verify a task, comment, member, notification and usable OAuth connection. Password sign-in works at the changed origin; physical passkeys remain bound to the original origin. To test production passkeys, restore behind the original HTTPS origin in a controlled recovery environment.
+Sign in at the recovery URL and verify a board, task, comment, member, notification and a client credential that you can safely test. A copied OAuth connection may need reconnection if its resource URL points to the original installation. Password sign-in works at the changed origin; physical passkeys remain bound to the original origin. To test production passkeys, restore behind the original HTTPS origin in a controlled recovery environment.
 
 When the recovery check is complete, remove only that project:
 
@@ -43,7 +43,7 @@ Put the installation into maintenance, make a backup of its current state, and d
 bash tools/restore.sh --project mill --confirm-project mill --env-file .env --input backups/mill-2026-09-28.dump --replace
 ```
 
-Use the application version compatible with the backup. PostgreSQL dumps are not a substitute for testing a major-version database upgrade. See [upgrades](upgrades.md).
+Use the application version compatible with the backup and check `/health/ready` after the restore. PostgreSQL dumps are not a substitute for testing a major-version database upgrade. See [upgrades](upgrades.md).
 
 ## Work from older versions
 

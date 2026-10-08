@@ -15,13 +15,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
 
   mill:
-    image: ${MILL_IMAGE:-mill:local}
-    build:
-      context: .
-      secrets:
-        - npm_token
-      args:
-        SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
+    image: ${MILL_IMAGE:?Set MILL_IMAGE to the release digest or a local source-build tag}
     init: true
     restart: unless-stopped
     depends_on:
@@ -55,7 +49,3 @@ services:
 
 volumes:
   postgres-data:
-
-secrets:
-  npm_token:
-    environment: NODE_AUTH_TOKEN

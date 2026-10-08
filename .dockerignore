@@ -17,4 +17,5 @@ backups
 *.dump
 *.tar
 docs/screenshots
+docs/assets/screenshots
 .DS_Store

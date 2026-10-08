@@ -2,7 +2,7 @@
 
 ## Report a vulnerability
 
-Use [GitHub private vulnerability reporting](https://github.com/avgeek-inc/mill/security/advisories/new) when it is enabled for the repository. If the reporting form is unavailable, contact an owner listed in [MAINTAINERS.md](MAINTAINERS.md) through their GitHub profile and request a private reporting channel. Do not post passwords, tokens, account recovery links, backups, or exploit details in an issue.
+Use [GitHub private vulnerability reporting](https://github.com/avgeek-oss/mill/security/advisories/new) when it is enabled for the repository. If the reporting form is unavailable, contact an owner listed in [MAINTAINERS.md](MAINTAINERS.md) through their GitHub profile and request a private reporting channel. Do not post passwords, tokens, account recovery links, backups, or exploit details in an issue.
 
 Include the affected version or commit, deployment configuration with secrets removed, reproduction steps, and impact. A disposable test workspace is enough; do not send real customer data. Maintainers will confirm receipt, investigate, and coordinate a fix and disclosure with the reporter.
 

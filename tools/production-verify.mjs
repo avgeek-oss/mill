@@ -149,6 +149,7 @@ async function configuration(name, targetPort, publicOrigin) {
     envFile,
     "--file",
     "docker-compose.yml",
+    ...(!releaseImage ? ["--file", "tools/compose-source.yml"] : []),
   ];
   projects.push(compose);
   return {

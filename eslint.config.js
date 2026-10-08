@@ -11,6 +11,16 @@ export default ts.config(
       "test-results-*/**",
     ],
   },
+  {
+    files: ["docs/oss-docs.js"],
+    languageOptions: {
+      globals: {
+        cancelAnimationFrame: "readonly",
+        requestAnimationFrame: "readonly",
+        MutationObserver: "readonly",
+      },
+    },
+  },
   js.configs.recommended,
   ...ts.configs.recommended,
   {

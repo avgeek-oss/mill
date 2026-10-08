@@ -44,6 +44,22 @@ function verifyRegistryImage(tag, commit) {
   const description = docker("buildx", "imagetools", "inspect", tagged);
   const digest = /^Digest:\s+(sha256:[0-9a-f]{64})$/m.exec(description)?.[1];
   assert.ok(digest, "The registry must return an immutable index digest");
+  for (const alias of [tag.slice(1), commit]) {
+    const aliasDescription = docker(
+      "buildx",
+      "imagetools",
+      "inspect",
+      `${repository}:${alias}`,
+    );
+    const aliasDigest = /^Digest:\s+(sha256:[0-9a-f]{64})$/m.exec(
+      aliasDescription,
+    )?.[1];
+    assert.equal(
+      aliasDigest,
+      digest,
+      `Release alias ${alias} must match ${tag}`,
+    );
+  }
   const index = JSON.parse(
     docker("buildx", "imagetools", "inspect", "--raw", tagged),
   );
@@ -109,5 +125,5 @@ if (
     commit,
   );
   await writeFile(output, JSON.stringify(manifest, null, 2) + "\n");
-  console.log(`Verified authenticated registry image ${manifest.image}`);
+  console.log(`Verified registry image ${manifest.image}`);
 }

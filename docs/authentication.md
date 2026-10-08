@@ -20,7 +20,7 @@ The person following the link chooses their name and password. With SMTP configu
 
 Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Personal API keys are capped by their stored grant and their human owner's current active role; team keys use their stored team policy. Neither can access identity routes, including the team directory. MCP OAuth inherits the owner's role within its granted scopes and boards; unscoped OAuth may read basic member metadata through MCP for assignments and mentions. Membership, sessions, security settings, and other human administration require a browser session.
 
-People are human accounts. **Personal API keys** belong to their creator; **team API keys** belong to the team and are managed by Admins. Both use REST and MCP with required Name, Permissions, and Expires after selections. MCP OAuth creates a connection owned by the person approving it, with requested scopes and optional approved boards. See [the client guide](clients.md) for connection rules.
+People are human accounts. **Personal API keys** belong to their creator; **team API keys** belong to the team and are managed by Admins. Both use REST and MCP with required Name, Permissions, and Expires after selections. MCP OAuth creates a connection owned by the person approving it, with requested scopes and optional approved boards. Use **Account Settings → API Keys** for personal keys and **Team Settings → Team API Keys** for team keys. See [the client guide](clients.md) for connection steps.
 
 ## External credential boundaries
 
@@ -39,7 +39,7 @@ OAuth belongs to the person approving consent and cannot use public REST. Its ef
 
 Store one-time tokens in the external client's secret store. Mill stores hashes and returns later metadata without tokens or hashes. Expiry, explicit revocation, account disablement, password changes and recovery end credential access. Approving a new connection does not reactivate a revoked one. See [upgrades](upgrades.md) before changing a private pre-launch installation.
 
-See [connection steps](clients.md), [the API reference](api.md), and [private vulnerability reporting](../SECURITY.md). Configuration and database backups remain private. The repository and artifacts stay private during v1 review; merging, deployment, release publication, and visibility changes need the applicable owner authorization.
+See [connection steps](clients.md), [the API reference](api.md), and [private vulnerability reporting](https://github.com/avgeek-oss/mill/blob/main/SECURITY.md). Protect configuration files and database backups because they contain account and credential data.
 
 ## Account Settings
 
@@ -50,7 +50,7 @@ Open **Settings → Account Settings** in the primary sidebar, or use the accoun
 - **Email & Password**: your current email, verification state, pending email change, and password changes. Email changes require configured SMTP and recent identity confirmation.
 - **Passkeys**: registered passkeys and their recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
-- **API Keys**: your personal REST and MCP keys. Admins also manage team keys under Team Settings → API Keys.
+- **API Keys**: your personal REST and MCP keys. Admins also manage team keys under Team Settings → Team API Keys.
 - **MCP Connections**: authorized OAuth apps, their approved access, and individual revocation.
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 
@@ -156,8 +156,6 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 
 `user` contains `id`, `name`, `email`, `role`, `timeZone`, `dateFormat`, `timeFormat`, `notificationPreferences`, `passkeyCount`, `emailVerified`. Authentication challenges expire after five minutes. Password proofs and factor challenges bind to the current account security version, so a concurrent password reset cannot issue a session from an old proof.
 
-The PostgreSQL integration tests in `tests/auth.test.ts`, `tests/email-parity.test.ts`, and `tests/invitation-authority.test.ts` verify setup and last-admin races, invitation lifecycle, cross-role and external-client restrictions, session/password/recovery revocation, real signed passkey ceremonies and origin verification, session-bound identity confirmation, concurrent one-use recovery redemption, refusal to authorize security changes through recovery access, a blocked old-password login racing a security reset, purpose-bound email proofs, invitation authority, encrypted SMTP delivery and cancellation, and account availability during delivery.
+Account actions report success and errors through toast alerts. Failed changes retain their drafts and retry controls. Required-field validation focuses the first invalid field.
 
-Account actions report success and errors through toast alerts. Failed changes retain their drafts and retry controls. Required-field validation also uses a toast and focuses the first invalid field.
-
-Authentication and invitation emails use the shared `@avgeek-oss/design-system` templates with Mill branding. Delivery includes HTML and plain text. Mill owns the confirmation links, expiring proofs, encrypted outbox, retries, and SMTP configuration; the shared package owns presentation and standard copy. Pending messages created before HTML support remain deliverable as plain text.
+Authentication and invitation emails include HTML and plain text. Mill queues messages for delivery; a successful request means the message was queued, not received. If a message does not arrive, check the installation's SMTP configuration and delivery logs, then use the applicable resend action. Pending codes and links retain their original expiry.

@@ -94,8 +94,8 @@ await writeFile(
       sourceArchive: sourceFile,
       sourceManifest: "source-manifest.json",
       ...imageMetadata,
-      privacy:
-        "Private review artifact. No registry publication or production deployment performed.",
+      publication:
+        "Review artifact only. This workflow does not publish a registry image or deploy Mill.",
     },
     null,
     2,
@@ -110,5 +110,5 @@ for (const name of (await readdir(directory)).sort()) {
 }
 await writeFile(join(directory, "SHA256SUMS"), `${checksums.join("\n")}\n`);
 console.log(
-  `Prepared private ${platform} artifacts for ${version} at ${directory}`,
+  `Prepared ${platform} review artifacts for ${version} at ${directory}`,
 );
