@@ -1,4 +1,3 @@
-import { QueryFeedback } from "./query-feedback.js";
 import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
 import { ActionConfirmation, ResourceTable } from "@avgeek-oss/design-system";
 import {
@@ -159,6 +158,11 @@ export function BoardPage({
   const boardActionsButton = useRef<HTMLButtonElement | null>(null);
   const boardDialogWasOpen = useRef(false);
   const boardContent = useRef<HTMLDivElement>(null);
+  const [filterOverlayHost, setFilterOverlayHost] =
+    useState<HTMLDivElement | null>(null);
+  const mobileFilterContainer = filterContainer?.closest(
+    '[data-slot="drawer-content"]',
+  );
   const appSuspended = useAppSuspended();
   const writable = !!board && user.role !== "viewer";
   useLayoutEffect(() => {
@@ -638,13 +642,6 @@ export function BoardPage({
       </EmptyState>
     );
   }
-  if (!accessDenied && !board && !loading && error)
-    return (
-      <QueryFeedback
-        message={error}
-        onRetry={() => void load(requestedPage.current, true)}
-      />
-    );
   const accessFailure = (
     <ErrorPage
       code={errorPageCode(errorStatus)}
@@ -777,14 +774,22 @@ export function BoardPage({
                 </Button>
               )}
             </div>
+            {mobileFilterContainer &&
+              createPortal(
+                <div
+                  ref={setFilterOverlayHost}
+                  className="contents pointer-events-auto"
+                />,
+                mobileFilterContainer,
+              )}
             {filterContainer &&
               !appSuspended &&
               !accessDenied &&
               createPortal(
                 <PortalProvider
                   getContainer={() =>
-                    filterContainer.closest('[role="dialog"]')
-                      ? filterContainer
+                    mobileFilterContainer
+                      ? filterOverlayHost
                       : boardContent.current
                   }
                 >

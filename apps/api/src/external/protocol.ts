@@ -20,7 +20,6 @@ export function externalAccessAllowed() {
   return (
     url.protocol === "https:" ||
     (url.protocol === "http:" &&
-      process.env.ALLOW_INSECURE_LOCALHOST === "true" &&
       ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
   );
 }

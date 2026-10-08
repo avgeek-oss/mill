@@ -1,31 +1,28 @@
 # Configuration
 
-Start with `node tools/init-env.mjs`; the repository’s `.env.example` documents the same configuration without secrets. Compose reads `.env` explicitly through `--env-file .env`. Development commands read it through Node's `--env-file` option.
+The API needs three values. Copy `.env.example` to `.env` for Compose, or supply them as runtime environment variables through your deployment platform:
 
-| Variable                   | Purpose                                                                                                                                                              |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_PASSWORD`        | PostgreSQL password used by Compose. Use the generated hexadecimal value to avoid URL-escaping errors.                                                               |
-| `DATABASE_URL`             | Required server/migration PostgreSQL URL. Production Compose constructs an internal URL; local development uses loopback port 55432.                                 |
-| `MILL_SECRET`              | Required secret with at least 32 characters for protected authentication values. Generate randomly, keep private, and preserve it across restarts/upgrades/restores. |
-| `MILL_BASE_URL`            | Required public HTTP(S) origin, without path/query/credentials. Remote access requires HTTPS. Loopback HTTP is allowed for development.                              |
-| `MILL_PORT`                | Compose host port, default 4321. Container port remains 4321.                                                                                                        |
-| `MILL_BIND_ADDRESS`        | Compose binding, default 127.0.0.1. Keep private behind a reverse proxy.                                                                                             |
-| `PORT`                     | Server port for direct Node execution, default 4321. Compose fixes it to 4321.                                                                                       |
-| `NODE_ENV`                 | `development`, `test`, or `production`. Compose uses production.                                                                                                     |
-| `ALLOW_INSECURE_LOCALHOST` | Explicit loopback HTTP exception for local MCP OAuth development. Never use it for a remote origin.                                                                  |
-| `MILL_IMAGE`               | Local or immutable reviewed image reference used by Compose, default `mill:local`.                                                                                   |
-| `SOURCE_COMMIT`            | Build metadata identifying the image's source revision.                                                                                                              |
-| `MILL_MIGRATIONS_DIR`      | Override for the migration directory. The image uses `/app/packages/database/migrations`; operators normally do not change it.                                       |
+| Variable        | Purpose                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`  | Complete PostgreSQL connection URL for your dedicated Mill database. Include the provider's required TLS settings.                    |
+| `MILL_SECRET`   | Random secret of at least 32 characters. Recommend 64 hexadecimal characters. Keep private and preserve across upgrades and restores. |
+| `MILL_BASE_URL` | Public HTTP(S) origin without path, query or credentials, such as `https://tasks.example.com`. Use `http://localhost:4321` locally.   |
 
-The server rejects missing or invalid required configuration before it serves requests. It does not use a fallback production database or default credentials. A base URL change can invalidate passkey origin checks; read [operations](operations.md) before changing an established installation's URL.
+Percent-encode special characters in the database URL's username or password. Mill rejects missing or invalid configuration before it serves requests; there is no fallback production database or default login. It applies the migrations packaged in the API image automatically.
 
-For browser passkeys, use `localhost` during local development or an HTTPS DNS hostname in production. A loopback IP origin such as `http://127.0.0.1:4321` supports password sign-in and API testing, but browsers do not allow passkey registration with an IP address as the relying-party domain.
+For [bundled PostgreSQL](installation.md#optional-run-postgresql-with-compose), also set `POSTGRES_PASSWORD` and put that same password in `DATABASE_URL=postgres://mill:<password>@postgres:5432/mill`. An existing or managed database needs no `POSTGRES_PASSWORD` variable.
 
-`MILL_TRUSTED_PROXY_IPS` is an optional comma-separated list of exact proxy peer IP addresses as seen by the Node service. The default is empty. Mill accepts a forwarded client IP only from one of these peers; arbitrary `X-Forwarded-For` headers from untrusted clients do not bypass rate limits. A host proxy connecting through Docker's published port may appear as the bridge gateway, while a proxy on the Compose network appears as its container address. Use the actual peer address and keep the HTTP service reachable only through the trusted proxy.
+The UI needs only the private API origin. Compose already connects it to `http://api:4321`. On another deployment platform, set `MILL_API_URL` if the API lives at a different private origin. Never give the UI database credentials or `MILL_SECRET`.
 
-`MILL_WEB_DIR` optionally changes the static frontend directory for direct Node execution. The packaged image already uses the correct `apps/web/dist` path; operators normally leave it unset.
+Image versions and published ports belong in the Compose file. Both API and UI image references must come from the same release. Runtime internals such as migration paths, production mode and password-work limits are already set by the images and their safe defaults; they are not installation fields.
 
-Password hashing and verification share a bounded queue. `MILL_PASSWORD_VERIFY_CONCURRENCY` defaults to 2 and accepts 1–8 concurrent operations. `MILL_PASSWORD_VERIFY_QUEUE_LIMIT` defaults to 16 and accepts 0–100 waiting operations; 0 rejects work whenever all operation slots are occupied. Excess requests return `503 AUTHENTICATION_BUSY` with `Retry-After: 1`, before starting expensive password work. Keep concurrency low on small installations. Authentication throttles persist in PostgreSQL and return the remaining window through `Retry-After`; successful complete sign-in clears the account bucket while address throttling remains in place.
+Environment changes take effect when you recreate the affected service using your installation's Compose command. A container restart alone keeps its old environment. Preserve the original `MILL_SECRET` with encrypted backups of your configuration.
+
+## Public URL
+
+Remote access requires HTTPS. Local HTTP OAuth is permitted automatically only for an exact loopback `MILL_BASE_URL`; there is no insecure-origin switch. For browser passkeys, use `localhost` locally or an HTTPS DNS hostname remotely. Browsers do not allow passkey registration with an IP address as the relying-party domain.
+
+The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys. A base URL change can invalidate passkey origin checks; read [operations](operations.md) before changing an established installation's URL.
 
 ## Notifications
 

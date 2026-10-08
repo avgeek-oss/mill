@@ -14,14 +14,32 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const runId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
 const project = `mill-verify-${runId}`;
 const recoveryProject = `${project}-restore`;
-const releaseImage = process.env.MILL_VERIFY_RELEASE_IMAGE;
-if (releaseImage)
-  assert.match(
-    releaseImage,
-    /^ghcr\.io\/avgeek-oss\/mill@sha256:[0-9a-f]{64}$/,
-    "Release verification requires the immutable Mill GHCR digest",
-  );
-const image = releaseImage ?? `mill:verify-${runId}`;
+assert.equal(
+  process.env.MILL_VERIFY_RELEASE_IMAGE,
+  undefined,
+  "MILL_VERIFY_RELEASE_IMAGE is retired; supply MILL_VERIFY_API_IMAGE and MILL_VERIFY_WEB_IMAGE",
+);
+const releaseApiImage = process.env.MILL_VERIFY_API_IMAGE;
+const releaseWebImage = process.env.MILL_VERIFY_WEB_IMAGE;
+assert.equal(
+  Boolean(releaseApiImage),
+  Boolean(releaseWebImage),
+  "Release verification requires both MILL_VERIFY_API_IMAGE and MILL_VERIFY_WEB_IMAGE",
+);
+const releaseImages = Boolean(releaseApiImage);
+const images = {
+  api: releaseApiImage ?? `mill-api:verify-${runId}`,
+  web: releaseWebImage ?? `mill-web:verify-${runId}`,
+};
+if (releaseImages)
+  for (const [component, image] of Object.entries(images))
+    assert.match(
+      image,
+      new RegExp(
+        `^ghcr\\.io/avgeek-oss/mill-${component}@sha256:[0-9a-f]{64}$`,
+      ),
+      `Release verification requires the immutable Mill ${component} GHCR digest`,
+    );
 const scannerCache = `${project}-scanner-cache`;
 const evidence = resolve(root, "tmp", "verification", project);
 const privateDirectory = await mkdtemp(join(tmpdir(), "mill-verify-"));
@@ -51,10 +69,12 @@ async function run(
 ) {
   const started = Date.now();
   let output = "";
+  let stdout = "";
   let exitCode;
   try {
     const child = spawn(command, args, {
       cwd: root,
+      shell: false,
       env: {
         ...process.env,
         ...(packageToken ? { NODE_AUTH_TOKEN: packageToken } : {}),
@@ -66,6 +86,7 @@ async function run(
     const timer = setTimeout(() => child.kill("SIGTERM"), timeout);
     child.stdout.on("data", (data) => {
       output += data;
+      stdout += data;
     });
     child.stderr.on("data", (data) => {
       output += data;
@@ -76,7 +97,7 @@ async function run(
     }).finally(() => clearTimeout(timer));
     assert.equal(exitCode, 0, `${name} must pass`);
     console.log(`PASS ${name}`);
-    return output.trim();
+    return stdout.trim();
   } finally {
     await writeFile(join(evidence, `${name}.log`), redact(output), {
       mode: 0o600,
@@ -88,7 +109,7 @@ async function run(
     });
     await writeFile(
       join(evidence, "results.json"),
-      JSON.stringify({ project, image, results }, null, 2),
+      JSON.stringify({ project, images, results }, null, 2),
       { mode: 0o600 },
     );
   }
@@ -124,19 +145,65 @@ function databaseArguments(configuration, statement) {
     statement,
   ];
 }
-async function configuration(name, targetPort, publicOrigin) {
+async function configuration(
+  name,
+  targetPort,
+  publicOrigin,
+  bundledPostgres = true,
+) {
   const envFile = join(privateDirectory, `${name}.env`);
+  const settings = {
+    DATABASE_URL: `postgres://mill:${secrets[0]}@postgres:5432/mill`,
+    MILL_SECRET: secrets[1],
+    MILL_BASE_URL: publicOrigin ?? `http://127.0.0.1:${targetPort}`,
+    ...(bundledPostgres ? { POSTGRES_PASSWORD: secrets[0] } : {}),
+  };
+  const template = await readFile(join(root, ".env.example"), "utf8");
+  const lines = template.split("\n").map((line) => {
+    const name = /^([A-Z_]+)=/.exec(line)?.[1];
+    if (!name || !(name in settings)) return line;
+    const value = settings[name];
+    delete settings[name];
+    return `${name}=${value}`;
+  });
+  lines.push(
+    ...Object.entries(settings).map(([name, value]) => `${name}=${value}`),
+    "",
+  );
+  await writeFile(envFile, lines.join("\n"), { mode: 0o600 });
+  const composeFile = join(privateDirectory, `${name}.compose.yml`);
   await writeFile(
-    envFile,
+    composeFile,
     [
-      `POSTGRES_PASSWORD=${secrets[0]}`,
-      `MILL_SECRET=${secrets[1]}`,
-      `MILL_BASE_URL=${publicOrigin ?? `http://127.0.0.1:${targetPort}`}`,
-      `MILL_PORT=${targetPort}`,
-      "MILL_BIND_ADDRESS=127.0.0.1",
-      `ALLOW_INSECURE_LOCALHOST=${publicOrigin ? "false" : "true"}`,
-      `MILL_IMAGE=${image}`,
-      `SOURCE_COMMIT=${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
+      "services:",
+      "  api:",
+      `    image: ${images.api}`,
+      ...(!releaseImages && bundledPostgres
+        ? [
+            "    build:",
+            "      args:",
+            `        SOURCE_COMMIT: ${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
+          ]
+        : []),
+      "  web:",
+      `    image: ${images.web}`,
+      "    ports: !override",
+      `      - "127.0.0.1:${targetPort}:4322"`,
+      ...(!releaseImages && bundledPostgres
+        ? [
+            "    build:",
+            "      args:",
+            `        SOURCE_COMMIT: ${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
+          ]
+        : []),
+      ...(!bundledPostgres
+        ? [
+            "networks:",
+            "  default:",
+            "    external: true",
+            `    name: ${project}_default`,
+          ]
+        : []),
       "",
     ].join("\n"),
     { mode: 0o600 },
@@ -149,10 +216,17 @@ async function configuration(name, targetPort, publicOrigin) {
     envFile,
     "--file",
     "docker-compose.yml",
+    ...(bundledPostgres ? ["--file", "docker-compose.postgres.yml"] : []),
+    ...(!releaseImages && bundledPostgres
+      ? ["--file", "tools/compose-source.yml"]
+      : []),
+    "--file",
+    composeFile,
   ];
   projects.push(compose);
   return {
     envFile,
+    composeFile,
     compose,
     url: publicOrigin ?? `http://127.0.0.1:${targetPort}`,
   };
@@ -165,7 +239,7 @@ let secureProxy;
 let sourceRevision;
 let sourceDirty;
 try {
-  if (!releaseImage) {
+  if (!releaseImages) {
     packageToken = await githubPackagesToken();
     secrets.push(packageToken);
   }
@@ -199,57 +273,60 @@ try {
     "config",
     "--quiet",
   ]);
-  if (releaseImage) {
-    await run(
-      "production-image-pull",
-      "docker",
-      ["pull", releaseImage],
-      {},
-      600_000,
-    );
-    const metadata = JSON.parse(
-      await run("release-image-metadata", "docker", [
-        "image",
-        "inspect",
-        releaseImage,
-        "--format",
-        "{{json .}}",
-      ]),
-    );
-    assert.equal(
-      metadata.Config.Labels["org.opencontainers.image.revision"],
-      sourceRevision,
-    );
-    assert.equal(
-      metadata.Config.Labels["org.opencontainers.image.version"],
-      JSON.parse(await readFile(join(root, "package.json"), "utf8")).version,
-    );
-    assert.equal(
-      metadata.Config.Labels["org.opencontainers.image.source"],
-      "https://github.com/avgeek-oss/mill",
-    );
+  if (releaseImages) {
+    for (const [component, image] of Object.entries(images)) {
+      await run(
+        `production-${component}-image-pull`,
+        "docker",
+        ["pull", image],
+        {},
+        600_000,
+      );
+      const metadata = JSON.parse(
+        await run(`release-${component}-image-metadata`, "docker", [
+          "image",
+          "inspect",
+          image,
+          "--format",
+          "{{json .}}",
+        ]),
+      );
+      assert.equal(
+        metadata.Config.Labels["org.opencontainers.image.revision"],
+        sourceRevision,
+      );
+      assert.equal(
+        metadata.Config.Labels["org.opencontainers.image.version"],
+        JSON.parse(await readFile(join(root, "package.json"), "utf8")).version,
+      );
+      assert.equal(
+        metadata.Config.Labels["org.opencontainers.image.source"],
+        "https://github.com/avgeek-oss/mill",
+      );
+    }
   } else {
     await run(
-      "production-image-build",
+      "production-images-build",
       "docker",
-      [...primary.compose, "build", "--pull", "mill"],
+      [...primary.compose, "build", "--pull", "api", "web"],
       {},
       1_800_000,
     );
   }
-  assert.equal(
-    architecture(
-      await run("production-image-architecture", "docker", [
-        "image",
-        "inspect",
-        image,
-        "--format",
-        "{{.Architecture}}",
-      ]),
-    ),
-    hostArchitecture,
-    "The exercised production image must use the Docker host's native architecture",
-  );
+  for (const [component, image] of Object.entries(images))
+    assert.equal(
+      architecture(
+        await run(`production-${component}-image-architecture`, "docker", [
+          "image",
+          "inspect",
+          image,
+          "--format",
+          "{{.Architecture}}",
+        ]),
+      ),
+      hostArchitecture,
+      `The exercised ${component} production image must use the Docker host's native architecture`,
+    );
   await run(
     "fresh-production-start",
     "docker",
@@ -265,23 +342,23 @@ try {
     {},
     240_000,
   );
-  if (releaseImage) {
-    const container = await run("release-container-id", "docker", [
-      ...primary.compose,
-      "ps",
-      "--quiet",
-      "mill",
-    ]);
-    assert.equal(
-      await run("release-container-image", "docker", [
-        "inspect",
-        "--format",
-        "{{.Config.Image}}",
-        container,
-      ]),
-      releaseImage,
-    );
-  }
+  if (releaseImages)
+    for (const [component, image] of Object.entries(images)) {
+      const container = await run(
+        `release-${component}-container-id`,
+        "docker",
+        [...primary.compose, "ps", "--quiet", component],
+      );
+      assert.equal(
+        await run(`release-${component}-container-image`, "docker", [
+          "inspect",
+          "--format",
+          "{{.Config.Image}}",
+          container,
+        ]),
+        image,
+      );
+    }
   const builtStaticManifest = await run(
     "production-static-manifest",
     "docker",
@@ -293,7 +370,7 @@ try {
       "MILL_STATIC_MODE=manifest",
       "--env",
       "MILL_STATIC_ROOT=/app/apps/web/dist",
-      "mill",
+      "web",
       "node",
       "--input-type=module",
       "-e",
@@ -316,23 +393,97 @@ try {
     ...verifyEnv,
     MILL_VERIFY_MODE: "fresh",
   });
-  const user = await run("image-non-root", "docker", [
-    "image",
-    "inspect",
-    image,
-    "--format",
-    "{{.Config.User}}",
-  ]);
-  assert.equal(user, "node");
-  await run("runtime-production-dependencies", "docker", [
+  for (const [component, image] of Object.entries(images)) {
+    const user = await run(`${component}-image-non-root`, "docker", [
+      "image",
+      "inspect",
+      image,
+      "--format",
+      "{{.Config.User}}",
+    ]);
+    assert.equal(user, "node");
+    await run(`${component}-runtime-production-dependencies`, "docker", [
+      ...primary.compose,
+      "exec",
+      "-T",
+      component,
+      "node",
+      "--input-type=module",
+      "-e",
+      "import assert from 'node:assert/strict';import{existsSync}from'node:fs';assert.equal(existsSync('/app/node_modules/typescript'),false);assert.equal(existsSync('/usr/local/lib/node_modules/npm'),false);",
+    ]);
+  }
+  await run("api-runtime-boundary", "docker", [
     ...primary.compose,
     "exec",
     "-T",
-    "mill",
+    "api",
     "node",
     "--input-type=module",
     "-e",
-    "import assert from 'node:assert/strict';import{existsSync}from'node:fs';assert.equal(existsSync('/app/node_modules/typescript'),false);assert.equal(existsSync('/usr/local/lib/node_modules/npm'),false);",
+    "import assert from 'node:assert/strict';import{existsSync}from'node:fs';assert.equal(existsSync('/app/apps/web/dist'),false);assert.equal(process.env.MILL_SERVE_WEB,'false');",
+  ]);
+  await run("web-runtime-boundary", "docker", [
+    ...primary.compose,
+    "exec",
+    "-T",
+    "web",
+    "node",
+    "--input-type=module",
+    "-e",
+    "import assert from 'node:assert/strict';import{existsSync}from'node:fs';assert.equal(process.env.DATABASE_URL,undefined);assert.equal(process.env.MILL_SECRET,undefined);assert.equal(existsSync('/app/dist/apps/api/src/index.js'),false);assert.equal(existsSync('/app/node_modules/postgres'),false);",
+  ]);
+  const external = await configuration(
+    `${project}-external`,
+    Number(new URL(primary.url).port),
+    undefined,
+    false,
+  );
+  const externalConfig = JSON.parse(
+    await run("external-database-configuration", "docker", [
+      ...external.compose,
+      "config",
+      "--format",
+      "json",
+    ]),
+  );
+  assert.deepEqual(Object.keys(externalConfig.services).sort(), ["api", "web"]);
+  assert.equal(
+    externalConfig.services.api.environment.DATABASE_URL,
+    `postgres://mill:${secrets[0]}@postgres:5432/mill`,
+  );
+  await run("external-database-original-app-stop", "docker", [
+    ...primary.compose,
+    "stop",
+    "api",
+    "web",
+  ]);
+  await run(
+    "external-database-app-start",
+    "docker",
+    [
+      ...external.compose,
+      "up",
+      "--no-build",
+      "--detach",
+      "--wait",
+      "--wait-timeout",
+      "180",
+    ],
+    {},
+    240_000,
+  );
+  await run(
+    "external-database-api-oauth-mcp-persistence",
+    "node",
+    ["tools/install-smoke.mjs"],
+    verifyEnv,
+  );
+  await run("external-database-app-stop", "docker", [
+    ...external.compose,
+    "down",
+    "--timeout",
+    "20",
   ]);
   await run(
     "persistent-container-recreation",
@@ -344,7 +495,8 @@ try {
       "--force-recreate",
       "--detach",
       "--wait",
-      "mill",
+      "api",
+      "web",
     ],
     {},
     240_000,
@@ -446,7 +598,7 @@ try {
     ...primary.compose,
     "exec",
     "-T",
-    "mill",
+    "api",
     "node",
     "--input-type=module",
     "-e",
@@ -456,7 +608,7 @@ try {
     ...primary.compose,
     "exec",
     "-T",
-    "mill",
+    "api",
     "node",
     "--input-type=module",
     "-e",
@@ -465,7 +617,8 @@ try {
   await run("backup-quiesce-application", "docker", [
     ...primary.compose,
     "stop",
-    "mill",
+    "api",
+    "web",
   ]);
   const tables = JSON.parse(
     await run(
@@ -498,6 +651,8 @@ try {
     project,
     "--env-file",
     primary.envFile,
+    "--compose-file",
+    primary.composeFile,
     "--output",
     backup,
   ]);
@@ -523,6 +678,8 @@ try {
       recoveryProject,
       "--env-file",
       recovery.envFile,
+      "--compose-file",
+      recovery.composeFile,
       "--input",
       backup,
     ],
@@ -640,50 +797,53 @@ try {
     },
     240_000,
   );
-  await run(
-    "production-image-security",
-    "docker",
-    [
-      "run",
-      "--rm",
-      "--name",
-      `${project}-scanner`,
-      "--label",
-      `mill.verification=${project}`,
-      "--cpus",
-      "2",
-      "--memory",
-      "2g",
-      "--volume",
-      "/var/run/docker.sock:/var/run/docker.sock",
-      "--volume",
-      `${scannerCache}:/root/.cache/trivy`,
-      "--volume",
-      `${evidence}:/verification`,
-      "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969",
-      "image",
-      "--scanners",
-      "vuln",
-      "--severity",
-      "HIGH,CRITICAL",
-      "--exit-code",
-      "1",
-      "--format",
-      "json",
-      "--output",
-      "/verification/image-vulnerabilities.json",
-      image,
-    ],
-    {},
-    600_000,
-  );
+  for (const [component, image] of Object.entries(images)) {
+    const scan = await run(
+      `production-${component}-image-security`,
+      "docker",
+      [
+        "run",
+        "--rm",
+        "--name",
+        `${project}-${component}-scanner`,
+        "--label",
+        `mill.verification=${project}`,
+        "--cpus",
+        "2",
+        "--memory",
+        "2g",
+        "--volume",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "--volume",
+        `${scannerCache}:/root/.cache/trivy`,
+        "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969",
+        "image",
+        "--scanners",
+        "vuln",
+        "--severity",
+        "HIGH,CRITICAL",
+        "--exit-code",
+        "1",
+        "--format",
+        "json",
+        image,
+      ],
+      {},
+      600_000,
+    );
+    await writeFile(
+      join(evidence, `${component}-image-vulnerabilities.json`),
+      JSON.stringify(JSON.parse(scan), null, 2),
+      { mode: 0o600 },
+    );
+  }
   const fixture = JSON.parse(await readFile(state, "utf8"));
   await writeFile(
     join(evidence, "evidence.json"),
     JSON.stringify(
       {
         project,
-        image,
+        images,
         sourceRevision,
         sourceDirty,
         primaryUrl: primary.url,
@@ -701,6 +861,8 @@ try {
           "Fresh current-schema custom-format PostgreSQL backup restored into an isolated empty project; all rows match before traffic, followed by real REST/OAuth/MCP persistence checks at the retained resource origin.",
         prelaunchCompatibility:
           "Historical prelaunch ledgers are rejected without modification. Conversion requires the explicitly guarded prelaunch conversion tool and a verified backup; this fresh-install gate does not claim a historical upgrade.",
+        externalDatabase:
+          "A separate API/UI-only Compose project connects to the existing PostgreSQL through DATABASE_URL; retained REST, OAuth and MCP client journeys pass without a PostgreSQL service in that project.",
         httpsProxy: {
           origin: proxyOrigin,
           project: proxyProject,
@@ -726,13 +888,21 @@ try {
       30_000,
       true,
     ).catch(() => {});
+    await run(
+      "failure-container-logs",
+      "docker",
+      [...primary.compose, "logs", "--no-color", "--tail", "100", "api", "web"],
+      {},
+      30_000,
+      true,
+    ).catch(() => {});
   }
 } finally {
   if (secureProxy?.listening) {
     secureProxy.closeAllConnections();
     await new Promise((resolveClose) => secureProxy.close(resolveClose));
   }
-  for (const [index, compose] of projects.entries()) {
+  for (const [index, compose] of projects.toReversed().entries()) {
     await run(
       `cleanup-project-${index}`,
       "docker",
@@ -745,26 +915,28 @@ try {
       process.exitCode = 1;
     });
   }
-  const imageId = await run(
-    "cleanup-image-inventory",
-    "docker",
-    ["image", "ls", "--quiet", image],
-    {},
-    30_000,
-    true,
-  ).catch(() => "");
-  if (imageId)
-    await run(
-      "cleanup-image",
+  for (const [component, image] of Object.entries(images)) {
+    const imageId = await run(
+      `cleanup-${component}-image-inventory`,
       "docker",
-      ["image", "rm", image],
+      ["image", "ls", "--quiet", image],
       {},
-      60_000,
+      30_000,
       true,
-    ).catch((error) => {
-      console.error(error.message);
-      process.exitCode = 1;
-    });
+    ).catch(() => "");
+    if (imageId)
+      await run(
+        `cleanup-${component}-image`,
+        "docker",
+        ["image", "rm", image],
+        {},
+        60_000,
+        true,
+      ).catch((error) => {
+        console.error(error.message);
+        process.exitCode = 1;
+      });
+  }
   const scannerId = await run(
     "cleanup-scanner-inventory",
     "docker",

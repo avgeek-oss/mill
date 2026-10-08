@@ -1,44 +1,62 @@
 # Mill
 
-Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs one web/API service and PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
+Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs an API image and a UI image connected to PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
 
 Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, and activity. Team members use Admin, Member, or Viewer access.
 
 Personal and team API keys have explicit Read-only, Edit, or Administrative permissions for REST and MCP. Personal keys remain bounded by their owner's active membership and current role; administrators issue team keys against the team policy. MCP clients can also connect through OAuth with approved read/write scopes and optional board limits.
 
-The proposed release is `v1.0.1`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Release results belong to the reviewed pull request and its CI artifacts; publication and deployment require their applicable authorization.
+![Mill task list with sample tasks, statuses, assignees and filters](docs/assets/screenshots/release-v1/board-light.png)
 
-The staged image publisher produces the combined web/API image at `ghcr.io/avgeek-oss/mill`. It runs only when dispatched for an existing stable tag on current `main`, verifies exact-commit CI, and publishes a GitHub release after native AMD64 and ARM64 registry-image installation checks pass. The repository and GHCR package remain private; see [installation](docs/installation.md) for authenticated digest-pinned pulls after publication.
+The proposed release is `v1.0.1`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Use a published release for an installation; a proposed tag is not a published image.
 
-## Install locally
+## Install
 
-Install Docker with Compose v2, Git, and Node.js 24. Clone the repository into a directory you control, then run:
+You need Docker with Compose v2. Download `docker-compose.yml` and `.env.example` from the same [published release](https://github.com/avgeek-oss/mill/releases), put them in an empty directory, and copy `.env.example` to `.env`.
+
+If you prefer the terminal:
 
 ```sh
-git clone https://github.com/avgeek-oss/mill.git
+mkdir mill
 cd mill
-npm login --scope=@avgeek-oss --registry=https://npm.pkg.github.com --auth-type=legacy
-node tools/init-env.mjs
-node tools/with-package-token.mjs docker compose --project-name mill --env-file .env up --build --detach --wait
+release_tag=v1.0.1 # choose a published release
+curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
+curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
+cp .env.example .env
+chmod 600 .env
 ```
 
-Open [localhost:4321](http://localhost:4321), create your workspace and first administrator, and [make your first board](docs/getting-started.md). The setup form is available only until the first administrator exists. Mill has no default account or password.
+Set just three values in `.env`:
 
-The source build downloads the public `@avgeek-oss/design-system` package from GitHub Packages. At the login prompt, use your GitHub username and a classic personal access token with `read:packages` as the password. GitHub requires authentication for public npm packages too. [Package registry setup](docs/package-registry.md) covers local credentials and CI; running a built Mill image needs no registry token.
+```dotenv
+DATABASE_URL=postgres://user:password@your-database-host:5432/mill
+MILL_SECRET=<a random secret of at least 32 characters>
+MILL_BASE_URL=http://localhost:4321
+```
 
-The generated `.env` contains private keys and the database password. Keep it out of Git and save an encrypted copy with your database backups. Stop the services with `docker compose --project-name mill --env-file .env down`. Data stays in the project volume unless you explicitly remove it.
+Use a dedicated PostgreSQL database and its connection URL. Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`, and preserve it across upgrades and restores. For remote access, use your final HTTPS origin as `MILL_BASE_URL`.
 
-For remote access, configure an HTTPS reverse proxy and use [the production installation guide](docs/installation.md). Do not expose the local HTTP installation on the internet.
+```sh
+docker compose --project-name mill up --detach --wait
+```
+
+Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the release version already written in the Compose file. Only the UI publishes a host port; it forwards API, authentication and MCP requests privately to the API.
+
+Open [localhost:4321](http://localhost:4321), create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
+
+If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation.md#optional-run-postgresql-with-compose). Your existing or managed PostgreSQL instance works directly with the default Compose file.
+
+Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 
 ## Develop
 
-The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source and available from npm or GitHub Packages; there is no dependency on another Avgeek checkout. Authenticate to GitHub Packages as described above before installing.
+The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source and available from npm or GitHub Packages; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.
 
 ```sh
 npm install --global pnpm@11.5.3
 node tools/with-package-token.mjs pnpm install --frozen-lockfile
 node tools/init-env.mjs
-docker compose --project-name mill --env-file .env --file docker-compose.yml --file tools/compose-development.yml up --detach --wait postgres
+docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-development.yml up --detach --wait postgres
 pnpm migrate
 MILL_BASE_URL=http://localhost:4322 pnpm dev
 ```
@@ -47,11 +65,16 @@ Run `pnpm dev:web` in a second terminal for the frontend development server at [
 
 Run `pnpm test:quick` for fast Node checks of frontend helpers, configuration and date formatting. See [contributing](CONTRIBUTING.md) for the complete `pnpm verify` and `pnpm verify:production` gates and manual UI review. CI requires the `verify` and `production` gates.
 
+Run `pnpm docs:dev` to preview the documentation from the repository's `docs` root.
+
 ## Documentation
 
+Read the [Mill website and documentation](https://www.mill.fyi) or use the guides in this repository.
+
 - [Overview](docs/overview.md), [installation](docs/installation.md), [configuration](docs/configuration.md), and [first board](docs/getting-started.md)
+- [Task lists and filters](docs/task-lists.md), [task details and discussion](docs/task-details.md), and [notifications](docs/notifications.md)
 - [Team, tasks, and permissions](docs/workflows.md)
-- [REST API and MCP](docs/clients.md), [API reference](docs/api.md), and [access security](docs/authentication.md#external-credential-boundaries)
+- [Personal and team API keys](docs/api-keys.md), [MCP connections](docs/mcp-connections.md), and [REST API and MCP](docs/clients.md), [API reference](docs/api.md), and [access security](docs/authentication.md#external-credential-boundaries)
 - [Operations](docs/operations.md), [backup and recovery](docs/backup.md), and [upgrades](docs/upgrades.md)
 - [Troubleshooting](docs/troubleshooting.md), [security reporting](docs/security.md), and [v1 release notes](docs/release-notes.md)
 - [Contributing](CONTRIBUTING.md), [security reports](SECURITY.md), and [code of conduct](CODE_OF_CONDUCT.md)

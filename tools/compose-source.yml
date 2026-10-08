@@ -1,0 +1,23 @@
+services:
+  api:
+    image: mill-api:local
+    build:
+      context: .
+      target: api
+      secrets:
+        - npm_token
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
+  web:
+    image: mill-web:local
+    build:
+      context: .
+      target: web
+      secrets:
+        - npm_token
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-development}
+
+secrets:
+  npm_token:
+    environment: NODE_AUTH_TOKEN

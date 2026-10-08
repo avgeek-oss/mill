@@ -1,7 +1,9 @@
 packages:
   - apps/*
   - packages/*
+injectWorkspacePackages: true
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
-  - "@avgeek-oss/design-system@1.2.9"
+  - "@avgeek-oss/docs@0.1.5"
+  - "@avgeek-oss/design-system@1.2.10"

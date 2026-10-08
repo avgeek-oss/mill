@@ -79,7 +79,7 @@ async function paceRequest() {
 export function validateManifest(manifest) {
   if (
     manifest.schemaVersion !== 1 ||
-    manifest.output !== "docs/screenshots/release-v1"
+    manifest.output !== "docs/assets/screenshots/release-v1"
   )
     throw new Error(
       "Screenshot manifest must use the release-v1 output directory",
@@ -105,6 +105,8 @@ export function validateManifest(manifest) {
       throw new Error("Screenshot viewport dimensions are invalid");
   const names = new Set();
   for (const entry of manifest.screenshots) {
+    if (entry.deviceScaleFactor !== undefined && entry.deviceScaleFactor !== 4)
+      throw new Error("Lead screenshots require 4x pixel density");
     if (!/^[a-z][a-z0-9-]*$/.test(entry.name) || names.has(entry.name))
       throw new Error("Screenshot names must be unique safe basenames");
     names.add(entry.name);
@@ -176,8 +178,11 @@ async function json(api, route, data, method = "POST") {
   return response.json();
 }
 
-async function seed(origin, request) {
-  const password = `Screenshot-${randomBytes(24).toString("base64url")}`;
+export async function seed(
+  origin,
+  request,
+  password = `Screenshot-${randomBytes(24).toString("base64url")}`,
+) {
   const api = await request.newContext({
     baseURL: origin,
     extraHTTPHeaders: { Origin: origin },
@@ -215,7 +220,18 @@ async function seed(origin, request) {
       role: "member",
     });
     for (const name of ["Local development", "Release automation"])
-      await json(api, "/credentials", { name, expiresInDays: 90 });
+      await json(api, "/credentials", {
+        name,
+        access: "read",
+        includeAdmin: false,
+        expiresAt: new Date(Date.now() + 90 * 86400000).toISOString(),
+      });
+    await json(api, "/team-credentials", {
+      name: "Release client",
+      access: "edit",
+      includeAdmin: false,
+      expiresAt: null,
+    });
     const board = (
       await json(api, "/boards", { name: "Release planning", prefix: "REL" })
     ).board;
@@ -318,9 +334,7 @@ async function prepare(page, entry) {
     );
   }
   if (entry.action === "notifications") {
-    await page
-      .getByRole("button", { name: "Open notifications", exact: true })
-      .click();
+    await page.getByRole("button", { name: /^Notifications/ }).click();
     await waitForVisible(
       page.getByRole("dialog", { name: "Notifications", exact: true }),
     );
@@ -396,7 +410,8 @@ async function capture(browser, origin, manifest, entry, fixture, receipt) {
     for (const theme of manifest.themes) {
       const context = await browser.newContext({
         viewport,
-        deviceScaleFactor: manifest.deviceScaleFactor,
+        deviceScaleFactor:
+          entry.deviceScaleFactor ?? manifest.deviceScaleFactor,
         colorScheme: theme,
         reducedMotion: "reduce",
         isMobile: device === "mobile",
@@ -481,8 +496,9 @@ async function capture(browser, origin, manifest, entry, fixture, receipt) {
           animations: "disabled",
         });
         const image = await readFile(temporary);
-        const pixelWidth = viewport.width * manifest.deviceScaleFactor;
-        const pixelHeight = viewport.height * manifest.deviceScaleFactor;
+        const scale = entry.deviceScaleFactor ?? manifest.deviceScaleFactor;
+        const pixelWidth = viewport.width * scale;
+        const pixelHeight = viewport.height * scale;
         if (
           image.readUInt32BE(16) !== pixelWidth ||
           image.readUInt32BE(20) !== pixelHeight
@@ -497,7 +513,7 @@ async function capture(browser, origin, manifest, entry, fixture, receipt) {
           ...viewport,
           pixelWidth,
           pixelHeight,
-          deviceScaleFactor: manifest.deviceScaleFactor,
+          deviceScaleFactor: scale,
           route: entry.route,
           state: entry.action ?? "page",
           readiness: {
@@ -543,7 +559,7 @@ async function captureDocumentation(browser, origin, manifest, receipt) {
   )
     throw new Error("Docs screenshots require a loopback preview URL");
   const configuration = JSON.parse(
-    await readFile(path.join(root, "docs/mintlify/docs.json"), "utf8"),
+    await readFile(path.join(root, "docs/docs.json"), "utf8"),
   );
   const directory = "tmp/docs-page-screenshots";
   await mkdir(path.join(root, directory), { recursive: true });
@@ -652,7 +668,7 @@ async function captureDocumentation(browser, origin, manifest, receipt) {
       }
 }
 
-async function verifyPreviewAssets(origin, images) {
+export async function verifyPreviewAssets(origin, images) {
   const url = new URL(origin);
   if (
     !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) ||
@@ -662,24 +678,18 @@ async function verifyPreviewAssets(origin, images) {
   )
     throw new Error("Docs screenshots require a loopback preview URL");
   for (const image of images) {
-    if (!/^docs\/screenshots\/release-v1\/[a-z0-9-]+\.png$/.test(image.file))
+    if (
+      !/^docs\/assets\/screenshots\/release-v1\/[a-z0-9-]+\.png$/.test(
+        image.file,
+      )
+    )
       throw new Error("Screenshot receipt contains an invalid asset path");
     const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
     if (hash(await readFile(path.join(root, image.file))) !== image.sha256)
       throw new Error(
         `Application screenshot changed after capture: ${image.file}`,
       );
-    const route = image.file.replace(
-      /^docs\/screenshots\//,
-      "/assets/screenshots/",
-    );
-    if (
-      hash(await readFile(path.join(root, "docs/mintlify", route))) !==
-      image.sha256
-    )
-      throw new Error(
-        "Regenerate the Mintlify site after refreshing application screenshots",
-      );
+    const route = image.file.replace(/^docs\//, "/");
     let ready = false;
     for (let attempt = 0; attempt < 60; attempt++) {
       const response = await fetch(new URL(route, url), {
@@ -756,11 +766,17 @@ async function resumeImages(manifest, receipt, version, build) {
       if (
         createHash("sha256").update(bytes).digest("hex") !== frame.sha256 ||
         bytes.readUInt32BE(16) !==
-          viewport.width * manifest.deviceScaleFactor ||
-        bytes.readUInt32BE(20) !== viewport.height * manifest.deviceScaleFactor
+          viewport.width *
+            (entry.deviceScaleFactor ?? manifest.deviceScaleFactor) ||
+        bytes.readUInt32BE(20) !==
+          viewport.height *
+            (entry.deviceScaleFactor ?? manifest.deviceScaleFactor)
       )
         throw new Error(`Previous capture asset changed: ${expected}`);
-      images.push(frame);
+      images.push({
+        ...frame,
+        deviceScaleFactor: bytes.readUInt32BE(16) / viewport.width,
+      });
     }
   }
   return images;
@@ -799,7 +815,7 @@ async function main() {
   if (args.includes("--resume") && (section || args.includes("--docs-only")))
     throw new Error("Resume cannot be combined with section or docs-only mode");
   const navigation = JSON.parse(
-    await readFile(path.join(root, "docs/mintlify/docs.json"), "utf8"),
+    await readFile(path.join(root, "docs/docs.json"), "utf8"),
   );
   const pages = new Set(documentationPages(navigation.navigation));
   for (const entry of manifest.screenshots)

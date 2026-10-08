@@ -4,7 +4,7 @@ Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before 
 
 ## Local setup
 
-Follow the [README development steps](README.md#develop). Use Node 24.16.0, pnpm 11.5.3, and PostgreSQL 17. Keep `pnpm-lock.yaml` in the change whenever a package changes. Commit source files, not `.env`, database dumps, dependencies, screenshots with private data, or generated build output.
+Follow the [README development steps](README.md#develop). The optional `docker-compose.postgres.yml` supplies the database, and `tools/compose-development.yml` publishes its loopback development port. Use Node 24.16.0, pnpm 11.5.3, and PostgreSQL 17. Keep `pnpm-lock.yaml` in the change whenever a package changes. Commit source files, not `.env`, database dumps, dependencies, screenshots with private data, or generated build output.
 
 ## Verification
 
@@ -23,7 +23,7 @@ pnpm verify:production
 
 Use a disposable PostgreSQL database for `pnpm verify` and provide its `DATABASE_URL` explicitly. Tests create and clear fixture data; never point them at a live workspace. The full check covers documentation links, tooling tests, formatting, lint, types, real PostgreSQL integration tests, production dependency advisories and builds. The quick tests do not replace this check.
 
-The production runner builds the image, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
+The production runner builds the API and UI images, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
 
 The production runner accepts `NODE_AUTH_TOKEN` or your stored GitHub Packages npm login. It passes the credential to BuildKit as a build secret and redacts it from saved evidence. CI uses `GITHUB_TOKEN` with `packages:read`; the shared package must grant the Mill repository Actions access. See [package registry setup](docs/package-registry.md#continuous-integration).
 
@@ -31,7 +31,7 @@ When editing UI, manually review the running routes in light and dark themes, on
 
 ## Documentation
 
-Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and its styles in `docs/home.css`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated pages in `docs/mintlify` are replaced by the build.
+Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and the navigation/branding in `docs/site.json`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated `.mdx` pages, `docs.json`, and the shared snippets/styles live directly in `docs/`. Do not edit generated files; the build and `docs:check` keep them aligned with the pinned `@avgeek-oss/docs` package.
 
 For documentation images after a visible application change, use the optional [manual screenshot refresh workflow](docs/screenshot-refresh.md). `pnpm docs:screenshots` refreshes every application section from an isolated example workspace; `pnpm docs:screenshots --docs-url http://localhost:4174` also captures every documentation page. Review the desktop and mobile images in both themes before including them in the docs.
 

@@ -178,7 +178,7 @@ test("permanent task deletion purges owned content, preserves other work and num
   );
 });
 
-test("board deletion requires a human Admin and current version, purges owned rows and scope references, and preserves another board", async () => {
+test("board deletion requires administrative permission and current version, purges owned rows and scope references, and preserves another board", async () => {
   const { cookie } = await setupUser();
   const colleague = await member(cookie, "member");
   const viewer = await member(cookie, "viewer");

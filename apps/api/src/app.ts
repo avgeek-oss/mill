@@ -1,7 +1,8 @@
 import { millVersion } from "./version.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { secureHeaders } from "hono/secure-headers";
+import { httpSecurity } from "../../shared/security.js";
+export { httpSecurity } from "../../shared/security.js";
 import { sql } from "../../../packages/database/src/index.js";
 import { authRoutes, sessionActor } from "./auth.js";
 import { domainRoutes } from "./domain.js";
@@ -57,19 +58,7 @@ app.use("*", async (c, next) => {
     );
   }
 });
-export const httpSecurity = secureHeaders({
-  contentSecurityPolicy: {
-    defaultSrc: ["'self'"],
-    scriptSrc: ["'self'"],
-    styleSrc: ["'self'", "'unsafe-inline'"],
-    imgSrc: ["'self'", "data:", "https://www.gravatar.com"],
-    connectSrc: ["'self'"],
-    fontSrc: ["'self'"],
-    objectSrc: ["'none'"],
-    baseUri: ["'none'"],
-    frameAncestors: ["'none'"],
-  },
-});
+
 app.use("*", httpSecurity);
 const standardBodyLimit = bodyLimit({
   maxSize: 2 * 1024 * 1024,

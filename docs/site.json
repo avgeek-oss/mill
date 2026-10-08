@@ -1,0 +1,208 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Mill",
+  "description": "Open-source, self-hosted task lists for teams, with REST and MCP clients.",
+  "logo": {
+    "light": "/assets/mill-mark.png",
+    "dark": "/assets/mill-mark.png",
+    "href": "/"
+  },
+  "favicon": "/assets/mill-favicon.png",
+  "colors": {
+    "primary": "#704628",
+    "light": "#c89b6d",
+    "dark": "#704628"
+  },
+  "appearance": {
+    "default": "system"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs",
+    "codeblocks": "system"
+  },
+  "interaction": {
+    "drilldown": false
+  },
+  "navigation": {
+    "dropdowns": [
+      {
+        "dropdown": "Introduction",
+        "icon": "book-open",
+        "groups": [
+          {
+            "group": "Get started",
+            "pages": ["overview", "getting-started"]
+          }
+        ]
+      },
+      {
+        "dropdown": "Using Mill",
+        "icon": "clipboard-list",
+        "groups": [
+          {
+            "group": "Tasks and collaboration",
+            "pages": [
+              "task-lists",
+              "task-details",
+              "notifications",
+              "workflows"
+            ]
+          },
+          {
+            "group": "Accounts and teams",
+            "pages": ["authentication"]
+          }
+        ]
+      },
+      {
+        "dropdown": "API and MCP",
+        "icon": "plug",
+        "groups": [
+          {
+            "group": "Connect a client",
+            "pages": [
+              "api-keys",
+              "mcp-connections",
+              "clients",
+              "rest-reference"
+            ]
+          }
+        ]
+      },
+      {
+        "dropdown": "Self-hosting",
+        "icon": "server",
+        "groups": [
+          {
+            "group": "Install and configure",
+            "pages": [
+              "installation",
+              "configuration",
+              "package-registry",
+              "security"
+            ]
+          },
+          {
+            "group": "Operate Mill",
+            "pages": [
+              "operations",
+              "backup",
+              "upgrades",
+              "troubleshooting",
+              "release-notes"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "v{version}",
+        "href": "/release-notes"
+      },
+      {
+        "type": "github",
+        "href": "https://github.com/avgeek-oss/mill"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Docs",
+      "href": "/getting-started"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/avgeek-oss/mill"
+    },
+    "links": [
+      {
+        "header": "Documentation",
+        "items": [
+          {
+            "label": "Get started",
+            "href": "/getting-started"
+          },
+          {
+            "label": "Install Mill",
+            "href": "/installation"
+          },
+          {
+            "label": "Tasks and collaboration",
+            "href": "/task-details"
+          },
+          {
+            "label": "API keys and MCP",
+            "href": "/api-keys"
+          },
+          {
+            "label": "Backup and recovery",
+            "href": "/backup"
+          }
+        ]
+      },
+      {
+        "header": "Our OSS Philosophy",
+        "items": [
+          {
+            "label": "Why we build open source",
+            "href": "https://github.com/avgeek-oss/.github/blob/main/profile/README.md"
+          },
+          {
+            "label": "Source code",
+            "href": "https://github.com/avgeek-oss/mill"
+          },
+          {
+            "label": "Report an issue",
+            "href": "https://github.com/avgeek-oss/mill/issues"
+          }
+        ]
+      },
+      {
+        "header": "Other OSS Apps",
+        "items": [
+          {
+            "label": "Towbar \u00b7 Deploy your apps",
+            "href": "https://www.towbar.dev"
+          },
+          {
+            "label": "Vitalog \u00b7 Your health ledger",
+            "href": "https://www.vitalog.dev"
+          },
+          {
+            "label": "All OSS projects",
+            "href": "https://github.com/avgeek-oss/.github/blob/main/profile/README.md#whats-in-the-list"
+          }
+        ]
+      }
+    ]
+  },
+  "contextual": {
+    "options": ["copy", "view", "chatgpt", "claude"]
+  },
+  "seo": {
+    "indexing": "all",
+    "metatags": {
+      "canonical": "https://www.mill.fyi",
+      "og:image": "https://www.mill.fyi/assets/mill-social.png",
+      "og:image:width": "1200",
+      "og:image:height": "630",
+      "og:image:alt": "Mill \u2014 Open-source task lists for teams",
+      "twitter:card": "summary_large_image",
+      "twitter:image": "https://www.mill.fyi/assets/mill-social.png",
+      "twitter:image:alt": "Mill \u2014 Open-source task lists for teams"
+    },
+    "organization": {
+      "name": "Mill",
+      "url": "https://www.mill.fyi",
+      "logo": "https://www.mill.fyi/assets/mill-mark.png",
+      "sameAs": ["https://github.com/avgeek-oss/mill"]
+    }
+  }
+}

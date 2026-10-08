@@ -3,7 +3,10 @@ import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-const repository = "ghcr.io/avgeek-oss/mill";
+const repositories = {
+  api: "ghcr.io/avgeek-oss/mill-api",
+  web: "ghcr.io/avgeek-oss/mill-web",
+};
 const digestPattern = /^sha256:[0-9a-f]{64}$/;
 const commitPattern = /^[0-9a-f]{40}$/;
 const tagPattern = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
@@ -14,10 +17,19 @@ export function validateReleaseImages(value, expectedTag, expectedCommit) {
   assert.match(value.version, tagPattern);
   assert.match(value.commit, commitPattern);
   assert.deepEqual(value.platforms, ["linux/amd64", "linux/arm64"]);
-  assert.match(value.image, /^ghcr\.io\/avgeek-oss\/mill@sha256:[0-9a-f]{64}$/);
+  assert.ok(value.images && typeof value.images === "object");
+  assert.deepEqual(Object.keys(value.images).sort(), ["api", "web"]);
+  for (const component of ["api", "web"]) {
+    assert.match(
+      value.images[component],
+      new RegExp(
+        `^ghcr\\.io/avgeek-oss/mill-${component}@sha256:[0-9a-f]{64}$`,
+      ),
+    );
+  }
   assert.deepEqual(Object.keys(value).sort(), [
     "commit",
-    "image",
+    "images",
     "platforms",
     "version",
   ]);
@@ -39,11 +51,28 @@ function docker(...args) {
   }).trim();
 }
 
-function verifyRegistryImage(tag, commit) {
+function verifyRegistryImage(component, tag, commit) {
+  const repository = repositories[component];
   const tagged = `${repository}:${tag}`;
   const description = docker("buildx", "imagetools", "inspect", tagged);
   const digest = /^Digest:\s+(sha256:[0-9a-f]{64})$/m.exec(description)?.[1];
   assert.ok(digest, "The registry must return an immutable index digest");
+  for (const alias of [tag.slice(1), commit]) {
+    const aliasDescription = docker(
+      "buildx",
+      "imagetools",
+      "inspect",
+      `${repository}:${alias}`,
+    );
+    const aliasDigest = /^Digest:\s+(sha256:[0-9a-f]{64})$/m.exec(
+      aliasDescription,
+    )?.[1];
+    assert.equal(
+      aliasDigest,
+      digest,
+      `Release alias ${alias} must match ${tag}`,
+    );
+  }
   const index = JSON.parse(
     docker("buildx", "imagetools", "inspect", "--raw", tagged),
   );
@@ -103,11 +132,16 @@ if (
       version: tag,
       commit,
       platforms: ["linux/amd64", "linux/arm64"],
-      image: verifyRegistryImage(tag, commit),
+      images: {
+        api: verifyRegistryImage("api", tag, commit),
+        web: verifyRegistryImage("web", tag, commit),
+      },
     },
     tag,
     commit,
   );
   await writeFile(output, JSON.stringify(manifest, null, 2) + "\n");
-  console.log(`Verified authenticated registry image ${manifest.image}`);
+  console.log(
+    `Verified registry images ${manifest.images.api} and ${manifest.images.web}`,
+  );
 }

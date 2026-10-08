@@ -1,11 +1,15 @@
-import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile, mkdtemp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { format } from "prettier";
-
+const { syncSite } = await import(
+  new URL("../bin/oss-docs.mjs", import.meta.resolve("@avgeek-oss/docs"))
+);
 const root = fileURLToPath(new URL("../", import.meta.url));
 const source = resolve(root, "docs");
-const output = resolve(source, "mintlify");
+const output = source;
+const check = process.argv.includes("--check");
 const { version } = JSON.parse(
   await readFile(resolve(root, "package.json"), "utf8"),
 );
@@ -13,7 +17,7 @@ const screenshots = JSON.parse(
   await readFile(resolve(root, "tools/docs-screenshots.json"), "utf8"),
 );
 const screenshotTitles = {
-  setup: "Workspace setup",
+  setup: "Team setup",
   boards: "Boards",
   board: "Task list",
   task: "Task details and comments",
@@ -23,6 +27,8 @@ const screenshotTitles = {
   "empty-board": "An empty board",
   people: "People",
   "api-keys": "Personal API keys",
+  "team-api-keys": "Team API keys",
+  "mcp-connections": "MCP connections",
   account: "Profile",
   preferences: "Preferences",
   "email-password": "Email & Password",
@@ -35,17 +41,12 @@ const screenshotTitles = {
   "not-found": "A missing page",
   "server-error": "A page loading error",
 };
-
 function screenshotFrame(entry, device) {
   const dimensions = screenshots.devices[device];
+  const scale = entry.deviceScaleFactor ?? screenshots.deviceScaleFactor;
   const suffix = device === "mobile" ? "-mobile" : "";
-  const images = screenshots.themes.map(
-    (theme) =>
-      `<div className="mill-product-${theme}"><img src="/assets/screenshots/release-v1/${entry.name}${suffix}-${theme}.png" alt="${screenshotTitles[entry.name]} in Mill." width="${dimensions.width}" height="${dimensions.height}" loading="lazy" /></div>`,
-  );
-  return `<Frame><div className="mill-guide-screenshot${device === "mobile" ? " mill-guide-screenshot-mobile" : ""}">${images.join("\n")}</div></Frame>`;
+  return `<Screenshot light="/assets/screenshots/release-v1/${entry.name}${suffix}-light.png" dark="/assets/screenshots/release-v1/${entry.name}${suffix}-dark.png" alt="${screenshotTitles[entry.name]} in Mill with sample data." width={${dimensions.width * scale}} height={${dimensions.height * scale}}${device === "mobile" ? " portrait" : ""} />`;
 }
-
 function guideScreenshots(route) {
   const entries = screenshots.screenshots.filter((entry) =>
     entry.guides.includes(route),
@@ -53,8 +54,43 @@ function guideScreenshots(route) {
   if (!entries.length) return "";
   return `\n\n## In the app\n\n${entries.map((entry) => `### ${screenshotTitles[entry.name]}\n\n<Tabs>\n<Tab title="Desktop">\n${screenshotFrame(entry, "desktop")}\n</Tab>\n<Tab title="Mobile">\n${screenshotFrame(entry, "mobile")}\n</Tab>\n</Tabs>`).join("\n\n")}\n`;
 }
-
+async function emit(name, content, parser = "mdx") {
+  const target = resolve(output, name);
+  const formatted = await format(content, { parser });
+  if (check) {
+    if ((await readFile(target, "utf8").catch(() => null)) !== formatted)
+      throw new Error(`Generated docs differ: ${name}; run pnpm docs:build`);
+  } else {
+    await mkdir(resolve(target, ".."), { recursive: true });
+    await writeFile(target, formatted);
+  }
+}
 const pages = [
+  [
+    "task-lists",
+    "Task lists",
+    "Search, filter and sort the work on your boards.",
+  ],
+  [
+    "task-details",
+    "Task details",
+    "Edit tasks, set dates, discuss work and inspect its history.",
+  ],
+  [
+    "notifications",
+    "Notifications",
+    "Review assignments, mentions and changes that need your attention.",
+  ],
+  [
+    "api-keys",
+    "API keys",
+    "Create personal and team keys with explicit permissions and expiry.",
+  ],
+  [
+    "mcp-connections",
+    "MCP connections",
+    "Approve and revoke scoped connections from MCP clients.",
+  ],
   ["overview", "Mill", "A self-hosted task list for teams."],
   [
     "installation",
@@ -130,20 +166,12 @@ const pages = [
 
 const slug = (name) => (name === "api" ? "rest-reference" : name);
 const included = new Set(pages.map(([name]) => name));
-await mkdir(resolve(output, "assets"), { recursive: true });
-await rm(resolve(output, "agents.md"), { force: true });
-await cp(resolve(source, "home.mdx"), resolve(output, "index.mdx"));
-await cp(resolve(source, "home.css"), resolve(output, "style.css"));
-await cp(
-  resolve(source, "screenshots/release-v1"),
-  resolve(output, "assets/screenshots/release-v1"),
-  { recursive: true },
-);
-
+await emit("index.mdx", await readFile(resolve(source, "home.mdx"), "utf8"));
 for (const [name, title, description] of pages) {
   let body = await readFile(resolve(source, `${name}.md`), "utf8");
-  body = body.replace(/^# .+\n\n/, "");
-  body = body.replaceAll("(../SECURITY.md)", "(/security)");
+  body = body
+    .replace(/^# .+\n\n/, "")
+    .replaceAll("(../SECURITY.md)", "(/security)");
   body = body.replace(
     /\]\(([^)]+\.md)(#[^)]+)?\)/g,
     (match, file, anchor = "") => {
@@ -151,140 +179,49 @@ for (const [name, title, description] of pages) {
       return included.has(target) ? `](/${slug(target)}${anchor})` : match;
     },
   );
+  const images = guideScreenshots(slug(name));
   const metadata = `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\n---\n\n`;
-  await writeFile(
-    resolve(output, `${slug(name)}.md`),
-    await format(metadata + body + guideScreenshots(slug(name)), {
-      parser: "mdx",
-    }),
+  await emit(
+    `${slug(name)}.mdx`,
+    metadata +
+      (images
+        ? 'import { Screenshot } from "/snippets/oss/screenshot.jsx";\n\n'
+        : "") +
+      body +
+      images,
   );
 }
-
-await cp(
-  resolve(root, "apps/web/public/brand/mill-mark.png"),
-  resolve(output, "assets/mill-mark.png"),
+for (const name of [
+  "mill-mark.png",
+  "mill-favicon.png",
+  "mill-social.png",
+  "mill-lockup-light.svg",
+  "mill-lockup-dark.svg",
+]) {
+  const input = resolve(root, "apps/web/public/brand", name),
+    target = resolve(output, "assets", name);
+  if (check) {
+    if (!(await readFile(input)).equals(await readFile(target)))
+      throw new Error(`Brand asset differs: ${name}`);
+  } else {
+    await mkdir(resolve(output, "assets"), { recursive: true });
+    await cp(input, target);
+  }
+}
+const config = JSON.parse(
+  (await readFile(resolve(source, "site.json"), "utf8")).replaceAll(
+    "{version}",
+    version,
+  ),
 );
-await cp(
-  resolve(root, "apps/web/public/brand/mill-favicon.png"),
-  resolve(output, "assets/mill-favicon.png"),
-);
-await cp(
-  resolve(root, "apps/web/public/brand/mill-lockup-light.svg"),
-  resolve(output, "assets/mill-lockup-light.svg"),
-);
-await cp(
-  resolve(root, "apps/web/public/brand/mill-lockup-dark.svg"),
-  resolve(output, "assets/mill-lockup-dark.svg"),
-);
-
-const config = {
-  $schema: "https://mintlify.com/docs.json",
-  theme: "mint",
-  name: "Mill",
-  description: "Self-hosted task lists for teams.",
-  logo: {
-    light: "/assets/mill-lockup-light.svg",
-    dark: "/assets/mill-lockup-dark.svg",
-    href: "/",
-  },
-  favicon: "/assets/mill-favicon.png",
-  colors: { primary: "#704628", light: "#704628", dark: "#c89b6d" },
-  appearance: { default: "system" },
-  icons: { library: "lucide" },
-  styling: { eyebrows: "breadcrumbs", codeblocks: "system" },
-  interaction: { drilldown: false },
-  navigation: {
-    dropdowns: [
-      {
-        dropdown: "Introduction",
-        icon: "book-open",
-        groups: [
-          { group: "Get started", pages: ["overview", "getting-started"] },
-        ],
-      },
-      {
-        dropdown: "Using Mill",
-        icon: "clipboard-list",
-        groups: [
-          { group: "Tasks and people", pages: ["workflows", "authentication"] },
-        ],
-      },
-      {
-        dropdown: "Self-hosting",
-        icon: "server",
-        groups: [
-          {
-            group: "Install and configure",
-            pages: [
-              "installation",
-              "package-registry",
-              "configuration",
-              "security",
-            ],
-          },
-          {
-            group: "Operate Mill",
-            pages: [
-              "operations",
-              "backup",
-              "upgrades",
-              "troubleshooting",
-              "release-notes",
-            ],
-          },
-        ],
-      },
-      {
-        dropdown: "API and MCP",
-        icon: "plug",
-        groups: [
-          { group: "Connect a client", pages: ["clients", "rest-reference"] },
-        ],
-      },
-    ],
-  },
-  navbar: {
-    links: [
-      { label: `v${version}`, href: "/release-notes" },
-      { type: "github", href: "https://github.com/avgeek-inc/mill" },
-    ],
-    primary: { type: "button", label: "Docs", href: "/overview" },
-  },
-  footer: {
-    socials: { github: "https://github.com/avgeek-inc/mill" },
-    links: [
-      {
-        header: "Documentation",
-        items: [
-          { label: "Your first board", href: "/getting-started" },
-          { label: "Install Mill", href: "/installation" },
-          { label: "REST and MCP", href: "/clients" },
-        ],
-      },
-      {
-        header: "Project",
-        items: [
-          { label: "GitHub", href: "https://github.com/avgeek-inc/mill" },
-          { label: "Release notes", href: "/release-notes" },
-          { label: "Security", href: "/security" },
-        ],
-      },
-    ],
-  },
-  contextual: { options: ["copy", "view", "chatgpt", "claude"] },
-  seo: {
-    organization: {
-      name: "Mill",
-      url: "https://mill.fyi",
-      logo: "https://mill.fyi/assets/mill-mark.png",
-      sameAs: ["https://github.com/avgeek-inc/mill"],
-    },
-  },
-};
-await writeFile(
-  resolve(output, "docs.json"),
-  await format(JSON.stringify(config), { parser: "json", tabWidth: 2 }),
-);
+const temp = await mkdtemp(resolve(tmpdir(), "mill-docs-"));
+try {
+  const path = resolve(temp, "site.json");
+  await writeFile(path, JSON.stringify(config));
+  await syncSite({ config: path, dir: output, check });
+} finally {
+  await rm(temp, { recursive: true, force: true });
+}
 console.log(
-  `Prepared homepage and ${pages.length} Mintlify guides in docs/mintlify`,
+  `${check ? "Checked" : "Generated"} ${pages.length + 1} pages with @avgeek-oss/docs in docs/`,
 );

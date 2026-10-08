@@ -18,6 +18,22 @@ test("configuration generator makes private unique secrets and refuses overwrite
     const contents = await readFile(file, "utf8");
     assert.match(contents, /^POSTGRES_PASSWORD=[a-f0-9]{64}$/m);
     assert.match(contents, /^MILL_SECRET=[a-f0-9]{96}$/m);
+    const password = /^POSTGRES_PASSWORD=(.+)$/m.exec(contents)[1];
+    assert.match(contents, /^MILL_BASE_URL=http:\/\/localhost:4321$/m);
+    assert.ok(
+      contents.includes(
+        `DATABASE_URL=postgres://mill:${password}@127.0.0.1:55432/mill`,
+      ),
+    );
+    assert.notEqual(/^MILL_SECRET=(.+)$/m.exec(contents)[1], password);
+    assert.deepEqual(
+      contents
+        .trim()
+        .split("\n")
+        .map((line) => line.split("=")[0])
+        .sort(),
+      ["DATABASE_URL", "MILL_BASE_URL", "MILL_SECRET", "POSTGRES_PASSWORD"],
+    );
     assert.equal((await stat(file)).mode & 0o777, 0o600);
     result = spawnSync(
       process.execPath,

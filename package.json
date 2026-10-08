@@ -23,9 +23,9 @@
     "backup": "bash tools/backup.sh",
     "restore": "bash tools/restore.sh",
     "recover-account": "node --env-file=.env --import tsx apps/api/src/auth/recovery-cli.ts",
-    "docs:check": "node tools/docs-check.mjs",
+    "docs:check": "node tools/build-mintlify-docs.mjs --check && node tools/docs-check.mjs",
     "docs:build": "node tools/build-mintlify-docs.mjs",
-    "docs:dev": "pnpm docs:build && cd docs/mintlify && npx --yes mint@4.2.970 dev --port 4174",
+    "docs:dev": "pnpm docs:build && cd docs && npx --yes mint@4.2.970 dev --port 4174",
     "docs:screenshots": "node tools/capture-docs-screenshots.mjs",
     "docs:screenshots:check": "node tools/capture-docs-screenshots.mjs --check",
     "test:operations": "node --test tools/*.test.mjs",
@@ -33,7 +33,7 @@
     "test:quick": "node --import tsx --test tests/api-client-errors.test.ts tests/config.test.ts tests/date-time-formatters.test.ts tests/mention-caret.test.ts tests/password-capacity.test.ts tests/time-zone.test.ts"
   },
   "dependencies": {
-    "@avgeek-oss/design-system": "1.2.9",
+    "@avgeek-oss/design-system": "1.2.10",
     "@hono/node-server": "2.0.11",
     "@modelcontextprotocol/sdk": "1.31.0",
     "@simplewebauthn/server": "13.3.2",
@@ -46,6 +46,7 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
+    "@avgeek-oss/docs": "0.1.5",
     "@eslint/js": "9.39.4",
     "@types/node": "26.6.1",
     "@types/nodemailer": "8.0.2",

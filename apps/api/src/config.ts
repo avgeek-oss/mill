@@ -1,14 +1,7 @@
 import { z } from "zod";
-import { isIP } from "node:net";
 const schema = z
   .object({
-    MILL_TRUSTED_PROXY_IPS: z
-      .string()
-      .default("")
-      .refine(
-        (v) => !v || v.split(",").every((ip) => Boolean(isIP(ip.trim()))),
-        "Use comma-separated trusted proxy IP addresses",
-      ),
+    MILL_SERVE_WEB: z.enum(["true", "false"]).default("true"),
     DATABASE_URL: z
       .string()
       .url()

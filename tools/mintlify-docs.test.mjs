@@ -20,7 +20,12 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
   const fixture = await mkdtemp(resolve(root, "tmp/mintlify-generation-"));
   const inputs = [
     "home.mdx",
-    "home.css",
+    "site.json",
+    "task-lists.md",
+    "task-details.md",
+    "notifications.md",
+    "api-keys.md",
+    "mcp-connections.md",
     "overview.md",
     "installation.md",
     "package-registry.md",
@@ -56,8 +61,8 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
       { recursive: true },
     );
     await cp(
-      resolve(root, "docs/screenshots/release-v1"),
-      resolve(fixture, "docs/screenshots/release-v1"),
+      resolve(root, "docs/assets/screenshots/release-v1"),
+      resolve(fixture, "docs/assets/screenshots/release-v1"),
       { recursive: true },
     );
     await writeFile(
@@ -81,14 +86,15 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
       ),
       sources,
     );
-    const output = resolve(fixture, "docs/mintlify");
+    const output = resolve(fixture, "docs");
     assert.equal(
       await readFile(resolve(output, "index.mdx"), "utf8"),
-      sources[0],
+      await readFile(resolve(root, "docs/index.mdx"), "utf8"),
     );
-    assert.equal(
-      await readFile(resolve(output, "style.css"), "utf8"),
-      sources[1],
+    assert.ok(
+      (await readFile(resolve(output, "oss-docs.css"), "utf8")).includes(
+        "@avgeek-oss/docs 0.1.5",
+      ),
     );
     const config = JSON.parse(
       await readFile(resolve(output, "docs.json"), "utf8"),
@@ -99,11 +105,11 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     );
     assert.ok(routes.includes("package-registry"));
     assert.ok(
-      (await readFile(resolve(output, "installation.md"), "utf8")).includes(
+      (await readFile(resolve(output, "installation.mdx"), "utf8")).includes(
         "](/package-registry)",
       ),
     );
-    const pages = ["index.mdx", ...routes.map((route) => `${route}.md`)];
+    const pages = ["index.mdx", ...routes.map((route) => `${route}.mdx`)];
     const links = [
       config.logo.href,
       config.logo.light,

@@ -26,8 +26,9 @@ serverApp.use("*", async (c, next) => {
   await next();
 });
 const root = process.env.MILL_WEB_DIR ?? resolve("apps/web/dist");
-if (existsSync(root)) registerStaticRoutes(serverApp, root);
-else
+if (configuration.MILL_SERVE_WEB === "true" && existsSync(root))
+  registerStaticRoutes(serverApp, root);
+else if (configuration.MILL_SERVE_WEB === "true")
   serverApp.get("*", (c) =>
     c.text("Build the web application with pnpm build.", 503),
   );

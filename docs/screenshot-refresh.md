@@ -1,6 +1,6 @@
 # Refresh documentation screenshots
 
-The screenshot manifest at `tools/docs-screenshots.json` maps each application section to the documentation pages that use it. The capture script refreshes all sections in light and dark themes, at 1280 × 900 CSS pixels on desktop and 390 × 844 CSS pixels on mobile. Images use 2× pixel density for clear text; the receipt records both viewport and image dimensions.
+The screenshot manifest at `tools/docs-screenshots.json` maps each application section to the documentation pages that use it. The capture script refreshes all sections in light and dark themes, at 1280 × 900 CSS pixels on desktop and 390 × 844 CSS pixels on mobile. Images use 2× pixel density for guide examples and 4× for the homepage lead image; the receipt records both viewport and image dimensions.
 
 For optional manual documentation capture, install the capture browser once, then build the application and run the tool:
 
@@ -12,7 +12,7 @@ pnpm docs:screenshots
 
 This browser installation is used only by the manual screenshot tool. It is not an automated test suite or a required CI gate. Provide `DATABASE_URL` for a disposable local PostgreSQL database. The script creates a new isolated database schema, starts a temporary loopback server, and creates an example workspace through the real API. It never logs in to an existing installation. The example includes multiple boards, tasks, people, comments, notifications, and API keys. API key values, passwords, invitation links and session cookies are never written to the screenshot receipt or shown in captured dialogs.
 
-The script captures every manifest entry, including setup, sign-in, empty, missing-page and server-error states. It replaces assets under `docs/screenshots/release-v1` and writes file dimensions, hashes, guide mappings, failures and cleanup status to `tmp/docs-screenshots-receipt.json`. A missing section, failed page or unconfirmed schema cleanup fails the command. The generator copies these assets into the Mintlify site; run the documentation build after refreshing them.
+The script captures every manifest entry, including setup, sign-in, empty, missing-page and server-error states. It replaces assets under `docs/assets/screenshots/release-v1` and writes file dimensions, hashes, guide mappings, failures and cleanup status to `tmp/docs-screenshots-receipt.json`. A missing section, failed page or unconfirmed schema cleanup fails the command. These are the canonical lossless PNG assets served directly by Mintlify; run the documentation build after refreshing them.
 
 To capture every page of the documentation site as well, start the local Mintlify preview and supply its loopback URL:
 

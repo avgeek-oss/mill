@@ -1,12 +1,10 @@
 import { HTTPException } from "hono/http-exception";
 import type { Context } from "hono";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isIP } from "node:net";
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ZodError } from "zod";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { config } from "./config.js";
 import type { Actor } from "../../../packages/contracts/src/index.js";
 export type Env = {
   Bindings: { incoming?: IncomingMessage; outgoing?: ServerResponse };
@@ -132,14 +130,8 @@ export function requireHuman(c: Context<Env>): Actor {
 }
 
 export function clientAddress(c: Context<Env>): string {
-  const peer =
+  return (
     c.env?.incoming?.socket?.remoteAddress?.replace(/^::ffff:/, "") ??
-    "in-process";
-  const trusted = config()
-    .MILL_TRUSTED_PROXY_IPS.split(",")
-    .map((ip) => ip.trim());
-  const forwarded = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim();
-  return trusted.includes(peer) && forwarded && isIP(forwarded)
-    ? forwarded
-    : peer;
+    "in-process"
+  );
 }

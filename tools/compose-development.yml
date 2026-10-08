@@ -1,4 +1,7 @@
 services:
+  api:
+    environment:
+      DATABASE_URL: postgres://mill:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/mill
   postgres:
     ports:
       - "127.0.0.1:55432:5432"

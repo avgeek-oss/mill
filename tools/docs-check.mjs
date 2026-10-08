@@ -20,7 +20,7 @@ async function walk(directory) {
       continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await walk(path);
-    else if (extname(entry.name) === ".md") files.push(path);
+    else if ([".md", ".mdx"].includes(extname(entry.name))) files.push(path);
   }
 }
 await walk(root);
@@ -34,8 +34,9 @@ for (const path of files) {
     if (/^(https?:|mailto:|#)/.test(destination)) continue;
     destination = destination.split("#")[0];
     if (!destination) continue;
-    const mintlifyRoot = resolve(root, "docs/mintlify");
-    const isMintlifyPage = path.startsWith(`${mintlifyRoot}/`);
+    const mintlifyRoot = resolve(root, "docs");
+    const isMintlifyPage =
+      path.startsWith(`${mintlifyRoot}/`) && path.endsWith(".mdx");
     const target =
       isMintlifyPage && destination.startsWith("/")
         ? resolve(mintlifyRoot, decodeURIComponent(destination.slice(1)))
@@ -45,7 +46,7 @@ for (const path of files) {
     } catch {
       if (isMintlifyPage && destination.startsWith("/")) {
         try {
-          await stat(`${target}.md`);
+          await stat(`${target}.mdx`);
           continue;
         } catch {
           // Report the unresolved site route below.
