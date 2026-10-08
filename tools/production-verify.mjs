@@ -347,6 +347,13 @@ try {
   const baselineChecksum = createHash("sha256")
     .update(baselineSource)
     .digest("hex");
+  const keyPolicyChecksum = createHash("sha256")
+    .update(
+      await readFile(
+        join(root, "packages/database/migrations/002_key_policies.sql"),
+      ),
+    )
+    .digest("hex");
   const installedMigrations = JSON.parse(
     await run(
       "baseline-migration-record",
@@ -359,6 +366,7 @@ try {
   );
   assert.deepEqual(installedMigrations, [
     { name: "001_initial.sql", checksum: baselineChecksum },
+    { name: "002_key_policies.sql", checksum: keyPolicyChecksum },
   ]);
   const schemaShape = JSON.parse(
     await run(
