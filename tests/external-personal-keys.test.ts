@@ -217,12 +217,12 @@ test("explicit API key policy limits REST and MCP across roles, expiry and revoc
   await new Promise<void>((resolve) => server.on("listening", resolve));
   const address = server.address();
   assert(address && typeof address !== "string");
-  const oldBase = process.env.MILL_BASE_URL;
-  process.env.MILL_BASE_URL = `http://127.0.0.1:${address.port}`;
+  const oldBase = process.env.MILL_API_URL;
+  process.env.MILL_API_URL = `http://127.0.0.1:${address.port}`;
   async function connect(token: string) {
     const client = new Client({ name: "key-test", version: "1.0.0" });
     const transport = new StreamableHTTPClientTransport(
-      new URL(`${process.env.MILL_BASE_URL}/mcp`),
+      new URL(`${process.env.MILL_API_URL}/mcp`),
       {
         requestInit: { headers: { Authorization: `Bearer ${token}` } },
       },
@@ -261,7 +261,7 @@ test("explicit API key policy limits REST and MCP across roles, expiry and revoc
       await editMcp.transport.close();
     }
   } finally {
-    process.env.MILL_BASE_URL = oldBase;
+    process.env.MILL_API_URL = oldBase;
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );

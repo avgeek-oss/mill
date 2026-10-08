@@ -26,29 +26,30 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Set just three values in `.env`:
+Set these four values in `.env`:
 
 ```dotenv
 DATABASE_URL=postgres://user:password@your-database-host:5432/mill
 MILL_SECRET=<a random secret of at least 32 characters>
-MILL_BASE_URL=http://localhost:4321
+MILL_WEB_URL=http://localhost:4322
+MILL_API_URL=http://localhost:4321
 ```
 
-Use a dedicated PostgreSQL database and its connection URL. Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`, and preserve it across upgrades and restores. For remote access, use your final HTTPS origin as `MILL_BASE_URL`.
+Use a dedicated PostgreSQL database and its connection URL. Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`, and preserve it across upgrades and restores. For remote access, use your final HTTPS UI and API origins.
 
 ```sh
 docker compose --project-name mill up --detach --wait
 ```
 
-Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the release version already written in the Compose file. Only the UI publishes a host port; it forwards API, authentication and MCP requests privately to the API.
+Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the release version already written in the Compose file. Both services publish separate loopback ports. The browser calls the public API origin directly; expose each service with its own HTTPS hostname.
 
-Open [localhost:4321](http://localhost:4321), create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
+Open [localhost:4322](http://localhost:4322), create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
 
 If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation.md#optional-run-postgresql-with-compose). Your existing or managed PostgreSQL instance works directly with the default Compose file.
 
 Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 
-For Towbar, use the repository's API, UI, and PostgreSQL manifests and follow [Deploy with Towbar](docs/towbar-deployment.md). They use packaged images and a single public UI origin.
+For Towbar, use the repository's API, UI, and PostgreSQL manifests and follow [Deploy with Towbar](docs/towbar-deployment.md). They use packaged images with separate public UI and API origins.
 
 ## Develop
 
@@ -60,10 +61,10 @@ node tools/with-package-token.mjs pnpm install --frozen-lockfile
 node tools/init-env.mjs
 docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-development.yml up --detach --wait postgres
 pnpm migrate
-MILL_BASE_URL=http://localhost:4322 pnpm dev
+MILL_WEB_URL=http://localhost:4322 MILL_API_URL=http://localhost:4321 pnpm dev
 ```
 
-Run `pnpm dev:web` in a second terminal for the frontend development server at [localhost:4322](http://localhost:4322). The frontend proxies API requests to port 4321. The `MILL_BASE_URL` override above lets the API trust browser requests from the development frontend. If `.env` already exists, keep it and skip `init-env`.
+Run `pnpm dev:web` in a second terminal for the frontend development server at [localhost:4322](http://localhost:4322). The frontend uses a runtime API origin of `http://localhost:4321`; the API trusts browser requests from `http://localhost:4322`. If `.env` already exists, keep it and skip `init-env`.
 
 Run `pnpm test:quick` for fast Node checks of frontend helpers, configuration and date formatting. See [contributing](CONTRIBUTING.md) for the complete `pnpm verify` and `pnpm verify:production` gates and manual UI review. CI requires the `verify` and `production` gates.
 

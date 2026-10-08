@@ -8,10 +8,9 @@ autoDeploy: false
 rollout:
   type: recreate
   maintenanceMode: true
-  reason: Keep one API container behind the private api network alias.
+  reason: Keep one API container during the upgrade.
 container:
   network: mill
-  networkAlias: api
   port: 4321
   resources:
     cpus: 0.25
@@ -23,8 +22,13 @@ health:
 secrets:
   runtime:
     - DATABASE_URL
-    - MILL_BASE_URL
+    - MILL_WEB_URL
+    - MILL_API_URL
     - MILL_SECRET
+domains:
+  primary: mill-api.avgeek.ltd
+tls:
+  mode: cloudflare-dns
 environments:
   production:
     server: 13.206.149.158

@@ -1,18 +1,19 @@
 # Configuration
 
-The API needs three values. Copy `.env.example` to `.env` for Compose, or supply them as runtime environment variables through your deployment platform:
+The API needs four values. Copy `.env.example` to `.env` for Compose, or supply them as runtime environment variables through your deployment platform:
 
-| Variable        | Purpose                                                                                                                               |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`  | Complete PostgreSQL connection URL for your dedicated Mill database. Include the provider's required TLS settings.                    |
-| `MILL_SECRET`   | Random secret of at least 32 characters. Recommend 64 hexadecimal characters. Keep private and preserve across upgrades and restores. |
-| `MILL_BASE_URL` | Public HTTP(S) origin without path, query or credentials, such as `https://tasks.example.com`. Use `http://localhost:4321` locally.   |
+| Variable       | Purpose                                                                                             |
+| -------------- | --------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | Complete PostgreSQL connection URL for your dedicated Mill database. Include required TLS settings. |
+| `MILL_SECRET`  | Random secret of at least 32 characters. Preserve it across upgrades and restores.                  |
+| `MILL_WEB_URL` | Exact public UI origin, such as `https://tasks.example.com` or `http://localhost:4322`.             |
+| `MILL_API_URL` | Exact public API origin, such as `https://tasks-api.example.com` or `http://localhost:4321`.        |
 
 Percent-encode special characters in the database URL's username or password. Mill rejects missing or invalid configuration before it serves requests; there is no fallback production database or default login. It applies the migrations packaged in the API image automatically.
 
 For [bundled PostgreSQL](installation.md#optional-run-postgresql-with-compose), also set `POSTGRES_PASSWORD` and put that same password in `DATABASE_URL=postgres://mill:<password>@postgres:5432/mill`. An existing or managed database needs no `POSTGRES_PASSWORD` variable.
 
-The UI needs only the private API origin. Compose already connects it to `http://api:4321`. On another deployment platform, set `MILL_API_URL` if the API lives at a different private origin. Never give the UI database credentials or `MILL_SECRET`.
+The UI needs `MILL_API_URL` set to the same public API origin as the API. It emits this value in a no-store runtime script, so one built image can serve different installations. Never give the UI database credentials or `MILL_SECRET`.
 
 Image versions and published ports belong in the Compose file. Both API and UI image references must come from the same release. Runtime internals such as migration paths, production mode and password-work limits are already set by the images and their safe defaults; they are not installation fields.
 
@@ -20,9 +21,9 @@ Environment changes take effect when you recreate the affected service using you
 
 ## Public URL
 
-Remote access requires HTTPS. Local HTTP OAuth is permitted automatically only for an exact loopback `MILL_BASE_URL`; there is no insecure-origin switch. For browser passkeys, use `localhost` locally or an HTTPS DNS hostname remotely. Browsers do not allow passkey registration with an IP address as the relying-party domain.
+Remote access requires HTTPS. Local HTTP OAuth is permitted automatically only for an exact loopback `MILL_API_URL`; there is no insecure-origin switch. For browser passkeys, use `localhost` locally or an HTTPS DNS hostname remotely. Browsers do not allow passkey registration with an IP address as the relying-party domain.
 
-The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys. A base URL change can invalidate passkey origin checks; read [operations](operations.md) before changing an established installation's URL.
+The UI origin is used for passkeys and account links; the API origin is used for the session cookie, OAuth issuer and MCP resource. Both must be set before people register passkeys or connect clients. A UI-origin change can invalidate passkey origin checks; read [operations](operations.md) before changing an established installation's URL.
 
 ## Notifications
 

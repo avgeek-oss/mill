@@ -16,7 +16,7 @@ import { hashPassword, hashToken } from "../apps/api/src/auth/security.js";
 beforeEach(resetDatabase);
 after(cleanupDatabase);
 const password = "Secure test passphrase 42!";
-const origin = process.env.MILL_BASE_URL!;
+const origin = process.env.MILL_WEB_URL!;
 const cookie = (response: Response) =>
   response.headers.get("set-cookie")?.split(";")[0] ?? "";
 async function invite(

@@ -2,15 +2,13 @@
 
 Mill can run on [Towbar](https://www.towbar.dev) using the published API and UI images and a PostgreSQL datastore. There is no source build on the deployment server.
 
-The repository includes `towbar.yml` and three manifests under `.towbar/`: Mill API, Mill UI, and Mill PostgreSQL. The checked-in production mapping targets the Platform Services server at `13.206.149.158`, with `mill.avgeek.ltd` as the proposed public hostname. Change the server mapping and hostname before connecting the repository if you use another installation.
+The repository includes `towbar.yml` and three manifests under `.towbar/`: Mill API, Mill UI, and Mill PostgreSQL. The checked-in production mapping targets the Platform Services server at `13.206.149.158`, with `mill.avgeek.ltd` and `mill-api.avgeek.ltd` as the proposed public hostnames. Change the server mapping and hostname before connecting the repository if you use another installation.
 
 ## Images and networking
 
 The API and UI manifests select version `1.0.1`. This is a proposed release: neither image is available until the [release workflow](release-notes.md) completes. Before deployment, take both digest references from that release's `mill-images.json` and replace the corresponding `deployment.image` values. Keep the API and UI on the same release. Towbar selects the server's native architecture from the multi-platform images.
 
-All three containers share a dedicated Docker network named `mill`. PostgreSQL is reachable as `mill-postgres:5432`; the API uses the private alias `api:4321`. The UI image already defaults to `MILL_API_URL=http://api:4321`, so it needs no extra runtime setting. The API and datastore have no public domains or ingress.
-
-The UI listens on port `4322`. It is the only public service and forwards API, health, OAuth, and MCP requests to the API. Browsers and external clients use the same HTTPS origin, including `/api`, `/mcp`, and `/.well-known` endpoints. Towbar terminates HTTPS using Cloudflare DNS validation.
+All three containers share a dedicated Docker network named `mill`. PostgreSQL is reachable as `mill-postgres:5432`. The API is independently exposed at `https://mill-api.avgeek.ltd` with public TLS and serves REST, authentication, OAuth discovery and token endpoints, MCP, and health. The UI is exposed at `https://mill.avgeek.ltd` and serves the built app plus a no-store runtime script containing the public API origin. Browsers call the API directly with credentialed requests.
 
 ## Runtime values
 
@@ -22,29 +20,31 @@ Set these values in Towbar's runtime secrets for each workload. Do not put their
 | Mill PostgreSQL | `POSTGRES_DB`       | `mill`                                                           |
 | Mill PostgreSQL | `POSTGRES_PASSWORD` | A generated database password                                    |
 | Mill API        | `DATABASE_URL`      | `postgres://mill:<URL-encoded password>@mill-postgres:5432/mill` |
-| Mill API        | `MILL_BASE_URL`     | `https://mill.avgeek.ltd`, or your final public origin           |
+| Mill API        | `MILL_WEB_URL`      | `https://mill.avgeek.ltd`, or your final UI origin               |
+| Mill API        | `MILL_API_URL`      | `https://mill-api.avgeek.ltd`, or your final API origin          |
+| Mill UI         | `MILL_API_URL`      | The same public API origin                                       |
 | Mill API        | `MILL_SECRET`       | A generated secret of at least 32 characters                     |
 
 Generate passwords and `MILL_SECRET` with a password manager or `openssl rand -hex 32`. Keep `MILL_SECRET` with your database backups and preserve it across upgrades and restores. Encode any special characters in the database password when constructing `DATABASE_URL`.
 
-The public hostname and `MILL_BASE_URL` must agree. Mill uses that origin for browser security, passkeys, and OAuth. The UI needs no separately configured public API URL, trusted proxy settings, or migration path.
+The two configured origins must match their public HTTPS hostnames. `MILL_WEB_URL` controls passkeys, account links, CORS and CSRF. `MILL_API_URL` controls OAuth issuer, MCP resource, the session cookie and the UI runtime API configuration. Keep both services on the same release and both hosts under the same site so SameSite=Lax browser sessions work.
 
 SMTP is optional. To enable identity and invitation email, add the supported `MILL_SMTP_*` keys to the API manifest's `secrets.runtime` list and configure them in Towbar. See [configuration](configuration.md#notifications). Do not add empty SMTP requirements for an installation without mail.
 
 ## First deployment
 
 1. Publish and verify the chosen API and UI images, then pin their digests in the service manifests.
-2. Confirm the public hostname, DNS, Cloudflare certificate credentials, and current server capacity in Towbar. The manifests cap PostgreSQL at 512 MiB, the API at 512 MiB, and the UI at 256 MiB; CPU limits are 0.25, 0.25, and 0.125 cores respectively. These are initial limits, not a capacity guarantee for a shared server.
+2. Confirm both public hostnames, DNS, Cloudflare certificate credentials, and current server capacity in Towbar. The manifests cap PostgreSQL at 512 MiB, the API at 512 MiB, and the UI at 256 MiB; CPU limits are 0.25, 0.25, and 0.125 cores respectively. These are initial limits, not a capacity guarantee for a shared server.
 3. Connect the Mill repository to Towbar and map its deployment branch to `production`. Sync the manifests and set the runtime values above. `autoDeploy: false` keeps a repository sync from starting workloads.
 4. Deploy Mill PostgreSQL and wait for its readiness check. Towbar manages its persistent data volume; do not replace or remove that volume during an upgrade.
 5. Deploy Mill API. The image runs its packaged database migrations before accepting requests. No migration command override or separate migration container is needed.
-6. Deploy Mill UI. Its `/health/ready` check goes through the API and verifies the database connection. Wait for readiness before opening the public app.
-7. Open the public HTTPS origin and create the workspace and first administrator. There is no default account. Verify sign-in, task creation, and an authenticated REST or MCP request through that origin.
+6. Deploy Mill UI. Its `/health/ready` check verifies the built UI is ready; check the API readiness separately for database health. Wait for readiness before opening the public app.
+7. Open the public UI HTTPS origin and create the workspace and first administrator. There is no default account. Verify sign-in, task creation, and an authenticated REST or MCP request through the public API origin.
 
 ## Upgrades and recovery
 
 Back up PostgreSQL before an upgrade using the database provider or `pg_dump`, as described in [backup and recovery](backup.md), and preserve `MILL_SECRET`. The datastore manifest does not configure a Towbar backup destination; configure one separately if you want Towbar-managed backups. Update both image references to the verified digest pair from one published release, sync the manifests, and deploy the API followed by the UI.
 
-Both services use a recreate rollout with maintenance mode. API upgrades keep only one container behind the `api` alias, and the UI avoids running two copies on the shared server. Expect brief downtime during an upgrade. If readiness fails, inspect the failed deployment and logs before retrying; do not rerun workspace setup or delete the database. An image rollback does not undo a database migration. Use the [backup and recovery](backup.md) procedure when a compatible database restore is required.
+Both services use a recreate rollout with maintenance mode. API upgrades keep only one container on the public API route, and the UI avoids running two copies on the shared server. Expect brief downtime during an upgrade. If readiness fails, inspect the failed deployment and logs before retrying; do not rerun workspace setup or delete the database. An image rollback does not undo a database migration. Use the [backup and recovery](backup.md) procedure when a compatible database restore is required.
 
 If you use an existing PostgreSQL instance instead, omit the Mill PostgreSQL manifest and point `DATABASE_URL` at a dedicated database reachable from the API container. The API and UI manifests otherwise stay the same.

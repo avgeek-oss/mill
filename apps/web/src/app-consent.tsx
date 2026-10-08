@@ -1,3 +1,4 @@
+import { apiOrigin, apiUrl } from "./runtime-config.js";
 import { useIdentityConfirmation } from "./identity-confirmation.js";
 import { QueryFeedback } from "./query-feedback.js";
 import { useEffect, useRef, useState } from "react";
@@ -88,7 +89,7 @@ function decisionRedirect(
       target.pathname !== expected.pathname ||
       JSON.stringify(callbackParams(target)) !==
         JSON.stringify(callbackParams(expected)) ||
-      target.searchParams.get("iss") !== window.location.origin ||
+      target.searchParams.get("iss") !== apiOrigin() ||
       (allow
         ? !target.searchParams.get("code")?.trim()
         : target.searchParams.get("error") !== "access_denied")
@@ -107,9 +108,9 @@ async function consentRequest(
 ): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(`/api/oauth/consent/${encodeURIComponent(id)}`, {
+    response = await fetch(apiUrl(`/oauth/consent/${encodeURIComponent(id)}`), {
       method: decision ? "POST" : "GET",
-      credentials: "same-origin",
+      credentials: "include",
       signal,
       ...(decision
         ? {
@@ -126,8 +127,8 @@ async function consentRequest(
     );
   }
   if (response.status === 401) {
-    const current = await fetch("/api/auth/me", {
-      credentials: "same-origin",
+    const current = await fetch(apiUrl("/auth/me"), {
+      credentials: "include",
       signal,
     });
     if (current.status === 401 && !signal.aborted)

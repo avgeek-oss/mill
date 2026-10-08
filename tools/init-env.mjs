@@ -6,30 +6,34 @@ const options = new Map();
 for (let index = 2; index < process.argv.length; index += 2) {
   const key = process.argv[index];
   const value = process.argv[index + 1];
-  if (!["--file", "--base-url"].includes(key) || !value) {
+  if (!["--file", "--web-url", "--api-url"].includes(key) || !value)
     throw new Error(
-      "Usage: node tools/init-env.mjs [--file .env] [--base-url http://localhost:4321]",
+      "Usage: node tools/init-env.mjs [--file .env] [--web-url http://localhost:4322] [--api-url http://localhost:4321]",
     );
-  }
   options.set(key, value);
 }
-const baseUrl = new URL(options.get("--base-url") ?? "http://localhost:4321");
-if (
-  !["http:", "https:"].includes(baseUrl.protocol) ||
-  baseUrl.username ||
-  baseUrl.password ||
-  baseUrl.pathname !== "/" ||
-  baseUrl.search ||
-  baseUrl.hash
-) {
-  throw new Error(
-    "Base URL must be an HTTP(S) origin without a path or credentials",
-  );
+function origin(raw) {
+  const url = new URL(raw);
+  if (
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash ||
+    !(
+      url.protocol === "https:" ||
+      (url.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    )
+  )
+    throw new Error(
+      "Use an HTTPS origin or a loopback HTTP development origin",
+    );
+  return url.origin;
 }
-const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(baseUrl.hostname);
-if (baseUrl.protocol !== "https:" && !loopback) {
-  throw new Error("Remote installations require an HTTPS base URL");
-}
+const webURL = origin(options.get("--web-url") ?? "http://localhost:4322");
+const apiURL = origin(options.get("--api-url") ?? "http://localhost:4321");
+if (webURL === apiURL) throw new Error("UI and API require separate origins");
 const password = randomBytes(32).toString("hex");
 const destination = resolve(options.get("--file") ?? ".env");
 await writeFile(
@@ -37,7 +41,8 @@ await writeFile(
   [
     `POSTGRES_PASSWORD=${password}`,
     `MILL_SECRET=${randomBytes(48).toString("hex")}`,
-    `MILL_BASE_URL=${baseUrl.origin}`,
+    `MILL_WEB_URL=${webURL}`,
+    `MILL_API_URL=${apiURL}`,
     `DATABASE_URL=postgres://mill:${password}@127.0.0.1:55432/mill`,
     "",
   ].join("\n"),

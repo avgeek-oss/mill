@@ -11,7 +11,8 @@ import type {
   UserEmailState,
 } from "../../../../packages/contracts/src/index.js";
 import { actor, HttpError, type Env } from "../http.js";
-import { appOrigin, hashToken, secretToken } from "./security.js";
+import { config } from "../config.js";
+import { hashToken, secretToken } from "./security.js";
 
 export type Db = typeof sql | postgres.TransactionSql;
 export type UserRow = UserEmailState & {
@@ -175,7 +176,7 @@ export async function recentSession(c: Context<Env>, db: Db = sql) {
 export function cookieOptions() {
   return {
     httpOnly: true,
-    secure: appOrigin().startsWith("https:"),
+    secure: new URL(config().MILL_API_URL).protocol === "https:",
     sameSite: "Lax" as const,
     path: "/",
   };

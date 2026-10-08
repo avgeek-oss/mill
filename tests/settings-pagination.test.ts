@@ -118,7 +118,7 @@ test("credential pages exclude revoked rows before pagination and retain expired
     await remaining("/api/credentials?limit=53", cookie, smallFirst),
     currentExpected,
   );
-  const resource = new URL("/api/boards", process.env.MILL_BASE_URL!);
+  const resource = new URL("/api/boards", process.env.MILL_API_URL!);
   const authorization = { authorization: `Bearer ${older.token}` };
   assert.equal(
     (await credentialActor(new Request(resource, { headers: authorization })))

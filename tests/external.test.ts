@@ -97,7 +97,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
         assert.equal("agentId" in write.credential, false);
         assert.equal("agentName" in write.credential, false);
         const principal = await credentialActor(
-          new Request(`${process.env.MILL_BASE_URL}/api/boards`, {
+          new Request(`${process.env.MILL_API_URL}/api/boards`, {
             headers: { Authorization: `Bearer ${write.token}` },
           }),
         );
@@ -224,8 +224,8 @@ test("External credentials and actual MCP task workflows enforce current permiss
         await new Promise<void>((resolve) => server.on("listening", resolve));
         const address = server.address();
         assert(address && typeof address !== "string");
-        const previous = process.env.MILL_BASE_URL;
-        process.env.MILL_BASE_URL = `http://127.0.0.1:${address.port}`;
+        const previous = process.env.MILL_API_URL;
+        process.env.MILL_API_URL = `http://127.0.0.1:${address.port}`;
         const write = await setupOAuth(cookie, {
           scopes: ["read", "write"],
           boardIds: [first.board.id],
@@ -239,7 +239,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           version: "1.0.0",
         });
         const transport = new StreamableHTTPClientTransport(
-          new URL(`${process.env.MILL_BASE_URL}/mcp`),
+          new URL(`${process.env.MILL_API_URL}/mcp`),
           {
             requestInit: {
               headers: { Authorization: `Bearer ${write.token}` },
@@ -820,7 +820,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           });
           await readClient.connect(
             new StreamableHTTPClientTransport(
-              new URL(`${process.env.MILL_BASE_URL}/mcp`),
+              new URL(`${process.env.MILL_API_URL}/mcp`),
               {
                 requestInit: {
                   headers: { Authorization: `Bearer ${read.token}` },
@@ -844,7 +844,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           }
         } finally {
           await client.close();
-          process.env.MILL_BASE_URL = previous;
+          process.env.MILL_API_URL = previous;
           await new Promise<void>((resolve, reject) =>
             server.close((error) => (error ? reject(error) : resolve())),
           );
@@ -884,7 +884,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
         await sql`UPDATE users SET role='admin',disabled_at=now() WHERE id=${user.id}`;
         assert.equal(
           await credentialActor(
-            new Request(`${process.env.MILL_BASE_URL}/api/boards`, {
+            new Request(`${process.env.MILL_API_URL}/api/boards`, {
               headers: { Authorization: `Bearer ${write.token}` },
             }),
           ),

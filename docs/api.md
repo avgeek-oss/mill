@@ -1,6 +1,6 @@
 # REST API
 
-Mill serves JSON under `/api`, remote MCP at `/mcp`, and OAuth endpoints on the same origin configured by `MILL_BASE_URL`. REST and MCP share domain validation, transactions, versions, retry behavior, and current-role checks. Personal REST keys use the human owner's accessible boards; MCP OAuth additionally enforces scopes and optional approved boards.
+Mill serves JSON under `/api`, remote MCP at `/mcp`, and OAuth endpoints on the public API origin configured by `MILL_API_URL`. REST and MCP share domain validation, transactions, versions, retry behavior, and current-role checks. Personal REST keys use the human owner's accessible boards; MCP OAuth additionally enforces scopes and optional approved boards.
 
 Start with [REST and MCP clients](clients.md) for connections, [accounts and team access](authentication.md) for human routes, or [access security](authentication.md#external-credential-boundaries) for authorization boundaries.
 

@@ -1,9 +1,11 @@
 import { millVersion } from "./version.js";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
 import { httpSecurity } from "../../shared/security.js";
 export { httpSecurity } from "../../shared/security.js";
 import { sql } from "../../../packages/database/src/index.js";
+import { config } from "./config.js";
 import { authRoutes, sessionActor } from "./auth.js";
 import { domainRoutes } from "./domain.js";
 import {
@@ -60,6 +62,17 @@ app.use("*", async (c, next) => {
 });
 
 app.use("*", httpSecurity);
+app.use(
+  "/api/*",
+  cors({
+    origin: (origin) =>
+      origin === new URL(config().MILL_WEB_URL).origin ? origin : "",
+    credentials: true,
+    allowMethods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Idempotency-Key", "X-Mill-User-Id"],
+    exposeHeaders: ["X-Request-Id", "Idempotency-Replayed"],
+  }),
+);
 const standardBodyLimit = bodyLimit({
   maxSize: 2 * 1024 * 1024,
   onError: (c) => errorResponse(c, 413, "Request is too large"),

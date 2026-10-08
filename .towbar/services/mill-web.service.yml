@@ -19,6 +19,9 @@ health:
   type: http
   path: /health/ready
   timeoutSeconds: 180
+secrets:
+  runtime:
+    - MILL_API_URL
 domains:
   primary: mill.avgeek.ltd
 tls:

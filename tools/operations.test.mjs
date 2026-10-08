@@ -19,7 +19,8 @@ test("configuration generator makes private unique secrets and refuses overwrite
     assert.match(contents, /^POSTGRES_PASSWORD=[a-f0-9]{64}$/m);
     assert.match(contents, /^MILL_SECRET=[a-f0-9]{96}$/m);
     const password = /^POSTGRES_PASSWORD=(.+)$/m.exec(contents)[1];
-    assert.match(contents, /^MILL_BASE_URL=http:\/\/localhost:4321$/m);
+    assert.match(contents, /^MILL_WEB_URL=http:\/\/localhost:4322$/m);
+    assert.match(contents, /^MILL_API_URL=http:\/\/localhost:4321$/m);
     assert.ok(
       contents.includes(
         `DATABASE_URL=postgres://mill:${password}@127.0.0.1:55432/mill`,
@@ -32,7 +33,13 @@ test("configuration generator makes private unique secrets and refuses overwrite
         .split("\n")
         .map((line) => line.split("=")[0])
         .sort(),
-      ["DATABASE_URL", "MILL_BASE_URL", "MILL_SECRET", "POSTGRES_PASSWORD"],
+      [
+        "DATABASE_URL",
+        "MILL_API_URL",
+        "MILL_SECRET",
+        "MILL_WEB_URL",
+        "POSTGRES_PASSWORD",
+      ],
     );
     assert.equal((await stat(file)).mode & 0o777, 0o600);
     result = spawnSync(
@@ -48,7 +55,7 @@ test("configuration generator makes private unique secrets and refuses overwrite
         "tools/init-env.mjs",
         "--file",
         join(directory, "remote.env"),
-        "--base-url",
+        "--web-url",
         "http://tasks.example.invalid",
       ],
       { encoding: "utf8" },

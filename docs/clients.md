@@ -2,7 +2,7 @@
 
 Mill lets external clients read and update work through REST or remote MCP. Both transports accept personal and team API keys with explicit permissions. MCP also accepts OAuth approved by a person in Mill. You do not need an LLM key in Mill.
 
-Install Mill and complete [workspace setup](getting-started.md) before connecting a client. Use your final HTTPS URL for a remote connection. HTTP works locally when `MILL_BASE_URL` is an exact loopback origin; remote connections require HTTPS.
+Install Mill and complete [workspace setup](getting-started.md) before connecting a client. Use your final HTTPS URL for a remote connection. HTTP works locally when `MILL_API_URL` is an exact loopback origin; remote connections require HTTPS.
 
 ## Create a personal API key
 

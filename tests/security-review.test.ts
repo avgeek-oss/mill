@@ -231,7 +231,7 @@ test("mixed accessible and inaccessible notification IDs fail without any update
 
 test("OAuth tokens must match the canonical MCP resource and cannot call REST directly", async () => {
   const { user } = await setupUser();
-  const baseUrl = new URL(process.env.MILL_BASE_URL!);
+  const baseUrl = new URL(process.env.MILL_API_URL!);
   const resource = new URL("/mcp", baseUrl).href;
   const restUrl = new URL("/api/boards", baseUrl);
   const token = `mill_${secret()}`;

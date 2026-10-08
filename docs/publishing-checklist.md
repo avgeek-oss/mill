@@ -16,6 +16,7 @@ Use this checklist for the exact revision proposed for release. Record results i
 
 - Run `pnpm verify:production` from a clean checkout with the documented package-registry access. Confirm the installation does not require a sibling checkout or private runtime dependencies.
 - Verify native `linux/amd64` and `linux/arm64` images, non-root runtime, readiness, persistent PostgreSQL, restart behavior, and the documented HTTPS/proxy configuration.
+- Verify the UI and API as separate public HTTPS applications on the same site. Check the UI's no-store runtime API origin, credentialed browser reads and writes, host-only HttpOnly API session cookie, exact UI-origin CORS and CSRF rejection, API OAuth issuer/discovery and MCP resource, and the UI consent redirect.
 - Verify a clean baseline installation and rejection of incompatible migration ledgers without changing their data. Before publication, rehearse guarded prelaunch conversion with a recoverable source snapshot and compare retained records. After publication, use forward migrations and keep applied files immutable.
 - Create and restore a full database backup in an isolated installation. Verify retained work, account state, credentials, and recovery with the original `MILL_SECRET` and matching configuration.
 - Review dependency and image vulnerabilities, licenses, third-party notices, bundled assets, and the distributable file manifest for secrets or private material.

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { Hono } from "hono";
-import { registerStaticRoutes } from "../apps/api/src/static.js";
+import { registerStaticRoutes } from "../apps/shared/static.js";
 import type { Env } from "../apps/api/src/http.js";
 
 test("static assets negotiate gzip without changing identity bytes or API responses", async () => {

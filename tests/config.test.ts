@@ -7,7 +7,8 @@ test("configuration requires secrets/database and restricts insecure origins", (
     Object.assign(process.env, {
       DATABASE_URL: "postgres://test:disposable@127.0.0.1/mill",
       MILL_SECRET: "x".repeat(32),
-      MILL_BASE_URL: "https://mill.example",
+      MILL_WEB_URL: "https://mill.example",
+      MILL_API_URL: "https://mill-api.example",
       PORT: "4321",
     });
     assert.equal(validateConfiguration().PORT, 4321);
@@ -18,14 +19,16 @@ test("configuration requires secrets/database and restricts insecure origins", (
       "https://mill.example?q=a",
       "ftp://mill.example",
     ]) {
-      process.env.MILL_BASE_URL = base;
+      process.env.MILL_WEB_URL = base;
       assert.throws(() => validateConfiguration());
     }
-    process.env.MILL_BASE_URL = "http://localhost:4321";
-    assert.equal(
-      validateConfiguration().MILL_BASE_URL,
-      "http://localhost:4321",
-    );
+    process.env.MILL_WEB_URL = "http://localhost:4322";
+    assert.equal(validateConfiguration().MILL_WEB_URL, "http://localhost:4322");
+    process.env.MILL_API_URL = "http://localhost:4322";
+    assert.throws(() => validateConfiguration(), /separate origins/);
+    process.env.MILL_API_URL = "http://api.example";
+    assert.throws(() => validateConfiguration(), /MILL_API_URL/);
+    process.env.MILL_API_URL = "https://mill-api.example";
     delete process.env.DATABASE_URL;
     assert.throws(() => validateConfiguration(), /DATABASE_URL/);
     process.env.DATABASE_URL = "postgres://test@localhost/mill";
@@ -41,7 +44,8 @@ test("optional SMTP requires paired configuration, validates addresses and retai
   Object.assign(process.env, {
     DATABASE_URL: "postgres://test:disposable@127.0.0.1/mill",
     MILL_SECRET: "x".repeat(32),
-    MILL_BASE_URL: "https://mill.example",
+    MILL_WEB_URL: "https://mill.example",
+    MILL_API_URL: "https://mill-api.example",
   });
   const fields = [
     "MILL_SMTP_HOST",
@@ -70,5 +74,50 @@ test("optional SMTP requires paired configuration, validates addresses and retai
     assert.throws(validateConfiguration, /MILL_SMTP_FROM/);
   } finally {
     process.env = environment;
+  }
+});
+
+test("browser preflight admits only the UI origin with credentials", async () => {
+  const previous = { ...process.env };
+  Object.assign(process.env, {
+    DATABASE_URL: "postgres://test:disposable@127.0.0.1/mill",
+    MILL_SECRET: "x".repeat(32),
+    MILL_WEB_URL: "https://mill.example",
+    MILL_API_URL: "https://mill-api.example",
+  });
+  try {
+    const { app } = await import("../apps/api/src/app.js");
+    const allowed = await app.request("/api/auth/me", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://mill.example",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "content-type",
+      },
+    });
+    assert.equal(
+      allowed.headers.get("access-control-allow-origin"),
+      "https://mill.example",
+    );
+    assert.equal(
+      allowed.headers.get("access-control-allow-credentials"),
+      "true",
+    );
+    const denied = await app.request("/api/auth/me", {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://untrusted.example",
+        "Access-Control-Request-Method": "GET",
+      },
+    });
+    assert.notEqual(
+      denied.headers.get("access-control-allow-origin"),
+      "https://untrusted.example",
+    );
+    const { cookieOptions } = await import("../apps/api/src/auth/model.js");
+    assert.equal(cookieOptions().secure, true);
+    assert.equal("domain" in cookieOptions(), false);
+  } finally {
+    process.env = previous;
   }
 });

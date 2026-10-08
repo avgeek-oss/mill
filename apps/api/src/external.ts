@@ -27,6 +27,7 @@ import {
 } from "./external/protocol.js";
 import { serveMcp } from "./external/mcp.js";
 import { recentSession } from "./auth/model.js";
+import { appOrigin } from "./auth/security.js";
 export { credentialActor } from "./external/credentials.js";
 export { setApiDispatcher } from "./external/mcp.js";
 
@@ -200,7 +201,7 @@ externalRoutes.get("/oauth/authorize", async (c) => {
   );
   return c.redirect(
     result.redirectTo ??
-      `${issuer()}/oauth/consent?request=${result.requestId}`,
+      `${appOrigin()}/oauth/consent?request=${result.requestId}`,
     302,
   );
 });

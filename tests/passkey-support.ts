@@ -7,7 +7,7 @@ import {
 } from "node:crypto";
 import { isoCBOR } from "@simplewebauthn/server/helpers";
 import { request } from "./support.js";
-const origin = process.env.MILL_BASE_URL!;
+const origin = process.env.MILL_WEB_URL!;
 export function virtualPasskey(userId: string) {
   const keyPair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const jwk = keyPair.publicKey.export({ format: "jwk" });

@@ -265,14 +265,25 @@ export async function staticManifest(directory) {
     "Theme bootstrap precedes the stylesheet",
   );
   await add("/theme-bootstrap.js");
+  const runtimeScripts = scripts.filter(
+    (match) => attribute(match[1], "src") === "/runtime-config.js",
+  );
+  assert.equal(
+    runtimeScripts.length,
+    1,
+    "The app loads one runtime API origin",
+  );
+  assert.equal(runtimeScripts[0][2].trim(), "");
+  assert.doesNotMatch(runtimeScripts[0][1], /\b(?:async|defer)\b/i);
   const appScripts = scripts.filter(
     (match) => attribute(match[1], "type") === "module",
   );
   assert.equal(appScripts.length, 1, "The app loads one hashed module script");
+  assert.ok(runtimeScripts[0].index < appScripts[0].index);
   assert.equal(
     scripts.length,
-    3,
-    "The app loads only the three bundled scripts",
+    4,
+    "The app loads only the theme, recovery, runtime and module scripts",
   );
   const appScript = localTarget(attribute(appScripts[0][1], "src"), "/");
   assert.equal(resourceKind(appScript?.path), "script");
@@ -454,7 +465,7 @@ export async function verifyConfiguredStaticContent(timeoutMs = 8000) {
     await readFile(process.env.MILL_VERIFY_STATIC_MANIFEST, "utf8"),
   );
   const counts = await verifyStaticContent(
-    process.env.MILL_VERIFY_URL,
+    process.env.MILL_VERIFY_WEB_URL,
     manifest,
     timeoutMs,
   );

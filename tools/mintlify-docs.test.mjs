@@ -41,6 +41,7 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     "upgrades.md",
     "troubleshooting.md",
     "release-notes.md",
+    "towbar-deployment.md",
   ];
   try {
     await mkdir(resolve(fixture, "tools"), { recursive: true });
