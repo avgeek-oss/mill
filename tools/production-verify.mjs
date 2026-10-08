@@ -69,6 +69,7 @@ async function run(
 ) {
   const started = Date.now();
   let output = "";
+  let stdout = "";
   let exitCode;
   try {
     const child = spawn(command, args, {
@@ -85,6 +86,7 @@ async function run(
     const timer = setTimeout(() => child.kill("SIGTERM"), timeout);
     child.stdout.on("data", (data) => {
       output += data;
+      stdout += data;
     });
     child.stderr.on("data", (data) => {
       output += data;
@@ -95,7 +97,7 @@ async function run(
     }).finally(() => clearTimeout(timer));
     assert.equal(exitCode, 0, `${name} must pass`);
     console.log(`PASS ${name}`);
-    return output.trim();
+    return stdout.trim();
   } finally {
     await writeFile(join(evidence, `${name}.log`), redact(output), {
       mode: 0o600,
@@ -795,8 +797,8 @@ try {
     },
     240_000,
   );
-  for (const [component, image] of Object.entries(images))
-    await run(
+  for (const [component, image] of Object.entries(images)) {
+    const scan = await run(
       `production-${component}-image-security`,
       "docker",
       [
@@ -814,8 +816,6 @@ try {
         "/var/run/docker.sock:/var/run/docker.sock",
         "--volume",
         `${scannerCache}:/root/.cache/trivy`,
-        "--volume",
-        `${evidence}:/verification`,
         "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969",
         "image",
         "--scanners",
@@ -826,13 +826,17 @@ try {
         "1",
         "--format",
         "json",
-        "--output",
-        `/verification/${component}-image-vulnerabilities.json`,
         image,
       ],
       {},
       600_000,
     );
+    await writeFile(
+      join(evidence, `${component}-image-vulnerabilities.json`),
+      JSON.stringify(JSON.parse(scan), null, 2),
+      { mode: 0o600 },
+    );
+  }
   const fixture = JSON.parse(await readFile(state, "utf8"));
   await writeFile(
     join(evidence, "evidence.json"),
