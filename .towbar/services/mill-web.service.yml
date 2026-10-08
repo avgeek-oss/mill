@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://towbar.dev/schemas/app.v2.json
+id: mill-web
+name: Mill UI
+deployment:
+  type: image
+  image: ghcr.io/avgeek-oss/mill-web:1.0.1
+autoDeploy: false
+rollout:
+  type: recreate
+  maintenanceMode: true
+  reason: Limit upgrade resource use on the shared Platform Services server.
+container:
+  network: mill
+  port: 4322
+  resources:
+    cpus: 0.125
+    memory: 256m
+health:
+  type: http
+  path: /health/ready
+  timeoutSeconds: 180
+domains:
+  primary: mill.avgeek.ltd
+tls:
+  mode: cloudflare-dns
+environments:
+  production:
+    server: 13.206.149.158

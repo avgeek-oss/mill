@@ -48,6 +48,8 @@ If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml
 
 Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 
+For Towbar, use the repository's API, UI, and PostgreSQL manifests and follow [Deploy with Towbar](docs/towbar-deployment.md). They use packaged images and a single public UI origin.
+
 ## Develop
 
 The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source and available from npm or GitHub Packages; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.

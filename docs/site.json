@@ -81,6 +81,7 @@
             "group": "Install and configure",
             "pages": [
               "installation",
+              "towbar-deployment",
               "configuration",
               "package-registry",
               "security"

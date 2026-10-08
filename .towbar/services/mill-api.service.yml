@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://towbar.dev/schemas/app.v2.json
+id: mill-api
+name: Mill API
+deployment:
+  type: image
+  image: ghcr.io/avgeek-oss/mill-api:1.0.1
+autoDeploy: false
+rollout:
+  type: recreate
+  maintenanceMode: true
+  reason: Keep one API container behind the private api network alias.
+container:
+  network: mill
+  networkAlias: api
+  port: 4321
+  resources:
+    cpus: 0.25
+    memory: 512m
+health:
+  type: http
+  path: /health/ready
+  timeoutSeconds: 180
+secrets:
+  runtime:
+    - DATABASE_URL
+    - MILL_BASE_URL
+    - MILL_SECRET
+environments:
+  production:
+    server: 13.206.149.158

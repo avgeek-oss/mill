@@ -103,6 +103,11 @@ const pages = [
     "Authenticate source builds to GitHub Packages.",
   ],
   [
+    "towbar-deployment",
+    "Deploy with Towbar",
+    "Run Mill's API and UI images with private PostgreSQL and one public origin.",
+  ],
+  [
     "getting-started",
     "Your first board",
     "Set up a workspace and make your first task.",
