@@ -45,9 +45,6 @@ importers:
       '@eslint/js':
         specifier: 9.39.4
         version: 9.39.4
-      '@playwright/test':
-        specifier: 1.63.0
-        version: 1.63.0
       '@types/node':
         specifier: 26.6.1
         version: 26.6.1
@@ -63,6 +60,9 @@ importers:
       eslint:
         specifier: 9.39.4
         version: 9.39.4(jiti@2.7.0)
+      playwright:
+        specifier: 1.63.0
+        version: 1.63.0
       prettier:
         specifier: 3.9.8
         version: 3.9.8
@@ -3963,6 +3963,7 @@ snapshots:
   '@playwright/test@1.63.0':
     dependencies:
       playwright: 1.63.0
+    optional: true
 
   '@radix-ui/primitive@1.1.7': {}
 

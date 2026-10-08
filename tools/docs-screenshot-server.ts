@@ -1,17 +1,17 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import postgres from "postgres";
 if (!process.env.DATABASE_URL) process.loadEnvFile(".env");
 if (!process.env.DATABASE_URL)
-  throw new Error("Set DATABASE_URL for the isolated browser database");
-const schema = `browser_${randomBytes(8).toString("hex")}`;
+  throw new Error("Set DATABASE_URL for the isolated screenshot database");
+const schema = `docs_screenshot_${randomBytes(8).toString("hex")}`;
 const admin = postgres(process.env.DATABASE_URL, { max: 1 });
 await admin.unsafe(`CREATE SCHEMA "${schema}"`);
-const port = process.env.MILL_BROWSER_PORT ?? "4323";
-const baseURL = process.env.MILL_BROWSER_BASE_URL ?? "http://localhost:4323";
-const metadata = resolve("tmp", `browser-${port}-schema.json`);
+const port = process.env.MILL_SCREENSHOT_PORT ?? "4323";
+const baseURL = process.env.MILL_SCREENSHOT_BASE_URL ?? "http://localhost:4323";
+const metadata = resolve("tmp", `docs-screenshot-${port}-schema.json`);
 await mkdir(resolve("tmp"), { recursive: true });
 const metadataDraft = `${metadata}.${schema}.tmp`;
 await writeFile(metadataDraft, JSON.stringify({ schema, baseURL }), {
@@ -41,10 +41,4 @@ const code = await new Promise<number>((resolve) =>
 await admin.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
 await admin.end();
 await rm(metadata, { force: true });
-const cachePattern = new RegExp(
-  `^browser-${schema}-[a-f0-9]{16}-(bootstrap|member|viewer)\\.json(?:\\.[a-f0-9]{16}\\.tmp)?$`,
-);
-for (const name of await readdir(resolve("tmp"))) {
-  if (cachePattern.test(name)) await rm(resolve("tmp", name), { force: true });
-}
 process.exitCode = code;

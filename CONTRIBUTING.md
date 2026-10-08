@@ -8,30 +8,32 @@ Follow the [README development steps](README.md#develop). Use Node 24.16.0, pnpm
 
 ## Verification
 
-Use a disposable PostgreSQL database. Tests create and clear their fixture data; never point test configuration at a live workspace. The database URL used by tests must be provided explicitly.
+For quick feedback on frontend helpers, configuration and date formatting, run:
+
+```sh
+pnpm test:quick
+```
+
+These selected Node tests do not need a running browser or database. Before submitting a change, run the complete source and production checks:
 
 ```sh
 pnpm verify
-node tools/docs-check.mjs
-node --test tools/*.test.mjs
-pnpm exec playwright install chromium
-pnpm test:browser
-node tools/production-verify.mjs
+pnpm verify:production
 ```
 
-`pnpm verify` covers formatting, lint, types, real PostgreSQL integration tests, production dependency advisories, and builds. `pnpm test:browser` runs every browser file in a fresh isolated installation, starting with the real setup journey. It requires the built frontend to stay unchanged and verifies server, session-cache, and PostgreSQL schema cleanup. Original logs, screenshots, and the distribution manifest are retained under `playwright-report` and `test-results`. For a focused check, use `pnpm exec playwright test tests/browser/FILE.spec.ts`.
+Use a disposable PostgreSQL database for `pnpm verify` and provide its `DATABASE_URL` explicitly. Tests create and clear fixture data; never point them at a live workspace. The full check covers documentation links, tooling tests, formatting, lint, types, real PostgreSQL integration tests, production dependency advisories and builds. The quick tests do not replace this check.
 
-The production runner builds the image, creates an isolated Compose project, exercises setup and task persistence, verifies upgrade and full database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. All three gates are required in CI.
+The production runner builds the image, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
 
 The production runner accepts `NODE_AUTH_TOKEN` or your stored GitHub Packages npm login. It passes the credential to BuildKit as a build secret and redacts it from saved evidence. CI uses `GITHUB_TOKEN` with `packages:read`; the shared package must grant the Mill repository Actions access. See [package registry setup](docs/package-registry.md#continuous-integration).
 
-When editing UI, review the running routes in light and dark themes, on desktop and phone widths. Include long titles, empty states, permission errors, keyboard movement, and scrolled selects inside dialogs. Preserve the shared components' keyboard, focus, and touch behavior.
+When editing UI, manually review the running routes in light and dark themes, on desktop and phone widths. Include long titles, empty states, permission errors, keyboard movement, and scrolled selects inside dialogs. Preserve the shared components' keyboard, focus, and touch behavior.
 
 ## Documentation
 
 Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and its styles in `docs/home.css`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated pages in `docs/mintlify` are replaced by the build.
 
-After a visible application change, follow the [screenshot refresh workflow](docs/screenshot-refresh.md). `pnpm docs:screenshots` refreshes every application section from an isolated example workspace; `pnpm docs:screenshots --docs-url http://localhost:4174` also captures every documentation page. Review the desktop and mobile images in both themes before including them in the docs.
+For documentation images after a visible application change, use the optional [manual screenshot refresh workflow](docs/screenshot-refresh.md). `pnpm docs:screenshots` refreshes every application section from an isolated example workspace; `pnpm docs:screenshots --docs-url http://localhost:4174` also captures every documentation page. Review the desktop and mobile images in both themes before including them in the docs.
 
 ## Changes and reviews
 

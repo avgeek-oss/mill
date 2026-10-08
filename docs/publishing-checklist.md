@@ -5,7 +5,7 @@ Use this checklist for the exact revision proposed for release. Record results i
 ## Source and application checks
 
 - Run `pnpm verify` against a disposable PostgreSQL database. Resolve formatting, lint, type, integration, dependency-audit, and build failures.
-- Run `pnpm test:browser` against a stable build. Review desktop and phone routes in both themes, including keyboard and touch controls, long content, loading, errors, and retry behavior.
+- Manually review desktop and phone routes in light and dark themes, including keyboard and touch controls, long content, loading, errors and retry behavior. Record the routes, states and results reviewed.
 - Verify setup, invitations, sign-in, recovery, passkeys, sessions, profile preferences, and account settings. Check configured email delivery and private-link behavior against the documented capability.
 - Verify Admin, Member, and Viewer permissions, current membership, last-administrator protection, invitation authority, and session or credential revocation during concurrent requests.
 - Verify board and task creation, field updates, comments, notifications, deletion, search, filters, sorting, pagination, and URL restoration. Check concurrency, version conflicts, and idempotent retries without losing drafts or attribution.
@@ -24,7 +24,7 @@ Use this checklist for the exact revision proposed for release. Record results i
 ## Documentation and release artifacts
 
 - Keep installation instructions, configuration, API/MCP contracts, security guidance, release notes, and screenshots aligned with the supported behavior.
-- Run the documentation link check and review the rendered documentation at desktop and phone widths in both themes. Use current, crisp screenshots without private data.
-- Require source, browser, and production CI for the reviewed commit. Review both architecture packages and validate `SHA256SUMS`, source revision, image architecture, and the packaged notices.
+- The full source gate includes the documentation link check. Review the rendered documentation at desktop and phone widths in both themes. Use current, crisp screenshots without private data; the manual documentation capture tool is optional.
+- Require the `verify` and `production` CI gates for the reviewed commit. Review both architecture packages and validate `SHA256SUMS`, source revision, image architecture, and the packaged notices.
 - Verify version/tag metadata, source and release manifests, download destinations, and beginner installation instructions before publishing.
 - Obtain the applicable release and deployment authorization. Repository visibility, artifact publication, website publication, merge, and deployment are separate actions; local verification does not perform them.

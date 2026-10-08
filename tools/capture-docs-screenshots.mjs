@@ -11,18 +11,51 @@ import {
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  chromium,
-  expect as playwrightExpect,
-  request,
-} from "@playwright/test";
 import postgres from "postgres";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const manifestPath = path.join(root, "tools/docs-screenshots.json");
-const expect = playwrightExpect.configure({ timeout: 70000 });
 const pause = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
+const readinessTimeout = 70_000;
+
+async function waitForVisible(locator) {
+  await locator.waitFor({ state: "visible", timeout: readinessTimeout });
+}
+
+async function waitUntil(description, read, matches) {
+  const deadline = Date.now() + readinessTimeout;
+  let lastValue;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      lastValue = await read();
+      if (matches(lastValue)) return;
+    } catch (error) {
+      lastError = error;
+    }
+    await pause(100);
+  }
+  throw new Error(
+    `Timed out waiting for ${description}; last value: ${JSON.stringify(lastValue)}${lastError ? `; last error: ${lastError.message}` : ""}`,
+  );
+}
+
+async function waitForValue(locator, value) {
+  await waitUntil(
+    `field value ${JSON.stringify(value)}`,
+    () => locator.inputValue(),
+    (current) => current === value,
+  );
+}
+
+async function waitForCount(locator, count) {
+  await waitUntil(
+    `element count ${count}`,
+    () => locator.count(),
+    (current) => current === count,
+  );
+}
 const actions = new Set([
   "activity",
   "create-task",
@@ -143,7 +176,7 @@ async function json(api, route, data, method = "POST") {
   return response.json();
 }
 
-async function seed(origin) {
+async function seed(origin, request) {
   const password = `Screenshot-${randomBytes(24).toString("base64url")}`;
   const api = await request.newContext({
     baseURL: origin,
@@ -269,9 +302,9 @@ async function prepare(page, entry) {
     await page.getByRole("tab", { name: "Activity", exact: true }).click();
   if (entry.action === "create-task") {
     await page.getByRole("button", { name: "New task", exact: true }).click();
-    await expect(
+    await waitForVisible(
       page.getByRole("dialog", { name: "New task", exact: true }),
-    ).toBeVisible();
+    );
   }
   if (entry.action === "board-settings") {
     await page
@@ -280,23 +313,23 @@ async function prepare(page, entry) {
     await page
       .getByRole("menuitem", { name: "Board settings", exact: true })
       .click();
-    await expect(
+    await waitForVisible(
       page.getByRole("dialog", { name: "Board settings", exact: true }),
-    ).toBeVisible();
+    );
   }
   if (entry.action === "notifications") {
     await page
       .getByRole("button", { name: "Open notifications", exact: true })
       .click();
-    await expect(
+    await waitForVisible(
       page.getByRole("dialog", { name: "Notifications", exact: true }),
-    ).toBeVisible();
-    await expect(
+    );
+    await waitForVisible(
       page
         .getByRole("dialog", { name: "Notifications", exact: true })
         .getByRole("listitem")
         .first(),
-    ).toBeVisible();
+    );
   }
 }
 
@@ -312,7 +345,7 @@ async function readyContent(page, entry) {
       entry.name === "boards"
         ? page.getByRole("link", { name, exact: true })
         : page.locator("tbody").getByText(name, { exact: true }).first();
-    await expect(element).toBeVisible();
+    await waitForVisible(element);
   }
   const rows =
     {
@@ -320,41 +353,42 @@ async function readyContent(page, entry) {
       "api-keys": ["Local development", "Release automation"],
     }[entry.name] ?? [];
   for (const name of rows)
-    await expect(
+    await waitForVisible(
       page.locator("tbody").getByText(name, { exact: true }).first(),
-    ).toBeVisible();
+    );
   if (entry.name === "empty-board") {
-    await expect(page.getByText("No tasks yet", { exact: true })).toBeVisible();
-    await expect(
+    await waitForVisible(page.getByText("No tasks yet", { exact: true }));
+    await waitForVisible(
       page.getByRole("button", { name: "Create task", exact: true }),
-    ).toBeVisible();
+    );
   }
   if (entry.name === "sessions")
-    await expect(page.getByText("This browser", { exact: true })).toBeVisible();
+    await waitForVisible(page.getByText("This browser", { exact: true }));
   if (entry.name === "security") {
-    await expect(
+    await waitForVisible(
       page.getByRole("button", { name: "Add passkey", exact: true }),
-    ).toBeVisible();
+    );
   }
   if (entry.name === "account")
-    await expect(page.getByLabel("Your Name", { exact: true })).toHaveValue(
+    await waitForValue(
+      page.getByLabel("Your Name", { exact: true }),
       "Maya Chen",
     );
   if (entry.name === "team")
-    await expect(page.getByLabel("Team name", { exact: true })).toHaveValue(
-      "Mill",
-    );
+    await waitForValue(page.getByLabel("Team name", { exact: true }), "Mill");
   if (entry.name === "task")
-    await expect(
+    await waitForVisible(
       page.getByText(
         "The installation instructions are ready. I checked the local setup and added the recovery steps.",
         { exact: true },
       ),
-    ).toBeVisible();
+    );
   if (entry.name === "task-activity")
-    await expect
-      .poll(() => page.locator("tbody tr").count())
-      .toBeGreaterThanOrEqual(3);
+    await waitUntil(
+      "at least three activity rows",
+      () => page.locator("tbody tr").count(),
+      (count) => count >= 3,
+    );
 }
 
 async function capture(browser, origin, manifest, entry, fixture, receipt) {
@@ -414,23 +448,28 @@ async function capture(browser, origin, manifest, entry, fixture, receipt) {
           (_, key) => fixture[key],
         );
         await page.goto(new URL(route, origin).href);
-        await expect(
+        await waitForVisible(
           page.getByRole("heading", {
             name: entry.heading,
             exact: true,
             level: 1,
           }),
-        ).toBeVisible();
+        );
         await page.waitForLoadState("networkidle", { timeout: 70000 });
         await prepare(page, entry);
-        await expect.poll(() => pendingApi.size).toBe(0);
+        await waitUntil(
+          "API requests to drain",
+          () => pendingApi.size,
+          (count) => count === 0,
+        );
         await readyContent(page, entry);
         await page.evaluate(() => document.fonts.ready);
-        await expect(
+        await waitForCount(
           page
             .locator('[aria-label^="Loading"]:visible')
             .filter({ hasNot: page.locator('[data-slot="spinner"]') }),
-        ).toHaveCount(0);
+          0,
+        );
         await pause(200);
         const file = `${manifest.output}/${entry.name}${device === "mobile" ? "-mobile" : ""}-${theme}.png`;
         const destination = path.join(root, file);
@@ -529,16 +568,17 @@ async function captureDocumentation(browser, origin, manifest, receipt) {
             throw new Error(
               `Documentation page ${slug} failed (HTTP ${response?.status()})`,
             );
-          await expect(page.locator("h1").first()).toBeVisible();
-          await expect
-            .poll(() =>
+          await waitForVisible(page.locator("h1").first());
+          await waitUntil(
+            `${theme} documentation theme`,
+            () =>
               page.evaluate(
                 () =>
                   document.documentElement.classList.contains("dark") ||
                   document.documentElement.dataset.theme === "dark",
               ),
-            )
-            .toBe(theme === "dark");
+            (dark) => dark === (theme === "dark"),
+          );
           await page.evaluate(() => document.fonts.ready);
           if (device === "mobile") {
             const tabs = page.getByRole("tab", { name: "Mobile", exact: true });
@@ -774,6 +814,7 @@ async function main() {
     );
     return;
   }
+  const { chromium, request } = await import("playwright");
   if (args.includes("--docs-only")) {
     if (!docsOrigin) throw new Error("--docs-only requires --docs-url");
     const receiptPath = path.join(root, "tmp/docs-screenshots-receipt.json");
@@ -822,7 +863,11 @@ async function main() {
     );
   const port = await availablePort();
   const origin = `http://localhost:${port}`;
-  const metadataPath = path.join(root, "tmp", `browser-${port}-schema.json`);
+  const metadataPath = path.join(
+    root,
+    "tmp",
+    `docs-screenshot-${port}-schema.json`,
+  );
   const receiptPath = path.join(
     root,
     section
@@ -867,14 +912,14 @@ async function main() {
   let fixture, browser, schema, completion;
   const server = spawn(
     process.execPath,
-    ["--import", "tsx", "tests/browser-server.ts"],
+    ["--import", "tsx", "tools/docs-screenshot-server.ts"],
     {
       cwd: root,
       stdio: "ignore",
       env: {
         ...process.env,
-        MILL_BROWSER_PORT: String(port),
-        MILL_BROWSER_BASE_URL: origin,
+        MILL_SCREENSHOT_PORT: String(port),
+        MILL_SCREENSHOT_BASE_URL: origin,
       },
     },
   );
@@ -910,7 +955,7 @@ async function main() {
       throw new Error("Isolated screenshot server did not become ready");
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
     if (
-      !/^browser_[a-f0-9]{16}$/.test(metadata.schema) ||
+      !/^docs_screenshot_[a-f0-9]{16}$/.test(metadata.schema) ||
       metadata.baseURL !== origin
     )
       throw new Error(
@@ -920,7 +965,7 @@ async function main() {
     browser = await chromium.launch();
     for (const entry of entries.filter((entry) => entry.beforeSetup))
       await capture(browser, origin, manifest, entry, {}, receipt);
-    fixture = await seed(origin);
+    fixture = await seed(origin, request);
     for (const entry of entries.filter((entry) => !entry.beforeSetup))
       await capture(browser, origin, manifest, entry, fixture, receipt);
     if (docsOrigin) {

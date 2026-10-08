@@ -17,7 +17,7 @@
     "packages/database/**/*.ts",
     "packages/contracts/**/*.ts",
     "tests/**/*.ts",
-    "playwright.config.ts"
+    "tools/docs-screenshot-server.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }
