@@ -425,7 +425,7 @@ test("deleting a board removes pending OAuth grants and narrows issued OAuth cre
   async function grant(boardIds: string[]) {
     const verifier = secret();
     const response = await request(
-      `/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: redirect, resource: `${process.env.MILL_BASE_URL}/mcp`, scope: "read", code_challenge: digest(verifier), code_challenge_method: "S256" })}`,
+      `/oauth/authorize?${new URLSearchParams({ response_type: "code", client_id: client.client_id, redirect_uri: redirect, resource: `${process.env.MILL_API_URL}/mcp`, scope: "read", code_challenge: digest(verifier), code_challenge_method: "S256" })}`,
     );
     assert.equal(response.status, 302);
     const id = new URL(response.headers.get("location")!).searchParams.get(
@@ -451,7 +451,7 @@ test("deleting a board removes pending OAuth grants and narrows issued OAuth cre
         grant_type: "authorization_code",
         client_id: client.client_id,
         redirect_uri: redirect,
-        resource: `${process.env.MILL_BASE_URL}/mcp`,
+        resource: `${process.env.MILL_API_URL}/mcp`,
         code: approved.code,
         code_verifier: approved.verifier,
       }),

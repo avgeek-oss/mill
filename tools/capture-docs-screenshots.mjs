@@ -179,12 +179,13 @@ async function json(api, route, data, method = "POST") {
 }
 
 export async function seed(
+  apiOrigin,
   origin,
   request,
   password = `Screenshot-${randomBytes(24).toString("base64url")}`,
 ) {
   const api = await request.newContext({
-    baseURL: origin,
+    baseURL: apiOrigin,
     extraHTTPHeaders: { Origin: origin },
   });
   try {
@@ -201,7 +202,7 @@ export async function seed(
     ]) {
       const invitation = await json(api, "/auth/invitations", { email, role });
       const person = await request.newContext({
-        baseURL: origin,
+        baseURL: apiOrigin,
         extraHTTPHeaders: { Origin: origin },
       });
       try {
@@ -288,7 +289,7 @@ export async function seed(
       body: "The installation instructions are ready. I checked the local setup and added the recovery steps.",
     });
     const peer = await request.newContext({
-      baseURL: origin,
+      baseURL: apiOrigin,
       extraHTTPHeaders: { Origin: origin },
     });
     try {
@@ -879,6 +880,8 @@ async function main() {
     );
   const port = await availablePort();
   const origin = `http://localhost:${port}`;
+  const apiPort = await availablePort();
+  const apiOrigin = `http://localhost:${apiPort}`;
   const metadataPath = path.join(
     root,
     "tmp",
@@ -935,7 +938,7 @@ async function main() {
       env: {
         ...process.env,
         MILL_SCREENSHOT_PORT: String(port),
-        MILL_SCREENSHOT_BASE_URL: origin,
+        MILL_SCREENSHOT_API_PORT: String(apiPort),
       },
     },
   );
@@ -960,7 +963,9 @@ async function main() {
           "Isolated screenshot server exited before becoming ready",
         );
       try {
-        ready = (await fetch(`${origin}/health/ready`)).ok;
+        ready =
+          (await fetch(`${origin}/health/ready`)).ok &&
+          (await fetch(`${apiOrigin}/health/ready`)).ok;
       } catch {
         ready = false;
       }
@@ -972,7 +977,8 @@ async function main() {
     const metadata = JSON.parse(await readFile(metadataPath, "utf8"));
     if (
       !/^docs_screenshot_[a-f0-9]{16}$/.test(metadata.schema) ||
-      metadata.baseURL !== origin
+      metadata.baseURL !== origin ||
+      metadata.apiURL !== apiOrigin
     )
       throw new Error(
         "Screenshot installation isolation could not be confirmed",
@@ -981,7 +987,7 @@ async function main() {
     browser = await chromium.launch();
     for (const entry of entries.filter((entry) => entry.beforeSetup))
       await capture(browser, origin, manifest, entry, {}, receipt);
-    fixture = await seed(origin, request);
+    fixture = await seed(apiOrigin, origin, request);
     for (const entry of entries.filter((entry) => !entry.beforeSetup))
       await capture(browser, origin, manifest, entry, fixture, receipt);
     if (docsOrigin) {

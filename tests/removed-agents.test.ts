@@ -157,7 +157,7 @@ test("OAuth consent is tied directly to the signed-in human and rejects retired 
     `/oauth/authorize?${new URLSearchParams({
       client_id: client.client_id,
       redirect_uri: redirect,
-      resource: `${process.env.MILL_BASE_URL}/mcp`,
+      resource: `${process.env.MILL_API_URL}/mcp`,
       response_type: "code",
       scope: "read write",
       code_challenge_method: "S256",

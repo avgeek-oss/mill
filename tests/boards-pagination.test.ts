@@ -452,8 +452,8 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
   await new Promise<void>((resolve) => server.on("listening", resolve));
   const address = server.address();
   assert(address && typeof address !== "string");
-  const previous = process.env.MILL_BASE_URL;
-  process.env.MILL_BASE_URL = `http://127.0.0.1:${address.port}`;
+  const previous = process.env.MILL_API_URL;
+  process.env.MILL_API_URL = `http://127.0.0.1:${address.port}`;
   const clients = [
     new Client({ name: "mill-board-pagination", version: "1.0.0" }),
     new Client({ name: "mill-scoped-board-pagination", version: "1.0.0" }),
@@ -470,7 +470,7 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
       const client = clients[index]!;
       await client.connect(
         new StreamableHTTPClientTransport(
-          new URL("/mcp", process.env.MILL_BASE_URL),
+          new URL("/mcp", process.env.MILL_API_URL),
           {
             requestInit: {
               headers: { Authorization: `Bearer ${credential.token}` },
@@ -568,7 +568,7 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
     assert.equal(new Set(resetIds).size, currentExpected.length);
   } finally {
     await Promise.all(clients.map((client) => client.close()));
-    process.env.MILL_BASE_URL = previous;
+    process.env.MILL_API_URL = previous;
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );

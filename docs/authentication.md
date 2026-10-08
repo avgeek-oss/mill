@@ -2,7 +2,7 @@
 
 Mill has one workspace per installation. The first person to open it creates the workspace and an administrator account. There are no default accounts or passwords. Setup is protected by a database lock and a singleton constraint, so simultaneous setup requests cannot create separate workspaces.
 
-Passwords require 15-1,024 characters. Mill stores them with scrypt using N=32768, r=8 and p=3, one of [OWASP's recommended scrypt configurations](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#scrypt). Browser sessions last seven days. The session cookie is HttpOnly, SameSite=Lax, and Secure when `MILL_BASE_URL` uses HTTPS. Deploy behind HTTPS and configure `MILL_BASE_URL` as the public origin. Browser mutations require that origin.
+Passwords require 15-1,024 characters. Mill stores them with scrypt using N=32768, r=8 and p=3, one of [OWASP's recommended scrypt configurations](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#scrypt). Browser sessions last seven days. The session cookie is HttpOnly, SameSite=Lax, and Secure when `MILL_API_URL` uses HTTPS. Expose the API with HTTPS and configure `MILL_API_URL` as its public origin. Browser mutations require the exact `MILL_WEB_URL` origin.
 
 ## Join a team
 

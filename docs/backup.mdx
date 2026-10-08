@@ -28,7 +28,7 @@ Encrypt backups and a separate copy of the runtime secrets, store a copy off the
 
 ## Rehearse bundled PostgreSQL recovery
 
-Use the same compatible API and UI images as the backup. Copy the installation's two Compose files and `.env` into a separate recovery directory. In the copied `docker-compose.yml`, change the web service's host port from `127.0.0.1:4321:4322` to `127.0.0.1:4322:4322`. In the copied `.env`, set `MILL_BASE_URL=http://localhost:4322` and preserve `MILL_SECRET`, `POSTGRES_PASSWORD` and the private PostgreSQL URL. Keep the copy private. The separate project name below creates its own PostgreSQL volume.
+Use the same compatible API and UI images as the backup. Copy the installation's two Compose files and `.env` into a separate recovery directory. In the copied `docker-compose.yml`, change the web service's host port to a free loopback port and the API service's host port to another free loopback port. In the copied `.env`, set `MILL_WEB_URL` and `MILL_API_URL` to those respective loopback origins and preserve `MILL_SECRET`, `POSTGRES_PASSWORD` and the private PostgreSQL URL. Keep the copy private. The separate project name below creates its own PostgreSQL volume.
 
 Run these commands from that recovery directory:
 

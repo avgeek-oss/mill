@@ -13,7 +13,7 @@ export function registerStaticRoutes<E extends Env>(
   serverApp: Hono<E>,
   root: string,
 ) {
-  // API, OAuth, health and MCP dispatch is mounted before this middleware.
+  // Application and protocol routes are handled before static delivery.
   serverApp.use("*", (c, next) =>
     c.req.method === "GET" ? gzipStatic(c, next) : next(),
   );

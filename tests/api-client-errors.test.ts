@@ -2,6 +2,11 @@ import { afterEach, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { api, ApiError, responseError } from "../apps/web/src/api.js";
 afterEach(() => mock.restoreAll());
+Object.assign(globalThis, {
+  window: {
+    __MILL_RUNTIME_CONFIG__: { apiOrigin: "https://mill-api.example" },
+  },
+});
 
 test("browser client decodes the typed error envelope and retains compatible legacy and OAuth failures", () => {
   const typed = responseError(409, {
@@ -88,6 +93,17 @@ test("an ordinary permission denial never invokes identity confirmation", async 
     { code: "FORBIDDEN" },
   );
   assert.equal(confirmations, 0);
+});
+
+test("browser requests use the runtime public API origin and include its session", async () => {
+  const requests: { url: unknown; init: RequestInit }[] = [];
+  mock.method(globalThis, "fetch", async (url: unknown, init: RequestInit) => {
+    requests.push({ url, init });
+    return Response.json({ items: [] });
+  });
+  await api("/boards");
+  assert.equal(requests[0]?.url, "https://mill-api.example/api/boards");
+  assert.equal(requests[0]?.init.credentials, "include");
 });
 
 import { readStartup, isBackendUnavailable } from "../apps/web/src/startup.js";

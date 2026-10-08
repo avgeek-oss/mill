@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer, request as httpRequest, type Server } from "node:http";
+import type { Server } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,50 +16,31 @@ async function listen(server: Server) {
   return `http://127.0.0.1:${address.port}`;
 }
 
-async function close(server: Server) {
-  server.closeAllConnections();
-  await new Promise<void>((resolve, reject) =>
-    server.close((error) => (error ? reject(error) : resolve())),
-  );
-}
-
-test("UI configuration needs only its API origin and rejects invalid origins or ports", () => {
-  assert.equal(webConfiguration({}).api.origin, "http://api:4321");
+test("UI needs a public API origin and validates it", () => {
+  assert.throws(() => webConfiguration({}), /MILL_API_URL/);
   for (const value of [
     "file:///etc/passwd",
-    "http://user:password@api:4321",
-    "http://api:4321/path",
-  ])
+    "http://api:4321",
+    "http://user:pass@localhost:4321",
+    "https://api.example/path",
+  ]) {
     assert.throws(() => webConfiguration({ MILL_API_URL: value }));
-  assert.throws(() => webConfiguration({ PORT: "0" }));
+  }
+  assert.equal(
+    webConfiguration({ MILL_API_URL: "https://mill-api.example" }).api.origin,
+    "https://mill-api.example",
+  );
 });
 
-test("UI serves client routes and proxies API bodies and cookies without forwarding client-address headers", async () => {
+test("UI serves runtime API configuration without proxying API or OAuth", async () => {
   const root = await mkdtemp(join(tmpdir(), "mill-web-server-"));
-  await writeFile(join(root, "index.html"), "<html>Mill UI fixture</html>");
-  const api = createServer(async (request, response) => {
-    let body = "";
-    for await (const chunk of request) body += chunk.toString();
-    response.writeHead(200, {
-      "Content-Type": "application/json",
-      "Set-Cookie": [
-        "session=synthetic; HttpOnly; SameSite=Lax",
-        "csrf=synthetic",
-      ],
-    });
-    response.end(
-      JSON.stringify({
-        path: request.url,
-        method: request.method,
-        headers: request.headers,
-        body,
-      }),
-    );
-  });
-  const upstream = await listen(api);
+  await writeFile(
+    join(root, "index.html"),
+    '<html><script src="/runtime-config.js"></script>Mill UI</html>',
+  );
   const web = createWebServer(
     root,
-    webConfiguration({ MILL_API_URL: upstream }),
+    webConfiguration({ MILL_API_URL: "https://mill-api.example" }),
   );
   const origin = await listen(web);
   try {
@@ -70,126 +51,31 @@ test("UI serves client routes and proxies API bodies and cookies without forward
     ]) {
       const response = await fetch(`${origin}${path}`);
       assert.equal(response.status, 200);
-      assert.equal(await response.text(), "<html>Mill UI fixture</html>");
+      assert.match(await response.text(), /Mill UI/);
+      assert.equal(response.headers.get("cache-control"), "no-store");
       assert.match(
         response.headers.get("content-security-policy") ?? "",
-        /frame-ancestors 'none'/,
+        /https:\/\/mill-api.example/,
       );
-      assert.equal(response.headers.get("cache-control"), "no-store");
     }
-    assert.equal((await fetch(`${origin}/assets/missing.js`)).status, 404);
+    const config = await fetch(`${origin}/runtime-config.js`);
+    assert.equal(config.headers.get("cache-control"), "no-store");
+    assert.match(
+      await config.text(),
+      /"apiOrigin":"https:\/\/mill-api.example"/,
+    );
     for (const path of [
-      "/api/auth/login?next=boards",
+      "/api/auth/login",
       "/oauth/token",
       "/.well-known/oauth-authorization-server",
-      "/health/ready",
-    ]) {
-      const response = await fetch(`${origin}${path}`, {
-        method: "POST",
-        headers: {
-          Origin: origin,
-          "Content-Type": "application/json",
-          Cookie: "session=synthetic",
-          "X-Forwarded-For": "203.0.113.42",
-          Forwarded: "for=203.0.113.42",
-        },
-        body: '{"name":"synthetic"}',
-      });
-      assert.equal(response.headers.getSetCookie().length, 2);
-      const actual = await response.json();
-      assert.equal(actual.path, path);
-      assert.equal(actual.method, "POST");
-      assert.equal(actual.body, '{"name":"synthetic"}');
-      assert.equal(actual.headers.origin, origin);
-      assert.equal(actual.headers.host, new URL(origin).host);
-      assert.equal(actual.headers.cookie, "session=synthetic");
-      assert.equal(actual.headers["x-forwarded-for"], undefined);
-      assert.equal(actual.headers.forwarded, undefined);
-    }
-    await new Promise<void>((resolve, reject) => {
-      const request = httpRequest(
-        `${origin}/api/boards`,
-        {
-          headers: { "X-Remove-Me": "hop", Connection: "x-remove-me" },
-        },
-        (response) => {
-          let body = "";
-          response.on("data", (data) => {
-            body += data;
-          });
-          response.on("end", () => {
-            try {
-              assert.equal(JSON.parse(body).headers["x-remove-me"], undefined);
-              resolve();
-            } catch (error) {
-              reject(error);
-            }
-          });
-        },
-      );
-      request.on("error", reject);
-      request.end();
-    });
-    await new Promise<void>((resolve, reject) => {
-      const request = httpRequest(origin, { path: "http://[" }, (response) => {
-        try {
-          assert.equal(response.statusCode, 400);
-        } catch (error) {
-          reject(error);
-        }
-        response.resume();
-        response.on("end", resolve);
-      });
-      request.on("error", reject);
-      request.end();
-    });
-    assert.equal((await fetch(`${origin}/`)).status, 200);
-    await close(api);
-    const unavailable = await fetch(`${origin}/api/boards`);
-    assert.equal(unavailable.status, 503);
-    assert.equal((await unavailable.json()).error.code, "SERVICE_UNAVAILABLE");
+      "/mcp",
+    ])
+      assert.equal((await fetch(`${origin}${path}`)).status, 404);
+    assert.equal((await fetch(`${origin}/health/ready`)).status, 200);
+    assert.equal((await fetch(`${origin}/assets/missing.js`)).status, 404);
   } finally {
-    if (api.listening) await close(api);
-    await close(web);
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("MCP events cross the UI proxy before the upstream response finishes", async () => {
-  const root = await mkdtemp(join(tmpdir(), "mill-web-stream-"));
-  await writeFile(join(root, "index.html"), "Mill UI");
-  let finish!: () => void;
-  const released = new Promise<void>((resolve) => {
-    finish = resolve;
-  });
-  const api = createServer(async (_request, response) => {
-    response.writeHead(200, { "Content-Type": "text/event-stream" });
-    response.write('data: {"first":true}\n\n');
-    await released;
-    response.end('data: {"last":true}\n\n');
-  });
-  const upstream = await listen(api);
-  const web = createWebServer(
-    root,
-    webConfiguration({ MILL_API_URL: upstream }),
-  );
-  const origin = await listen(web);
-  try {
-    const response = await fetch(`${origin}/mcp`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    const reader = response.body!.getReader();
-    assert.match(
-      new TextDecoder().decode((await reader.read()).value),
-      /first/,
-    );
-    finish();
-    assert.match(new TextDecoder().decode((await reader.read()).value), /last/);
-    assert.equal((await reader.read()).done, true);
-  } finally {
-    finish();
-    await close(web);
-    await close(api);
+    web.closeAllConnections();
+    await new Promise<void>((resolve) => web.close(() => resolve()));
     await rm(root, { recursive: true, force: true });
   }
 });

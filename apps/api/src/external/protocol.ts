@@ -8,8 +8,8 @@ export const digest = (value: string) =>
 export const equalHash = (a: string, b: string) =>
   timingSafeEqual(Buffer.from(digest(a)), Buffer.from(digest(b)));
 export function issuer() {
-  const raw = process.env.MILL_BASE_URL;
-  if (!raw) throw new Error("MILL_BASE_URL is required");
+  const raw = process.env.MILL_API_URL;
+  if (!raw) throw new Error("MILL_API_URL is required");
   return new URL(raw).origin;
 }
 export const mcpResource = () => `${issuer()}/mcp`;

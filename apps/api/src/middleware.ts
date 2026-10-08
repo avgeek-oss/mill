@@ -47,7 +47,7 @@ function decryptResponse(envelope: { iv: string; tag: string; data: string }) {
 }
 export const trustedOrigin: MiddlewareHandler<Env> = async (c, next) => {
   const origin = c.req.header("origin");
-  if (origin && origin !== new URL(config().MILL_BASE_URL).origin)
+  if (origin && origin !== new URL(config().MILL_WEB_URL).origin)
     throw new HTTPException(403, {
       message: "This request came from an untrusted website",
     });

@@ -17,7 +17,7 @@ for (const failRestore of [false, true])
       await writeFile(overlay, "services: {}\n");
       await writeFile(
         envFile,
-        "DATABASE_URL=postgres://mill:disposable@postgres:5432/mill\nMILL_SECRET=disposable-test-secret\nMILL_BASE_URL=http://localhost:4321\nPOSTGRES_PASSWORD=disposable\n",
+        "DATABASE_URL=postgres://mill:disposable@postgres:5432/mill\nMILL_SECRET=disposable-test-secret\nMILL_WEB_URL=http://localhost:4322\nMILL_API_URL=http://localhost:4321\nPOSTGRES_PASSWORD=disposable\n",
       );
       await writeFile(backup, "disposable test backup");
       await writeFile(

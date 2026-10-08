@@ -7,7 +7,8 @@ services:
       NODE_ENV: production
       PORT: 4321
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
-      MILL_BASE_URL: ${MILL_BASE_URL:?set MILL_BASE_URL}
+      MILL_WEB_URL: ${MILL_WEB_URL:?set MILL_WEB_URL}
+      MILL_API_URL: ${MILL_API_URL:?set MILL_API_URL}
       MILL_SECRET: ${MILL_SECRET:?set MILL_SECRET}
       MILL_SMTP_HOST: ${MILL_SMTP_HOST:-}
       MILL_SMTP_PORT: ${MILL_SMTP_PORT:-587}
@@ -15,6 +16,8 @@ services:
       MILL_SMTP_USER: ${MILL_SMTP_USER:-}
       MILL_SMTP_PASSWORD: ${MILL_SMTP_PASSWORD:-}
       MILL_SMTP_FROM: ${MILL_SMTP_FROM:-}
+    ports:
+      - "127.0.0.1:4321:4321"
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -26,15 +29,12 @@ services:
     image: ghcr.io/avgeek-oss/mill-web:1.0.1
     init: true
     restart: unless-stopped
-    depends_on:
-      api:
-        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 4322
-      MILL_API_URL: http://api:4321
+      MILL_API_URL: ${MILL_API_URL:?set MILL_API_URL}
     ports:
-      - "127.0.0.1:4321:4322"
+      - "127.0.0.1:4322:4322"
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777

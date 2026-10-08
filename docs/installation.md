@@ -1,6 +1,6 @@
 # Installation
 
-Mill needs **PostgreSQL, an API image and a UI image**. Use an existing PostgreSQL database or let Compose run one for you. The default Compose file runs only the API and UI; it needs three environment values. You do not need Git, Node.js, a package-registry token or a source build.
+Mill needs **PostgreSQL, an API image and a UI image**. Use an existing PostgreSQL database or let Compose run one for you. The default Compose file runs only the API and UI; it needs four environment values. You do not need Git, Node.js, a package-registry token or a source build.
 
 The first public release is proposed as `v1.0.1`. Choose a release only after its GitHub release and both public images have been published.
 
@@ -20,19 +20,20 @@ chmod 600 .env
 
 Keep these files together and run the remaining commands from this directory. Compose reads `.env` automatically; `--env-file /path/to/your.env` is available if you store it elsewhere. Image versions are already set in the release's Compose file.
 
-## 2. Set three environment values
+## 2. Set four environment values
 
 Edit `.env`:
 
 ```dotenv
 DATABASE_URL=postgres://user:password@your-database-host:5432/mill
 MILL_SECRET=<a random secret of at least 32 characters>
-MILL_BASE_URL=http://localhost:4321
+MILL_WEB_URL=http://localhost:4322
+MILL_API_URL=http://localhost:4321
 ```
 
 Use a dedicated PostgreSQL database with a user that can create and modify its tables. Supply the provider's complete connection URL, including any required TLS parameters. Percent-encode special characters in a URL's username or password. The database host must be reachable from the API container; `localhost` inside that container refers to the container itself.
 
-Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`. Keep it private and preserve it across upgrades and restores: Mill uses it to protect authentication data. Leave `MILL_BASE_URL` as shown for local use, or use your final HTTPS origin for remote access.
+Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`. Keep it private and preserve it across upgrades and restores: Mill uses it to protect authentication data. Leave both origins as shown for local use, or set the final HTTPS UI and API origins for remote access.
 
 ## 3. Start Mill
 
@@ -40,16 +41,17 @@ Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`. Keep i
 docker compose --project-name mill up --detach --wait
 ```
 
-Compose pulls both versioned images and waits for the API and UI to become healthy. The API applies its packaged database migrations automatically. Open [localhost:4321](http://localhost:4321) and create your workspace, name, email and password. The first account becomes an administrator; there is no default login. The setup form closes after that first account is created.
+Compose pulls both versioned images and waits for the API and UI to become healthy. The API applies its packaged database migrations automatically. Open [localhost:4322](http://localhost:4322) and create your workspace, name, email and password. The first account becomes an administrator; there is no default login. The setup form closes after that first account is created.
 
 Check the running services and the complete UI-to-API path:
 
 ```sh
 docker compose --project-name mill ps
 curl --fail http://localhost:4321/health/ready
+curl --fail http://localhost:4322/health/ready
 ```
 
-Continue with [your first board and task](getting-started.md). No GitHub login or npm token is needed to pull public release images. Only the UI publishes a host port; it forwards authentication, API and streaming MCP requests privately to the API. The API holds the database URL and application secret; the UI has neither.
+Continue with [your first board and task](getting-started.md). No GitHub login or npm token is needed to pull public release images. Both services publish separate loopback ports. Browsers call the API directly at its configured public origin. The API holds the database URL and application secret; the UI has neither.
 
 ## Optional: run PostgreSQL with Compose
 
@@ -66,7 +68,7 @@ POSTGRES_PASSWORD=<your generated database password>
 DATABASE_URL=postgres://mill:<the same database password>@postgres:5432/mill
 ```
 
-Keep the existing `MILL_SECRET` and `MILL_BASE_URL` values. Start all three services with the optional overlay:
+Keep the existing `MILL_SECRET`, `MILL_WEB_URL` and `MILL_API_URL` values. Start all three services with the optional overlay:
 
 ```sh
 docker compose --project-name mill -f docker-compose.yml -f docker-compose.postgres.yml up --detach --wait
@@ -76,28 +78,31 @@ Use both `-f` options for subsequent commands on this installation. The overlay 
 
 ## Host Mill with HTTPS
 
-Set `MILL_BASE_URL` to the exact browser origin, for example `https://tasks.example.com`, and recreate the services using your installation's Compose command. The default UI port binds to `127.0.0.1:4321`, ready for a reverse proxy on the same host. For example, a Caddy configuration can use:
+Set `MILL_WEB_URL` and `MILL_API_URL` to separate public HTTPS origins, for example `https://tasks.example.com` and `https://tasks-api.example.com`. Keep both hosts under the same site so the browser can send the API's SameSite=Lax session cookie. Recreate both services after changing environment values. Expose the UI and API separately:
 
 ```caddyfile
 tasks.example.com {
+    reverse_proxy 127.0.0.1:4322
+}
+tasks-api.example.com {
     reverse_proxy 127.0.0.1:4321
 }
 ```
 
-A proxy on the Compose network can use `web:4322` instead. Preserve the public host, support streaming HTTP at `/mcp`, and do not cache `/api`, `/mcp` or OAuth responses. Keep the database and API private. To change the local port or bind address, edit the web service's `ports` entry in Compose and keep `MILL_BASE_URL` aligned with the browser URL.
+The API serves `/api`, `/mcp`, `/oauth`, `/.well-known`, and `/health`. Keep PostgreSQL private. Preserve streaming responses and do not cache API, OAuth, or MCP responses. The UI serves `/runtime-config.js` with no-store caching; it tells the browser which public API origin to use. The same UI image works at another installation by changing this runtime value.
 
-The public origin is used for cookies, passkeys, links and OAuth. Set it correctly before people register passkeys; changing it later requires a recovery plan. Remote access requires HTTPS. Local HTTP OAuth works automatically only when `MILL_BASE_URL` is an exact loopback origin; no extra switch is needed.
+`MILL_WEB_URL` controls passkey origin checks, browser CSRF/CORS policy, invitation and recovery links, and OAuth consent pages. `MILL_API_URL` controls the host-only session cookie's Secure flag, OAuth issuer, discovery, MCP resource, and browser API requests. Set both before registering passkeys or connecting MCP clients; changing them later requires a recovery plan. Remote access requires HTTPS.
 
 ## Use a deployment platform
 
-Images read runtime environment variables directly. A platform or secret manager can supply them without an `.env` file:
+Images read runtime environment variables directly. Keep the API and UI at the same release version and expose each on its configured public HTTPS hostname:
 
-| Service | Image                                   | Runtime configuration                                                                         |
-| ------- | --------------------------------------- | --------------------------------------------------------------------------------------------- |
-| API     | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_BASE_URL`. Private port `4321`.                          |
-| UI      | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` only if the private API origin differs from `http://api:4321`. UI port `4322`. |
+| Service | Image                                   | Runtime configuration                                                       |
+| ------- | --------------------------------------- | --------------------------------------------------------------------------- |
+| API     | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_WEB_URL`, `MILL_API_URL`. Port `4321`. |
+| UI      | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` (the same public API origin). Port `4322`.                   |
 
-Use your PostgreSQL instance's connection URL as `DATABASE_URL`. Keep the API and UI at the same release version, and route the public HTTPS hostname to the UI. Optional email settings are covered in [configuration](configuration.md).
+Optional email settings are covered in [configuration](configuration.md).
 
 ## Optional: pin images by digest
 

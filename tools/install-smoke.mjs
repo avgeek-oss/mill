@@ -5,10 +5,11 @@ import { URLSearchParams } from "node:url";
 import { verifyConfiguredStaticContent } from "./static-smoke.mjs";
 
 const origin = process.env.MILL_VERIFY_URL;
+const webOrigin = process.env.MILL_VERIFY_WEB_URL;
 const password = process.env.MILL_VERIFY_PASSWORD;
 const stateFile = process.env.MILL_VERIFY_STATE;
 assert.ok(
-  origin && password && stateFile,
+  origin && webOrigin && password && stateFile,
   "Supply disposable verification URL, password, and state path",
 );
 const target = new URL(origin);
@@ -29,7 +30,7 @@ async function request(
   const response = await fetch(`${origin}${path}`, {
     method,
     headers: {
-      Origin: origin,
+      Origin: webOrigin,
       "Content-Type": "application/json",
       Cookie: [...jar].map(([name, value]) => `${name}=${value}`).join("; "),
       ...extraHeaders,
@@ -39,6 +40,11 @@ async function request(
     redirect: "error",
   });
   for (const cookie of response.headers.getSetCookie()) {
+    if (cookie.startsWith("mill_session=")) {
+      assert.match(cookie, /(?:^|;)\s*HttpOnly(?:;|$)/i);
+      assert.match(cookie, /(?:^|;)\s*SameSite=Lax(?:;|$)/i);
+      assert.doesNotMatch(cookie, /(?:^|;)\s*Domain=/i);
+    }
     if (target.protocol === "https:" && cookie.startsWith("mill_session="))
       assert.match(
         cookie,
@@ -78,7 +84,7 @@ async function removedRoute(path, method = "GET", data) {
   const response = await fetch(`${origin}${path}`, {
     method,
     headers: {
-      Origin: origin,
+      Origin: webOrigin,
       "Content-Type": "application/json",
       Cookie: [...cookies]
         .map(([name, value]) => `${name}=${value}`)
@@ -167,7 +173,9 @@ const ready = await fetch(`${origin}/health/ready`, {
   signal: AbortSignal.timeout(10_000),
 });
 assert.equal(ready.status, 200);
-const page = await fetch(`${origin}/`, { signal: AbortSignal.timeout(10_000) });
+const page = await fetch(`${webOrigin}/`, {
+  signal: AbortSignal.timeout(10_000),
+});
 assert.equal(page.status, 200);
 assert.match(page.headers.get("content-type") ?? "", /text\/html/);
 assert.match(
@@ -177,7 +185,12 @@ assert.match(
 assert.equal(page.headers.get("x-content-type-options"), "nosniff");
 assert.ok(page.headers.get("referrer-policy"));
 assert.match(await page.text(), /<div\s+id=["']root["']/);
-pass("Production web application and readiness endpoint respond");
+const runtimeConfig = await fetch(`${webOrigin}/runtime-config.js`);
+assert.equal(runtimeConfig.status, 200);
+assert.equal(runtimeConfig.headers.get("cache-control"), "no-store");
+assert.ok((await runtimeConfig.text()).includes(JSON.stringify(origin)));
+assert.equal((await fetch(`${webOrigin}/api/auth/status`)).status, 404);
+pass("Independent UI and API origins respond without a UI API proxy");
 await verifyConfiguredStaticContent();
 
 let state;
@@ -198,6 +211,57 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
   );
   const me = await request("/api/auth/me");
   assert.equal(me.user.role, "admin");
+  const preflight = await fetch(`${origin}/api/auth/me`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: webOrigin,
+      "Access-Control-Request-Method": "GET",
+      "Access-Control-Request-Headers": "content-type",
+    },
+  });
+  assert.equal(preflight.headers.get("access-control-allow-origin"), webOrigin);
+  assert.equal(
+    preflight.headers.get("access-control-allow-credentials"),
+    "true",
+  );
+  const browserRead = await fetch(`${origin}/api/auth/me`, {
+    headers: {
+      Origin: webOrigin,
+      Cookie: [...cookies]
+        .map(([name, value]) => `${name}=${value}`)
+        .join("; "),
+    },
+  });
+  assert.equal(browserRead.status, 200);
+  assert.equal(
+    browserRead.headers.get("access-control-allow-origin"),
+    webOrigin,
+  );
+  assert.equal(
+    browserRead.headers.get("access-control-allow-credentials"),
+    "true",
+  );
+  const hostileOrigin = "https://untrusted.example";
+  const denied = await fetch(`${origin}/api/auth/logout`, {
+    method: "POST",
+    headers: {
+      Origin: hostileOrigin,
+      Cookie: [...cookies]
+        .map(([name, value]) => `${name}=${value}`)
+        .join("; "),
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+  assert.equal(denied.status, 403);
+  assert.notEqual(
+    denied.headers.get("access-control-allow-origin"),
+    hostileOrigin,
+  );
+  assert.equal((await request("/api/auth/me")).user.id, me.user.id);
+  pass(
+    "Credentialed browser CORS and CSRF permit only the configured UI origin",
+  );
   assert.equal((await request("/api/auth/status")).setupRequired, false);
   await request(
     "/api/auth/setup",
@@ -758,6 +822,10 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
         { redirect: "manual", signal: AbortSignal.timeout(15000) },
       );
       assert.equal(authorization.status, 302);
+      assert.equal(
+        new URL(authorization.headers.get("location")).origin,
+        webOrigin,
+      );
       const requestId = new URL(
         authorization.headers.get("location"),
       ).searchParams.get("request");

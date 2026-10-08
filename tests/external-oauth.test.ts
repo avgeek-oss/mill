@@ -52,7 +52,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
       }),
     );
   const client = await register();
-  const resource = () => `${process.env.MILL_BASE_URL}/mcp`;
+  const resource = () => `${process.env.MILL_API_URL}/mcp`;
   const start = async (extra: Record<string, string> = {}) => {
     const verifier = secret(),
       params = {
@@ -87,6 +87,9 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
   ) => {
     const begun = await start(extra);
     assert.equal(begun.response.status, 302);
+    const consentPage = new URL(begun.response.headers.get("location")!);
+    assert.equal(consentPage.origin, process.env.MILL_WEB_URL);
+    assert.equal(consentPage.pathname, "/oauth/consent");
     const result = await ok<{ redirectTo: string }>(
       await request(`/api/oauth/consent/${begun.id}`, {
         cookie,
@@ -98,7 +101,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
     );
     const callback = new URL(result.redirectTo);
     assert.equal(callback.searchParams.get("state"), begun.params.state);
-    assert.equal(callback.searchParams.get("iss"), process.env.MILL_BASE_URL);
+    assert.equal(callback.searchParams.get("iss"), process.env.MILL_API_URL);
     return { ...begun, code: callback.searchParams.get("code")! };
   };
   const form = (
@@ -148,7 +151,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         const discovery = await ok<Record<string, unknown>>(
           await request("/.well-known/oauth-authorization-server"),
         );
-        assert.equal(discovery.issuer, process.env.MILL_BASE_URL);
+        assert.equal(discovery.issuer, process.env.MILL_API_URL);
         assert.deepEqual(discovery.code_challenge_methods_supported, ["S256"]);
         assert.deepEqual(discovery.grant_types_supported, [
           "authorization_code",
@@ -168,10 +171,10 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           challenge.headers.get("www-authenticate")!,
           /oauth-protected-resource\/mcp/,
         );
-        const previous = process.env.MILL_BASE_URL;
+        const previous = process.env.MILL_API_URL;
         try {
           for (const hostname of ["localhost", "127.0.0.1", "[::1]"]) {
-            process.env.MILL_BASE_URL = `http://${hostname}:4321`;
+            process.env.MILL_API_URL = `http://${hostname}:4321`;
             assert.equal(externalAccessAllowed(), true);
           }
           for (const hostname of [
@@ -179,13 +182,13 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
             "localhost.example",
             "10.0.0.1",
           ]) {
-            process.env.MILL_BASE_URL = `http://${hostname}:4321`;
+            process.env.MILL_API_URL = `http://${hostname}:4321`;
             assert.equal(externalAccessAllowed(), false);
           }
-          process.env.MILL_BASE_URL = "https://mill.example";
+          process.env.MILL_API_URL = "https://mill.example";
           assert.equal(externalAccessAllowed(), true);
         } finally {
-          process.env.MILL_BASE_URL = previous;
+          process.env.MILL_API_URL = previous;
         }
         for (const address of [
           "127.0.0.1",
@@ -357,18 +360,18 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           403,
           "OAuth token is MCP resource-bound",
         );
-        const canonical = process.env.MILL_BASE_URL;
-        process.env.MILL_BASE_URL = "http://localhost:4322";
+        const canonical = process.env.MILL_API_URL;
+        process.env.MILL_API_URL = "http://localhost:4322";
         assert.equal(
           await credentialActor(
-            new Request(`${process.env.MILL_BASE_URL}/mcp`, {
+            new Request(`${process.env.MILL_API_URL}/mcp`, {
               headers: { Authorization: `Bearer ${issued.access_token}` },
             }),
           ),
           null,
           "Old audience token cannot authorize a new resource",
         );
-        process.env.MILL_BASE_URL = canonical;
+        process.env.MILL_API_URL = canonical;
         assert.equal((await token(grant)).status, 400);
         assert.equal(
           await credentialActor(req()),
@@ -543,8 +546,8 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         await new Promise<void>((resolve) => server.on("listening", resolve));
         const address = server.address();
         assert(address && typeof address !== "string");
-        const previous = process.env.MILL_BASE_URL;
-        process.env.MILL_BASE_URL = `http://127.0.0.1:${address.port}`;
+        const previous = process.env.MILL_API_URL;
+        process.env.MILL_API_URL = `http://127.0.0.1:${address.port}`;
         let information: OAuthClientInformationMixed | undefined,
           tokens: OAuthTokens | undefined,
           authorizationUrl: URL | undefined,
@@ -600,18 +603,15 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
             "request",
           )!;
           const decision = await ok<{ redirectTo: string }>(
-            await fetch(
-              `${process.env.MILL_BASE_URL}/api/oauth/consent/${id}`,
-              {
-                method: "POST",
-                headers: {
-                  Cookie: cookie,
-                  Origin: process.env.MILL_BASE_URL!,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ allow: true }),
+            await fetch(`${process.env.MILL_API_URL}/api/oauth/consent/${id}`, {
+              method: "POST",
+              headers: {
+                Cookie: cookie,
+                Origin: process.env.MILL_WEB_URL!,
+                "Content-Type": "application/json",
               },
-            ),
+              body: JSON.stringify({ allow: true }),
+            }),
           );
           const callback = new URL(decision.redirectTo);
           assert.equal(
@@ -714,7 +714,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           assert.deepEqual(retry.structuredContent, updated.structuredContent);
           assert.equal(
             (
-              await fetch(`${process.env.MILL_BASE_URL}/api/boards`, {
+              await fetch(`${process.env.MILL_API_URL}/api/boards`, {
                 headers: { Authorization: `Bearer ${tokens.access_token}` },
               })
             ).status,
@@ -722,7 +722,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           );
         } finally {
           await sdk.close();
-          process.env.MILL_BASE_URL = previous;
+          process.env.MILL_API_URL = previous;
           await new Promise<void>((resolve, reject) =>
             server.close((error) => (error ? reject(error) : resolve())),
           );

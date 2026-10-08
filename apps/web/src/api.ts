@@ -1,3 +1,4 @@
+import { apiUrl } from "./runtime-config.js";
 import {
   dateFormatOptions,
   timeFormatOptions,
@@ -150,9 +151,9 @@ async function request<T>(
   options.signal?.throwIfAborted();
   let response: Response;
   try {
-    response = await fetch(path.startsWith("/api") ? path : `/api${path}`, {
+    response = await fetch(apiUrl(path), {
       method,
-      credentials: "same-origin",
+      credentials: "include",
       signal: options.signal,
       headers: {
         ...(body === undefined ? {} : { "Content-Type": "application/json" }),
@@ -225,8 +226,8 @@ async function request<T>(
         "/auth/invitation/verification/confirm",
       ].includes(path)
     ) {
-      const active = await fetch("/api/auth/me", {
-        credentials: "same-origin",
+      const active = await fetch(apiUrl("/auth/me"), {
+        credentials: "include",
         signal: options.signal,
       }).catch(() => null);
       options.signal?.throwIfAborted();

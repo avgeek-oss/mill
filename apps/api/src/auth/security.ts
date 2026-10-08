@@ -33,7 +33,7 @@ export const secretToken = () => randomBytes(32).toString("base64url");
 export const hashToken = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 export function appOrigin() {
-  return new URL(config().MILL_BASE_URL).origin;
+  return new URL(config().MILL_WEB_URL).origin;
 }
 export function rpId() {
   return new URL(appOrigin()).hostname;

@@ -1,9 +1,10 @@
+import { apiOrigin } from "./runtime-config.js";
 import { McpGuideSettings } from "@avgeek-oss/design-system";
 import { McpClientLogo } from "./mcp-client-logo.js";
 import { SettingsHeading } from "./settings-heading.js";
 
 export function McpGuide() {
-  const endpoint = `${window.location.origin}/mcp`;
+  const endpoint = `${apiOrigin()}/mcp`;
   const configurations = [
     {
       id: "codex",

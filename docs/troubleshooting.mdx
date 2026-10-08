@@ -7,7 +7,7 @@ import { Screenshot } from "/snippets/oss/screenshot.jsx";
 
 ## Compose rejects a variable
 
-Copy `.env.example` to `.env` next to `docker-compose.yml`, then set `DATABASE_URL`, `MILL_SECRET` and `MILL_BASE_URL`. Compose reads this file automatically. Use `--env-file /path/to/your.env` when it lives elsewhere. Check that `DATABASE_URL` is complete and `MILL_BASE_URL` is the correct browser origin. The optional PostgreSQL overlay also needs `POSTGRES_PASSWORD`. Do not share secret values when reporting an error.
+Copy `.env.example` to `.env` next to `docker-compose.yml`, then set `DATABASE_URL`, `MILL_SECRET` and both `MILL_WEB_URL` and `MILL_API_URL`. Compose reads this file automatically. Use `--env-file /path/to/your.env` when it lives elsewhere. Check that `DATABASE_URL` is complete and each configured origin matches its public URL. The optional PostgreSQL overlay also needs `POSTGRES_PASSWORD`. Do not share secret values when reporting an error.
 
 ## An image cannot be pulled
 
@@ -21,11 +21,11 @@ docker compose --project-name mill --env-file .env logs --tail 100 api web
 curl --include http://127.0.0.1:4321/health/ready
 ```
 
-Check database reachability, the API's migration error and disk space. For bundled PostgreSQL, include both Compose files and inspect the `postgres` service's logs too. On a deployment platform, confirm the UI can reach its private `MILL_API_URL`. A UI readiness failure can mean its API is unreachable. Keep API and UI on the same release version. If the port is in use, stop the conflicting service or edit the web service's host port in Compose and update `MILL_BASE_URL` to match. Do not delete volumes or migration records to clear an error.
+Check database reachability, the API's migration error and disk space. For bundled PostgreSQL, include both Compose files and inspect the `postgres` service's logs too. On a deployment platform, confirm that the browser can reach the public `MILL_API_URL` and that its runtime script contains the same origin. UI readiness only checks the UI server. Keep API and UI on the same release version. If the port is in use, stop the conflicting service or edit the web service's host port in Compose and update `MILL_WEB_URL` to match. Do not delete volumes or migration records to clear an error.
 
 ## Sign-in works locally but fails through the proxy
 
-`MILL_BASE_URL` must exactly match the browser's scheme, hostname, and port. Use HTTPS for remote access. Confirm the proxy preserves the host and does not cache authentication responses. Browser mutations from another origin are rejected.
+`MILL_WEB_URL` must match the browser UI origin and `MILL_API_URL` must match the public API origin. Use HTTPS for remote access. Confirm the proxy preserves the host and does not cache authentication responses. Browser mutations from origins other than the configured UI origin are rejected.
 
 Passkeys are bound to the registration origin. If you changed domains and cannot use a passkey, use your password and a passkey recovery code for ordinary account access. Ask the operator to recover the account with `--reset-mfa` before adding passkeys at the final origin; recovery-code access cannot approve security changes. Keep one administrator with a verified recovery path before changing the URL.
 
@@ -49,7 +49,7 @@ For MCP OAuth, check the connection owner's active membership, current role, app
 
 ## An MCP client cannot connect
 
-Use the exact URL shown in **Account Settings → MCP Guide**, ending in `/mcp`. Remote connections need HTTPS; local HTTP OAuth works only when the configured `MILL_BASE_URL` is an exact loopback origin. A connection approved for OAuth cannot use its token on REST routes. Check the client's consent, current scopes, optional approved boards, and expiry under **MCP Connections**. OAuth does not issue refresh tokens, so reconnect after expiry. API-key clients should use a current personal or team key as a bearer token. Do not place tokens in logs or support reports.
+Use the exact URL shown in **Account Settings → MCP Guide**, ending in `/mcp`. Remote connections need HTTPS; local HTTP OAuth works only when the configured `MILL_API_URL` is an exact loopback origin. A connection approved for OAuth cannot use its token on REST routes. Check the client's consent, current scopes, optional approved boards, and expiry under **MCP Connections**. OAuth does not issue refresh tokens, so reconnect after expiry. API-key clients should use a current personal or team key as a bearer token. Do not place tokens in logs or support reports.
 
 ## A restore is rejected
 

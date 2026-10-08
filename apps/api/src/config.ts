@@ -1,7 +1,6 @@
 import { z } from "zod";
 const schema = z
   .object({
-    MILL_SERVE_WEB: z.enum(["true", "false"]).default("true"),
     DATABASE_URL: z
       .string()
       .url()
@@ -9,7 +8,23 @@ const schema = z
         (v) => ["postgres:", "postgresql:"].includes(new URL(v).protocol),
         "DATABASE_URL must use PostgreSQL",
       ),
-    MILL_BASE_URL: z
+    MILL_WEB_URL: z
+      .string()
+      .url()
+      .refine((v) => {
+        const u = new URL(v);
+        return (
+          !u.username &&
+          !u.password &&
+          !u.search &&
+          !u.hash &&
+          u.pathname === "/" &&
+          (u.protocol === "https:" ||
+            (u.protocol === "http:" &&
+              ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname)))
+        );
+      }, "Use an HTTPS origin or a loopback HTTP development origin"),
+    MILL_API_URL: z
       .string()
       .url()
       .refine((v) => {
@@ -53,6 +68,14 @@ const schema = z
       .default("development"),
   })
   .superRefine((value, ctx) => {
+    if (
+      new URL(value.MILL_WEB_URL).origin === new URL(value.MILL_API_URL).origin
+    )
+      ctx.addIssue({
+        code: "custom",
+        path: ["MILL_API_URL"],
+        message: "UI and API require separate origins",
+      });
     if (Boolean(value.MILL_SMTP_HOST) !== Boolean(value.MILL_SMTP_FROM))
       ctx.addIssue({
         code: "custom",

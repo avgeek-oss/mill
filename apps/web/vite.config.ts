@@ -21,6 +21,21 @@ export default defineConfig({
     react(),
     tailwindcss(),
     {
+      name: "mill-development-api-origin",
+      configureServer(server) {
+        server.middlewares.use("/runtime-config.js", (_request, response) => {
+          response.setHeader(
+            "Content-Type",
+            "application/javascript; charset=utf-8",
+          );
+          response.setHeader("Cache-Control", "no-store");
+          response.end(
+            `window.__MILL_RUNTIME_CONFIG__=Object.freeze(${JSON.stringify({ apiOrigin: process.env.MILL_API_URL ?? "http://localhost:4321" })});`,
+          );
+        });
+      },
+    },
+    {
       name: "mill-theme-bootstrap",
       configureServer(server) {
         server.middlewares.use("/theme-bootstrap.js", (_request, response) => {
@@ -63,11 +78,6 @@ export default defineConfig({
   },
   server: {
     port: 4322,
-    proxy: {
-      "/api": "http://127.0.0.1:4321",
-      "/oauth": "http://127.0.0.1:4321",
-      "/mcp": "http://127.0.0.1:4321",
-    },
   },
   build: { outDir: "dist" },
 });

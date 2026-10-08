@@ -1,42 +1,18 @@
 import { serve } from "@hono/node-server";
-import { resolve } from "node:path";
-import { existsSync } from "node:fs";
-import { Hono } from "hono";
 import { validateConfiguration } from "./config.js";
 import { migrate } from "../../../packages/database/src/migrate.js";
 import { closeDatabase } from "../../../packages/database/src/index.js";
-import { app, httpSecurity } from "./app.js";
-import { registerStaticRoutes } from "./static.js";
+import { app } from "./app.js";
 import { startEmailWorker } from "./auth/email-outbox.js";
+
 const configuration = validateConfiguration();
 await migrate();
 const stopEmailWorker = startEmailWorker();
-const serverApp = new Hono<import("./http.js").Env>();
-serverApp.use("*", httpSecurity);
-serverApp.use("*", async (c, next) => {
-  const path = c.req.path;
-  if (
-    path.startsWith("/api/") ||
-    path.startsWith("/health/") ||
-    path === "/mcp" ||
-    (path.startsWith("/oauth/") && !path.startsWith("/oauth/consent")) ||
-    path.startsWith("/.well-known/")
-  )
-    return app.fetch(c.req.raw, c.env);
-  await next();
-});
-const root = process.env.MILL_WEB_DIR ?? resolve("apps/web/dist");
-if (configuration.MILL_SERVE_WEB === "true" && existsSync(root))
-  registerStaticRoutes(serverApp, root);
-else if (configuration.MILL_SERVE_WEB === "true")
-  serverApp.get("*", (c) =>
-    c.text("Build the web application with pnpm build.", 503),
-  );
 const server = serve(
-  { fetch: serverApp.fetch, port: configuration.PORT, hostname: "0.0.0.0" },
+  { fetch: app.fetch, port: configuration.PORT, hostname: "0.0.0.0" },
   (info) =>
     console.log(
-      `Mill ready at ${configuration.MILL_BASE_URL} (port ${info.port})`,
+      `Mill API ready at ${configuration.MILL_API_URL} (port ${info.port})`,
     ),
 );
 for (const signal of ["SIGTERM", "SIGINT"] as const)

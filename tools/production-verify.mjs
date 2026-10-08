@@ -148,14 +148,20 @@ function databaseArguments(configuration, statement) {
 async function configuration(
   name,
   targetPort,
-  publicOrigin,
+  publicWebOrigin,
+  publicApiOrigin,
   bundledPostgres = true,
+  specifiedApiPort,
 ) {
   const envFile = join(privateDirectory, `${name}.env`);
+  const apiPort = specifiedApiPort ?? (await port());
+  const webUrl = publicWebOrigin ?? `http://127.0.0.1:${targetPort}`;
+  const apiUrl = publicApiOrigin ?? `http://127.0.0.1:${apiPort}`;
   const settings = {
     DATABASE_URL: `postgres://mill:${secrets[0]}@postgres:5432/mill`,
     MILL_SECRET: secrets[1],
-    MILL_BASE_URL: publicOrigin ?? `http://127.0.0.1:${targetPort}`,
+    MILL_WEB_URL: webUrl,
+    MILL_API_URL: apiUrl,
     ...(bundledPostgres ? { POSTGRES_PASSWORD: secrets[0] } : {}),
   };
   const template = await readFile(join(root, ".env.example"), "utf8");
@@ -178,6 +184,8 @@ async function configuration(
       "services:",
       "  api:",
       `    image: ${images.api}`,
+      "    ports: !override",
+      `      - "127.0.0.1:${apiPort}:4321"`,
       ...(!releaseImages && bundledPostgres
         ? [
             "    build:",
@@ -228,7 +236,8 @@ async function configuration(
     envFile,
     composeFile,
     compose,
-    url: publicOrigin ?? `http://127.0.0.1:${targetPort}`,
+    url: apiUrl,
+    webUrl,
   };
 }
 const state = join(evidence, "fixture-state.json");
@@ -236,6 +245,7 @@ const backup = join(privateDirectory, "mill.dump");
 const staticManifest = join(evidence, "static-content-manifest.json");
 let primary;
 let secureProxy;
+let secureApiProxy;
 let sourceRevision;
 let sourceDirty;
 try {
@@ -384,6 +394,7 @@ try {
   });
   const verifyEnv = {
     MILL_VERIFY_URL: primary.url,
+    MILL_VERIFY_WEB_URL: primary.webUrl,
     MILL_VERIFY_PASSWORD: secrets[2],
     MILL_VERIFY_STATE: state,
     MILL_VERIFY_OAUTH_TOKEN_FILE: join(privateDirectory, "oauth-token"),
@@ -393,6 +404,42 @@ try {
     ...verifyEnv,
     MILL_VERIFY_MODE: "fresh",
   });
+  await run("ui-independent-stop", "docker", [
+    ...primary.compose,
+    "stop",
+    "api",
+    "web",
+  ]);
+  await run("ui-independent-cold-start", "docker", [
+    ...primary.compose,
+    "up",
+    "--no-deps",
+    "--no-build",
+    "--detach",
+    "--wait",
+    "web",
+  ]);
+  const uiAlone = await fetch(`${primary.webUrl}/health/ready`);
+  assert.equal(uiAlone.status, 200);
+  const uiRuntime = await fetch(`${primary.webUrl}/runtime-config.js`);
+  assert.equal(uiRuntime.status, 200);
+  assert.ok((await uiRuntime.text()).includes(JSON.stringify(primary.url)));
+  assert.equal(
+    await fetch(`${primary.url}/health/live`)
+      .then((response) => response.ok)
+      .catch(() => false),
+    false,
+    "API remains stopped during the UI-only cold start",
+  );
+  console.log("PASS UI cold-starts and stays ready with the API unavailable");
+  await run("ui-independent-api-resume", "docker", [
+    ...primary.compose,
+    "up",
+    "--no-build",
+    "--detach",
+    "--wait",
+    "api",
+  ]);
   for (const [component, image] of Object.entries(images)) {
     const user = await run(`${component}-image-non-root`, "docker", [
       "image",
@@ -421,7 +468,7 @@ try {
     "node",
     "--input-type=module",
     "-e",
-    "import assert from 'node:assert/strict';import{existsSync}from'node:fs';assert.equal(existsSync('/app/apps/web/dist'),false);assert.equal(process.env.MILL_SERVE_WEB,'false');",
+    "import assert from 'node:assert/strict';import{existsSync}from'node:fs';assert.equal(existsSync('/app/apps/web/dist'),false);",
   ]);
   await run("web-runtime-boundary", "docker", [
     ...primary.compose,
@@ -435,9 +482,11 @@ try {
   ]);
   const external = await configuration(
     `${project}-external`,
-    Number(new URL(primary.url).port),
-    undefined,
+    Number(new URL(primary.webUrl).port),
+    primary.webUrl,
+    primary.url,
     false,
+    Number(new URL(primary.url).port),
   );
   const externalConfig = JSON.parse(
     await run("external-database-configuration", "docker", [
@@ -658,6 +707,10 @@ try {
   ]);
   const recovery = await configuration(
     recoveryProject,
+    Number(new URL(primary.webUrl).port),
+    primary.webUrl,
+    primary.url,
+    true,
     Number(new URL(primary.url).port),
   );
   await run(
@@ -700,14 +753,22 @@ try {
     "restored-api-oauth-mcp-persistence",
     "node",
     ["tools/install-smoke.mjs"],
-    { ...verifyEnv, MILL_VERIFY_URL: recovery.url },
+    {
+      ...verifyEnv,
+      MILL_VERIFY_URL: recovery.url,
+      MILL_VERIFY_WEB_URL: recovery.webUrl,
+    },
     240_000,
   );
   await run(
     "restored-ready-health",
     "node",
     ["tools/health-smoke.mjs", "recovered"],
-    { ...verifyEnv, MILL_VERIFY_URL: recovery.url },
+    {
+      ...verifyEnv,
+      MILL_VERIFY_URL: recovery.url,
+      MILL_VERIFY_WEB_URL: recovery.webUrl,
+    },
     15_000,
   );
   const proxyKey = join(privateDirectory, "localhost.key");
@@ -731,13 +792,17 @@ try {
     "subjectAltName=IP:127.0.0.1",
   ]);
   const proxyBackendPort = await port();
-  secureProxy = createHttpsServer(
-    { key: await readFile(proxyKey), cert: await readFile(proxyCertificate) },
-    (request, response) => {
+  const proxyApiBackendPort = await port();
+  const proxyOptions = {
+    key: await readFile(proxyKey),
+    cert: await readFile(proxyCertificate),
+  };
+  async function loopbackProxy(backendPort) {
+    const proxy = createHttpsServer(proxyOptions, (request, response) => {
       const upstream = httpRequest(
         {
           hostname: "127.0.0.1",
-          port: proxyBackendPort,
+          port: backendPort,
           path: request.url,
           method: request.method,
           headers: { ...request.headers, "x-forwarded-proto": "https" },
@@ -755,18 +820,25 @@ try {
         response.end();
       });
       request.pipe(upstream);
-    },
-  );
-  await new Promise((resolveListen, reject) => {
-    secureProxy.once("error", reject);
-    secureProxy.listen(0, "127.0.0.1", resolveListen);
-  });
+    });
+    await new Promise((resolveListen, reject) => {
+      proxy.once("error", reject);
+      proxy.listen(0, "127.0.0.1", resolveListen);
+    });
+    return proxy;
+  }
+  secureProxy = await loopbackProxy(proxyBackendPort);
+  secureApiProxy = await loopbackProxy(proxyApiBackendPort);
   const proxyOrigin = `https://127.0.0.1:${secureProxy.address().port}`;
+  const proxyApiOrigin = `https://127.0.0.1:${secureApiProxy.address().port}`;
   const proxyProject = `${project}-https`;
   const proxyInstall = await configuration(
     proxyProject,
     proxyBackendPort,
     proxyOrigin,
+    proxyApiOrigin,
+    true,
+    proxyApiBackendPort,
   );
   await run(
     "https-proxy-production-start",
@@ -789,7 +861,8 @@ try {
     ["tools/install-smoke.mjs"],
     {
       ...verifyEnv,
-      MILL_VERIFY_URL: proxyOrigin,
+      MILL_VERIFY_URL: proxyApiOrigin,
+      MILL_VERIFY_WEB_URL: proxyOrigin,
       MILL_VERIFY_STATE: join(evidence, "https-proxy-fixture-state.json"),
       MILL_VERIFY_OAUTH_TOKEN_FILE: join(privateDirectory, "https-oauth-token"),
       MILL_VERIFY_MODE: "fresh",
@@ -847,6 +920,7 @@ try {
         sourceRevision,
         sourceDirty,
         primaryUrl: primary.url,
+        primaryWebUrl: primary.webUrl,
         fixture,
         baseline: {
           name: "001_initial.sql",
@@ -864,7 +938,8 @@ try {
         externalDatabase:
           "A separate API/UI-only Compose project connects to the existing PostgreSQL through DATABASE_URL; retained REST, OAuth and MCP client journeys pass without a PostgreSQL service in that project.",
         httpsProxy: {
-          origin: proxyOrigin,
+          uiOrigin: proxyOrigin,
+          apiOrigin: proxyApiOrigin,
           project: proxyProject,
           certificate: "disposable trusted loopback certificate",
         },
@@ -898,6 +973,10 @@ try {
     ).catch(() => {});
   }
 } finally {
+  if (secureApiProxy?.listening) {
+    secureApiProxy.closeAllConnections();
+    await new Promise((resolveClose) => secureApiProxy.close(resolveClose));
+  }
   if (secureProxy?.listening) {
     secureProxy.closeAllConnections();
     await new Promise((resolveClose) => secureProxy.close(resolveClose));

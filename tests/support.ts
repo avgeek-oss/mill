@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import postgres from "postgres";
 process.env.DATABASE_URL ??=
   "postgres://mill:mill-test-disposable@127.0.0.1:55432/mill";
-process.env.MILL_BASE_URL ??= "http://localhost:4321";
+process.env.MILL_WEB_URL ??= "http://localhost:4322";
+process.env.MILL_API_URL ??= "http://localhost:4321";
 process.env.MILL_SECRET ??=
   "mill-integration-only-32-byte-secret-never-production";
 process.env.NODE_ENV = "test";
@@ -40,7 +41,7 @@ export async function request(
 ) {
   const { app } = await import("../apps/api/src/app.js");
   const headers: Record<string, string> = {
-    Origin: process.env.MILL_BASE_URL!,
+    Origin: process.env.MILL_WEB_URL!,
     "Content-Type": "application/json",
     ...options.headers,
   };
@@ -80,7 +81,7 @@ export async function setupOAuth(
     await import("../apps/api/src/external/protocol.js");
   const { app } = await import("../apps/api/src/app.js");
   const redirectUri = "http://127.0.0.1:4182/callback";
-  const resource = `${process.env.MILL_BASE_URL}/mcp`;
+  const resource = `${process.env.MILL_API_URL}/mcp`;
   const registered = await request("/oauth/register", {
     body: {
       client_name: "Integration MCP client",

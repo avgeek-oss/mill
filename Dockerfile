@@ -36,7 +36,7 @@ USER node
 FROM runtime AS api
 LABEL org.opencontainers.image.title="Mill API" \
       org.opencontainers.image.description="Mill REST API, authentication and MCP"
-ENV PORT=4321 MILL_SERVE_WEB=false \
+ENV PORT=4321 \
     MILL_MIGRATIONS_DIR=/app/packages/database/migrations
 COPY --from=build --chown=node:node /prod/mill/node_modules ./node_modules
 COPY --from=build --chown=node:node /build/package.json ./package.json
@@ -52,8 +52,8 @@ CMD ["node", "dist/apps/api/src/index.js"]
 
 FROM runtime AS web
 LABEL org.opencontainers.image.title="Mill UI" \
-      org.opencontainers.image.description="Mill web interface and same-origin API proxy"
-ENV PORT=4322 MILL_API_URL=http://api:4321
+      org.opencontainers.image.description="Mill web interface"
+ENV PORT=4322
 COPY --from=build --chown=node:node /prod/web/node_modules ./node_modules
 COPY --from=build --chown=node:node /build/apps/web-server/package.json ./package.json
 COPY --from=build --chown=node:node /build/dist/apps/web-server ./dist/apps/web-server
