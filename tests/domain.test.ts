@@ -477,7 +477,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
     );
   assert.equal(
     (await callMcpTool(personal.token, "list_boards")).response.status,
-    200,
+    401,
   );
   const viewerKey = await json(
     await request("/api/credentials", {

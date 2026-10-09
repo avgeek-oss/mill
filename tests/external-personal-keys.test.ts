@@ -7,10 +7,6 @@ import {
 } from "./support.js";
 import assert from "node:assert/strict";
 import test, { after } from "node:test";
-import { serve } from "@hono/node-server";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { app } from "../apps/api/src/app.js";
 
 type Issued = {
   token: string;
@@ -77,7 +73,7 @@ async function member(
 }
 
 after(cleanupDatabase);
-test("explicit API key policy limits REST and MCP across roles, expiry and revocation", async () => {
+test("API key policies constrain REST while every MCP protocol entry requires OAuth", async () => {
   await resetDatabase();
   const admin = await setupUser();
   const board = await json<{ board: { id: string; version: number } }>(
@@ -213,59 +209,39 @@ test("explicit API key policy limits REST and MCP across roles, expiry and revoc
     403,
   );
 
-  const server = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
-  await new Promise<void>((resolve) => server.on("listening", resolve));
-  const address = server.address();
-  assert(address && typeof address !== "string");
-  const oldBase = process.env.MILL_API_URL;
-  process.env.MILL_API_URL = `http://127.0.0.1:${address.port}`;
-  async function connect(token: string) {
-    const client = new Client({ name: "key-test", version: "1.0.0" });
-    const transport = new StreamableHTTPClientTransport(
-      new URL(`${process.env.MILL_API_URL}/mcp`),
-      {
-        requestInit: { headers: { Authorization: `Bearer ${token}` } },
-      },
-    );
-    await client.connect(transport);
-    return { client, transport };
-  }
-  try {
-    const readMcp = await connect(viewerRead.token);
-    try {
-      const listed = await readMcp.client.listTools();
-      assert(listed.tools.some((tool) => tool.name === "list_tasks"));
-      assert(!listed.tools.some((tool) => tool.name === "create_task"));
-      assert(!listed.tools.some((tool) => tool.name === "list_members"));
-      await assert.rejects(
-        readMcp.client.callTool({
-          name: "create_task",
-          arguments: { boardId: board.board.id, title: "Denied" },
-        }),
+  for (const scope of ["personal", "team"] as const) {
+    for (const permission of ["read", "edit", "admin"] as const) {
+      const issued = await json<Issued>(
+        await issue(
+          admin.cookie,
+          scope,
+          permission === "read" ? "read" : "edit",
+          permission === "admin",
+        ),
+        201,
       );
-    } finally {
-      await readMcp.client.close();
-      await readMcp.transport.close();
+      assert.equal((await request(path, { token: issued.token })).status, 200);
+      for (const method of ["GET", "POST", "DELETE"]) {
+        const response = await request("/mcp", {
+          token: issued.token,
+          method,
+          ...(method === "POST"
+            ? { body: { jsonrpc: "2.0", id: 1, method: "tools/list" } }
+            : {}),
+        });
+        assert.equal(response.status, 401);
+        assert.match(
+          response.headers.get("www-authenticate")!,
+          /invalid_token/,
+        );
+        assert.match(
+          response.headers.get("www-authenticate")!,
+          /oauth-protected-resource/,
+        );
+      }
     }
-    const editMcp = await connect(adminEdit.token);
-    try {
-      const listed = await editMcp.client.listTools();
-      assert(listed.tools.some((tool) => tool.name === "create_task"));
-      const created = await editMcp.client.callTool({
-        name: "create_task",
-        arguments: { boardId: board.board.id, title: "MCP key task" },
-      });
-      assert.equal(created.isError, false, JSON.stringify(created));
-    } finally {
-      await editMcp.client.close();
-      await editMcp.transport.close();
-    }
-  } finally {
-    process.env.MILL_API_URL = oldBase;
-    await new Promise<void>((resolve, reject) =>
-      server.close((error) => (error ? reject(error) : resolve())),
-    );
   }
+  assert.equal((await request("/mcp", { cookie: admin.cookie })).status, 401);
 
   await sql`UPDATE credentials SET expires_at=now()-interval '1 second' WHERE id=${adminEdit.credential.id}`;
   assert.equal(

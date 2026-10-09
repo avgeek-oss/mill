@@ -18,7 +18,7 @@ The menu beside **New task** has **Board settings** and, for an administrator, *
 
 An administrator opens **Team Settings → Members**, chooses **Create invitation**, enters the person's email address, and selects a role. If the installation has SMTP configured, Mill queues an invitation email and the recipient verifies a code sent to that address. Otherwise, copy the invitation link and share it privately with the intended person. Invitations expire after seven days. Each person should use their own account.
 
-Admins manage the team through **Team Settings → Members** and **General**. Members create and edit work. Viewers can read boards and tasks but cannot change them. Personal API keys are limited by explicit grants and their owner's active current role. Admins can create team keys with stored grants. API keys and OAuth can access MCP, while identity and team security management remain browser-only.
+Admins manage the team through **Team Settings → Members** and **General**. Members create and edit work. Viewers can read boards and tasks but cannot change them. Personal API keys are limited by explicit grants and their owner's active current role. Admins can create team keys with stored grants. MCP requires OAuth; API keys use REST, while identity and team security management remain browser-only.
 
 ## Secure your account
 
@@ -28,7 +28,7 @@ Review **Account Settings → Sessions** and revoke a device you no longer use. 
 
 ## Connect an external client
 
-For REST or MCP, open **Account Settings → API Keys**, choose **Create API key**, and enter a Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). Save the one-time token in the client's secret store. Admins create team keys under **Team Settings → Team API Keys**.
+For REST, open **Account Settings → API Keys**, choose **Create API key**, and enter a Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). Save the one-time token in the client's secret store. Admins create team keys under **Team Settings → Team API Keys**.
 
 For MCP OAuth, enter Mill's `/mcp` URL in your client. Sign in, review the requesting client and scopes, and optionally choose approved boards before allowing access. The connection belongs to you and uses your current role within those approved permissions. Follow [the REST/MCP connection guide](clients.md).
 

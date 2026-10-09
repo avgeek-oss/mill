@@ -141,6 +141,7 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
   let result: Actor;
   if (principal.tokenType === "api-key") {
     if (principal.boardIds !== null || principal.scopes.length) return null;
+    if (url.pathname === "/mcp") return null;
     if (
       /^\/api\/(?:auth|oauth|credentials|team-credentials|workspace)(?:\/|$)/.test(
         url.pathname,

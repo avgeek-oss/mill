@@ -97,7 +97,7 @@ test("workspace audit is absent for every role while task history retains human,
   assert.equal(
     (await callMcpTool(personalKey.token, "get_task", { taskId: task.id }))
       .response.status,
-    200,
+    401,
   );
   const comment = (
     await json(

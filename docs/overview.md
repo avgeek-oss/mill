@@ -6,7 +6,7 @@ Create boards and track work through six fixed statuses: Backlog, Todo, In Progr
 
 People sign in with their own accounts. Administrators manage invitations and roles; assignment and mention notifications stay in the app. Optional SMTP enables invitation, verification, and password-reset email. Without SMTP, administrators share invitation links privately and the server operator can issue a private account-recovery link. Mill does not send task notifications by email.
 
-External clients can use personal or team API keys with explicit grants for REST and MCP. Personal keys remain bounded by the owner's current active role; team keys use a stored team policy. MCP also uses OAuth with the approving person's current role, approved scopes, and optional board restrictions. Mill does not run external clients or launch jobs when a task is assigned.
+External clients can use personal or team API keys with explicit grants for REST. Personal keys remain bounded by the owner's current active role; team keys use a stored team policy. MCP requires OAuth with the approving person's current role, approved scopes, and optional board restrictions. Mill does not run external clients or launch jobs when a task is assigned.
 
 Start with [installation](installation.md) and [your first board](getting-started.md). Read [everyday work](workflows.md) for the task model, [accounts and team access](authentication.md) for invitations and passkeys, [REST and MCP connections](clients.md) for external clients, and [backup and recovery](backup.md) before storing important work.
 

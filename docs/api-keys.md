@@ -1,6 +1,6 @@
 # API keys
 
-API keys let an external client use Mill's REST API or MCP endpoint without a browser session. Create a personal key for your own client or, as an administrator, a team key for a shared integration. Each key has a name, explicit permissions and an expiry selection. Keep one key per integration so you can revoke it without interrupting others.
+API keys let an external client use Mill's REST API without a browser session. Create a personal key for your own client or, as an administrator, a team key for a shared integration. Each key has a name, explicit permissions and an expiry selection. Keep one key per integration so you can revoke it without interrupting others.
 
 ## Create a key
 
@@ -18,7 +18,7 @@ The **Copy your API key** dialog shows the complete token once. Copy it into the
 
 ## Use and revoke a key
 
-Send the token as a bearer credential to REST or `/mcp`. For example, after loading it into `MILL_TOKEN` from your secret store:
+Send the token as a bearer credential to REST. MCP accepts only OAuth access tokens. For example, after loading it into `MILL_TOKEN` from your secret store:
 
 ```sh
 curl --fail-with-body 'https://tasks.example.com/api/boards' \
