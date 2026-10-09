@@ -733,37 +733,33 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
   assert.equal("agentName" in external.credential, false);
   assert.equal(external.credential.boardIds, null);
   assert.deepEqual(external.credential.scopes, []);
-  const keyTransport = { id: 0, protocolVersion: undefined };
-  const keyInitialized = await mcpRequest(
-    external.token,
-    keyTransport,
-    "initialize",
-    {
-      protocolVersion: "2025-11-25",
-      capabilities: {},
-      clientInfo: {
-        name: "mill-production-key-verification",
-        version: "1.0.0",
+  for (const method of ["GET", "POST", "DELETE"]) {
+    const rejected = await fetch(`${origin}/mcp`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${external.token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
       },
-    },
-  );
-  assert.ok(keyInitialized.capabilities.tools);
-  keyTransport.protocolVersion = keyInitialized.protocolVersion;
-  await mcpRequest(
-    external.token,
-    keyTransport,
-    "notifications/initialized",
-    undefined,
-    true,
-  );
-  const keyTools = await mcpRequest(
-    external.token,
-    keyTransport,
-    "tools/list",
-    {},
-  );
-  assert.ok(keyTools.tools.some((tool) => tool.name === "update_task"));
-  assert.ok(!keyTools.tools.some((tool) => tool.name === "list_members"));
+      ...(method === "POST"
+        ? {
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "tools/list",
+              params: {},
+            }),
+          }
+        : {}),
+    });
+    assert.equal(rejected.status, 401);
+    assert.match(rejected.headers.get("www-authenticate"), /invalid_token/);
+    assert.match(
+      rejected.headers.get("www-authenticate"),
+      /oauth-protected-resource/,
+    );
+    await rejected.text();
+  }
   await request(
     `/api/tasks/${state.taskId}`,
     "GET",

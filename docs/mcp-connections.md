@@ -1,6 +1,6 @@
 # MCP connections
 
-Mill exposes a remote MCP server at your installation's `/mcp` URL. A compatible client can connect with OAuth, which you approve in Mill, or with a [personal or team API key](api-keys.md) if it supports bearer-token MCP authentication. Mill does not run the client or require an LLM key for task management.
+Mill exposes a remote MCP server at your installation's `/mcp` URL. A compatible client connects only with OAuth, which you approve in Mill. Personal and team API keys are for REST access. Mill does not run the client or require an LLM key for task management.
 
 ## Connect a client with OAuth
 

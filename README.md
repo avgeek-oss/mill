@@ -4,7 +4,7 @@ Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs an AP
 
 Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, and activity. Team members use Admin, Member, or Viewer access.
 
-Personal and team API keys have explicit Read-only, Edit, or Administrative permissions for REST and MCP. Personal keys remain bounded by their owner's active membership and current role; administrators issue team keys against the team policy. MCP clients can also connect through OAuth with approved read/write scopes and optional board limits.
+Personal and team API keys have explicit Read-only, Edit, or Administrative permissions for REST. Personal keys remain bounded by their owner's active membership and current role; administrators issue team keys against the team policy. MCP clients connect only through OAuth with approved read/write scopes and optional board limits.
 
 ![Mill task list with sample tasks, statuses, assignees and filters](docs/assets/screenshots/release-v1/board-light.png)
 

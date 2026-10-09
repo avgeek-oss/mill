@@ -1,6 +1,6 @@
 # REST and MCP clients
 
-Mill lets external clients read and update work through REST or remote MCP. Both transports accept personal and team API keys with explicit permissions. MCP also accepts OAuth approved by a person in Mill. You do not need an LLM key in Mill.
+Mill lets external clients read and update work through REST or remote MCP. REST accepts personal and team API keys with explicit permissions. MCP requires OAuth approved by a person in Mill. You do not need an LLM key in Mill.
 
 Install Mill and complete [workspace setup](getting-started.md) before connecting a client. Use your final HTTPS URL for a remote connection. HTTP works locally when `MILL_API_URL` is an exact loopback origin; remote connections require HTTPS.
 
@@ -12,7 +12,7 @@ The **Copy your API key** dialog reveals the complete token once. Choose **Copy 
 
 A personal key uses its stored grant within its human owner's current active membership and role. Demotion permanently narrows the grant, even after later promotion. A team key uses its stored team grant independently of the creator's later membership. Read-only permits reads; Edit permits routine work changes; Administrative permissions permits permitted business administration such as board deletion. No key can exceed its issuer's authority at creation. Expiry or revocation ends access; disabling an owner also ends personal-key access. Password changes and account recovery revoke that owner's personal keys.
 
-API keys can use REST and `/mcp`. They cannot use account/security routes, the team directory, invitations, team settings, credential management, or OAuth consent. Use a browser session for those human actions. See [access security](authentication.md#external-credential-boundaries) for the distinction from OAuth.
+API keys can use REST only. MCP requires OAuth authorization. They cannot use account/security routes, the team directory, invitations, team settings, credential management, or OAuth consent. Use a browser session for those human actions. See [access security](authentication.md#external-credential-boundaries) for the distinction from OAuth.
 
 ## Use REST
 
@@ -40,11 +40,13 @@ Mill returns the task ID, stable identifier, and current `version`. Include that
 
 ## Use remote MCP
 
-Open **Account Settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration for your client and follow its setup link if needed. These configurations use OAuth; choose approved boards during the connection consent step. A client that supports bearer-token MCP authentication can use an API key instead.
+If you previously connected with an API key, remove its custom authorization header or bearer-token environment setting and reconnect through OAuth. Your REST integrations can keep using the key.
+
+Open **Account Settings → MCP Guide** at `/settings/mcp`. Choose Codex, Claude Code, Cursor, VS Code, or Other clients to see the setup for your current Mill instance. Copy the configuration for your client and follow its setup link if needed. These configurations use OAuth; choose approved boards during the connection consent step. MCP does not accept API keys.
 
 The configuration formats follow the clients' own guides: [Codex](https://developers.openai.com/codex/mcp/), [Claude Code](https://code.claude.com/docs/en/mcp), [Cursor](https://cursor.com/docs/mcp), and [VS Code](https://code.visualstudio.com/docs/agents/reference/mcp-configuration).
 
-Set the MCP server URL to `https://tasks.example.com/mcp` in a client that supports Streamable HTTP. Connect using [MCP OAuth](#connect-with-oauth) or an API key. An authorized client sends its OAuth token or API key as a bearer header:
+Set the MCP server URL to `https://tasks.example.com/mcp` in a client that supports Streamable HTTP. Connect using [MCP OAuth](#connect-with-oauth). Your client obtains and sends its OAuth access token as a bearer header:
 
 ```json
 {

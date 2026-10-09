@@ -292,13 +292,13 @@ externalRoutes.use(
   }),
 );
 externalRoutes.all("/mcp", async (c) => {
-  if (!c.get("actor")) {
+  if (c.get("actor")?.credentialType !== "oauth") {
     c.header(
       "WWW-Authenticate",
-      `Bearer resource_metadata="${resourceMetadataUrl()}"`,
+      `Bearer resource_metadata="${resourceMetadataUrl()}"${c.req.header("authorization") ? ', error="invalid_token"' : ""}`,
     );
     return c.json(
-      { error: "A valid API key or OAuth credential is required" },
+      { error: "Sign in to Mill to authorize this MCP connection" },
       401,
     );
   }

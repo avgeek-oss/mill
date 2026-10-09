@@ -20,7 +20,7 @@ The person following the link chooses their name and password. With SMTP configu
 
 Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Personal API keys are capped by their stored grant and their human owner's current active role; team keys use their stored team policy. Neither can access identity routes, including the team directory. MCP OAuth inherits the owner's role within its granted scopes and boards; unscoped OAuth may read basic member metadata through MCP for assignments and mentions. Membership, sessions, security settings, and other human administration require a browser session.
 
-People are human accounts. **Personal API keys** belong to their creator; **team API keys** belong to the team and are managed by Admins. Both use REST and MCP with required Name, Permissions, and Expires after selections. MCP OAuth creates a connection owned by the person approving it, with requested scopes and optional approved boards. Use **Account Settings → API Keys** for personal keys and **Team Settings → Team API Keys** for team keys. See [the client guide](clients.md) for connection steps.
+People are human accounts. **Personal API keys** belong to their creator; **team API keys** belong to the team and are managed by Admins. Both use REST only with required Name, Permissions, and Expires after selections. MCP OAuth creates a connection owned by the person approving it, with requested scopes and optional approved boards. Use **Account Settings → API Keys** for personal keys and **Team Settings → Team API Keys** for team keys. See [the client guide](clients.md) for connection steps.
 
 ## External credential boundaries
 
@@ -29,8 +29,8 @@ A browser session, personal API key, and MCP OAuth connection have different aut
 | Authentication   | Domain access                                                                       | Human management                                                                                  |
 | ---------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
 | Browser session  | Current person's role across accessible boards                                      | Own account/security; Admin-only team/workspace actions; credential management within permissions |
-| Personal API key | REST/MCP within its stored grant and the owner's current active role                | Denied: identity, membership, account security, credential management, and OAuth consent          |
-| Team API key     | REST/MCP within its stored team grant, independent of creator membership            | Denied: identity, membership, account security, credential management, and OAuth consent          |
+| Personal API key | REST within its stored grant and the owner's current active role                    | Denied: identity, membership, account security, credential management, and OAuth consent          |
+| Team API key     | REST within its stored team grant, independent of creator membership                | Denied: identity, membership, account security, credential management, and OAuth consent          |
 | MCP OAuth        | Human owner's current role, granted read/write scopes, and optional approved boards | Denied; an unscoped connection may resolve basic members through MCP for assignments and mentions |
 
 Keys require Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). The stored grant never exceeds its issuer's authority; personal grants narrow permanently on owner demotion. Personal keys retain human attribution. Team keys have a team actor and remain valid independently of their creator's later membership. Identity and key management always require a browser session.
@@ -50,7 +50,7 @@ Open **Settings → Account Settings** in the primary sidebar, or use the accoun
 - **Email & Password**: your current email, verification state, pending email change, and password changes. Email changes require configured SMTP and recent identity confirmation.
 - **Passkeys**: registered passkeys and their recovery codes.
 - **Sessions**: active devices and individual sign-out actions.
-- **API Keys**: your personal REST and MCP keys. Admins also manage team keys under Team Settings → Team API Keys.
+- **API Keys**: your personal REST keys. Admins also manage team keys under Team Settings → Team API Keys.
 - **MCP Connections**: authorized OAuth apps, their approved access, and individual revocation.
 - **MCP Guide**: your installation's server URL and OAuth connection steps.
 

@@ -6,7 +6,7 @@ Start with [REST and MCP clients](clients.md) for connections, [accounts and tea
 
 ## Authentication and limits
 
-Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST and MCP clients can use `Authorization: Bearer mill_…` from a personal or team API key. The key's stored grant limits the action; personal keys are also bounded by the owner's current active membership and role. OAuth tokens belong to the person approving the connection and authorize `/mcp` only, not public REST.
+Browser requests use the `mill_session` cookie; mutations require the configured public `Origin`. REST clients can use `Authorization: Bearer mill_…` from a personal or team API key. MCP requires an OAuth access token. The key's stored grant limits the action; personal keys are also bounded by the owner's current active membership and role. OAuth tokens belong to the person approving the connection and authorize `/mcp` only, not public REST.
 
 Authenticated requests are limited to 240 per minute per person or credential; anonymous requests to 120 per minute per client address. MCP dispatch also uses the REST limit. `429` includes `Retry-After: 60`. Ordinary request bodies are bounded to 2 MiB, credential/OAuth bodies to 16 KiB, and MCP requests/tool responses to 1 MiB.
 
