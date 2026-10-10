@@ -6,4 +6,4 @@ allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:
   - "@avgeek-oss/docs@0.1.5"
-  - "@avgeek-oss/design-system@1.2.10"
+  - "@avgeek-oss/design-system@1.2.13"
