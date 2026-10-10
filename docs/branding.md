@@ -4,21 +4,16 @@ Mill uses the tower mill artwork designed in Sketch and a brown accent with neut
 
 ## Assets
 
-The editable source is [Mill.sketch](https://github.com/avgeek-oss/mill/blob/main/assets/brand/Mill.sketch), copied unchanged from the design document. Native exports are kept in [assets/brand/exports](https://github.com/avgeek-oss/mill/tree/main/assets/brand/exports): seven 1024×1024 PNG variants for transparent, edged, opaque, and favicon use, plus the 1200×630 Open Graph card. Sketch names the 1024px exports `@2x`; their actual dimensions are 1024×1024.
+The editable source is [Mill.sketch](https://github.com/avgeek-oss/mill/blob/main/assets/brand/Mill.sketch), copied unchanged from the design document. Keep only the exported assets used by the application and documentation:
 
-- Source PNG: [1024px transparent mark](https://github.com/avgeek-oss/mill/blob/main/assets/brand/mill-mark-source.png).
-- Application mark: [256px PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-mark.png), supporting the 32px lockup at high pixel density.
+- Application mark: [256px transparent PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-mark.png).
 - Browser icon: [64px PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-favicon.png), exported from the favicon symbol.
 - Touch icon: [180px PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-touch-icon.png).
-- Social preview: [1200×630 PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-social.png) and [native SVG export](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-social.svg) of Sketch's OpenGraph group.
+- Social preview: [1200×630 PNG](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-social.png), exported from Sketch's OpenGraph group.
 
-The application uses the transparent mark through the shared MillMark component in navigation and the identity frame, including consent. Images have reserved dimensions, preserve their proportions, and are decorative beside the visible Mill name. Documentation copies the application assets during `pnpm docs:build`; the retained static site assets use the same exports.
+The application combines the icon-only MillMark with the name rendered as text through the shared BrandLockup component. The sidebar also supplies its logo and title separately. Do not embed the app name in a logo image. Images have reserved dimensions, preserve their proportions, and are decorative beside the visible Mill name. The social card includes text because link previews display it as one image.
 
-Light/dark wordmarks and lockups remain available. SVG wordmarks use Inter with system sans-serif fallback; lockups embed the corresponding full-resolution Sketch mark. The currentColor monochrome SVG is a separate flat vector adaptation for single-color use.
-
-- [Light lockup](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-lockup-light.svg) and [dark lockup](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-lockup-dark.svg)
-- [Light wordmark](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-wordmark-light.svg) and [dark wordmark](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-wordmark-dark.svg)
-- [Monochrome mark](https://github.com/avgeek-oss/mill/blob/main/apps/web/public/brand/mill-mark-monochrome.svg)
+Documentation copies the application mark, favicon, and social card during `pnpm docs:build`. Unused wordmarks, combined logo images, alternate exports, and intermediate PNG masters are not kept in the repository; regenerate artwork from the Sketch source when needed.
 
 ## Export from Sketch
 
@@ -26,17 +21,27 @@ From the repository root on a Mac with Sketch installed:
 
 ```sh
 sketchtool=/Applications/Sketch.app/Contents/MacOS/sketchtool
+export_dir=$(mktemp -d)
 "$sketchtool" export layers assets/brand/Mill.sketch \
-  --items=C8AE01E3-9256-4388-B4DE-98D2C5CEDD25,44BF5C0F-3D7E-446F-A392-74E63EE68334,04636875-A2D2-4024-A964-2D5CC35D4242,5A94D076-6099-4F7D-8A17-7B323695E056,F07C6ECF-5C2F-46AC-AB0B-1D7067784F33,9B02298D-9D2A-481A-BB3D-782055A4F7B3,0E57921F-4D51-421D-829B-0966928463BA \
-  --formats=png --scales=2.56 --output=assets/brand/exports \
+  --items=C8AE01E3-9256-4388-B4DE-98D2C5CEDD25 \
+  --formats=png --scales=0.64,0.45 --output="$export_dir" \
+  --overwriting=YES --without-activating=YES
+"$sketchtool" export layers assets/brand/Mill.sketch \
+  --items=0E57921F-4D51-421D-829B-0966928463BA \
+  --formats=png --scales=0.16 --output="$export_dir" \
   --overwriting=YES --without-activating=YES
 "$sketchtool" export layers assets/brand/Mill.sketch \
   --items=1E62C943-841F-46B7-96A6-867BFD302407 \
-  --formats=png --scales=1 --output=assets/brand/exports \
+  --formats=png --scales=1 --output="$export_dir" \
   --overwriting=YES --without-activating=YES
+cp "$export_dir/mill_light_transparent@0.6x.png" apps/web/public/brand/mill-mark.png
+cp "$export_dir/mill_light_transparent@0.5x.png" apps/web/public/brand/mill-touch-icon.png
+cp "$export_dir/mill_favicon@0.2x.png" apps/web/public/brand/mill-favicon.png
+cp "$export_dir/OpenGraph.png" apps/web/public/brand/mill-social.png
+pnpm docs:build
 ```
 
-Use the transparent light symbol ID `C8AE01E3-9256-4388-B4DE-98D2C5CEDD25` at scale `0.64` for the 256px application mark and `0.45` for the 180px touch icon. Export the favicon symbol ID `0E57921F-4D51-421D-829B-0966928463BA` at scale `0.16` for the 64px browser icon. The OpenGraph group can also export as SVG at scale `1`. Copy those exports to the existing asset paths, update the embedded marks in the light/dark lockups, and run `pnpm docs:build` to synchronize documentation assets.
+Sketch rounds the scale suffixes in filenames. Verify the exports are 256×256, 180×180, 64×64, and 1200×630 pixels respectively, and preserve transparency in the mark and icons.
 
 ## Theme
 
