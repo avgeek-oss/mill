@@ -202,6 +202,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     "/api/auth/setup",
     "POST",
     {
+      setupSecret: process.env.MILL_VERIFY_SETUP_SECRET,
       workspaceName: "Disposable production verification",
       name: "Install verifier",
       email: "install-verifier@example.invalid",
@@ -267,6 +268,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     "/api/auth/setup",
     "POST",
     {
+      setupSecret: process.env.MILL_VERIFY_SETUP_SECRET,
       workspaceName: "Replay",
       name: "Replay",
       email: "replay@example.invalid",

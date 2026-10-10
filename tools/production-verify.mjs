@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -396,6 +397,9 @@ try {
     MILL_VERIFY_URL: primary.url,
     MILL_VERIFY_WEB_URL: primary.webUrl,
     MILL_VERIFY_PASSWORD: secrets[2],
+    MILL_VERIFY_SETUP_SECRET: createHmac("sha256", secrets[1])
+      .update("mill:installation-setup:v1")
+      .digest("base64url"),
     MILL_VERIFY_STATE: state,
     MILL_VERIFY_OAUTH_TOKEN_FILE: join(privateDirectory, "oauth-token"),
     MILL_VERIFY_STATIC_MANIFEST: staticManifest,

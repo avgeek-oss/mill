@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import {
   mkdir,
   readFile,
@@ -183,6 +183,7 @@ export async function seed(
   origin,
   request,
   password = `Screenshot-${randomBytes(24).toString("base64url")}`,
+  applicationSecret = process.env.MILL_SECRET,
 ) {
   const api = await request.newContext({
     baseURL: apiOrigin,
@@ -190,6 +191,9 @@ export async function seed(
   });
   try {
     const setup = await json(api, "/auth/setup", {
+      setupSecret: createHmac("sha256", applicationSecret)
+        .update("mill:installation-setup:v1")
+        .digest("base64url"),
       workspaceName: "Mill",
       name: "Maya Chen",
       email: "maya@example.test",
@@ -929,6 +933,8 @@ async function main() {
     );
   }
   let fixture, browser, schema, completion;
+  const applicationSecret =
+    process.env.MILL_SECRET ?? randomBytes(48).toString("hex");
   const server = spawn(
     process.execPath,
     ["--import", "tsx", "tools/docs-screenshot-server.ts"],
@@ -937,6 +943,7 @@ async function main() {
       stdio: "ignore",
       env: {
         ...process.env,
+        MILL_SECRET: applicationSecret,
         MILL_SCREENSHOT_PORT: String(port),
         MILL_SCREENSHOT_API_PORT: String(apiPort),
       },
@@ -987,7 +994,13 @@ async function main() {
     browser = await chromium.launch();
     for (const entry of entries.filter((entry) => entry.beforeSetup))
       await capture(browser, origin, manifest, entry, {}, receipt);
-    fixture = await seed(apiOrigin, origin, request);
+    fixture = await seed(
+      apiOrigin,
+      origin,
+      request,
+      undefined,
+      applicationSecret,
+    );
     for (const entry of entries.filter((entry) => !entry.beforeSetup))
       await capture(browser, origin, manifest, entry, fixture, receipt);
     if (docsOrigin) {

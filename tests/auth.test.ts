@@ -6,10 +6,12 @@ import {
   request,
   resetDatabase,
   setupUser,
+  setupSecret,
   setupOAuth,
   sql,
 } from "./support.js";
 import { registerPasskey, virtualPasskey } from "./passkey-support.js";
+import { reportInstallationSetupSecret } from "../apps/api/src/auth/setup-secret.js";
 import { createOperatorRecovery } from "../apps/api/src/auth/recovery.js";
 import { hashPassword, hashToken } from "../apps/api/src/auth/security.js";
 
@@ -41,12 +43,53 @@ async function invite(
   };
 }
 
+test("setup requires the operator secret and never exposes it through public status", async (t) => {
+  const log = t.mock.method(console, "log", () => {});
+  await reportInstallationSetupSecret();
+  assert.deepEqual(log.mock.calls[0]?.arguments, [
+    `Mill installation setup secret: ${setupSecret}`,
+  ]);
+  assert.equal(
+    String(log.mock.calls[0]?.arguments[0]).includes(process.env.MILL_SECRET!),
+    false,
+  );
+  const input = {
+    workspaceName: "Team",
+    name: "Admin",
+    email: "admin@example.test",
+    password,
+  };
+  for (const setupSecret of [undefined, "", "wrong-installation-secret"]) {
+    const response = await request("/api/auth/setup", {
+      body: { ...input, setupSecret },
+    });
+    assert.equal(response.status, setupSecret ? 403 : 400);
+    assert.equal(response.headers.get("set-cookie"), null);
+    assert.equal((await sql`SELECT id FROM workspace`).length, 0);
+    assert.equal((await sql`SELECT id FROM users`).length, 0);
+  }
+  const status = await (await request("/api/auth/status")).text();
+  assert.equal(status.includes(setupSecret), false);
+  const admin = await setupUser();
+  await reportInstallationSetupSecret();
+  assert.equal(log.mock.callCount(), 1);
+  const replay = await request("/api/auth/setup", {
+    body: { ...input, setupSecret },
+  });
+  assert.equal(replay.status, 409);
+  assert.equal(
+    (await request("/api/auth/me", { cookie: admin.cookie })).status,
+    200,
+  );
+});
+
 test("first setup is atomic, has no default account, and stores only password/session hashes", async () => {
   assert.deepEqual(await (await request("/api/auth/status")).json(), {
     setupRequired: true,
     emailDeliveryConfigured: false,
   });
   const input = {
+    setupSecret,
     workspaceName: "Team",
     name: "Admin",
     email: "ADMIN@example.test",
@@ -83,6 +126,7 @@ test("first setup is atomic, has no default account, and stores only password/se
 });
 test("setup rejects invalid preferences before creating any account and defaults omitted formats", async () => {
   const input = {
+    setupSecret,
     workspaceName: "Team",
     name: "Admin",
     email: "admin@example.test",

@@ -1,3 +1,4 @@
+import { validInstallationSetupSecret } from "./auth/setup-secret.js";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -55,6 +56,7 @@ authRoutes.post("/setup", async (c) => {
     c,
     z
       .object({
+        setupSecret: z.string().min(1).max(1024),
         workspaceName: nameSchema,
         name: nameSchema,
         email: emailSchema,
@@ -65,6 +67,10 @@ authRoutes.post("/setup", async (c) => {
       })
       .strict(),
   );
+  if (!validInstallationSetupSecret(input.setupSecret))
+    throw new HTTPException(403, {
+      message: "The installation setup secret is incorrect",
+    });
   const passwordHash = await hashPassword(input.password);
   return sql.begin(async (tx) => {
     await tx`SELECT id FROM workspace FOR UPDATE`;
