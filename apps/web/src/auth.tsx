@@ -365,7 +365,7 @@ export function Auth({
       <TeamSetup
         brand={brand}
         preferenceOptions={dateTimePreferenceOptions}
-        onSubmit={async ({ team, ...values }) => {
+        onSubmit={async ({ setupSecret, team, ...values }) => {
           const result = await credentialsRequest(() =>
             api<Session>(
               "/auth/setup",
