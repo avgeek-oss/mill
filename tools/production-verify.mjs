@@ -52,6 +52,10 @@ const secrets = [
   randomBytes(48).toString("hex"),
   `${randomBytes(32).toString("base64url")}Aa1!`,
 ];
+const setupSecret = createHmac("sha256", secrets[1])
+  .update("mill:installation-setup:v1")
+  .digest("base64url");
+secrets.push(setupSecret);
 let packageToken;
 const results = [];
 const projects = [];
@@ -397,9 +401,7 @@ try {
     MILL_VERIFY_URL: primary.url,
     MILL_VERIFY_WEB_URL: primary.webUrl,
     MILL_VERIFY_PASSWORD: secrets[2],
-    MILL_VERIFY_SETUP_SECRET: createHmac("sha256", secrets[1])
-      .update("mill:installation-setup:v1")
-      .digest("base64url"),
+    MILL_VERIFY_SETUP_SECRET: setupSecret,
     MILL_VERIFY_STATE: state,
     MILL_VERIFY_OAUTH_TOKEN_FILE: join(privateDirectory, "oauth-token"),
     MILL_VERIFY_STATIC_MANIFEST: staticManifest,
