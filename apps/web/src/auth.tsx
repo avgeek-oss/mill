@@ -370,6 +370,7 @@ export function Auth({
             api<Session>(
               "/auth/setup",
               {
+                setupSecret,
                 workspaceName: team,
                 ...values,
               },
