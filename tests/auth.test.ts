@@ -63,11 +63,14 @@ test("first setup is atomic, has no default account, and stores only password/se
   const good = responses.find((r) => r.status === 201)!;
   const result = await good.json();
   assert.equal(result.user.email, "admin@example.test");
+  assert.equal(result.user.emailVerified, true);
   assert.equal(result.user.dateFormat, "year-month-day");
   assert.equal(result.user.timeFormat, "12-hour");
   assert.equal(result.user.timeZone, "Asia/Kolkata");
   assert.equal(JSON.stringify(result).includes("password"), false);
-  const [stored] = await sql`SELECT password_hash FROM users`;
+  const [stored] = await sql`SELECT password_hash,email_verified FROM users`;
+  assert.equal(stored.emailVerified, true);
+  assert.equal((await sql`SELECT id FROM email_outbox`).length, 0);
   assert.match(stored.passwordHash, /^scrypt:/);
   const [session] = await sql`SELECT token_hash FROM sessions`;
   assert.equal(session.tokenHash, hashToken(cookie(good).split("=")[1]));

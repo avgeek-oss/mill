@@ -164,7 +164,9 @@ export async function sendSmtpMessage(message: Message, deadlineMs = 30000) {
     });
     const result = await Promise.race([
       transport.sendMail({
-        from: c.MILL_SMTP_FROM,
+        from: c.MILL_SMTP_FROM.includes("<")
+          ? c.MILL_SMTP_FROM
+          : { name: "Mill", address: c.MILL_SMTP_FROM },
         ...message,
       }),
       deadline,

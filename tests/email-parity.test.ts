@@ -49,6 +49,12 @@ async function json(response: Response, status = 200) {
   assert.equal(response.status, status, await response.clone().text());
   return response.json();
 }
+async function setupUnverifiedUser() {
+  const account = await setupUser();
+  await sql`UPDATE users SET email_verified=false WHERE id=${account.user.id}`;
+  return { ...account, user: { ...account.user, emailVerified: false } };
+}
+
 async function delivered() {
   const messages: {
     to: string;
@@ -98,9 +104,28 @@ async function invitationCode(token: string) {
   return code;
 }
 
+test("first administrator is verified without queuing email, regardless of SMTP availability", async () => {
+  for (const configured of [true, false]) {
+    smtp(configured);
+    await resetDatabase();
+    const account = await setupUser();
+    assert.equal(account.user.emailVerified, true);
+    assert.equal(
+      (await sql`SELECT email_verified FROM users`)[0].emailVerified,
+      true,
+    );
+    assert.equal((await sql`SELECT id FROM email_requests`).length, 0);
+    assert.equal((await sql`SELECT id FROM email_outbox`).length, 0);
+    const session = await json(
+      await request("/api/auth/me", { cookie: account.cookie }),
+    );
+    assert.equal(session.user.emailVerified, true);
+  }
+});
+
 test("capability and historical verification facts are truthful, with private-link fallback", async () => {
   smtp(false);
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   assert.equal(u.user.emailVerified, false);
   assert.equal(
     (await json(await request("/api/auth/status"))).emailDeliveryConfigured,
@@ -132,7 +157,7 @@ test("capability and historical verification facts are truthful, with private-li
 });
 
 test("public resend and reset are neutral for unknown, verified, disabled and unverified accounts, uniform limits and no session cookies", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await sql`UPDATE users SET email_verified=true WHERE id=${u.user.id}`;
   const emails = [
     "unknown@example.test",
@@ -163,7 +188,7 @@ test("public resend and reset are neutral for unknown, verified, disabled and un
 });
 
 test("verification is browser-owned, encrypted, purpose-bound and consumed once under concurrent confirmation", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   assert.equal(
     (await request("/api/auth/email-verification/request", { body: {} }))
       .status,
@@ -189,7 +214,7 @@ test("verification is browser-owned, encrypted, purpose-bound and consumed once 
   const messages = await delivered();
   assert.equal(messages[0].subject, "[Mill] Verify your email");
   assert.match(messages[0].html ?? "", /<!DOCTYPE html/);
-  assert.match(messages[0].html ?? "", /#744725/);
+  assert.match(messages[0].html ?? "", /#734626/);
   const confirmation = link(messages[0].text, "/verify-email");
   assert.ok(
     messages[0].html?.includes(
@@ -219,7 +244,7 @@ test("verification is browser-owned, encrypted, purpose-bound and consumed once 
 });
 
 test("pending plain-text messages remain deliverable after adopting HTML templates", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await json(
     await request("/api/auth/email-verification/request", {
       cookie: u.cookie,
@@ -245,7 +270,7 @@ test("pending plain-text messages remain deliverable after adopting HTML templat
 });
 
 test("email change requires recent passkey proof and pending request reuse survives lost responses", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await registerPasskey(u.cookie, u.user.id);
   await sql`UPDATE sessions SET passkey_authenticated_at=now()-interval '11 minutes' WHERE user_id=${u.user.id}`;
   assert.equal(
@@ -283,7 +308,7 @@ test("email change requires recent passkey proof and pending request reuse survi
 });
 
 test("cancelled changes cannot confirm and successful confirmation atomically invalidates sessions and owned grants", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await change(u.cookie);
   const first = link((await delivered())[0].text, "/confirm-email-change");
   await json(
@@ -331,7 +356,7 @@ test("cancelled changes cannot confirm and successful confirmation atomically in
 });
 
 test("SMTP invitation requires verified code before atomic final signup, binds name and rejects replay", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   const i = await invite(u.cookie);
   assert.equal(i.emailDelivery, "queued");
   const [invitation] = await delivered();
@@ -395,7 +420,7 @@ test("SMTP invitation requires verified code before atomic final signup, binds n
 });
 
 test("wrong invitation codes exhaust durable five-attempt budget; expired or demoted proofs fail", async () => {
-  const u = await setupUser(),
+  const u = await setupUnverifiedUser(),
     i = await invite(u.cookie),
     code = await invitationCode(i.token);
   for (let n = 0; n < 5; n++)
@@ -444,7 +469,7 @@ test("wrong invitation codes exhaust durable five-attempt budget; expired or dem
 });
 
 test("reset requests preserve passkeys and stale operator or emailed recovery links cannot outlive a security change", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await registerPasskey(u.cookie, u.user.id);
   await json(
     await request("/api/auth/password-reset/request", {
@@ -472,7 +497,7 @@ test("reset requests preserve passkeys and stale operator or emailed recovery li
 });
 
 test("outbox retries are bounded, expired leases recover, and revoked/expired requests never send", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await json(
     await request("/api/auth/email-verification/request", {
       cookie: u.cookie,
@@ -602,7 +627,7 @@ function multipartEmail(raw: string) {
 test("real loopback SMTP handoff carries a usable verification link and clears encrypted durable payload", async () => {
   const server = await smtpFixture();
   try {
-    const u = await setupUser();
+    const u = await setupUnverifiedUser();
     await json(
       await request("/api/auth/email-verification/request", {
         cookie: u.cookie,
@@ -613,6 +638,7 @@ test("real loopback SMTP handoff carries a usable verification link and clears e
     assert.equal(server.messages.length, 1);
     const mail = multipartEmail(server.messages[0]);
     assert.match(mail.headers, /Subject: \[Mill\] Verify your email/);
+    assert.match(mail.headers, /From: Mill <mill@example.test>/);
     const proof = link(mail.text, "/verify-email");
     assert.ok(mail.html.includes(`/verify-email#${proof.id}.${proof.token}`));
     await json(
@@ -631,10 +657,30 @@ test("real loopback SMTP handoff carries a usable verification link and clears e
   }
 });
 
+test("SMTP preserves an explicitly configured sender display name", async () => {
+  const server = await smtpFixture();
+  try {
+    process.env.MILL_SMTP_FROM = "Mill Operations <mill@example.test>";
+    const account = await setupUser();
+    await json(
+      await request("/api/auth/password-reset/request", {
+        body: { email: account.user.email },
+      }),
+    );
+    assert.equal(await deliverEmailBatch(), 1);
+    assert.match(
+      multipartEmail(server.messages[0]).headers,
+      /From: Mill Operations <mill@example.test>/,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 test("real SMTP password reset rejects expired and replayed links and replaces credentials", async () => {
   const server = await smtpFixture();
   try {
-    const u = await setupUser();
+    const u = await setupUnverifiedUser();
     const issueReset = async () => {
       await json(
         await request("/api/auth/password-reset/request", {
@@ -644,6 +690,7 @@ test("real SMTP password reset rejects expired and replayed links and replaces c
       assert.equal(await deliverEmailBatch(), 1);
       const mail = multipartEmail(server.messages.at(-1)!);
       assert.match(mail.headers, /Subject: \[Mill\] Reset your password/);
+      assert.match(mail.headers, /From: Mill <mill@example.test>/);
       const token = mail.text.match(/\/recover#([A-Za-z0-9_-]{43})/)?.[1];
       assert.ok(token);
       assert.ok(mail.html.includes(`/recover#${token}`));
@@ -708,7 +755,7 @@ test("real SMTP password reset rejects expired and replayed links and replaces c
 });
 
 test("retained UI intent cannot mutate a different browser account or authorize through an API key", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   const credential = (
     await json(
       await request("/api/credentials", {
@@ -757,7 +804,7 @@ test("retained UI intent cannot mutate a different browser account or authorize 
 });
 
 test("expiry cleanup removes sensitive pending payloads even when SMTP is disabled, and simultaneous workers deliver one claimed message", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await json(
     await request("/api/auth/email-verification/request", {
       cookie: u.cookie,
@@ -802,7 +849,7 @@ test("expiry cleanup removes sensitive pending payloads even when SMTP is disabl
 
 test("held SMTP delivery leaves unrelated authenticated board reads and writes responsive", async () => {
   smtp(false);
-  const owner = await setupUser(),
+  const owner = await setupUnverifiedUser(),
     i = await invite(owner.cookie, "other-admin@example.test");
   const response = await request("/api/auth/accept-invitation", {
     body: { token: i.token, name: "Other admin", password },
@@ -867,7 +914,7 @@ test("held SMTP delivery leaves unrelated authenticated board reads and writes r
 });
 
 test("delivery waiting for identity authority rechecks cancellation before any SMTP handoff", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await json(
     await request("/api/auth/email-verification/request", {
       cookie: u.cookie,
@@ -915,7 +962,7 @@ test("delivery waiting for identity authority rechecks cancellation before any S
 });
 
 test("expired invitation completion proof cannot create an account", async () => {
-  const u = await setupUser(),
+  const u = await setupUnverifiedUser(),
     i = await invite(u.cookie),
     code = await invitationCode(i.token);
   const proof = await json(
@@ -956,7 +1003,7 @@ test("SMTP has an absolute deadline, closes a stalled peer socket, and retries w
   assert.ok(address && typeof address !== "string");
   process.env.MILL_SMTP_PORT = String(address.port);
   try {
-    const u = await setupUser();
+    const u = await setupUnverifiedUser();
     await json(
       await request("/api/auth/email-verification/request", {
         cookie: u.cookie,
@@ -989,7 +1036,7 @@ test("SMTP has an absolute deadline, closes a stalled peer socket, and retries w
 });
 
 test("cancellation after SMTP initiation returns promptly, invalidates the proof and cannot be retried by a late failure", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await change(u.cookie);
   let release!: () => void,
     ready!: () => void,
@@ -1057,7 +1104,7 @@ test("cancellation after SMTP initiation returns promptly, invalidates the proof
 });
 
 test("a stale sender cannot overwrite a replacement lease delivery receipt", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await json(
     await request("/api/auth/email-verification/request", {
       cookie: u.cookie,
@@ -1093,7 +1140,7 @@ test("a stale sender cannot overwrite a replacement lease delivery receipt", asy
 });
 
 test("worker shutdown finishes only the current send and leaves the next queued message unclaimed", async () => {
-  const u = await setupUser();
+  const u = await setupUnverifiedUser();
   await json(
     await request("/api/auth/email-verification/request", {
       cookie: u.cookie,

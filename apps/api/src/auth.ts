@@ -75,8 +75,8 @@ authRoutes.post("/setup", async (c) => {
     await tx`INSERT INTO workspace(id,name) VALUES(${workspaceId},${input.workspaceName})`;
     const [user] = await tx<
       UserRow[]
-    >`INSERT INTO users(id,workspace_id,name,email,password_hash,role,date_format,time_format,time_zone)
-      VALUES(${randomUUID()},${workspaceId},${input.name},${input.email},${passwordHash},'admin',${input.dateFormat},${input.timeFormat},${input.timeZone}) RETURNING *`;
+    >`INSERT INTO users(id,workspace_id,name,email,password_hash,role,date_format,time_format,time_zone,email_verified)
+      VALUES(${randomUUID()},${workspaceId},${input.name},${input.email},${passwordHash},'admin',${input.dateFormat},${input.timeFormat},${input.timeZone},true) RETURNING *`;
     await newSession(c, user.id, tx);
 
     return c.json(await identityResponse(user, tx), 201);

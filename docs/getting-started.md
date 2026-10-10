@@ -1,6 +1,6 @@
 # Your first board
 
-Install Mill using [the installation guide](installation.md), then open its URL. On a fresh database, Mill asks for a workspace name and the first administrator's account. Use a password you do not use on another service. Mill has no default account.
+Install Mill using [the installation guide](installation.md), then open its URL. On a fresh database, Mill asks for a workspace name and the first administrator's account. Use a password you do not use on another service. Mill has no default account. The installation administrator is verified automatically and signed in immediately; no email-verification step is needed for this first account.
 
 ## Make a board and task
 
