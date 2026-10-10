@@ -196,13 +196,7 @@ for (const [name, title, description] of pages) {
       images,
   );
 }
-for (const name of [
-  "mill-mark.png",
-  "mill-favicon.png",
-  "mill-social.png",
-  "mill-lockup-light.svg",
-  "mill-lockup-dark.svg",
-]) {
+for (const name of ["mill-mark.png", "mill-favicon.png", "mill-social.png"]) {
   const input = resolve(root, "apps/web/public/brand", name),
     target = resolve(output, "assets", name);
   if (check) {
