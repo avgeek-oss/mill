@@ -39,7 +39,7 @@ SMTP is optional. To enable identity and invitation email, add the supported `MI
 4. Deploy Mill PostgreSQL and wait for its readiness check. Towbar manages its persistent data volume; do not replace or remove that volume during an upgrade.
 5. Deploy Mill API. The image runs its packaged database migrations before accepting requests. No migration command override or separate migration container is needed.
 6. Deploy Mill UI. Its `/health/ready` check verifies the built UI is ready; check the API readiness separately for database health. Wait for readiness before opening the public app.
-7. Open the public UI HTTPS origin and create the workspace and first administrator. There is no default account. Verify sign-in, task creation, and an authenticated REST or MCP request through the public API origin.
+7. Copy the installation setup secret from the Mill API startup logs, open the public UI HTTPS origin, enter the secret, and create the workspace and first administrator. There is no default account. Verify sign-in, task creation, and an authenticated REST or MCP request through the public API origin.
 
 ## Upgrades and recovery
 

@@ -46,7 +46,11 @@ Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`. Keep i
 docker compose --project-name mill up --detach --wait
 ```
 
-Compose pulls both versioned images and waits for the API and UI to become healthy. The API applies its packaged database migrations automatically. Open [localhost:4322](http://localhost:4322) and create your workspace, name, email and password. The first account becomes an administrator; there is no default login. The setup form closes after that first account is created.
+Compose pulls both versioned images and waits for the API and UI to become healthy. The API applies its packaged database migrations automatically.
+
+Run `docker compose --project-name mill logs api` and copy the line labelled `Mill installation setup secret`. Enter it in the shared setup form, then create your team and administrator. The secret is printed only while the database has no workspace and remains the same across restarts with the same `MILL_SECRET`. It is separate from `MILL_SECRET`; do not put the application secret in the form. Completing setup closes this endpoint permanently for that database. Existing installations keep their accounts and sign-in flow.
+
+Open [localhost:4322](http://localhost:4322) and enter the setup secret, workspace name and administrator details. The first account is email-verified automatically and signed in; there is no default login.
 
 Check the running services and the complete UI-to-API path:
 

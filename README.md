@@ -43,7 +43,7 @@ docker compose --project-name mill up --detach --wait
 
 Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the release version already written in the Compose file. Both services publish separate loopback ports. The browser calls the public API origin directly; expose each service with its own HTTPS hostname.
 
-Open [localhost:4322](http://localhost:4322), create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
+Read the installation setup secret from `docker compose --project-name mill logs api`, then open [localhost:4322](http://localhost:4322), enter the secret and create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
 
 If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation.md#optional-run-postgresql-with-compose). Your existing or managed PostgreSQL instance works directly with the default Compose file.
 

@@ -5,6 +5,7 @@ import {
   request,
   resetDatabase,
   setupUser,
+  setupSecret,
   sql,
 } from "./support.js";
 import { virtualPasskey } from "./passkey-support.js";
@@ -26,6 +27,7 @@ test("common account/team names accept exactly120 and reject121 before mutation 
       (
         await request("/api/auth/setup", {
           body: {
+            setupSecret,
             ...fields,
             email: "owner@example.test",
             password: "Secure name-boundary passphrase42!",

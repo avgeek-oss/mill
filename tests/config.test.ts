@@ -70,7 +70,17 @@ test("optional SMTP requires paired configuration, validates addresses and retai
     process.env.MILL_SMTP_SECURE = "true";
     c = validateConfiguration();
     assert.equal(c.MILL_SMTP_SECURE, true);
+    process.env.MILL_SMTP_FROM = "Mill Operations <no-reply@example.test>";
+    assert.equal(
+      validateConfiguration().MILL_SMTP_FROM,
+      process.env.MILL_SMTP_FROM,
+    );
     process.env.MILL_SMTP_FROM = "Header\r\nInjected";
+    assert.throws(validateConfiguration, /MILL_SMTP_FROM/);
+    process.env.MILL_SMTP_FROM =
+      "Mill\r\nBcc: other@example.test <no-reply@example.test>";
+    assert.throws(validateConfiguration, /MILL_SMTP_FROM/);
+    process.env.MILL_SMTP_FROM = "Mill <invalid>";
     assert.throws(validateConfiguration, /MILL_SMTP_FROM/);
   } finally {
     process.env = environment;

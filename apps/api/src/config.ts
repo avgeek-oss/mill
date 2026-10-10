@@ -1,4 +1,14 @@
 import { z } from "zod";
+const smtpFromSchema = z
+  .string()
+  .trim()
+  .max(512)
+  .refine((value) => {
+    if (!value) return true;
+    if (/\p{Cc}/u.test(value)) return false;
+    const mailbox = value.match(/^[^<>]+<([^<>]+)>$/)?.[1] ?? value;
+    return z.email().max(320).safeParse(mailbox.trim()).success;
+  }, "Use an email address or a display name followed by <email address>");
 const schema = z
   .object({
     DATABASE_URL: z
@@ -61,7 +71,7 @@ const schema = z
       .transform((v) => v === "true"),
     MILL_SMTP_USER: z.string().max(320).default(""),
     MILL_SMTP_PASSWORD: z.string().max(4096).default(""),
-    MILL_SMTP_FROM: z.union([z.literal(""), z.email().max(320)]).default(""),
+    MILL_SMTP_FROM: smtpFromSchema.default(""),
     PORT: z.coerce.number().int().min(1).max(65535).default(4321),
     NODE_ENV: z
       .enum(["development", "production", "test"])

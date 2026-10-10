@@ -1,3 +1,4 @@
+import { validInstallationSetupSecret } from "./auth/setup-secret.js";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -55,6 +56,7 @@ authRoutes.post("/setup", async (c) => {
     c,
     z
       .object({
+        setupSecret: z.string().min(1).max(1024),
         workspaceName: nameSchema,
         name: nameSchema,
         email: emailSchema,
@@ -65,6 +67,10 @@ authRoutes.post("/setup", async (c) => {
       })
       .strict(),
   );
+  if (!validInstallationSetupSecret(input.setupSecret))
+    throw new HTTPException(403, {
+      message: "The installation setup secret is incorrect",
+    });
   const passwordHash = await hashPassword(input.password);
   return sql.begin(async (tx) => {
     await tx`SELECT id FROM workspace FOR UPDATE`;
@@ -75,8 +81,8 @@ authRoutes.post("/setup", async (c) => {
     await tx`INSERT INTO workspace(id,name) VALUES(${workspaceId},${input.workspaceName})`;
     const [user] = await tx<
       UserRow[]
-    >`INSERT INTO users(id,workspace_id,name,email,password_hash,role,date_format,time_format,time_zone)
-      VALUES(${randomUUID()},${workspaceId},${input.name},${input.email},${passwordHash},'admin',${input.dateFormat},${input.timeFormat},${input.timeZone}) RETURNING *`;
+    >`INSERT INTO users(id,workspace_id,name,email,password_hash,role,date_format,time_format,time_zone,email_verified)
+      VALUES(${randomUUID()},${workspaceId},${input.name},${input.email},${passwordHash},'admin',${input.dateFormat},${input.timeFormat},${input.timeZone},true) RETURNING *`;
     await newSession(c, user.id, tx);
 
     return c.json(await identityResponse(user, tx), 201);

@@ -1,3 +1,4 @@
+import { reportInstallationSetupSecret } from "./auth/setup-secret.js";
 import { serve } from "@hono/node-server";
 import { validateConfiguration } from "./config.js";
 import { migrate } from "../../../packages/database/src/migrate.js";
@@ -7,6 +8,7 @@ import { startEmailWorker } from "./auth/email-outbox.js";
 
 const configuration = validateConfiguration();
 await migrate();
+await reportInstallationSetupSecret();
 const stopEmailWorker = startEmailWorker();
 const server = serve(
   { fetch: app.fetch, port: configuration.PORT, hostname: "0.0.0.0" },

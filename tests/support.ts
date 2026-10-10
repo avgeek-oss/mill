@@ -17,6 +17,9 @@ const { sql } = await import("../packages/database/src/index.js");
 const { migrate } = await import("../packages/database/src/migrate.js");
 await migrate();
 export { sql };
+const { installationSetupSecret } =
+  await import("../apps/api/src/auth/setup-secret.js");
+export const setupSecret = installationSetupSecret();
 export async function resetDatabase() {
   const rows =
     await sql`SELECT tablename FROM pg_tables WHERE schemaname=${process.env.MILL_DB_SCHEMA!} AND tablename<>'mill_migrations'`;
@@ -56,6 +59,7 @@ export async function request(
 export async function setupUser(overrides: Record<string, unknown> = {}) {
   const response = await request("/api/auth/setup", {
     body: {
+      setupSecret,
       workspaceName: "Test workspace",
       name: "Admin",
       email: "admin@example.test",
