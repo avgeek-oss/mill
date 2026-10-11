@@ -1,6 +1,49 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { validateConfiguration } from "../apps/api/src/config.js";
+test("optional private storage requires a complete safe configuration", () => {
+  const previous = { ...process.env };
+  try {
+    Object.assign(process.env, {
+      DATABASE_URL: "postgres://test:disposable@127.0.0.1/mill",
+      MILL_SECRET: "x".repeat(32),
+      MILL_WEB_URL: "https://mill.example",
+      MILL_API_URL: "https://mill-api.example",
+    });
+    for (const key of Object.keys(process.env))
+      if (key.startsWith("MILL_S3_")) delete process.env[key];
+    assert.equal(validateConfiguration().MILL_S3_BUCKET, "");
+    process.env.MILL_S3_ENDPOINT = "https://storage.example.test";
+    assert.throws(validateConfiguration, /Configure the S3/);
+    Object.assign(process.env, {
+      MILL_S3_BUCKET: "mill-data",
+      MILL_S3_ACCESS_KEY_ID: "test-access-key",
+      MILL_S3_SECRET_ACCESS_KEY: "test-secret-key",
+    });
+    assert.equal(validateConfiguration().MILL_S3_REGION, "auto");
+    for (const endpoint of [
+      "http://storage.example.test",
+      "https://user:secret@storage.example.test",
+      "https://storage.example.test/path",
+      "https://storage.example.test?query=true",
+    ]) {
+      process.env.MILL_S3_ENDPOINT = endpoint;
+      assert.throws(validateConfiguration, /MILL_S3_ENDPOINT/);
+    }
+    process.env.MILL_S3_ENDPOINT = "http://127.0.0.1:9000";
+    assert.equal(
+      validateConfiguration().MILL_S3_ENDPOINT,
+      process.env.MILL_S3_ENDPOINT,
+    );
+    process.env.MILL_S3_BUCKET = "../invalid";
+    assert.throws(validateConfiguration, /MILL_S3_BUCKET/);
+    process.env.MILL_S3_BUCKET = "mill-data";
+    process.env.MILL_S3_REGION = "invalid region";
+    assert.throws(validateConfiguration, /MILL_S3_REGION/);
+  } finally {
+    process.env = previous;
+  }
+});
 test("configuration requires secrets/database and restricts insecure origins", () => {
   const previous = { ...process.env };
   try {

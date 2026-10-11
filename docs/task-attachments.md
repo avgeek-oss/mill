@@ -1,0 +1,25 @@
+# Task attachments
+
+Use the **Attachments** tab on a task to keep images and PDFs with the work they describe. The tab appears when your operator enables [private S3 storage](configuration.md#optional-task-attachments).
+
+## Upload a file
+
+Members and administrators can choose **Upload attachment** and select a PNG, JPEG, WebP, GIF or PDF. Each file must be at most 20 MiB. A task can hold up to 100 attachments, including uploads still in progress. SVG and other formats are unsupported. Viewers can preview and download existing attachments but cannot upload or delete them.
+
+The upload uses a temporary signed URL. Mill verifies the stored file before it appears in the list. An interrupted or rejected upload does not create a completed attachment. If the upload fails, check the toast message and try again. Signed upload URLs expire after five minutes; a new attempt gets a new URL.
+
+## Preview and download
+
+Up to four attachments appear as cards. With more attachments, the tab uses a compact list. Cards show an image thumbnail or the first page of a PDF. The compact list shows file names, sizes and upload times. Use the download action in either layout to save the original file.
+
+Files stay in a private bucket. Preview and download URLs expire after five minutes and are issued only after Mill checks access to the task. If a preview has expired, use **Retry preview** or reload the tab to obtain a new URL. Download requests obtain a fresh URL each time. Do not share signed URLs as permanent file links.
+
+## Delete an attachment
+
+Members and administrators can delete an attachment after confirmation. Mill removes it from the task and schedules deletion of the stored object. Failed storage deletions are retried. Deleting its task or board also removes the associated attachment records and schedules object cleanup. Deleted attachments have no restore action.
+
+Duplicating a task copies its task fields without copying attachments. Upload files to the new task if they are needed there.
+
+## Keep files recoverable
+
+PostgreSQL holds attachment metadata; the S3 bucket holds the file bytes. A database dump alone cannot recover uploaded files. Protect both stores and retain the storage settings with your encrypted configuration backups. See [backup and recovery](backup.md).

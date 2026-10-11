@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add optional private S3-compatible task attachments for images and PDFs, with verified uploads, previews, downloads and cleanup after deletion.
+
 ## 1.0.1 (release candidate)
 
 - Show the shared backend-unavailable screen during startup outages and retry read-only startup checks automatically. Keep authentication failures separate from backend failures.

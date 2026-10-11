@@ -43,6 +43,16 @@ const keyPolicy = await readFile(
   "utf8",
 );
 const keyPolicyChecksum = createHash("sha256").update(keyPolicy).digest("hex");
+const attachmentSource = await readFile(
+  new URL(
+    "../packages/database/migrations/003_task_attachments.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const attachmentChecksum = createHash("sha256")
+  .update(attachmentSource)
+  .digest("hex");
 const previousBaseline = baseline
   .replace(
     "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
@@ -686,6 +696,7 @@ for (const source of [
         [
           { name: "001_initial.sql", checksum: converted.baselineChecksum },
           { name: "002_key_policies.sql", checksum: keyPolicyChecksum },
+          { name: "003_task_attachments.sql", checksum: attachmentChecksum },
         ],
       );
     } finally {

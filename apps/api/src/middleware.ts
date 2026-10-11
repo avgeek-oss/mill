@@ -79,6 +79,7 @@ export const rateLimit: MiddlewareHandler<Env> = async (c, next) => {
 function responseResources(path: string, response: unknown) {
   const boardIds = new Set<string>();
   const taskIds = new Set<string>();
+  const attachmentIds = new Set<string>();
   const validId = (value: unknown): value is string =>
     typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -88,6 +89,10 @@ function responseResources(path: string, response: unknown) {
   const taskId = path.match(/^\/api\/tasks\/([^/]+)/)?.[1];
   if (validId(boardId)) boardIds.add(boardId);
   if (validId(taskId)) taskIds.add(taskId);
+  const attachmentId = path.match(
+    /^\/api\/tasks\/[^/]+\/attachments\/([^/]+)/,
+  )?.[1];
+  if (validId(attachmentId)) attachmentIds.add(attachmentId);
   function visit(value: unknown, parent?: string) {
     if (Array.isArray(value)) {
       for (const item of value) visit(item, parent);
@@ -95,9 +100,11 @@ function responseResources(path: string, response: unknown) {
       for (const [key, item] of Object.entries(value)) {
         if (key === "boardId" && validId(item)) boardIds.add(item);
         if (key === "taskId" && validId(item)) taskIds.add(item);
+        if (key === "attachmentId" && validId(item)) attachmentIds.add(item);
         if (key === "id" && validId(item)) {
           if (parent === "board" || parent === "boards") boardIds.add(item);
           if (parent === "task" || parent === "tasks") taskIds.add(item);
+          if (parent === "attachment") attachmentIds.add(item);
         }
         if (key === "boardIds" && Array.isArray(item))
           for (const id of item) if (validId(id)) boardIds.add(id);
@@ -109,6 +116,7 @@ function responseResources(path: string, response: unknown) {
   return {
     boardIds: [...boardIds],
     taskIds: [...taskIds],
+    attachmentIds: [...attachmentIds],
   };
 }
 export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
@@ -238,7 +246,7 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
         ];
       }
     }
-    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds} WHERE actor_key=${actorKey} AND key=${key}`;
+    await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds},attachment_ids=${resources.attachmentIds} WHERE actor_key=${actorKey} AND key=${key}`;
   }).catch((error) => {
     if (!(error instanceof RetryTransactionRollback)) throw error;
   });
@@ -326,7 +334,9 @@ async function currentAuthority(c: Context<Env>) {
     (["PATCH", "DELETE"].includes(c.req.method) &&
       /^\/api\/(?:boards|tasks|comments)\/[^/]+$/.test(c.req.path)) ||
     (c.req.method === "POST" &&
-      /^\/api\/tasks\/[^/]+\/comments$/.test(c.req.path));
+      /^\/api\/tasks\/[^/]+\/comments$/.test(c.req.path)) ||
+    (["POST", "DELETE"].includes(c.req.method) &&
+      /^\/api\/tasks\/[^/]+\/attachments(?:\/.*)?$/.test(c.req.path));
   if (domainMutation)
     requireRole(
       c,

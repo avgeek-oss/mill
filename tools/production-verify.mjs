@@ -618,6 +618,13 @@ try {
       ),
     )
     .digest("hex");
+  const attachmentSource = await readFile(
+    join(root, "packages/database/migrations/003_task_attachments.sql"),
+    "utf8",
+  );
+  const attachmentChecksum = createHash("sha256")
+    .update(attachmentSource)
+    .digest("hex");
   const installedMigrations = JSON.parse(
     await run(
       "baseline-migration-record",
@@ -631,6 +638,7 @@ try {
   assert.deepEqual(installedMigrations, [
     { name: "001_initial.sql", checksum: baselineChecksum },
     { name: "002_key_policies.sql", checksum: keyPolicyChecksum },
+    { name: "003_task_attachments.sql", checksum: attachmentChecksum },
   ]);
   const schemaShape = JSON.parse(
     await run(
@@ -667,7 +675,7 @@ try {
     "node",
     "--input-type=module",
     "-e",
-    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
+    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await writeFile(join(directory,'003_task_attachments.sql'),await readFile('/app/packages/database/migrations/003_task_attachments.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
   ]);
   await run("backup-quiesce-application", "docker", [
     ...primary.compose,
@@ -690,7 +698,14 @@ try {
     (match) => match[1],
   );
   assert.ok(baselineTables.length > 0, "Current baseline must define tables");
-  assert.deepEqual(tables, [...baselineTables, "mill_migrations"].sort());
+  const attachmentTables = Array.from(
+    attachmentSource.matchAll(/^CREATE TABLE ([a-z_]+) \(/gm),
+    (match) => match[1],
+  );
+  assert.deepEqual(
+    tables,
+    [...baselineTables, ...attachmentTables, "mill_migrations"].sort(),
+  );
   for (const table of tables) assert.match(table, /^[a-z_]+$/);
   const contentQuery = `SELECT jsonb_build_object(${tables.map((table) => `'${table}',(SELECT COALESCE(jsonb_agg(content ORDER BY content::text),'[]'::jsonb) FROM (SELECT to_jsonb(record) AS content FROM ${table} record) rows)`).join(",")})::text`;
   const savedData = JSON.parse(

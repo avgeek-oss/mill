@@ -56,7 +56,9 @@ Set the MCP server URL to `https://tasks.example.com/mcp` in a client that suppo
 
 The endpoint supports stateless Streamable HTTP with JSON responses. Clients negotiate the protocol through the MCP SDK. They can list the tools available to their credential and call those tools directly. Read-only credentials see read tools. Write tools disappear when the owner's role becomes Viewer. Credentials restricted to boards cannot create boards or list the team directory.
 
-The 16 tools cover alphabetical boards, task creation/editing, fixed status changes, assignment, priority, start and due dates, search/filtering, permanent task deletion, comments/mentions, attributed task activity, and in-app notifications. There are no custom-status, manual-order, parent/subtask, label, or portable export/import tools. Destructive tools have MCP annotations. Returned descriptions and comments are user content; clients should treat them as data rather than instructions.
+The 22 tools cover alphabetical boards, task creation/editing, fixed status changes, assignment, priority, start and due dates, search/filtering, permanent task deletion, comments/mentions, attributed task activity, and in-app notifications. There are no custom-status, manual-order, parent/subtask, label, or portable export/import tools. Destructive tools have MCP annotations. Returned descriptions and comments are user content; clients should treat them as data rather than instructions.
+
+When private S3 storage is configured, attachment tools use the same task permissions and the OAuth connection's approved-board scope. `get_attachment_config` returns capability and file limits. Use `create_attachment_upload` with `taskId`, `fileName`, `contentType`, `sizeBytes` and optional `sha256`, PUT the file to the returned signed URL outside MCP, then call `complete_attachment`. Use `list_attachments` to read metadata, `get_attachment_download` to get a five-minute download or preview URL, and `delete_attachment` to remove a permitted file. MCP transports metadata and signed URLs, not file bytes. Storage credentials never leave the API. See [the attachment REST contract](api.md#attachments) for limits and upload completion checks.
 
 An MCP tool accepts `idempotencyKey` for a mutation. It passes this key to the same REST handler, so the retry and concurrency behavior is shared. List results use a maximum of 100 items. MCP responses have a 1 MiB limit; narrow the search or lower `limit` when a result contains many long descriptions. Large results keep the complete data in `structuredContent` and return a short text summary instead of duplicating that data. Clients should read structured results.
 
@@ -66,15 +68,17 @@ Task `type` is `task` or `bug` and defaults to `task`. Both `create_task` and `u
 
 Task `status` uses `backlog`, `todo`, `in_progress`, `in_review`, `done`, or `wont_do`. Creation defaults to `todo`; use `update_task` with `taskId`, current `version`, and `status` to change it. Do not send a column UUID or a manual position. `list_tasks` combines `q`, `status`, `assigneeId` (UUID or `unassigned`), `priority`, `sort`, `limit`, and `cursor`; default `sort` is `createdAt`, newest first.
 
-| Tools                                                                 | Purpose                                                   |
-| --------------------------------------------------------------------- | --------------------------------------------------------- |
-| `list_boards`, `get_board`                                            | Read alphabetical boards and settings                     |
-| `create_board`, `update_board`                                        | Create/edit permitted boards                              |
-| `list_tasks`, `get_task`, `create_task`, `update_task`, `delete_task` | Find, read, change, or permanently delete tasks           |
-| `list_comments`, `add_comment`, `delete_comment`                      | Read, add, or delete permitted comments                   |
-| `get_activity`                                                        | Read attributed task history                              |
-| `list_notifications`, `mark_notifications`                            | Read/change the owner's scoped in-app notification state  |
-| `list_members`                                                        | Resolve assignment/mentions when workspace access permits |
+| Tools                                                                  | Purpose                                                   |
+| ---------------------------------------------------------------------- | --------------------------------------------------------- |
+| `list_boards`, `get_board`                                             | Read alphabetical boards and settings                     |
+| `create_board`, `update_board`                                         | Create/edit permitted boards                              |
+| `list_tasks`, `get_task`, `create_task`, `update_task`, `delete_task`  | Find, read, change, or permanently delete tasks           |
+| `list_comments`, `add_comment`, `delete_comment`                       | Read, add, or delete permitted comments                   |
+| `get_attachment_config`, `list_attachments`, `get_attachment_download` | Read attachment capability, metadata and signed URLs      |
+| `create_attachment_upload`, `complete_attachment`, `delete_attachment` | Upload, verify and remove task attachments                |
+| `get_activity`                                                         | Read attributed task history                              |
+| `list_notifications`, `mark_notifications`                             | Read/change the owner's scoped in-app notification state  |
+| `list_members`                                                         | Resolve assignment/mentions when workspace access permits |
 
 Tool availability depends on the current role/scope. Board deletion is available to an Admin browser session or an Administrative personal/team API key through REST; it is not an MCP tool. OAuth, Read-only and Edit grants cannot delete boards. Removed tool names are unavailable; old field arguments fail validation. A completed pre-migration retry key returns terminal `410` rather than replaying an obsolete response. Read [the API reference](api.md) and [upgrade guidance](upgrades.md) for details.
 

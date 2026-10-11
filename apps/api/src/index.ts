@@ -5,11 +5,13 @@ import { migrate } from "../../../packages/database/src/migrate.js";
 import { closeDatabase } from "../../../packages/database/src/index.js";
 import { app } from "./app.js";
 import { startEmailWorker } from "./auth/email-outbox.js";
+import { startAttachmentCleanup } from "./attachments/cleanup.js";
 
 const configuration = validateConfiguration();
 await migrate();
 await reportInstallationSetupSecret();
 const stopEmailWorker = startEmailWorker();
+const stopAttachmentCleanup = startAttachmentCleanup();
 const server = serve(
   { fetch: app.fetch, port: configuration.PORT, hostname: "0.0.0.0" },
   (info) =>
@@ -21,6 +23,7 @@ for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () =>
     server.close(async () => {
       await stopEmailWorker();
+      await stopAttachmentCleanup();
       await closeDatabase();
       process.exit(0);
     }),

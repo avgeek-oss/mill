@@ -9,7 +9,7 @@ test("curated installed guides retain commands, resolve every local link and exc
   const guides = await renderGuides({
     stylesheets: ["assets/index-guide.css"],
   });
-  assert.equal(guides.size, 15);
+  assert.equal(guides.size, 16);
   assert.ok(
     guides
       .get("guides/installation.html")
@@ -24,6 +24,13 @@ test("curated installed guides retain commands, resolve every local link and exc
       .includes("tools/with-package-token.mjs"),
   );
   assert.ok(guides.get("guides/clients.html").includes("/mcp"));
+  assert.ok(guides.get("guides/task-attachments.html").includes("20 MiB"));
+  assert.ok(
+    guides
+      .get("guides/configuration.html")
+      .includes('href="/guides/task-attachments.html"'),
+  );
+
   assert.ok(guides.get("guides/backup.html").includes("tools/backup.sh"));
   assert.ok(
     guides.get("guides/operations.html").includes('id="account-recovery"'),
@@ -41,7 +48,13 @@ test("curated installed guides retain commands, resolve every local link and exc
       assert.ok(guides.has(match[1].slice(1)), `${file}: ${match[1]}`);
     assert.doesNotMatch(html, /href="(?!https?:\/\/)[^"#]*\.md(?:#|")/);
     assert.doesNotMatch(html, /\/Users\/|node_modules\//);
-    for (const name of ["DATABASE_URL", "MILL_SECRET", "POSTGRES_PASSWORD"])
+    for (const name of [
+      "DATABASE_URL",
+      "MILL_SECRET",
+      "POSTGRES_PASSWORD",
+      "MILL_S3_ACCESS_KEY_ID",
+      "MILL_S3_SECRET_ACCESS_KEY",
+    ])
       if (process.env[name])
         assert.equal(
           html.includes(process.env[name]),
@@ -99,7 +112,7 @@ test("build plugin emits static guides using actual CSS assets and rejects a sty
       script: { type: "chunk", fileName: "assets/index-built.js" },
     },
   );
-  assert.equal(emitted.length, 15);
+  assert.equal(emitted.length, 16);
   assert.ok(emitted.every((asset) => asset.type === "asset"));
   assert.ok(
     emitted

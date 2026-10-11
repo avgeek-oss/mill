@@ -12,6 +12,7 @@ const entries = [
     "authentication",
     "backup",
     "configuration",
+    "task-attachments",
     "getting-started",
     "installation",
     "package-registry",

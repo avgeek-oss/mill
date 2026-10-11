@@ -22,6 +22,8 @@ health:
 secrets:
   runtime:
     - MILL_API_URL
+    # Optional task attachments: uncomment after configuring runtime values.
+    # - MILL_S3_ENDPOINT
 domains:
   primary: mill.avgeek.ltd
 tls:

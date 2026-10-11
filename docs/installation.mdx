@@ -111,7 +111,7 @@ Images read runtime environment variables directly. Keep the API and UI at the s
 | API     | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_WEB_URL`, `MILL_API_URL`. Port `4321`. |
 | UI      | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` (the same public API origin). Port `4322`.                   |
 
-Optional email settings are covered in [configuration](/configuration).
+Optional email and [task attachment storage](/configuration#optional-task-attachments) settings are covered in configuration. Attachments need a private S3-compatible bucket and the five `MILL_S3_*` settings described there. Supply the endpoint, bucket and credentials to the API; supply only the same public `MILL_S3_ENDPOINT` to the UI. The packaged Compose file forwards these optional settings. Keep them unset to install without attachments.
 
 ## Optional: pin images by digest
 

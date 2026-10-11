@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { TASK_STATUSES } from "../../../../packages/contracts/src/index.js";
 import { taskFields as domainTaskFields } from "../domain/helpers.js";
+import { attachmentUploadSchema } from "../attachments/routes.js";
 export type Tool = {
   name: string;
   description: string;
@@ -62,6 +63,53 @@ function tool(
   };
 }
 export const tools: Tool[] = [
+  tool(
+    "get_attachment_config",
+    "Check whether optional private image/PDF attachments are enabled, and read accepted file types and size limit.",
+    "GET",
+    "/api/attachments/config",
+    {},
+  ),
+  tool(
+    "list_attachments",
+    "List completed attachments for a task, newest first. Use nextCursor to continue.",
+    "GET",
+    "/api/tasks/:taskId/attachments",
+    {
+      ...task,
+      limit: z.number().int().min(1).max(100).optional(),
+      cursor: z.string().max(500).optional(),
+    },
+  ),
+  tool(
+    "create_attachment_upload",
+    "Reserve an image/PDF attachment and obtain a short-lived private PUT URL. Upload file bytes directly to uploadUrl using the returned headers, then call complete_attachment. Treat URLs as temporary credentials; do not log them.",
+    "POST",
+    "/api/tasks/:taskId/attachments/uploads",
+    { ...task, ...attachmentUploadSchema.shape, ...retry },
+  ),
+  tool(
+    "complete_attachment",
+    "Verify the uploaded image/PDF and attach it to the task. Invalid bytes, size or type are rejected; reuse idempotencyKey on retries.",
+    "POST",
+    "/api/tasks/:taskId/attachments/:attachmentId/complete",
+    { ...task, attachmentId: id, ...retry },
+  ),
+  tool(
+    "get_attachment_download",
+    "Obtain a short-lived private GET URL for an attachment. preview:true returns an inline image/PDF. Do not log returned URLs.",
+    "GET",
+    "/api/tasks/:taskId/attachments/:attachmentId/download",
+    { ...task, attachmentId: id, preview: z.boolean().optional() },
+  ),
+  tool(
+    "delete_attachment",
+    "Remove a task attachment and queue its private file for permanent deletion. Confirm with the user before deleting their work.",
+    "DELETE",
+    "/api/tasks/:taskId/attachments/:attachmentId",
+    { ...task, attachmentId: id, ...retry },
+    { destructive: true },
+  ),
   tool(
     "list_boards",
     "List accessible boards alphabetically. Results are bounded; use returned pagination cursor when present.",

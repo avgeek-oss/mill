@@ -16,6 +16,11 @@ services:
       MILL_SMTP_USER: ${MILL_SMTP_USER:-}
       MILL_SMTP_PASSWORD: ${MILL_SMTP_PASSWORD:-}
       MILL_SMTP_FROM: ${MILL_SMTP_FROM:-}
+      MILL_S3_ENDPOINT: ${MILL_S3_ENDPOINT:-}
+      MILL_S3_REGION: ${MILL_S3_REGION:-auto}
+      MILL_S3_BUCKET: ${MILL_S3_BUCKET:-}
+      MILL_S3_ACCESS_KEY_ID: ${MILL_S3_ACCESS_KEY_ID:-}
+      MILL_S3_SECRET_ACCESS_KEY: ${MILL_S3_SECRET_ACCESS_KEY:-}
     ports:
       - "127.0.0.1:4321:4321"
     read_only: true
@@ -33,6 +38,7 @@ services:
       NODE_ENV: production
       PORT: 4322
       MILL_API_URL: ${MILL_API_URL:?set MILL_API_URL}
+      MILL_S3_ENDPOINT: ${MILL_S3_ENDPOINT:-}
     ports:
       - "127.0.0.1:4322:4322"
     read_only: true

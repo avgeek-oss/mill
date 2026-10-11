@@ -30,6 +30,44 @@ Remote access requires HTTPS. Local HTTP OAuth is permitted automatically only f
 
 The UI origin is used for passkeys and account links; the API origin is used for the session cookie, OAuth issuer and MCP resource. Both must be set before people register passkeys or connect clients. A UI-origin change can invalidate passkey origin checks; read [operations](/operations) before changing an established installation's URL.
 
+## Optional: task attachments
+
+Task attachments require a private S3-compatible bucket, such as Cloudflare R2. Leave the storage settings unset to use Mill without attachments; the task page hides the Attachments tab. PostgreSQL, API and UI remain the only required services.
+
+Set these values on the API:
+
+| Variable                    | Purpose                                                                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `MILL_S3_ENDPOINT`          | HTTPS S3 endpoint reachable by both the API and users' browsers. For R2, use `https://<account-id>.r2.cloudflarestorage.com`. |
+| `MILL_S3_BUCKET`            | Private bucket for this installation's attachments.                                                                           |
+| `MILL_S3_ACCESS_KEY_ID`     | Access key restricted to that bucket.                                                                                         |
+| `MILL_S3_SECRET_ACCESS_KEY` | Corresponding secret access key.                                                                                              |
+| `MILL_S3_REGION`            | Signing region; defaults to `auto` for R2. Use your provider's region when required.                                          |
+
+The endpoint, bucket and both credential values must be configured together. Partial configuration prevents API startup. Mill uses path-style S3 requests. Configure the same `MILL_S3_ENDPOINT` on the UI service so its browser content policy allows direct uploads and previews at that origin. The UI receives the endpoint only, never storage credentials or the bucket secret.
+
+Set a bucket lifecycle rule to expire temporary objects under `mill/uploads/` after one day. Completed attachments live under `mill/objects/`; never apply that expiration rule to completed objects or the whole bucket.
+
+Grant the API credential object read, write and delete access to this bucket. Keep public bucket access disabled. Users upload through short-lived signed URLs; downloads and previews require Mill authorization before another signed URL is issued. A signed URL grants access to its object until it expires, so treat it as private.
+
+Configure bucket CORS with the exact `MILL_WEB_URL` origin. For example:
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://tasks.example.com"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["Content-Type", "Content-Length"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Use `http://localhost:4322` only for a local installation. Avoid wildcard origins. The S3 endpoint must be accessible outside the API container; an internal Docker hostname cannot accept browser uploads. Remote installations require HTTPS. Recreate the API and UI after changing these settings.
+
+Mill accepts PNG, JPEG, WebP, GIF and PDF files up to 20 MiB each. The API checks the stored size, declared MIME type and file signature before publishing an attachment. SVG and other file types are unsupported. [Task attachments](/task-attachments) explains upload and preview behavior; [backup and recovery](/backup) covers the bucket alongside PostgreSQL.
+
 ## Notifications
 
 Mill v1 uses in-app assignment and mention notifications; task email notifications are excluded. Identity and invitation email is optional. Configure `MILL_SMTP_HOST` and `MILL_SMTP_FROM` together to enable verification links, email changes, password reset links, and invitation email verification. `MILL_SMTP_FROM` accepts an email address or `Sender name <email@example.com>`. Bare addresses use Mill as the sender name; an explicit name is preserved. `MILL_SMTP_PORT` defaults to 587; `MILL_SMTP_SECURE=false` requires STARTTLS for remote hosts, while `true` uses implicit TLS (usually port 465). Configure `MILL_SMTP_USER` and `MILL_SMTP_PASSWORD` together when authentication is required. Certificate validation stays enabled; only exact loopback SMTP hosts may use a plaintext development fixture.

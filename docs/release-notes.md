@@ -2,6 +2,10 @@
 
 The proposed tag is `v1.0.1`; no release image or GitHub release exists until publication completes. These notes describe the candidate's product and migration behavior. Acceptance depends on exact-commit source and production CI, manual UI review, upgrade and restore evidence, and independent review of the release artifacts. Mill is intended for public source and image distribution.
 
+## Unreleased: task attachments
+
+The development branch adds optional image/PDF attachments using private S3-compatible storage. Members and administrators can upload, preview, download and delete files; viewers can read them. Files are limited to 20 MiB, and completion verifies their stored bytes before exposing them. PostgreSQL retains metadata and a durable cleanup queue; the bucket retains completed files. These changes need a future matching API/UI release and do not alter an existing installation until it is upgraded and configured. See [task attachments](task-attachments.md) and [storage configuration](configuration.md#optional-task-attachments).
+
 ## Task lists
 
 Tasks have no checklist or comment-editing feature. The initial schema contains only the supported v1 model.

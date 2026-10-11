@@ -130,6 +130,27 @@ curl --fail-with-body "$MILL_URL/api/tasks/TASK_UUID" \
   --data '{"version":3,"status":"in_review","priority":"urgent"}'
 ```
 
+## Attachments
+
+These endpoints require an authenticated browser session or REST API key. Reads follow task access; uploads, completion and deletion require Member/Admin access or an Edit grant. A Read-only key can list and download attachments. Partial S3 configuration prevents startup; with storage unset, config returns `enabled:false` and attachment operations are unavailable.
+
+| Method and path                                              | Request                                    | Response                                         |
+| ------------------------------------------------------------ | ------------------------------------------ | ------------------------------------------------ |
+| `GET /api/attachments/config`                                | None                                       | `{enabled,maxBytes,contentTypes}`                |
+| `POST /api/tasks/:taskId/attachments/uploads`                | `{fileName,contentType,sizeBytes,sha256?}` | `201 {attachmentId,uploadUrl,headers,expiresAt}` |
+| `POST /api/tasks/:taskId/attachments/:attachmentId/complete` | No fields                                  | `{attachment}`                                   |
+| `GET /api/tasks/:taskId/attachments`                         | `limit` (1–100), `cursor`                  | `{items,hasMore,nextCursor}`                     |
+| `GET /api/tasks/:taskId/attachments/:attachmentId/download`  | Optional `preview=true`                    | `{url,expiresAt}`                                |
+| `DELETE /api/tasks/:taskId/attachments/:attachmentId`        | No fields                                  | `{ok:true}`                                      |
+
+`maxBytes` is `20971520` (20 MiB). `contentTypes` permits `image/png`, `image/jpeg`, `image/webp`, `image/gif` and `application/pdf`. SVG is unsupported. Optional `sha256` is the file's 64-character hexadecimal SHA-256 digest. Completed metadata contains `id`, `taskId`, `fileName`, `contentType`, `sizeBytes`, `createdBy` and `createdAt`; it does not contain permanent public file URLs.
+
+Create an upload, PUT the file bytes to the returned `uploadUrl`, then complete it. Signed PUT URLs expire after five minutes. The returned headers contain `Content-Type` and `Content-Length`. A browser sets Content-Type and lets the browser derive Content-Length from the File body; it cannot set that header manually. Command-line clients can send both. Never send a Mill cookie or API key to the S3 endpoint.
+
+Completion checks stored byte length, MIME type and detected image/PDF signature, plus the hash when provided. Mill copies the verified bytes to a separate final object so a reused temporary upload URL cannot change a completed attachment. Listing exposes completed files only. A failed completion leaves the file unavailable; correct the file and create a new upload.
+
+Download URLs also expire after five minutes. The default is an attachment download; `preview=true` requests an inline preview. Every URL request rechecks task access. An already issued URL remains usable until expiry. Deletion removes the record and queues object cleanup, with durable retries; task and board deletion queue their attachment objects too. Signed URLs are private capabilities and should not be logged or treated as permanent links.
+
 ## Comments, mentions, and activity
 
 | Method and path                | Request              | Response                                   |
@@ -173,7 +194,7 @@ A retained completed retry key from before migration returns terminal `410`, inc
 
 All four creation fields are required. `name` is trimmed, nonempty, and at most 120 characters; `access` is `read` or `edit`; `includeAdmin` is a boolean. The three UI choices map to `{access:"read",includeAdmin:false}` (Read-only), `{access:"edit",includeAdmin:false}` (Edit), and `{access:"edit",includeAdmin:true}` (Administrative permissions). `expiresAt` is a future timestamp or `null` for Never; Never requires an Admin issuer, with any of the three permission choices. The UI offers 30 days, 90 days, 1 year, and Never, with no preselected value. `expiresInDays`, `agentId`, `scopes`, and `boardIds` are rejected. The token is revealed once; later responses contain metadata without tokens or hashes.
 
-Personal keys belong to their owner, require current active membership, and apply the stored grant within the current role. Demotion permanently narrows the stored grant; promotion does not restore it. Team keys have `userId:null` and a stored team grant independent of the creator's future membership. Team-key creation/list/revocation is Admin-only. Both key types can use REST and MCP, and neither can use browser-only identity, membership, security, or credential-management routes. The personal listing also includes the owner's OAuth connections with their scopes and approved-board metadata. Revoked credentials are excluded before pagination; expired credentials remain listed until revoked. Neither credential type has Agent fields.
+Personal keys belong to their owner, require current active membership, and apply the stored grant within the current role. Demotion permanently narrows the stored grant; promotion does not restore it. Team keys have `userId:null` and a stored team grant independent of the creator's future membership. Team-key creation/list/revocation is Admin-only. Both key types can use REST only, and neither can use browser-only identity, membership, security, or credential-management routes. The personal listing also includes the owner's OAuth connections with their scopes and approved-board metadata. Revoked credentials are excluded before pagination; expired credentials remain listed until revoked. Neither credential type has Agent fields.
 
 Team-key comments identify a team author in responses, with `authorKind:"team"`, a team-key name, and `authorId:null`; the creator's ID is retained only as a database reference. Edit team keys may remove team-authored comments, but cannot remove a person's comment through creator ownership. Team-key assignments and mentions notify the creator if they are a recipient. Activity attributes the action to the team key.
 
