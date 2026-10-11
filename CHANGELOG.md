@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.4 (2026-10-11)
+
+- Use the shared MCP consent form with user-selected Read-only, Write or Administrator access, without a board selector.
+- Revoke MCP connections and pending approvals after any membership role change; existing board restrictions remain enforced until revocation.
+- Upgrade the shared design system to 1.2.15 and keep API and UI images on version 1.0.4.
+
 ## 1.0.3 (2026-10-11)
 
 - Support Codex OAuth client metadata and dynamic registration, including variable loopback callback ports with exact callback binding and PKCE.
