@@ -33,7 +33,7 @@
     "test:quick": "node --import tsx --test tests/api-client-errors.test.ts tests/config.test.ts tests/date-time-formatters.test.ts tests/mention-caret.test.ts tests/password-capacity.test.ts tests/time-zone.test.ts"
   },
   "dependencies": {
-    "@avgeek-oss/design-system": "1.2.14",
+    "@avgeek-oss/design-system": "1.2.15",
     "@aws-sdk/client-s3": "3.1149.0",
     "@aws-sdk/s3-request-presigner": "3.1149.0",
     "@hono/node-server": "2.0.11",
