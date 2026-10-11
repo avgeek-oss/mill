@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Add optional private S3-compatible task attachments for images and PDFs, shown below the task description with an upload dialog, verified uploads, previews, downloads and cleanup after deletion.
+- Add optional private S3-compatible task attachments for images and PDFs, shown below the task description with an upload dialog, page-wide drag and drop, verified uploads, previews, downloads and cleanup after deletion.
 
 ## 1.0.1 (release candidate)
 

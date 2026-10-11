@@ -47,7 +47,7 @@ Read the installation setup secret from `docker compose --project-name mill logs
 
 If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation.md#optional-run-postgresql-with-compose). Your existing or managed PostgreSQL instance works directly with the default Compose file.
 
-Images and PDFs appear below the task description. **Upload attachment** opens a dialog with a file chooser and drop area. To enable this, configure optional private S3-compatible storage through [configuration](docs/configuration.md#optional-task-attachments). Ordinary task management works without a bucket.
+Images and PDFs appear below the task description. **Upload attachment** opens a dialog with a file chooser and drop area. Dropping a file onto the task page also opens the dialog and starts uploading. To enable this, configure optional private S3-compatible storage through [configuration](docs/configuration.md#optional-task-attachments). Ordinary task management works without a bucket.
 
 Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 

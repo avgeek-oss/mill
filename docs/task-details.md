@@ -22,7 +22,7 @@ Switch to **Activity** to see task changes and comment actions in time order. Ea
 
 ## Attach files
 
-When your operator configures private S3 storage, uploaded images and PDFs appear directly below the task description. Choose the secondary **Upload attachment** button there to open a dialog with the shared file chooser and drop area. Comments and Activity remain tabs. Members and administrators can upload or delete attachments; viewers can read and download them. See [task attachments](task-attachments.md) for limits and supported formats.
+When your operator configures private S3 storage, uploaded images and PDFs appear directly below the task description. Choose the secondary **Upload attachment** button there to open a dialog with the shared file chooser and drop area. You can also drag a file onto the task page to open the dialog and start uploading. Comments and Activity remain tabs. Members and administrators can upload or delete attachments; viewers can read and download them. See [task attachments](task-attachments.md) for limits and supported formats.
 
 ## Delete a task
 

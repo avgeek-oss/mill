@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Delete02Icon,
@@ -38,6 +39,7 @@ import {
   isResponseObject,
   type User,
 } from "./api.js";
+import { listenForAttachmentDrops } from "./attachment-drop.js";
 import { QueryFeedback } from "./query-feedback.js";
 import { RelativeDateTime } from "./relative-date-time.js";
 import { useSettingsMutation } from "./use-settings-mutation.js";
@@ -235,6 +237,9 @@ function TaskAttachments({
   const [error, setError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
+  const [droppedFile, setDroppedFile] = useState<File | undefined>();
+  const [dropRevision, setDropRevision] = useState(0);
+  const [dragging, setDragging] = useState(false);
   const [deleting, setDeleting] = useState<Attachment | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -301,6 +306,27 @@ function TaskAttachments({
   useEffect(() => {
     void load();
   }, [load, sessionRevision]);
+
+  useEffect(
+    () =>
+      listenForAttachmentDrops(window, {
+        canDrop: () =>
+          writable &&
+          !loading &&
+          !busy &&
+          !uploadOpen &&
+          !uploadBusy &&
+          !document.querySelector('[role="dialog"], [role="alertdialog"]'),
+        onDragging: setDragging,
+        onError: (message) => toast.danger(message),
+        onFile: (file) => {
+          setDroppedFile(file);
+          setDropRevision((value) => value + 1);
+          setUploadOpen(true);
+        },
+      }),
+    [writable, loading, busy, uploadOpen, uploadBusy],
+  );
 
   async function upload(file: File) {
     if (!writable)
@@ -407,6 +433,7 @@ function TaskAttachments({
           ],
         }));
         setUploadOpen(false);
+        setDroppedFile(undefined);
         toast.success("Attachment uploaded.");
         onChange();
       });
@@ -510,12 +537,25 @@ function TaskAttachments({
   }
   return (
     <div className="grid min-w-0 gap-4" aria-busy={loading}>
+      {dragging &&
+        writable &&
+        createPortal(
+          <div className="pointer-events-none fixed inset-4 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-surface/95">
+            <TypographyParagraph className="text-sm font-medium text-accent">
+              Drop an image or PDF to attach it to this task
+            </TypographyParagraph>
+          </div>,
+          document.body,
+        )}
       {writable && (
         <Button
           variant="secondary"
           className="w-fit"
           isDisabled={loading || busy}
-          onPress={() => setUploadOpen(true)}
+          onPress={() => {
+            setDroppedFile(undefined);
+            setUploadOpen(true);
+          }}
         >
           Upload attachment
         </Button>
@@ -609,6 +649,7 @@ function TaskAttachments({
           if (uploadBusy) return;
           setUploadOpen(open);
           if (!open) {
+            setDroppedFile(undefined);
             uploadJob.current = null;
             uploadFile.current = null;
             uploadKey.reset();
@@ -628,6 +669,8 @@ function TaskAttachments({
               </Modal.Header>
               <Modal.Body>
                 <FileUpload
+                  key={droppedFile ? `drop-${dropRevision}` : "chooser"}
+                  initialFile={droppedFile}
                   label="Choose file"
                   accept={configuration.contentTypes.join(",")}
                   maxSizeBytes={configuration.maxBytes}
