@@ -752,8 +752,9 @@ function TaskAttachments({
               </Modal.Header>
               <Modal.Body>
                 <TypographyParagraph className="text-sm">
-                  Permanently delete {deleting?.fileName} from this task? This
-                  cannot be undone.
+                  Permanently delete{" "}
+                  <span className="font-medium">{deleting?.fileName}</span> from
+                  this task? This cannot be undone.
                 </TypographyParagraph>
                 <QueryFeedback message={deleteError} />
               </Modal.Body>
