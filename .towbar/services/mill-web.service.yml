@@ -3,7 +3,7 @@ id: mill-web
 name: Mill UI
 deployment:
   type: image
-  image: ghcr.io/avgeek-oss/mill-web:1.0.2
+  image: ghcr.io/avgeek-oss/mill-web:1.0.3
 autoDeploy: false
 rollout:
   type: recreate

@@ -1,6 +1,6 @@
-# Mill 1.0.2
+# Mill 1.0.3
 
-Mill 1.0.2 adds private task attachments and adopts the shared upload control from design system 1.2.14. API and UI images use the same version. Use the public image references in the release’s `mill-images.json` for installation or upgrades.
+Mill 1.0.3 supports Codex OAuth client registration and variable loopback callback ports. Administrator MCP connections require explicit consent and remain bounded by the account’s current team role. API and UI images use the same version. Use the public image references in the release’s `mill-images.json` for installation or upgrades.
 
 ## Task attachments
 
