@@ -9,7 +9,7 @@ Use this checklist for the exact revision proposed for release. Record results i
 - Verify setup, invitations, sign-in, recovery, passkeys, sessions, profile preferences, and account settings. Check configured email delivery and private-link behavior against the documented capability.
 - Verify Admin, Member, and Viewer permissions, current membership, last-administrator protection, invitation authority, and session or credential revocation during concurrent requests.
 - Verify board and task creation, field updates, comments, notifications, deletion, search, filters, sorting, pagination, and URL restoration. Check concurrency, version conflicts, and idempotent retries without losing drafts or attribution.
-- Exercise REST and MCP with actual clients. Check OAuth/PKCE, scopes, approved boards, expiry, and revocation. Preserve the distinction between browser sessions, personal REST keys, and human-owned MCP connections.
+- Exercise REST and MCP with actual clients. Check OAuth/PKCE, scopes, current role and board access, legacy restricted grants, expiry, and revocation. Preserve the distinction between browser sessions, personal REST keys, and human-owned MCP connections.
 - Check shared component reuse, accessible names, focus restoration, reduced motion, bounded popovers, and readable light/dark contrast. Keep success and error feedback in toast alerts.
 
 ## Installation and data preservation

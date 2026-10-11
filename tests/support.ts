@@ -77,6 +77,7 @@ export async function setupOAuth(
   cookie: string,
   input: {
     scopes?: ("read" | "write")[];
+    accessLevel?: "read" | "write" | "admin";
     boardIds?: string[];
     idempotencyKey?: string;
   } = {},
@@ -124,11 +125,21 @@ export async function setupOAuth(
       : {}),
     body: {
       allow: true,
-      ...(input.boardIds ? { boardIds: input.boardIds } : {}),
+      accessLevel:
+        input.accessLevel ??
+        (input.scopes?.includes("write") === false ? "read" : "write"),
     },
   });
   if (!approval.ok)
     throw new Error(`OAuth approval failed: ${approval.status}`);
+  if (input.boardIds) {
+    const existing =
+      await sql`SELECT id FROM boards WHERE id=ANY(${input.boardIds}::uuid[])`;
+    if (existing.length !== input.boardIds.length)
+      throw new Error("Legacy OAuth grant references an unknown board");
+    // Simulate a grant approved before board selection was removed.
+    await sql`UPDATE oauth_requests SET board_ids=${input.boardIds} WHERE id=${requestId}`;
+  }
   const callback = new URL(
     ((await approval.json()) as { redirectTo: string }).redirectTo,
   );

@@ -43,6 +43,16 @@ const permissionMigrationSource = await readFile(
 const permissionMigrationChecksum = createHash("sha256")
   .update(permissionMigrationSource)
   .digest("hex");
+const reauthorizationSource = await readFile(
+  new URL(
+    "../packages/database/migrations/005_oauth_role_change_reauthorization.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const reauthorizationChecksum = createHash("sha256")
+  .update(reauthorizationSource)
+  .digest("hex");
 function runMigration(schema: string, directory?: string) {
   return new Promise<{ code: number | null; output: string }>(
     (resolve, reject) => {
@@ -101,6 +111,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       "002_key_policies.sql",
       "003_task_attachments.sql",
       "004_oauth_admin_consent.sql",
+      "005_oauth_role_change_reauthorization.sql",
     ],
   );
   const schema = `baseline_${randomUUID().replaceAll("-", "")}`;
@@ -123,6 +134,10 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
           {
             name: "004_oauth_admin_consent.sql",
             checksum: permissionMigrationChecksum,
+          },
+          {
+            name: "005_oauth_role_change_reauthorization.sql",
+            checksum: reauthorizationChecksum,
           },
         ],
       );
@@ -177,6 +192,10 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       join(directory, "004_oauth_admin_consent.sql"),
       permissionMigrationSource,
     );
+    await writeFile(
+      join(directory, "005_oauth_role_change_reauthorization.sql"),
+      reauthorizationSource,
+    );
     const changed = await runMigration(schema, directory);
     assert.equal(changed.code, 1);
     assert.match(changed.output, /Migration changed: 001_initial.sql/);
@@ -188,6 +207,104 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       assert.equal(
         (await tx`SELECT checksum FROM mill_migrations`)[0].checksum,
         checksum,
+      );
+    });
+  } finally {
+    await sql.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("forward OAuth migration preserves restricted tokens and invalidates unsnapshotted codes", async () => {
+  const schema = `oauth_upgrade_${randomUUID().replaceAll("-", "")}`;
+  const directory = await mkdtemp(join(tmpdir(), "mill-oauth-upgrade-"));
+  const ownerId = randomUUID();
+  const otherOwnerId = randomUUID();
+  const boardId = randomUUID();
+  const credentialId = randomUUID();
+  const otherCredentialId = randomUUID();
+  const approvedId = randomUUID();
+  const pendingId = randomUUID();
+  await sql.unsafe(`CREATE SCHEMA "${schema}"`);
+  try {
+    for (const [name, content] of [
+      ["001_initial.sql", source],
+      ["002_key_policies.sql", policySource],
+      ["003_task_attachments.sql", attachmentSource],
+      ["004_oauth_admin_consent.sql", permissionMigrationSource],
+    ])
+      await writeFile(join(directory, name), content);
+    assert.equal((await runMigration(schema, directory)).code, 0);
+    await inSchema(schema, async (tx) => {
+      const workspaceId = randomUUID();
+      await tx`INSERT INTO workspace(id,name) VALUES(${workspaceId},'Upgrade workspace')`;
+      await tx`INSERT INTO users(id,workspace_id,name,email,password_hash,role) VALUES(${ownerId},${workspaceId},'Owner','owner@example.test','hash','admin')`;
+      await tx`INSERT INTO users(id,workspace_id,name,email,password_hash,role) VALUES(${otherOwnerId},${workspaceId},'Other owner','other@example.test','hash','admin')`;
+      await tx`INSERT INTO boards(id,workspace_id,name,prefix) VALUES(${boardId},${workspaceId},'Limited board','LIMIT')`;
+      await tx`INSERT INTO credentials(id,user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${credentialId},${ownerId},${ownerId},'Old client','old-token','prefix',ARRAY['read','write'],ARRAY[${boardId}::uuid],'oauth','client','https://example.test/mcp',now()+interval '1 day','edit',false)`;
+      await tx`INSERT INTO credentials(id,user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${otherCredentialId},${otherOwnerId},${otherOwnerId},'Other client','other-token','prefix',ARRAY['read'],NULL,'oauth','other-client','https://example.test/mcp',now()+interval '1 day','read',false)`;
+      await tx`INSERT INTO oauth_requests(id,client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,board_ids,code_hash,expires_at) VALUES(${approvedId},'client','Old client','unverified','https://example.test/callback','https://example.test/mcp','read write','challenge',${ownerId},ARRAY[${boardId}::uuid],'old-code',now()+interval '1 day')`;
+      await tx`INSERT INTO oauth_requests(id,client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,expires_at) VALUES(${pendingId},'client','Old client','unverified','https://example.test/callback','https://example.test/mcp','read','challenge',now()+interval '1 day')`;
+    });
+    await writeFile(
+      join(directory, "005_oauth_role_change_reauthorization.sql"),
+      reauthorizationSource,
+    );
+    const upgraded = await runMigration(schema, directory);
+    assert.equal(upgraded.code, 0, upgraded.output);
+    await inSchema(schema, async (tx) => {
+      const [credential] =
+        await tx`SELECT board_ids,revoked_at FROM credentials WHERE id=${credentialId}`;
+      assert.deepEqual(credential.boardIds, [boardId]);
+      assert.equal(credential.revokedAt, null);
+      const requests =
+        await tx`SELECT id,board_ids,consumed_at,expires_at FROM oauth_requests WHERE id IN (${approvedId},${pendingId})`;
+      assert.deepEqual(
+        requests.find((entry) => entry.id === approvedId)?.boardIds,
+        [boardId],
+      );
+      assert.ok(requests.find((entry) => entry.id === approvedId)?.consumedAt);
+      assert.equal(
+        requests.find((entry) => entry.id === pendingId)?.consumedAt,
+        null,
+      );
+      assert.ok(
+        requests.find((entry) => entry.id === approvedId)!.expiresAt <=
+          new Date(),
+      );
+      assert.ok(
+        requests.find((entry) => entry.id === pendingId)!.expiresAt >
+          new Date(),
+      );
+      await tx`UPDATE users SET role='member' WHERE id=${ownerId}`;
+      assert.ok(
+        (
+          await tx`SELECT revoked_at FROM credentials WHERE id=${credentialId}`
+        )[0]?.revokedAt,
+      );
+      assert.equal(
+        (
+          await tx`SELECT revoked_at FROM credentials WHERE id=${otherCredentialId}`
+        )[0]?.revokedAt,
+        null,
+      );
+      assert.deepEqual(
+        (await tx`SELECT name,checksum FROM mill_migrations ORDER BY name`).map(
+          ({ name, checksum }) => ({ name, checksum }),
+        ),
+        [
+          { name: "001_initial.sql", checksum },
+          { name: "002_key_policies.sql", checksum: policyChecksum },
+          { name: "003_task_attachments.sql", checksum: attachmentChecksum },
+          {
+            name: "004_oauth_admin_consent.sql",
+            checksum: permissionMigrationChecksum,
+          },
+          {
+            name: "005_oauth_role_change_reauthorization.sql",
+            checksum: reauthorizationChecksum,
+          },
+        ],
       );
     });
   } finally {

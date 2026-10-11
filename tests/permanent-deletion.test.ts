@@ -434,9 +434,11 @@ test("deleting a board removes pending OAuth grants and narrows issued OAuth cre
     const consent = await json(
       await request(`/api/oauth/consent/${id}`, {
         cookie,
-        body: { allow: true, boardIds },
+        body: { allow: true, accessLevel: "read" },
       }),
     );
+    // Represent an existing board-restricted grant awaiting token exchange.
+    await sql`UPDATE oauth_requests SET board_ids=${boardIds} WHERE id=${id}`;
     return {
       id,
       verifier,

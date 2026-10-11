@@ -1,6 +1,6 @@
 # REST API
 
-Mill serves JSON under `/api`, remote MCP at `/mcp`, and OAuth endpoints on the public API origin configured by `MILL_API_URL`. REST and MCP share domain validation, transactions, versions, retry behavior, and current-role checks. Personal REST keys use the human owner's accessible boards; MCP OAuth additionally enforces scopes and optional approved boards.
+Mill serves JSON under `/api`, remote MCP at `/mcp`, and OAuth endpoints on the public API origin configured by `MILL_API_URL`. REST and MCP share domain validation, transactions, versions, retry behavior, and current-role checks. Personal REST keys use the human owner's accessible boards; MCP OAuth additionally enforces granted scopes and any older stored board limits.
 
 Start with [REST and MCP clients](clients.md) for connections, [accounts and team access](authentication.md) for human routes, or [access security](authentication.md#external-credential-boundaries) for authorization boundaries.
 
@@ -41,9 +41,9 @@ An expired identity-confirmation window returns `403 REAUTHENTICATION_REQUIRED`;
 
 ## Permissions
 
-Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Admin browser sessions can also permanently delete boards and manage membership/workspace settings. An Administrative personal or team API key can perform permitted domain administration, including board deletion, but cannot manage people or security. Every active member can access workspace boards. Personal API keys are bounded by current access and their stored grant. Team keys use their stored team grant. OAuth connections can narrow access to approved boards and read or read/write scope.
+Viewers read work, comments, and task history. Members also create/change boards and tasks, comment, and permanently delete tasks. Admin browser sessions can also permanently delete boards and manage membership/workspace settings. An Administrative personal or team API key can perform permitted domain administration, including board deletion, but cannot manage people or security. Every active member can access workspace boards. Personal API keys are bounded by current access and their stored grant. Team keys use their stored team grant. OAuth connections use the owner's current board access within approved read, write, or administrative scopes. Older restricted grants retain their board limits.
 
-Personal credentials require the owner's active membership and current role. Team keys use a stored team policy independent of the creator's later membership. Identity, membership, account security, credential management, and consent require a browser session. API keys cannot call any `/api/auth` route, including the team directory. Board-restricted OAuth connections cannot create boards or list members; unscoped OAuth can resolve basic member metadata through MCP. Notifications stay within the owner's account and, for scoped OAuth, approved boards. Authorization is rechecked before a mutation commits.
+Personal credentials require the owner's active membership and current role. Team keys use a stored team policy independent of the creator's later membership. Identity, membership, account security, credential management, and consent require a browser session. API keys cannot call any `/api/auth` route, including the team directory. Older board-restricted OAuth connections cannot create boards or list members; unrestricted OAuth can resolve basic member metadata through MCP. Notifications stay within the owner's account and any older stored board limit. Authorization is rechecked before a mutation commits.
 
 ## Boards
 
@@ -59,7 +59,7 @@ Names are 1–100 characters and descriptions at most 10,000. Custom prefixes ma
 
 Board list items include `backlogCount`, `todoCount`, `inProgressCount` and `activeCount` for all tasks in each board. The first three count only their corresponding statuses. The `activeCount` aggregate counts `todo`, `in_progress` and `in_review`, excluding Backlog and terminal states. Cards show Backlog, To Do and In Progress. These counts are independent of task pagination. Individual board, create and update responses keep their existing fields.
 
-Board deletion permanently removes its tasks, comments, notifications, and task activity. Explicit OAuth board scopes lose that board and are revoked when no approved boards remain. There is no archive, trash, or restore API.
+Board deletion permanently removes its tasks, comments, notifications, and task activity. Older restricted OAuth grants lose that board and are revoked when no approved boards remain. There is no archive, trash, or restore API.
 
 ## Fixed task statuses
 
@@ -160,7 +160,7 @@ Download URLs also expire after five minutes. The default is an attachment downl
 | `DELETE /api/comments/:id`     | `{version}`          | `{ok:true}`                                |
 | `GET /api/tasks/:id/activity`  | `limit`, `cursor`    | `{items,hasMore,nextCursor}`; newest first |
 
-Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. The author or an Admin can delete a comment. An OAuth client can delete its owner's comments within approved boards and write scope, but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human`, `oauth`, or `team`) so readers can distinguish a person from a team key.
+Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. The author or an Admin can delete a comment. An OAuth client can delete its owner's comments within the owner's board access and write scope, but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human`, `oauth`, or `team`) so readers can distinguish a person from a team key.
 
 New activity records also include `detail.connection` with `type` (`session`, `api-key`, or `oauth`) and the originating `requestId`. This distinguishes browser, REST and MCP changes; team-key actions carry a team actor. It contains no tokens or credential values and survives revocation. Historical records without this metadata remain unattributed to a connection type.
 
@@ -204,22 +204,22 @@ Team-key comments identify a team author in responses, with `authorKind:"team"`,
 
 ## OAuth and MCP
 
-| Method and path                                 | Purpose                                                      |
-| ----------------------------------------------- | ------------------------------------------------------------ |
-| `GET /.well-known/oauth-authorization-server`   | Issuer, endpoints, PKCE, client auth, and supported scopes   |
-| `GET /.well-known/oauth-protected-resource/mcp` | MCP resource and authorization server                        |
-| `POST /oauth/register`                          | Public dynamic client registration with JSON client metadata |
-| `GET /oauth/authorize`                          | Code authorization request; redirects to human consent       |
-| `GET /api/oauth/consent/:id`                    | Human session reads requesting client and access             |
-| `POST /api/oauth/consent/:id`                   | Human session; `{allow,boardIds?}`; returns `{redirectTo}`   |
-| `POST /oauth/token`                             | Form-encoded authorization-code exchange                     |
-| `POST /oauth/revoke`                            | Form-encoded RFC 7009 token revocation                       |
-| `POST /mcp`                                     | MCP Streamable HTTP JSON-RPC                                 |
+| Method and path                                 | Purpose                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------- |
+| `GET /.well-known/oauth-authorization-server`   | Issuer, endpoints, PKCE, client auth, and supported scopes    |
+| `GET /.well-known/oauth-protected-resource/mcp` | MCP resource and authorization server                         |
+| `POST /oauth/register`                          | Public dynamic client registration with JSON client metadata  |
+| `GET /oauth/authorize`                          | Code authorization request; redirects to human consent        |
+| `GET /api/oauth/consent/:id`                    | Human session reads requesting client and access              |
+| `POST /api/oauth/consent/:id`                   | Human session; `{allow,accessLevel?}`; returns `{redirectTo}` |
+| `POST /oauth/token`                             | Form-encoded authorization-code exchange                      |
+| `POST /oauth/revoke`                            | Form-encoded RFC 7009 token revocation                        |
+| `POST /mcp`                                     | MCP Streamable HTTP JSON-RPC                                  |
 
 The base protected-resource discovery path is also supported. Registration accepts `client_name`, `redirect_uris`, `token_endpoint_auth_method` (`none`, `client_secret_basic`, `client_secret_post`), `grant_types:["authorization_code"]`, and `response_types:["code"]`. Confidential clients receive a one-time secret; public clients use PKCE without a secret.
 
-Consent details return `clientName`, `clientId`, `clientTrust`, `redirectUri`, `scope`, `expiresIn`, `user:{name,role}`, and `canApprove`. A Viewer cannot approve requested write access. Approval creates a connection owned by that person. Omit `boardIds` to approve all accessible boards or provide 1–100 unique existing board UUIDs to restrict the connection. The server rechecks current membership and role during approval, token exchange and authenticated requests. There is no identity-selection step; `agentId` is rejected.
+Consent details return `clientName`, `clientId`, `clientTrust`, `redirectUri`, the client-requested `scope`, `expiresIn`, `user:{name,role}`, `availableAccessLevels`, and `canApprove`. Approval requires `allow:true` and an `accessLevel` of `read`, `write`, or `admin`; denial requires `allow:false` with no access level. The chosen access level determines the granted scopes independently of the client request and cannot exceed the person's live role. New approvals use the person's current board access. The consent request rejects `boardIds`; older restricted grants keep their stored limits. Reviewing consent binds the request to the person and role. Any role change revokes that person's OAuth connections and pending approvals; token exchange also checks the approval-time role. There is no identity-selection step; `agentId` is rejected.
 
-Authorization needs `response_type=code`, `client_id`, exact `redirect_uri`, `resource`, `scope=read` or `scope=read write`, `code_challenge`, and `code_challenge_method=S256`. `state` is returned unchanged, and `iss` identifies Mill. Token exchange needs `grant_type=authorization_code`, `code`, `code_verifier`, the same `redirect_uri` and `resource`, and the client's declared authentication method. Consent codes expire after two minutes and can be consumed once. Tokens expire after 30 days; refresh-token grants are not supported.
+Authorization needs `response_type=code`, `client_id`, exact `redirect_uri`, `resource`, optional `scope` using read, write, or admin, `code_challenge`, and `code_challenge_method=S256`. The request scope is validated but does not cap or select the person-approved grant. `state` is returned unchanged, and `iss` identifies Mill. Token exchange needs `grant_type=authorization_code`, `code`, `code_verifier`, the same `redirect_uri` and `resource`, and the client's declared authentication method. Consent codes expire after two minutes and can be consumed once. Tokens expire after 30 days; refresh-token grants are not supported.
 
 OAuth errors use `{error,error_description}` with OAuth error names. Unauthenticated MCP responses include the protected-resource metadata URL in `WWW-Authenticate`. A tool outside the credential's access returns `insufficient_scope`. Tool operation failures appear as MCP `isError:true` results and preserve the REST error message. See [client connection steps](clients.md) for the supported workflow and revocation behavior.

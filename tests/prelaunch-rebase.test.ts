@@ -63,6 +63,16 @@ const permissionMigrationSource = await readFile(
 const permissionMigrationChecksum = createHash("sha256")
   .update(permissionMigrationSource)
   .digest("hex");
+const reauthorizationSource = await readFile(
+  new URL(
+    "../packages/database/migrations/005_oauth_role_change_reauthorization.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const reauthorizationChecksum = createHash("sha256")
+  .update(reauthorizationSource)
+  .digest("hex");
 const previousBaseline = baseline
   .replace(
     "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
@@ -255,15 +265,20 @@ test("prelaunch conversion accepts the real historical retry-column order, prese
     );
     assert.deepEqual(
       (
-        await sql`SELECT board_ids,scopes,revoked_at FROM credentials WHERE id=${personalCredential}`
+        await sql`SELECT board_ids,scopes FROM credentials WHERE id=${personalCredential}`
       )[0],
-      { board_ids: null, scopes: ["read"], revoked_at: null },
+      { board_ids: null, scopes: ["read"] },
     );
     assert.deepEqual(
       (
-        await sql`SELECT board_ids,scopes,revoked_at FROM credentials WHERE id=${teamCredential}`
+        await sql`SELECT board_ids,scopes FROM credentials WHERE id=${teamCredential}`
       )[0],
-      { board_ids: [ids.board], scopes: ["read"], revoked_at: null },
+      { board_ids: [ids.board], scopes: ["read"] },
+    );
+    assert.ok(
+      (
+        await sql`SELECT revoked_at FROM credentials WHERE id IN (${personalCredential},${teamCredential})`
+      ).every((credential) => credential.revoked_at === null),
     );
     assert.deepEqual(
       (
@@ -282,10 +297,9 @@ test("prelaunch conversion accepts the real historical retry-column order, prese
       )[0].revoked_at.toISOString(),
       "2026-01-01T00:00:00.000Z",
     );
-    assert.equal(
+    assert.ok(
       (await sql`SELECT consumed_at FROM oauth_requests WHERE id=${request}`)[0]
         .consumed_at,
-      null,
     );
     assert.ok(
       (
@@ -658,10 +672,19 @@ for (const source of [
       assert.deepEqual(
         (await sql`SELECT * FROM credentials`).map((row) =>
           Object.fromEntries(
-            Object.keys(credentials[0] ?? row).map((key) => [key, row[key]]),
+            Object.keys(credentials[0] ?? row)
+              .filter((key) => key !== "revoked_at")
+              .map((key) => [key, row[key]]),
           ),
         ),
-        credentials,
+        credentials.map(
+          ({ revoked_at: _revokedAt, ...credential }) => credential,
+        ),
+      );
+      assert.ok(
+        (
+          await sql`SELECT revoked_at FROM credentials WHERE token_type='oauth'`
+        ).every((credential) => credential.revoked_at === null),
       );
       assert.deepEqual([...(await sql`SELECT * FROM activity`)], activity);
       const convertedComments = [...(await sql`SELECT * FROM comments`)];
@@ -710,6 +733,10 @@ for (const source of [
           {
             name: "004_oauth_admin_consent.sql",
             checksum: permissionMigrationChecksum,
+          },
+          {
+            name: "005_oauth_role_change_reauthorization.sql",
+            checksum: reauthorizationChecksum,
           },
         ],
       );

@@ -179,7 +179,7 @@ test("OAuth consent is tied directly to the signed-in human and rejects retired 
     (
       await request(`/api/oauth/consent/${grantId}`, {
         cookie,
-        body: { allow: true, agentId: randomUUID() },
+        body: { allow: true, accessLevel: "read", agentId: randomUUID() },
       })
     ).status,
     400,
@@ -187,7 +187,7 @@ test("OAuth consent is tied directly to the signed-in human and rejects retired 
   const decision = await json<{ redirectTo: string }>(
     await request(`/api/oauth/consent/${grantId}`, {
       cookie,
-      body: { allow: true },
+      body: { allow: true, accessLevel: "read" },
     }),
   );
   assert.ok(new URL(decision.redirectTo).searchParams.get("code"));
