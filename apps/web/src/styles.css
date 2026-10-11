@@ -133,6 +133,7 @@
 .task-comment .markdown p:not(:last-child) {
   margin-bottom: 8px;
 }
+.task-inline-action,
 .task-comment-delete {
   --button-bg: transparent;
   --button-bg-hover: transparent;
@@ -141,16 +142,24 @@
   height: 34px;
   min-width: 34px;
   min-height: 34px;
-  margin-block: -3px;
   padding: 0;
   color: var(--muted);
 }
+.task-comment-delete {
+  margin-block: -3px;
+}
+.task-inline-action-delete:hover {
+  color: var(--danger-soft-foreground);
+}
 @media (pointer: fine) {
+  .task-inline-action,
   .task-comment-delete {
     width: 32px;
     height: 32px;
     min-width: 32px;
     min-height: 32px;
+  }
+  .task-comment-delete {
     margin-block: -2px;
   }
 }

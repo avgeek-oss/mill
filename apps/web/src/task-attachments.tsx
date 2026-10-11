@@ -516,25 +516,25 @@ function TaskAttachments({
 
   function actions(item: Attachment) {
     return (
-      <div className="flex flex-wrap items-center">
+      <div className="flex flex-wrap items-center justify-end gap-1">
         <Button
           variant="ghost"
           size="sm"
           isIconOnly
-          className="size-11"
+          className="task-inline-action"
           aria-label={`Preview ${item.fileName}`}
           onPress={() => {
             setPreviewing(item);
             setPreviewOpen(true);
           }}
         >
-          <HugeiconsIcon aria-hidden icon={EyeIcon} size={16} />
+          <HugeiconsIcon aria-hidden icon={EyeIcon} size={14} />
         </Button>
         <Button
           variant="ghost"
           size="sm"
           isIconOnly
-          className="size-11"
+          className="task-inline-action"
           aria-label={`Download ${item.fileName}`}
           isPending={downloading === item.id}
           isDisabled={downloading !== null}
@@ -543,7 +543,7 @@ function TaskAttachments({
           {downloading === item.id ? (
             <Spinner size="sm" aria-hidden />
           ) : (
-            <HugeiconsIcon aria-hidden icon={Download01Icon} size={16} />
+            <HugeiconsIcon aria-hidden icon={Download01Icon} size={14} />
           )}
         </Button>
         {writable && (
@@ -551,14 +551,14 @@ function TaskAttachments({
             variant="ghost"
             size="sm"
             isIconOnly
-            className="size-11 text-danger"
+            className="task-inline-action task-inline-action-delete"
             aria-label={`Delete ${item.fileName}`}
             onPress={() => {
               setDeleting(item);
               setDeleteError("");
             }}
           >
-            <HugeiconsIcon aria-hidden icon={Delete02Icon} size={16} />
+            <HugeiconsIcon aria-hidden icon={Delete02Icon} size={14} />
           </Button>
         )}
       </div>
