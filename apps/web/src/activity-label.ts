@@ -7,6 +7,8 @@ const labels: Record<string, string> = {
   "comment.created": "added a comment",
   "comment.updated": "edited a comment",
   "comment.deleted": "deleted a comment",
+  "attachment.added": "uploaded an attachment",
+  "attachment.deleted": "deleted an attachment",
 };
 
 export function activityLabel(action: string) {

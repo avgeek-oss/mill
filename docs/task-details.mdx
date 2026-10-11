@@ -1,6 +1,6 @@
 ---
 title: "Task details"
-description: "Edit tasks, set dates, discuss work and inspect its history."
+description: "Edit tasks, discuss work, attach files and inspect its history."
 ---
 
 import { Screenshot } from "/snippets/oss/screenshot.jsx";
@@ -17,17 +17,21 @@ Each property saves independently. Selection changes save immediately; title and
 
 ## Duplicate a task
 
-Open the task menu and choose **Duplicate task**. Mill opens a creation dialog with `[Copy] ` before the title and copies the description, type and priority. The copy starts in Backlog with no assignee, start date or due date. Review the fields and choose **Create task**; closing the dialog creates nothing. The copy gets a new ID and does not inherit comments or activity.
+Open the task menu and choose **Duplicate task**. Mill opens a creation dialog with `[Copy] ` before the title and copies the description, type and priority. The copy starts in Backlog with no assignee, start date or due date. Review the fields and choose **Create task**; closing the dialog creates nothing. The copy gets a new ID and does not inherit comments, attachments or activity.
 
 ## Discuss and review changes
 
-Use **Comments** to post Markdown text. To mention a teammate, type `@` and select them from the suggestions. A mention can create an in-app notification according to that person's preferences. You can delete your own comment; an administrator can moderate another person's comment. Comments cannot be edited after posting, and Mill has no file uploads. Use **Load more comments** for older discussion.
+Use **Comments** to post Markdown text. To mention a teammate, type `@` and select them from the suggestions. A mention can create an in-app notification according to that person's preferences. You can delete your own comment; an administrator can moderate another person's comment. Comments cannot be edited after posting. Use **Load more comments** for older discussion.
 
 Switch to **Activity** to see task changes and comment actions in time order. Each entry identifies the responsible person or team key and distinguishes browser, API-key and OAuth changes where connection information is available. Activity is attached to a task; there is no workspace-wide audit page.
 
+## Attach files
+
+When your operator configures private S3 storage, uploaded images and PDFs appear directly below the task description. Choose the secondary **Upload attachment** button there to open a dialog with the shared file chooser and drop area. You can also drag a file onto the task page to open the dialog and start uploading. Comments and Activity remain tabs. Members and administrators can upload or delete attachments; viewers can read and download them. See [task attachments](/task-attachments) for limits and supported formats.
+
 ## Delete a task
 
-Members and administrators can choose **Delete task** from the task menu. Confirming permanently removes the task, its comments, notifications and activity. Independent tasks remain. Mill has no trash or task restore view, so take a [full database backup](/backup) before removing work you may need later.
+Members and administrators can choose **Delete task** from the task menu. Confirming permanently removes the task, its comments, attachments, notifications and activity. Independent tasks remain. Mill has no trash or task restore view, so take a [full database backup](/backup) before removing work you may need later.
 
 For finding older Done and Won't Do tasks, see [task lists](/task-lists). For fields and version conflicts in clients, see the [REST API](/rest-reference#tasks).
 

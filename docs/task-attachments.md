@@ -1,0 +1,25 @@
+# Task attachments
+
+Images and PDFs appear directly below the task description when your operator enables [private S3 storage](configuration.md#optional-task-attachments). Comments and Activity remain separate tabs below the task content.
+
+## Upload a file
+
+Members and administrators can choose the secondary **Upload attachment** button below the attachments. Its dialog contains the shared file chooser and drop area. You can also drop a file anywhere on the task page: Mill opens the upload dialog and starts uploading it automatically. The page highlights while dragging a file. Drop one file at a time; another open dialog or active upload blocks page drops. Choose or drop a PNG, JPEG, WebP, GIF or PDF. Each file must be at most 20 MiB. A task can hold up to 100 attachments, including uploads still in progress. SVG and other formats are unsupported. Viewers can preview and download existing attachments but cannot upload or delete them.
+
+The upload uses a temporary signed URL. Mill verifies the stored file before it appears in the list. An interrupted or rejected upload does not create a completed attachment. If the upload fails, check the toast message and try again. Signed upload URLs expire after five minutes; a new attempt gets a new URL.
+
+## Preview and download
+
+Up to four attachments appear as cards, with two cards per row on phones and tablets, and four per row on desktop. With more attachments, the same area uses a compact list. Cards show an image thumbnail or the first page of a PDF. The compact list shows file names, sizes and upload times. Use **Preview** in either layout to open an expanded image or PDF view. Multi-page PDFs include Previous and Next controls. Preview, download and delete use compact inline actions beside the file name; downloading saves the original file.
+
+Files stay in a private bucket. Preview and download URLs expire after five minutes and are issued only after Mill checks access to the task. If a preview has expired, use **Retry preview** or reload the task page to obtain a new URL. Download requests obtain a fresh URL each time. Do not share signed URLs as permanent file links.
+
+## Delete an attachment
+
+Members and administrators can delete an attachment after confirmation. Mill removes it from the task and schedules deletion of the stored object. Failed storage deletions are retried. Deleting its task or board also removes the associated attachment records and schedules object cleanup. Deleted attachments have no restore action.
+
+Duplicating a task copies its task fields without copying attachments. Upload files to the new task if they are needed there.
+
+## Keep files recoverable
+
+PostgreSQL holds attachment metadata; the S3 bucket holds the file bytes. A database dump alone cannot recover uploaded files. Protect both stores and retain the storage settings with your encrypted configuration backups. See [backup and recovery](backup.md).

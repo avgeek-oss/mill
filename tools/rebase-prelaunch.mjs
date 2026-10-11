@@ -8,6 +8,7 @@ import postgres from "postgres";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const baselineName = "001_initial.sql";
 const policyName = "002_key_policies.sql";
+const attachmentName = "003_task_attachments.sql";
 const reviewedBaselineChecksum =
   "e82748c4b57ade74641a6d6ab051016daa3df5eef0ea05aac6c39c6b7ddd1466";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -430,6 +431,15 @@ export async function rebasePrelaunch(
     );
     if (unconverted.count)
       throw new Error("Credential policy conversion was incomplete");
+    const attachments = await readFile(
+      path.join(root, "packages/database/migrations", attachmentName),
+      "utf8",
+    );
+    await tx.unsafe(attachments);
+    await tx.unsafe(
+      `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
+      [attachmentName, digest(attachments)],
+    );
     await requireStopped(tx);
     await tx.unsafe(
       `ALTER SCHEMA ${quote(schema)} RENAME TO ${quote(archived)}`,
@@ -470,12 +480,13 @@ async function main(args) {
     await readdir(path.join(root, "packages/database/migrations"))
   ).filter((name) => name.endsWith(".sql"));
   if (
-    files.length !== 2 ||
+    files.length !== 3 ||
     !files.includes(baselineName) ||
-    !files.includes(policyName)
+    !files.includes(policyName) ||
+    !files.includes(attachmentName)
   )
     throw new Error(
-      "The rebase requires the reviewed baseline and key policy migration",
+      "The rebase requires the reviewed baseline and forward migrations",
     );
   const baseline = await readFile(
     path.join(root, "packages/database/migrations", baselineName),

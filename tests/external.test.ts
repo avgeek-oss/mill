@@ -249,6 +249,23 @@ test("External credentials and actual MCP task workflows enforce current permiss
         try {
           await client.connect(transport);
           const listed = await client.listTools();
+          const attachmentUpload = listed.tools.find(
+            (tool) => tool.name === "create_attachment_upload",
+          );
+          assert(
+            attachmentUpload,
+            "The SDK must discover attachment uploads with a serializable input schema",
+          );
+          const attachmentInputs = attachmentUpload.inputSchema
+            .properties as Record<
+            string,
+            { type?: string; pattern?: string; maximum?: number }
+          >;
+          assert.equal(attachmentInputs.sha256.type, "string");
+          assert(
+            new RegExp(attachmentInputs.sha256.pattern!).test("A".repeat(64)),
+          );
+          assert.equal(attachmentInputs.sizeBytes.maximum, 20971520);
           assert(listed.tools.some((tool) => tool.name === "create_task"));
           assert(!listed.tools.some((tool) => tool.name === "create_board"));
           assert(!listed.tools.some((tool) => tool.name === "list_members"));

@@ -31,6 +31,12 @@ The two configured origins must match their public HTTPS hostnames. `MILL_WEB_UR
 
 SMTP is optional. To enable identity and invitation email, add the supported `MILL_SMTP_*` keys to the API manifest's `secrets.runtime` list and configure them in Towbar. See [configuration](configuration.md#notifications). Do not add empty SMTP requirements for an installation without mail.
 
+## Optional attachment storage
+
+Use a private S3-compatible bucket for task images and PDFs. Add `MILL_S3_ENDPOINT`, `MILL_S3_BUCKET`, `MILL_S3_ACCESS_KEY_ID` and `MILL_S3_SECRET_ACCESS_KEY` to the API manifest’s `secrets.runtime` list and store their values in Towbar. `MILL_S3_REGION` defaults to `auto`; add it when the provider requires another region. Add only `MILL_S3_ENDPOINT` to the UI manifest’s runtime list and set it to the same endpoint. The checked-in manifests include commented entries so installations without attachments need no storage values.
+
+The endpoint must accept browser requests from the exact configured `MILL_WEB_URL`, using bucket CORS for PUT, GET and HEAD. Keep the bucket private and restrict the credential to it. Follow [configuration](configuration.md#optional-task-attachments) for the CORS example and accepted file types. These settings require a compatible API/UI release; updating a manifest does not publish or deploy that release.
+
 ## First deployment
 
 1. Publish and verify the chosen API and UI images, then pin their digests in the service manifests.

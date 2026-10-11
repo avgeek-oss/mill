@@ -74,7 +74,7 @@ export type TaskDiscussionProps = {
   taskId: string;
   user: User;
   editable: boolean;
-  refreshKey?: number;
+  refreshKey?: number | string;
   sessionRevision: number;
   members?: Member[];
 };
@@ -118,6 +118,7 @@ function CommentDate({ value, user }: { value: string; user: User }) {
 
 function activityEntity(action: string) {
   if (action.startsWith("comment.")) return "Comment";
+  if (action.startsWith("attachment.")) return "Attachment";
   if (action.startsWith("task.")) return "Task";
   return "Change";
 }

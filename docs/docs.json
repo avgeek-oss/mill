@@ -71,6 +71,7 @@
             "pages": [
               "task-lists",
               "task-details",
+              "task-attachments",
               "notifications",
               "workflows"
             ]

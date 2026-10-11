@@ -72,12 +72,61 @@ const schema = z
     MILL_SMTP_USER: z.string().max(320).default(""),
     MILL_SMTP_PASSWORD: z.string().max(4096).default(""),
     MILL_SMTP_FROM: smtpFromSchema.default(""),
+    MILL_S3_ENDPOINT: z
+      .string()
+      .trim()
+      .default("")
+      .refine((value) => {
+        if (!value) return true;
+        try {
+          const url = new URL(value);
+          return (
+            !url.username &&
+            !url.password &&
+            !url.search &&
+            !url.hash &&
+            url.pathname === "/" &&
+            (url.protocol === "https:" ||
+              (url.protocol === "http:" &&
+                ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))
+          );
+        } catch {
+          return false;
+        }
+      }, "Use an HTTPS storage origin or loopback HTTP for development"),
+    MILL_S3_REGION: z
+      .string()
+      .regex(/^[a-z0-9-]{1,80}$/)
+      .default("auto"),
+    MILL_S3_BUCKET: z
+      .string()
+      .trim()
+      .default("")
+      .refine(
+        (value) => !value || /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value),
+        "Use a valid bucket name",
+      ),
+    MILL_S3_ACCESS_KEY_ID: z.string().max(256).default(""),
+    MILL_S3_SECRET_ACCESS_KEY: z.string().max(4096).default(""),
     PORT: z.coerce.number().int().min(1).max(65535).default(4321),
     NODE_ENV: z
       .enum(["development", "production", "test"])
       .default("development"),
   })
   .superRefine((value, ctx) => {
+    const storageFields = [
+      value.MILL_S3_ENDPOINT,
+      value.MILL_S3_BUCKET,
+      value.MILL_S3_ACCESS_KEY_ID,
+      value.MILL_S3_SECRET_ACCESS_KEY,
+    ];
+    if (storageFields.some(Boolean) && !storageFields.every(Boolean))
+      ctx.addIssue({
+        code: "custom",
+        path: ["MILL_S3_ENDPOINT"],
+        message:
+          "Configure the S3 endpoint, bucket, access key and secret access key together",
+      });
     if (
       new URL(value.MILL_WEB_URL).origin === new URL(value.MILL_API_URL).origin
     )

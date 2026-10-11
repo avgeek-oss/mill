@@ -9,6 +9,8 @@ Mill is a self-hosted task list for teams and their clients. Run an API image an
 
 Create boards and track work through six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional human assignees, priorities, start and due dates, comments, and activity. Search, combine filters, sort, and page through each board's list. Completed tasks leave the default list after 24 hours but remain available through an explicit status filter or direct link.
 
+Optional [task attachments](/task-attachments) show images and PDFs below each task's description, with an Upload attachment dialog. An operator enables a private S3-compatible bucket; members upload and delete files, while viewers can read them.
+
 People sign in with their own accounts. Administrators manage invitations and roles; assignment and mention notifications stay in the app. Optional SMTP enables invitation, verification, and password-reset email. Without SMTP, administrators share invitation links privately and the server operator can issue a private account-recovery link. Mill does not send task notifications by email.
 
 External clients can use personal or team API keys with explicit grants for REST. Personal keys remain bounded by the owner's current active role; team keys use a stored team policy. MCP requires OAuth with the approving person's current role, approved scopes, and optional board restrictions. Mill does not run external clients or launch jobs when a task is assigned.

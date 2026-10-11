@@ -410,6 +410,68 @@ try {
     ...verifyEnv,
     MILL_VERIFY_MODE: "fresh",
   });
+  const attachmentKey = randomBytes(16).toString("hex");
+  const attachmentSecret = randomBytes(32).toString("hex");
+  secrets.push(attachmentKey, attachmentSecret);
+  const storageComposeFile = join(privateDirectory, "attachments.compose.yml");
+  await writeFile(
+    storageComposeFile,
+    [
+      "services:",
+      "  api:",
+      "    environment:",
+      "      MILL_S3_ENDPOINT: http://127.0.0.1:9000",
+      "      MILL_S3_REGION: us-east-1",
+      "      MILL_S3_BUCKET: mill-production-verification",
+      `      MILL_S3_ACCESS_KEY_ID: ${attachmentKey}`,
+      `      MILL_S3_SECRET_ACCESS_KEY: ${attachmentSecret}`,
+      "  attachment-storage:",
+      "    image: rustfs/rustfs@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff",
+      "    network_mode: service:api",
+      "    environment:",
+      `      RUSTFS_ACCESS_KEY: ${attachmentKey}`,
+      `      RUSTFS_SECRET_KEY: ${attachmentSecret}`,
+      "      RUSTFS_CONSOLE_ENABLE: 'false'",
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  await run("attachment-enabled-installation", "docker", [
+    ...primary.compose,
+    "--file",
+    storageComposeFile,
+    "up",
+    "--no-build",
+    "--detach",
+    "--wait",
+    "api",
+    "attachment-storage",
+  ]);
+  const attachmentFixture = JSON.parse(await readFile(state, "utf8"));
+  await run("attachment-production-journey", "docker", [
+    ...primary.compose,
+    "--file",
+    storageComposeFile,
+    "exec",
+    "-T",
+    "--env",
+    `MILL_VERIFY_ATTACHMENT_TASK=${attachmentFixture.taskId}`,
+    "--env",
+    `MILL_VERIFY_PASSWORD=${secrets[2]}`,
+    "api",
+    "node",
+    "--input-type=module",
+    "-e",
+    await readFile(resolve(root, "tools/attachment-install-smoke.mjs"), "utf8"),
+  ]);
+  await run("attachment-disabled-installation", "docker", [
+    ...primary.compose,
+    "up",
+    "--no-build",
+    "--detach",
+    "--wait",
+    "api",
+  ]);
   await run("ui-independent-stop", "docker", [
     ...primary.compose,
     "stop",
@@ -618,6 +680,13 @@ try {
       ),
     )
     .digest("hex");
+  const attachmentSource = await readFile(
+    join(root, "packages/database/migrations/003_task_attachments.sql"),
+    "utf8",
+  );
+  const attachmentChecksum = createHash("sha256")
+    .update(attachmentSource)
+    .digest("hex");
   const installedMigrations = JSON.parse(
     await run(
       "baseline-migration-record",
@@ -631,6 +700,7 @@ try {
   assert.deepEqual(installedMigrations, [
     { name: "001_initial.sql", checksum: baselineChecksum },
     { name: "002_key_policies.sql", checksum: keyPolicyChecksum },
+    { name: "003_task_attachments.sql", checksum: attachmentChecksum },
   ]);
   const schemaShape = JSON.parse(
     await run(
@@ -667,7 +737,7 @@ try {
     "node",
     "--input-type=module",
     "-e",
-    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
+    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await writeFile(join(directory,'003_task_attachments.sql'),await readFile('/app/packages/database/migrations/003_task_attachments.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
   ]);
   await run("backup-quiesce-application", "docker", [
     ...primary.compose,
@@ -690,7 +760,14 @@ try {
     (match) => match[1],
   );
   assert.ok(baselineTables.length > 0, "Current baseline must define tables");
-  assert.deepEqual(tables, [...baselineTables, "mill_migrations"].sort());
+  const attachmentTables = Array.from(
+    attachmentSource.matchAll(/^CREATE TABLE ([a-z_]+) \(/gm),
+    (match) => match[1],
+  );
+  assert.deepEqual(
+    tables,
+    [...baselineTables, ...attachmentTables, "mill_migrations"].sort(),
+  );
   for (const table of tables) assert.match(table, /^[a-z_]+$/);
   const contentQuery = `SELECT jsonb_build_object(${tables.map((table) => `'${table}',(SELECT COALESCE(jsonb_agg(content ORDER BY content::text),'[]'::jsonb) FROM (SELECT to_jsonb(record) AS content FROM ${table} record) rows)`).join(",")})::text`;
   const savedData = JSON.parse(

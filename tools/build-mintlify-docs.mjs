@@ -74,7 +74,12 @@ const pages = [
   [
     "task-details",
     "Task details",
-    "Edit tasks, set dates, discuss work and inspect its history.",
+    "Edit tasks, discuss work, attach files and inspect its history.",
+  ],
+  [
+    "task-attachments",
+    "Task attachments",
+    "Upload, preview and download task images and PDFs.",
   ],
   [
     "notifications",

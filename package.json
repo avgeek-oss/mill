@@ -33,10 +33,13 @@
     "test:quick": "node --import tsx --test tests/api-client-errors.test.ts tests/config.test.ts tests/date-time-formatters.test.ts tests/mention-caret.test.ts tests/password-capacity.test.ts tests/time-zone.test.ts"
   },
   "dependencies": {
-    "@avgeek-oss/design-system": "1.2.13",
+    "@avgeek-oss/design-system": "1.2.14",
+    "@aws-sdk/client-s3": "3.1149.0",
+    "@aws-sdk/s3-request-presigner": "3.1149.0",
     "@hono/node-server": "2.0.11",
     "@modelcontextprotocol/sdk": "1.31.0",
     "@simplewebauthn/server": "13.3.2",
+    "file-type": "22.1.1",
     "hono": "4.13.8",
     "jose": "6.2.12",
     "nodemailer": "10.0.15",

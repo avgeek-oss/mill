@@ -8,6 +8,7 @@ import { sql } from "../../../packages/database/src/index.js";
 import { config } from "./config.js";
 import { authRoutes, sessionActor } from "./auth.js";
 import { domainRoutes } from "./domain.js";
+import { attachmentRoutes } from "./attachments/routes.js";
 import {
   externalRoutes,
   credentialActor,
@@ -130,6 +131,7 @@ app.use("/mcp", rateLimit);
 app.use("/oauth/*", rateLimit);
 app.route("/api/auth", authRoutes);
 app.route("/api", domainRoutes);
+app.route("/api", attachmentRoutes);
 app.route("/", externalRoutes);
 app.notFound((c) => errorResponse(c, 404, "This route does not exist"));
 setApiDispatcher(async (request) => app.fetch(request));

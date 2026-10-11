@@ -23,6 +23,7 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     "site.json",
     "task-lists.md",
     "task-details.md",
+    "task-attachments.md",
     "notifications.md",
     "api-keys.md",
     "mcp-connections.md",

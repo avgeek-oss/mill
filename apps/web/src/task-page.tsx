@@ -54,6 +54,7 @@ import { priorityOptions } from "./task-priority.js";
 import { statusOptions } from "./task-status.js";
 import { taskTypeOptions } from "./task-type.js";
 import { TaskDiscussion } from "./task-discussion.js";
+import { TaskAttachmentSection } from "./task-attachments.js";
 import {
   CreateTaskDialog,
   type DuplicateTaskSource,
@@ -114,6 +115,7 @@ export function TaskPage({
   const editor = useTaskEditor(taskId);
   const { task, values } = editor;
   const writable = user.role !== "viewer";
+  const [attachmentRevision, setAttachmentRevision] = useState(0);
   const [editDetailsOpen, setEditDetailsOpen] = useState(false);
   const [duplicateSource, setDuplicateSource] =
     useState<DuplicateTaskSource | null>(null);
@@ -543,6 +545,16 @@ export function TaskPage({
                           )}
                         </div>
                       </section>
+                      <TaskAttachmentSection
+                        key={taskId}
+                        taskId={taskId}
+                        user={user}
+                        editable={writable && !deleting && !leaving}
+                        sessionRevision={sessionRevision}
+                        onChange={() =>
+                          setAttachmentRevision((value) => value + 1)
+                        }
+                      />
                     </div>
                     <section className="task-page-discussion col-start-1 row-start-4 min-w-0 pt-6">
                       <TaskDiscussion
@@ -550,7 +562,7 @@ export function TaskPage({
                         user={user}
                         members={members}
                         editable={writable && !deleting && !leaving}
-                        refreshKey={task.version}
+                        refreshKey={`${task.version}:${attachmentRevision}`}
                         sessionRevision={sessionRevision}
                       />
                     </section>

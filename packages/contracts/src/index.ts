@@ -121,3 +121,39 @@ export type InvitationCodeReceipt = EmailResendReceipt & {
   expiresAt: string;
 };
 export type InvitationVerificationProof = { verificationToken: string };
+
+export const ATTACHMENT_CONTENT_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+] as const;
+export type AttachmentContentType = (typeof ATTACHMENT_CONTENT_TYPES)[number];
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export type Attachment = {
+  id: string;
+  taskId: string;
+  fileName: string;
+  contentType: AttachmentContentType;
+  sizeBytes: number;
+  createdBy: string | null;
+  createdAt: string;
+};
+export type AttachmentConfiguration = {
+  enabled: boolean;
+  maxBytes: number;
+  contentTypes: readonly AttachmentContentType[];
+};
+export type AttachmentPage = {
+  items: Attachment[];
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+export type AttachmentUpload = {
+  attachmentId: string;
+  uploadUrl: string;
+  headers: Record<string, string>;
+  expiresAt: string;
+};
+export type AttachmentDownload = { url: string; expiresAt: string };

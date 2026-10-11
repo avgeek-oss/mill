@@ -23,6 +23,16 @@ const policySource = await readFile(
   "utf8",
 );
 const policyChecksum = createHash("sha256").update(policySource).digest("hex");
+const attachmentSource = await readFile(
+  new URL(
+    "../packages/database/migrations/003_task_attachments.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const attachmentChecksum = createHash("sha256")
+  .update(attachmentSource)
+  .digest("hex");
 function runMigration(schema: string, directory?: string) {
   return new Promise<{ code: number | null; output: string }>(
     (resolve, reject) => {
@@ -76,7 +86,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         new URL("../packages/database/migrations/", import.meta.url),
       )
     ).filter((name) => name.endsWith(".sql")),
-    ["001_initial.sql", "002_key_policies.sql"],
+    ["001_initial.sql", "002_key_policies.sql", "003_task_attachments.sql"],
   );
   const schema = `baseline_${randomUUID().replaceAll("-", "")}`;
   const directory = await mkdtemp(join(tmpdir(), "mill-checksum-"));
@@ -94,6 +104,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         [
           { name: "001_initial.sql", checksum },
           { name: "002_key_policies.sql", checksum: policyChecksum },
+          { name: "003_task_attachments.sql", checksum: attachmentChecksum },
         ],
       );
       const tables = (
@@ -103,6 +114,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         "account_recovery",
         "activity",
         "api_idempotency",
+        "attachment_cleanup",
         "auth_challenges",
         "auth_rate_limits",
         "boards",
@@ -119,6 +131,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         "recovery_codes",
         "request_limits",
         "sessions",
+        "task_attachments",
         "tasks",
         "users",
         "workspace",
@@ -137,6 +150,10 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       source + "\n-- changed after installation\n",
     );
     await writeFile(join(directory, "002_key_policies.sql"), policySource);
+    await writeFile(
+      join(directory, "003_task_attachments.sql"),
+      attachmentSource,
+    );
     const changed = await runMigration(schema, directory);
     assert.equal(changed.code, 1);
     assert.match(changed.output, /Migration changed: 001_initial.sql/);

@@ -28,7 +28,26 @@ export function webConfiguration(environment = process.env) {
   const port = Number(environment.PORT ?? 4322);
   if (!Number.isInteger(port) || port < 1 || port > 65535)
     throw new Error("PORT must be between 1 and 65535");
-  return { api, port };
+  const storage = environment.MILL_S3_ENDPOINT
+    ? new URL(environment.MILL_S3_ENDPOINT)
+    : null;
+  if (
+    storage &&
+    (storage.username ||
+      storage.password ||
+      storage.pathname !== "/" ||
+      storage.search ||
+      storage.hash ||
+      !(
+        storage.protocol === "https:" ||
+        (storage.protocol === "http:" &&
+          ["localhost", "127.0.0.1", "[::1]"].includes(storage.hostname))
+      ))
+  )
+    throw new Error(
+      "MILL_S3_ENDPOINT must use HTTPS or loopback HTTP without credentials",
+    );
+  return { api, port, storage };
 }
 
 export function createWebServer(
@@ -38,7 +57,10 @@ export function createWebServer(
   if (!existsSync(`${root}/index.html`))
     throw new Error("The Mill UI image must contain its built application");
   const app = new Hono();
-  app.use("*", webSecurity(configuration.api.origin));
+  app.use(
+    "*",
+    webSecurity(configuration.api.origin, configuration.storage?.origin),
+  );
   app.get("/health/live", (c) => c.json({ status: "ok" }));
   app.get("/health/ready", (c) => c.json({ status: "ready" }));
   app.get("/runtime-config.js", (c) => {

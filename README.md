@@ -2,7 +2,7 @@
 
 Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs an API image and a UI image connected to PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
 
-Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, and activity. Team members use Admin, Member, or Viewer access.
+Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, activity, and optional image/PDF attachments. Team members use Admin, Member, or Viewer access.
 
 Personal and team API keys have explicit Read-only, Edit, or Administrative permissions for REST. Personal keys remain bounded by their owner's active membership and current role; administrators issue team keys against the team policy. MCP clients connect only through OAuth with approved read/write scopes and optional board limits.
 
@@ -47,6 +47,8 @@ Read the installation setup secret from `docker compose --project-name mill logs
 
 If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation.md#optional-run-postgresql-with-compose). Your existing or managed PostgreSQL instance works directly with the default Compose file.
 
+Images and PDFs appear below the task description. **Upload attachment** opens a dialog with a file chooser and drop area. Dropping a file onto the task page also opens the dialog and starts uploading. To enable this, configure optional private S3-compatible storage through [configuration](docs/configuration.md#optional-task-attachments). Ordinary task management works without a bucket.
+
 Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 
 For Towbar, use the repository's API, UI, and PostgreSQL manifests and follow [Deploy with Towbar](docs/towbar-deployment.md). They use packaged images with separate public UI and API origins.
@@ -75,7 +77,7 @@ Run `pnpm docs:dev` to preview the documentation from the repository's `docs` ro
 Read the [Mill website and documentation](https://www.mill.fyi) or use the guides in this repository.
 
 - [Overview](docs/overview.md), [installation](docs/installation.md), [configuration](docs/configuration.md), and [first board](docs/getting-started.md)
-- [Task lists and filters](docs/task-lists.md), [task details and discussion](docs/task-details.md), and [notifications](docs/notifications.md)
+- [Task lists and filters](docs/task-lists.md), [task details and discussion](docs/task-details.md), [task attachments](docs/task-attachments.md), and [notifications](docs/notifications.md)
 - [Team, tasks, and permissions](docs/workflows.md)
 - [Personal and team API keys](docs/api-keys.md), [MCP connections](docs/mcp-connections.md), and [REST API and MCP](docs/clients.md), [API reference](docs/api.md), and [access security](docs/authentication.md#external-credential-boundaries)
 - [Operations](docs/operations.md), [backup and recovery](docs/backup.md), and [upgrades](docs/upgrades.md)

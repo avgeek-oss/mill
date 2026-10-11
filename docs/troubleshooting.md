@@ -53,3 +53,11 @@ Use an explicit `--project`, matching `--confirm-project`, a valid custom-format
 ## Report a bug
 
 Include the exact commit/version, failed action, HTTP status, and configuration names with values removed. Use a disposable reproduction when possible. Do not attach `.env`, a database dump, account recovery links, cookies, or API tokens. Follow [security reporting](https://github.com/avgeek-oss/mill/blob/main/SECURITY.md) for security reports.
+
+## Attachments do not appear or uploads fail
+
+The attachment area and Upload attachment button below the task description are hidden when the API has no S3 storage configuration. Configure the endpoint, bucket and both keys together, and restart with the new environment. Check [configuration](configuration.md#optional-task-attachments) for the full list.
+
+For a browser upload failure, check that bucket CORS allows the exact `MILL_WEB_URL` origin, PUT/GET/HEAD and Content-Type. The API and UI must use the same public S3 endpoint; recreate both services after a change. A private container hostname cannot be reached by the browser. Confirm the key can read, write and delete objects in the configured private bucket.
+
+Check file size and type after a completion failure. Files must be at most 20 MiB and contain PNG, JPEG, WebP, GIF or PDF bytes matching their MIME type. A renamed extension cannot make another format supported. Expired upload URLs require a new upload attempt. Reopen an expired preview to request a new URL.

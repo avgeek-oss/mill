@@ -79,3 +79,50 @@ test("UI serves runtime API configuration without proxying API or OAuth", async 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("optional storage allows only its configured origin in UI security policy", async () => {
+  for (const endpoint of [
+    "http://storage.example",
+    "https://user:secret@storage.example",
+    "https://storage.example?token=secret",
+    "data:text/html,hello",
+  ])
+    assert.throws(
+      () =>
+        webConfiguration({
+          MILL_API_URL: "https://mill-api.example",
+          MILL_S3_ENDPOINT: endpoint,
+        }),
+      /MILL_S3_ENDPOINT/,
+    );
+  const root = await mkdtemp(join(tmpdir(), "mill-storage-csp-"));
+  await writeFile(join(root, "index.html"), "Mill UI");
+  const web = createWebServer(
+    root,
+    webConfiguration({
+      MILL_API_URL: "https://mill-api.example",
+      MILL_S3_ENDPOINT: "https://storage.example",
+    }),
+  );
+  const origin = await listen(web);
+  try {
+    const response = await fetch(origin);
+    const csp = response.headers.get("content-security-policy") ?? "";
+    assert.match(
+      csp,
+      /connect-src 'self' https:\/\/mill-api.example https:\/\/storage.example/,
+    );
+    assert.match(csp, /frame-src 'none'/);
+    assert.match(csp, /worker-src 'self'/);
+    assert.doesNotMatch(csp, /\*|connect-src[^;]*\shttps:(?:;|\s)/);
+    const runtime = await (await fetch(`${origin}/runtime-config.js`)).text();
+    assert.doesNotMatch(
+      runtime,
+      /storage.example|SECRET_ACCESS_KEY|ACCESS_KEY_ID/,
+    );
+  } finally {
+    web.closeAllConnections();
+    await new Promise<void>((resolve) => web.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -2,6 +2,8 @@
 
 A full PostgreSQL backup preserves accounts, sessions, passkeys and their recovery-code digests, boards, tasks, comments, members, activity, notifications and API-key/OAuth records. Retained pre-launch archive schemas are included when present. Database backup is the supported recovery method; Mill has no portable work export/import.
 
+When task attachments are enabled, PostgreSQL stores their metadata and the private S3 bucket stores the bytes. A database dump does not include those files. Back up the bucket separately using the provider’s supported process and record the matching database backup. Keep recovered objects at their original keys. A restore that points to the live production bucket can delete live objects through attachment cleanup. Rehearse database recovery with the optional storage settings unset. Attachment records bind their objects to the original storage origin and bucket; configuring a copied bucket does not remap those records automatically. Enable storage only after an operator has verified the object backup and the intended attachment locations.
+
 Also save the original `MILL_SECRET` and runtime settings securely. Protected database values require that secret even after a successful restore. Record both API/UI versions or digests, the Compose project name and PostgreSQL major version with each backup.
 
 ## Back up an existing or managed database
