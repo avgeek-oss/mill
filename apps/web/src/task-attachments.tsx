@@ -516,12 +516,12 @@ function TaskAttachments({
 
   function actions(item: Attachment) {
     return (
-      <div className="flex flex-wrap items-center justify-end gap-1">
+      <div className="flex shrink-0 items-center justify-end">
         <Button
           variant="ghost"
           size="sm"
           isIconOnly
-          className="task-inline-action"
+          className="task-inline-action task-attachment-action"
           aria-label={`Preview ${item.fileName}`}
           onPress={() => {
             setPreviewing(item);
@@ -534,7 +534,7 @@ function TaskAttachments({
           variant="ghost"
           size="sm"
           isIconOnly
-          className="task-inline-action"
+          className="task-inline-action task-attachment-action"
           aria-label={`Download ${item.fileName}`}
           isPending={downloading === item.id}
           isDisabled={downloading !== null}
@@ -551,7 +551,7 @@ function TaskAttachments({
             variant="ghost"
             size="sm"
             isIconOnly
-            className="task-inline-action task-inline-action-delete"
+            className="task-inline-action task-attachment-action task-inline-action-delete"
             aria-label={`Delete ${item.fileName}`}
             onPress={() => {
               setDeleting(item);
@@ -584,7 +584,7 @@ function TaskAttachments({
         <QueryLoading className="sr-only">Loading attachments</QueryLoading>
       )}
       {!!page.items.length && page.items.length <= 4 && !page.hasMore ? (
-        <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
+        <div className="grid min-w-0 grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
           {page.items.map((item) => (
             <article
               key={item.id}
@@ -592,8 +592,8 @@ function TaskAttachments({
               className="grid min-w-0 gap-3 rounded-xl border border-separator bg-surface p-2"
             >
               <AttachmentPreview item={item} />
-              <div className="grid min-w-0 gap-1">
-                <div className="min-w-0">
+              <div className="flex min-w-0 items-start gap-1">
+                <div className="min-w-0 flex-1">
                   <p
                     className="truncate text-sm font-medium"
                     title={item.fileName}

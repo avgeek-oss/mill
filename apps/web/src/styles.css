@@ -163,6 +163,28 @@
     margin-block: -2px;
   }
 }
+.task-attachment-action {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+}
+.task-attachment-action:hover,
+.task-attachment-action:focus-visible {
+  color: var(--accent);
+}
+.task-attachment-action.task-inline-action-delete:hover,
+.task-attachment-action.task-inline-action-delete:focus-visible {
+  color: var(--danger-soft-foreground);
+}
+@media (pointer: fine) {
+  .task-attachment-action {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    min-height: 24px;
+  }
+}
 @media (hover: hover) and (pointer: fine) {
   .task-comment-delete {
     opacity: 0;
