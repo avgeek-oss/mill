@@ -2,11 +2,11 @@
 
 Mill can run on [Towbar](https://www.towbar.dev) using the published API and UI images and a PostgreSQL datastore. There is no source build on the deployment server.
 
-The repository includes `towbar.yml` and three manifests under `.towbar/`: Mill API, Mill UI, and Mill PostgreSQL. The checked-in production mapping targets the Platform Services server at `13.206.149.158`, with `mill.avgeek.ltd` and `mill-api.avgeek.ltd` as the proposed public hostnames. Change the server mapping and hostname before connecting the repository if you use another installation.
+The repository includes `towbar.yml` and three manifests under `.towbar/`: Mill API, Mill UI, and Mill PostgreSQL. The checked-in production mapping targets the Platform Services server at `13.206.149.158`, with `mill.avgeek.ltd` and `mill-api.avgeek.ltd` as the public hostnames. Change the server mapping and hostname before connecting the repository if you use another installation.
 
 ## Images and networking
 
-The API and UI manifests select version `1.0.1`. This is a proposed release: neither image is available until the [release workflow](release-notes.md) completes. Before deployment, take both digest references from that release's `mill-images.json` and replace the corresponding `deployment.image` values. Keep the API and UI on the same release. Towbar selects the server's native architecture from the multi-platform images.
+The API and UI manifests select version `1.0.2`. Before deployment, verify that its [GitHub release](https://github.com/avgeek-oss/mill/releases) contains `mill-images.json`. For immutable references, take both digests from that file and replace the corresponding `deployment.image` values. Keep the API and UI on the same release. Towbar selects the server's native architecture from the multi-platform images.
 
 All three containers share a dedicated Docker network named `mill`. PostgreSQL is reachable as `mill-postgres:5432`. The API is independently exposed at `https://mill-api.avgeek.ltd` with public TLS and serves REST, authentication, OAuth discovery and token endpoints, MCP, and health. The UI is exposed at `https://mill.avgeek.ltd` and serves the built app plus a no-store runtime script containing the public API origin. Browsers call the API directly with credentialed requests.
 
@@ -33,7 +33,9 @@ SMTP is optional. To enable identity and invitation email, add the supported `MI
 
 ## Optional attachment storage
 
-Use a private S3-compatible bucket for task images and PDFs. Add `MILL_S3_ENDPOINT`, `MILL_S3_BUCKET`, `MILL_S3_ACCESS_KEY_ID` and `MILL_S3_SECRET_ACCESS_KEY` to the API manifest’s `secrets.runtime` list and store their values in Towbar. `MILL_S3_REGION` defaults to `auto`; add it when the provider requires another region. Add only `MILL_S3_ENDPOINT` to the UI manifest’s runtime list and set it to the same endpoint. The checked-in manifests include commented entries so installations without attachments need no storage values.
+The checked-in production manifests enable task attachments. Configure `MILL_S3_ENDPOINT`, `MILL_S3_REGION`, `MILL_S3_BUCKET`, `MILL_S3_ACCESS_KEY_ID` and `MILL_S3_SECRET_ACCESS_KEY` in the API’s Towbar runtime secrets. Configure only `MILL_S3_ENDPOINT` in the UI’s runtime secrets; credential values stay on the API. For Cloudflare R2, use the account’s S3 endpoint without a bucket path, region `auto`, and a private bucket with object read/write credentials restricted to that bucket. The production bucket is `mill-data`.
+
+For an installation without attachments, remove the `MILL_S3_*` declarations from both manifests. The rest of Mill works without object storage.
 
 The endpoint must accept browser requests from the exact configured `MILL_WEB_URL`, using bucket CORS for PUT, GET and HEAD. Keep the bucket private and restrict the credential to it. Follow [configuration](configuration.md#optional-task-attachments) for the CORS example and accepted file types. These settings require a compatible API/UI release; updating a manifest does not publish or deploy that release.
 

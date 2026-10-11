@@ -3,7 +3,7 @@ id: mill-web
 name: Mill UI
 deployment:
   type: image
-  image: ghcr.io/avgeek-oss/mill-web:1.0.1
+  image: ghcr.io/avgeek-oss/mill-web:1.0.2
 autoDeploy: false
 rollout:
   type: recreate
@@ -22,8 +22,7 @@ health:
 secrets:
   runtime:
     - MILL_API_URL
-    # Optional task attachments: uncomment after configuring runtime values.
-    # - MILL_S3_ENDPOINT
+    - MILL_S3_ENDPOINT
 domains:
   primary: mill.avgeek.ltd
 tls:

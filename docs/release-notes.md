@@ -1,10 +1,12 @@
-# Mill 1.0.1 release candidate
+# Mill 1.0.2
 
-The proposed tag is `v1.0.1`; no release image or GitHub release exists until publication completes. These notes describe the candidate's product and migration behavior. Acceptance depends on exact-commit source and production CI, manual UI review, upgrade and restore evidence, and independent review of the release artifacts. Mill is intended for public source and image distribution.
+Mill 1.0.2 adds private task attachments and adopts the shared upload control from design system 1.2.14. API and UI images use the same version. Use the public image references in the release’s `mill-images.json` for installation or upgrades.
 
-## Unreleased: task attachments
+## Task attachments
 
-The development branch adds optional image/PDF attachments using private S3-compatible storage. Files appear below the task description, and a secondary Upload attachment button opens a dialog with a file chooser and drop area. Comments and Activity remain tabs. Members and administrators can upload, preview, download and delete files; viewers can read them. Files are limited to 20 MiB, and completion verifies their stored bytes before exposing them. PostgreSQL retains metadata and a durable cleanup queue; the bucket retains completed files. These changes need a future matching API/UI release and do not alter an existing installation until it is upgraded and configured. See [task attachments](task-attachments.md) and [storage configuration](configuration.md#optional-task-attachments).
+Optional image/PDF attachments use private S3-compatible storage. Files appear below the task description, and a secondary Upload attachment button opens a dialog with a file chooser and drop area. Dropping a file onto the task page opens the dialog and starts uploading. Cards show two files per row below desktop width and four on desktop, with compact preview, download and delete actions. Expanded PDF previews have page controls. Comments and Activity remain tabs.
+
+Members and administrators can upload, preview, download and delete files; viewers can read them. Files are limited to 20 MiB, and completion verifies their stored bytes before exposing them. PostgreSQL retains metadata and a durable cleanup queue; the bucket retains completed files. Enable the storage runtime values after upgrading both images. Without storage configuration, ordinary task management works as before. See [task attachments](task-attachments.md) and [storage configuration](configuration.md#optional-task-attachments).
 
 ## Task lists
 
