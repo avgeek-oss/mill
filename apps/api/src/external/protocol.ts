@@ -47,6 +47,21 @@ export function validRedirectUri(raw: string) {
     return false;
   }
 }
+export function registeredRedirectUri(registered: string[], requested: string) {
+  if (registered.includes(requested)) return true;
+  if (!validRedirectUri(requested)) return false;
+  const loopback = /^http:\/\/(?:127\.0\.0\.1|\[::1\])(?::\d+)?(?=\/|\?|$)/;
+  if (!loopback.test(requested)) return false;
+  const withoutPort = (value: string) =>
+    value.replace(
+      /^(http:\/\/(?:127\.0\.0\.1|\[::1\]))(?::\d+)?(?=\/|\?|$)/,
+      "$1",
+    );
+  return registered.some(
+    (value) =>
+      loopback.test(value) && withoutPort(value) === withoutPort(requested),
+  );
+}
 export const clientMetadataSchema = z.object({
   client_name: z.string().trim().min(1).max(120).default("MCP client"),
   redirect_uris: z
@@ -57,18 +72,25 @@ export const clientMetadataSchema = z.object({
     .enum(["none", "client_secret_basic", "client_secret_post"])
     .default("client_secret_basic"),
   grant_types: z
-    .array(z.literal("authorization_code"))
-    .length(1)
+    .array(z.enum(["authorization_code", "refresh_token"]))
+    .min(1)
+    .max(2)
+    .refine(
+      (values) =>
+        values.includes("authorization_code") &&
+        new Set(values).size === values.length,
+    )
     .default(["authorization_code"]),
   response_types: z.array(z.literal("code")).length(1).default(["code"]),
 });
 export function parseScope(value = "read") {
   const scopes = [...new Set(value.split(" "))];
-  if (scopes.some((scope) => !["read", "write"].includes(scope)))
+  if (scopes.some((scope) => !["read", "write", "admin"].includes(scope)))
     throw new OAuthError(
       "invalid_scope",
-      "Supported scopes are read and write",
+      "Supported scopes are read, write and admin",
     );
+  if (scopes.includes("admin")) return "read write admin";
   return scopes.includes("write") ? "read write" : "read";
 }
 export function requireResource(value?: string) {

@@ -227,6 +227,7 @@ export async function registerClient(body: unknown) {
   await sql`INSERT INTO oauth_clients(id,name,redirect_uris,auth_method,secret_hash) VALUES(${id},${metadata.client_name},${metadata.redirect_uris},${metadata.token_endpoint_auth_method},${clientSecret ? digest(clientSecret) : null})`;
   return {
     ...metadata,
+    grant_types: ["authorization_code"],
     client_id: id,
     client_id_issued_at: Math.floor(Date.now() / 1000),
     ...(clientSecret

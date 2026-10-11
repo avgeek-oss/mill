@@ -20,6 +20,7 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { app } from "../apps/api/src/app.js";
 import { credentialActor } from "../apps/api/src/external.js";
+import { mcpDispatchTokens } from "../apps/api/src/external/credentials.js";
 import {
   metadataDocumentUrl,
   parseClientDocument,
@@ -156,6 +157,11 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         assert.deepEqual(discovery.grant_types_supported, [
           "authorization_code",
         ]);
+        assert.deepEqual(discovery.scopes_supported, [
+          "read",
+          "write",
+          "admin",
+        ]);
         assert.equal(discovery.client_id_metadata_document_supported, true);
         for (const path of [
           "/.well-known/oauth-protected-resource",
@@ -235,6 +241,40 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
             token_endpoint_auth_method: "none",
           }),
         );
+        const codex = parseClientDocument(
+          "https://chatgpt.com/oauth/codex/client.json",
+          {
+            client_id: "https://chatgpt.com/oauth/codex/client.json",
+            client_name: "Codex",
+            redirect_uris: ["http://127.0.0.1/callback"],
+            token_endpoint_auth_method: "none",
+            grant_types: ["authorization_code", "refresh_token"],
+            response_types: ["code"],
+          },
+        );
+        assert.deepEqual(codex.redirectUris, ["http://127.0.0.1/callback"]);
+        const dynamic = await ok<{ grant_types: string[] }>(
+          await request("/oauth/register", {
+            body: {
+              client_name: "Codex fallback",
+              redirect_uris: [redirect],
+              token_endpoint_auth_method: "none",
+              grant_types: ["authorization_code", "refresh_token"],
+            },
+          }),
+        );
+        assert.deepEqual(dynamic.grant_types, ["authorization_code"]);
+        assert.equal(
+          (
+            await request("/oauth/register", {
+              body: {
+                redirect_uris: [redirect],
+                grant_types: ["authorization_code", "authorization_code"],
+              },
+            })
+          ).status,
+          400,
+        );
         assert.throws(() =>
           parseClientDocument("https://example.com/client.json", {
             client_id: "https://example.com/client.json",
@@ -266,12 +306,111 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
       },
     );
     await t.test(
+      "literal loopback callbacks may vary only the port",
+      async () => {
+        const loopback = await register({
+          redirect_uris: ["http://127.0.0.1:4182/callback?source=codex"],
+        });
+        const accepted = await start({
+          client_id: loopback.client_id,
+          redirect_uri: "http://127.0.0.1:52991/callback?source=codex",
+        });
+        assert.equal(accepted.response.status, 302);
+        const approved = await ok<{ redirectTo: string }>(
+          await request(`/api/oauth/consent/${accepted.id}`, {
+            cookie,
+            body: { allow: true },
+          }),
+        );
+        const code = new URL(approved.redirectTo).searchParams.get("code")!;
+        assert.equal(new URL(approved.redirectTo).port, "52991");
+        assert.equal(
+          (
+            await form("/oauth/token", {
+              grant_type: "authorization_code",
+              client_id: loopback.client_id,
+              redirect_uri: "http://127.0.0.1:4182/callback?source=codex",
+              resource: resource(),
+              code,
+              code_verifier: accepted.verifier,
+            })
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await form("/oauth/token", {
+              grant_type: "authorization_code",
+              client_id: loopback.client_id,
+              redirect_uri: accepted.params.redirect_uri,
+              resource: resource(),
+              code,
+              code_verifier: accepted.verifier,
+            })
+          ).status,
+          200,
+        );
+        const ipv6 = await register({
+          redirect_uris: ["http://[::1]:4182/callback?source=codex"],
+        });
+        const ipv6Accepted = await start({
+          client_id: ipv6.client_id,
+          redirect_uri: "http://[::1]:52991/callback?source=codex",
+        });
+        assert.equal(ipv6Accepted.response.status, 302);
+        const ipv6Approved = await ok<{ redirectTo: string }>(
+          await request(`/api/oauth/consent/${ipv6Accepted.id}`, {
+            cookie,
+            body: { allow: true },
+          }),
+        );
+        assert.equal(new URL(ipv6Approved.redirectTo).hostname, "[::1]");
+        assert.equal(
+          (
+            await form("/oauth/token", {
+              grant_type: "authorization_code",
+              client_id: ipv6.client_id,
+              redirect_uri: ipv6Accepted.params.redirect_uri,
+              resource: resource(),
+              code: new URL(ipv6Approved.redirectTo).searchParams.get("code")!,
+              code_verifier: ipv6Accepted.verifier,
+            })
+          ).status,
+          200,
+        );
+        assert.equal(
+          (
+            await request("/oauth/register", {
+              body: { redirect_uris: ["http://127.0.0.1/callback#"] },
+            })
+          ).status,
+          400,
+        );
+        for (const callback of [
+          "http://localhost:52991/callback?source=codex",
+          "http://[::1]:52991/callback?source=codex",
+          "http://0177.0.0.1:52991/callback?source=codex",
+          "https://127.0.0.1:52991/callback?source=codex",
+          "http://127.0.0.1:52991/other?source=codex",
+          "http://127.0.0.1:52991/callback?source=other",
+          "http://127.0.0.1:52991/callback?source=codex#",
+        ]) {
+          const denied = await start({
+            client_id: loopback.client_id,
+            redirect_uri: callback,
+          });
+          assert.equal(denied.response.status, 400, callback);
+          assert.equal(denied.response.headers.get("location"), null);
+        }
+      },
+    );
+    await t.test(
       "rejects callback substitution, resource confusion, scope escalation, PKCE downgrade and duplicate parameters",
       async () => {
         for (const extra of [
           { redirect_uri: "https://attacker.example/cb" },
           { resource: "https://other.example/mcp" },
-          { scope: "admin" },
+          { scope: "superuser" },
           { code_challenge_method: "plain" },
           { code_challenge: "short" },
         ] as Record<string, string>[]) {
@@ -503,6 +642,76 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
       },
     );
     await t.test(
+      "administrative consent is explicit and loses authority after demotion",
+      async () => {
+        const normal = await issue({ scope: "read write" });
+        assert.equal(normal.scope, "read write");
+        assert.equal(
+          (
+            await credentialActor(
+              new Request(resource(), {
+                headers: { Authorization: `Bearer ${normal.access_token}` },
+              }),
+            )
+          )?.includeAdmin,
+          false,
+        );
+        const granted = await issue({ scope: "admin" });
+        assert.equal(granted.scope, "read write admin");
+        const created = await ok<{ board: { id: string; version: number } }>(
+          await request("/api/boards", {
+            cookie,
+            body: { name: "Administrative OAuth board", prefix: "ADMIN" },
+          }),
+        );
+        const deleteAs = (accessToken: string) =>
+          mcpDispatchTokens.run(digest(accessToken), () =>
+            request(`/api/boards/${created.board.id}`, {
+              method: "DELETE",
+              token: accessToken,
+              body: { version: created.board.version },
+            }),
+          );
+        assert.equal((await deleteAs(normal.access_token)).status, 403);
+        assert.equal((await deleteAs(granted.access_token)).status, 200);
+        const asRequest = () =>
+          new Request(resource(), {
+            headers: { Authorization: `Bearer ${granted.access_token}` },
+          });
+        assert.equal((await credentialActor(asRequest()))?.includeAdmin, true);
+        await sql`UPDATE users SET role='member' WHERE id=${user.id}`;
+        const narrowed = await credentialActor(asRequest());
+        assert.equal(narrowed?.role, "member");
+        assert.equal(narrowed?.includeAdmin, false);
+        assert.deepEqual(narrowed?.scopes, ["read", "write"]);
+        const pending = await start({ scope: "admin" });
+        assert.equal(
+          (
+            await request(`/api/oauth/consent/${pending.id}`, {
+              cookie,
+              body: { allow: true },
+            })
+          ).status,
+          403,
+        );
+        await sql`UPDATE users SET role='viewer' WHERE id=${user.id}`;
+        assert.equal(
+          (
+            await request(
+              `/api/oauth/consent/${(await start({ scope: "read write" })).id}`,
+              {
+                cookie,
+                body: { allow: true },
+              },
+            )
+          ).status,
+          403,
+        );
+        await sql`UPDATE users SET role='admin' WHERE id=${user.id}`;
+        assert.equal((await credentialActor(asRequest()))?.includeAdmin, false);
+      },
+    );
+    await t.test(
       "consent stores board restrictions without granting workspace administration",
       async () => {
         const created = await ok<{ board: { id: string } }>(
@@ -558,7 +767,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
             client_name: "Actual SDK client",
             redirect_uris: [redirect],
             token_endpoint_auth_method: "none",
-            grant_types: ["authorization_code"],
+            grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],
             scope: "read write",
           },

@@ -318,9 +318,11 @@ function CredentialSettings({
     const boardNames = credential.boardIds
       ?.map((id) => boards.find((board) => board.id === id)?.name)
       .filter((name): name is string => !!name);
-    const permissions = credential.scopes.includes("write")
-      ? "Read and edit"
-      : "Read only";
+    const permissions = credential.includeAdmin
+      ? "Administrative permissions"
+      : credential.scopes.includes("write")
+        ? "Read and edit"
+        : "Read only";
     return {
       ...keyRecord(credential),
       client: {

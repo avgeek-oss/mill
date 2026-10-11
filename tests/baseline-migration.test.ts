@@ -33,6 +33,16 @@ const attachmentSource = await readFile(
 const attachmentChecksum = createHash("sha256")
   .update(attachmentSource)
   .digest("hex");
+const oauthAdminSource = await readFile(
+  new URL(
+    "../packages/database/migrations/004_oauth_admin_consent.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const oauthAdminChecksum = createHash("sha256")
+  .update(oauthAdminSource)
+  .digest("hex");
 function runMigration(schema: string, directory?: string) {
   return new Promise<{ code: number | null; output: string }>(
     (resolve, reject) => {
@@ -86,7 +96,12 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
         new URL("../packages/database/migrations/", import.meta.url),
       )
     ).filter((name) => name.endsWith(".sql")),
-    ["001_initial.sql", "002_key_policies.sql", "003_task_attachments.sql"],
+    [
+      "001_initial.sql",
+      "002_key_policies.sql",
+      "003_task_attachments.sql",
+      "004_oauth_admin_consent.sql",
+    ],
   );
   const schema = `baseline_${randomUUID().replaceAll("-", "")}`;
   const directory = await mkdtemp(join(tmpdir(), "mill-checksum-"));
@@ -105,6 +120,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
           { name: "001_initial.sql", checksum },
           { name: "002_key_policies.sql", checksum: policyChecksum },
           { name: "003_task_attachments.sql", checksum: attachmentChecksum },
+          { name: "004_oauth_admin_consent.sql", checksum: oauthAdminChecksum },
         ],
       );
       const tables = (
@@ -153,6 +169,10 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
     await writeFile(
       join(directory, "003_task_attachments.sql"),
       attachmentSource,
+    );
+    await writeFile(
+      join(directory, "004_oauth_admin_consent.sql"),
+      oauthAdminSource,
     );
     const changed = await runMigration(schema, directory);
     assert.equal(changed.code, 1);
