@@ -161,7 +161,7 @@ function AttachmentPreview({
   }, [load]);
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden rounded-lg bg-default ${expanded ? "h-[min(65vh,48rem)]" : "h-28 sm:h-44"}`}
+      className={`relative flex items-center justify-center overflow-hidden rounded-lg bg-default ${expanded ? "h-[min(65vh,48rem)]" : "h-24 sm:h-28"}`}
     >
       {url ? (
         item.contentType === "application/pdf" ? (
