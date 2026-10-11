@@ -631,7 +631,7 @@ function TaskAttachments({
                   label="Choose file"
                   accept={configuration.contentTypes.join(",")}
                   maxSizeBytes={configuration.maxBytes}
-                  description="Images and PDFs, up to 20 MB each."
+                  description="Drag and drop an image or PDF here, or choose a file. Up to 20 MB."
                   onUpload={upload}
                 />
               </Modal.Body>
