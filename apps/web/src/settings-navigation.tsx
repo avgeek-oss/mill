@@ -1,7 +1,6 @@
 import {
-  BookOpen01Icon,
   Key01Icon,
-  Link01Icon,
+  McpServerIcon,
   Mail01Icon,
   ComputerIcon,
   FingerPrintIcon,
@@ -66,9 +65,9 @@ export const accountSections: SettingsGroup[] = [
       {
         id: "mcp-connections",
         label: settingsPageLabels["mcp-connections"],
-        icon: Link01Icon,
+        icon: McpServerIcon,
       },
-      { id: "mcp", label: settingsPageLabels["mcp"], icon: BookOpen01Icon },
+      { id: "mcp", label: settingsPageLabels["mcp"], icon: McpServerIcon },
     ],
   },
 ];

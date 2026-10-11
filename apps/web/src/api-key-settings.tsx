@@ -329,7 +329,7 @@ function CredentialSettings({
         name: credential.name,
         ...(credential.oauthClientId ? { id: credential.oauthClientId } : {}),
       },
-      permissions: `${permissions}${credential.boardIds ? (boardNames?.length ? ` · ${boardNames.join(", ")}` : " · Approved boards") : " · All boards"}`,
+      permissions: `${permissions}${credential.boardIds ? (boardNames?.length ? ` · ${boardNames.join(", ")}` : " · Approved boards") : ""}`,
     };
   }
   const apiKeys = (items ?? [])
