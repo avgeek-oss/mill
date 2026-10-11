@@ -687,12 +687,12 @@ try {
   const attachmentChecksum = createHash("sha256")
     .update(attachmentSource)
     .digest("hex");
-  const oauthAdminSource = await readFile(
+  const permissionMigrationSource = await readFile(
     join(root, "packages/database/migrations/004_oauth_admin_consent.sql"),
     "utf8",
   );
-  const oauthAdminChecksum = createHash("sha256")
-    .update(oauthAdminSource)
+  const permissionMigrationChecksum = createHash("sha256")
+    .update(permissionMigrationSource)
     .digest("hex");
   const installedMigrations = JSON.parse(
     await run(
@@ -708,7 +708,10 @@ try {
     { name: "001_initial.sql", checksum: baselineChecksum },
     { name: "002_key_policies.sql", checksum: keyPolicyChecksum },
     { name: "003_task_attachments.sql", checksum: attachmentChecksum },
-    { name: "004_oauth_admin_consent.sql", checksum: oauthAdminChecksum },
+    {
+      name: "004_oauth_admin_consent.sql",
+      checksum: permissionMigrationChecksum,
+    },
   ]);
   const schemaShape = JSON.parse(
     await run(

@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const baselineName = "001_initial.sql";
 const policyName = "002_key_policies.sql";
 const attachmentName = "003_task_attachments.sql";
-const oauthAdminName = "004_oauth_admin_consent.sql";
+const permissionMigrationName = "004_oauth_admin_consent.sql";
 const reviewedBaselineChecksum =
   "e82748c4b57ade74641a6d6ab051016daa3df5eef0ea05aac6c39c6b7ddd1466";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -441,14 +441,14 @@ export async function rebasePrelaunch(
       `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
       [attachmentName, digest(attachments)],
     );
-    const oauthAdmin = await readFile(
-      path.join(root, "packages/database/migrations", oauthAdminName),
+    const permissionMigration = await readFile(
+      path.join(root, "packages/database/migrations", permissionMigrationName),
       "utf8",
     );
-    await tx.unsafe(oauthAdmin);
+    await tx.unsafe(permissionMigration);
     await tx.unsafe(
       `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
-      [oauthAdminName, digest(oauthAdmin)],
+      [permissionMigrationName, digest(permissionMigration)],
     );
     await requireStopped(tx);
     await tx.unsafe(
@@ -494,7 +494,7 @@ async function main(args) {
     !files.includes(baselineName) ||
     !files.includes(policyName) ||
     !files.includes(attachmentName) ||
-    !files.includes(oauthAdminName)
+    !files.includes(permissionMigrationName)
   )
     throw new Error(
       "The rebase requires the reviewed baseline and forward migrations",
