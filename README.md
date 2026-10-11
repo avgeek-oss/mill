@@ -8,7 +8,7 @@ Personal and team API keys have explicit Read-only, Edit, or Administrative perm
 
 ![Mill task list with sample tasks, statuses, assignees and filters](docs/assets/screenshots/release-v1/board-light.png)
 
-The proposed release is `v1.0.1`. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements. Use a published release for an installation; a proposed tag is not a published image.
+Use a version from [Mill releases](https://github.com/avgeek-oss/mill/releases). Each release publishes matching public API and UI images. See the [release verification checklist](docs/publishing-checklist.md) for maintainer requirements.
 
 ## Install
 
@@ -19,7 +19,7 @@ If you prefer the terminal:
 ```sh
 mkdir mill
 cd mill
-release_tag=v1.0.1 # choose a published release
+release_tag=v1.0.2 # choose a published release
 curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
 curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
 cp .env.example .env

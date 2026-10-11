@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 1.0.2 (2026-10-11)
 
 - Add optional private S3-compatible task attachments for images and PDFs, shown below the task description with an upload dialog, page-wide drag and drop, verified uploads, two-column mobile and four-column desktop cards with the upload action beneath them, expanded image/PDF previews, inline downloads and cleanup after deletion.
 
-## 1.0.1 (release candidate)
+- Use design system 1.2.14 for the shared upload control.
+- Enable private attachment storage in the Towbar production manifests and keep API and UI images on version 1.0.2.
+
+## 1.0.1
 
 - Show the shared backend-unavailable screen during startup outages and retry read-only startup checks automatically. Keep authentication failures separate from backend failures.
 - Use design system 1.2.9 for the recovery screen and keep the brand, readiness response and MCP server version aligned with the release manifest.

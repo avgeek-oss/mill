@@ -7,7 +7,7 @@ import { Screenshot } from "/snippets/oss/screenshot.jsx";
 
 Mill needs **PostgreSQL, an API image and a UI image**. Use an existing PostgreSQL database or let Compose run one for you. The default Compose file runs only the API and UI; it needs four environment values. You do not need Git, Node.js, a package-registry token or a source build.
 
-The first public release is proposed as `v1.0.1`. Choose a release only after its GitHub release and both public images have been published.
+Choose a version from [Mill releases](https://github.com/avgeek-oss/mill/releases), which include matching public API and UI images.
 
 ## 1. Download the installation files
 
@@ -16,7 +16,7 @@ Choose a version from [Mill releases](https://github.com/avgeek-oss/mill/release
 ```sh
 mkdir mill
 cd mill
-release_tag=v1.0.1 # choose a published release
+release_tag=v1.0.2 # choose a published release
 curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
 curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
 cp .env.example .env
