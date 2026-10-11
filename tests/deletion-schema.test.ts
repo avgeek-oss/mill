@@ -174,9 +174,18 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
           cache.createdAt.toISOString(),
           original.createdAt.toISOString(),
         );
-        if (cache.key === "schema-outside-cache") {
+        if (
+          [
+            "schema-outside-cache",
+            "schema-sole-credential-cache",
+            "schema-mixed-credential-cache",
+          ].includes(cache.key)
+        ) {
           assert.equal(cache.invalidationReason, null);
-          assert.equal(cache.status, 201);
+          assert.equal(
+            cache.status,
+            cache.key === "schema-outside-cache" ? 201 : 200,
+          );
           assert.ok(cache.response);
         } else {
           assert.equal(cache.invalidationReason, "deleted");

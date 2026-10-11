@@ -519,7 +519,10 @@ if (state.oauthCredentialId) {
   assert.equal(metadata?.tokenType, "oauth");
   assert.equal(metadata?.oauthClientId, state.oauthClientId);
   assert.equal(metadata?.revokedAt, null);
-  assert.deepEqual(metadata?.boardIds, [state.boardId]);
+  assert.ok(
+    metadata?.boardIds === null ||
+      (Array.isArray(metadata?.boardIds) && metadata.boardIds.length > 0),
+  );
   assert.equal("agentId" in metadata, false);
   assert.equal("agentName" in metadata, false);
 }
@@ -571,9 +574,12 @@ if (
       arguments: { boardId: state.futureBoardId },
     },
   );
-  assert.equal(retainedOutside.isError, true);
+  const retainedMetadata = (await request("/api/credentials")).items.find(
+    (item) => item.id === state.oauthCredentialId,
+  );
+  assert.equal(retainedOutside.isError, retainedMetadata.boardIds !== null);
   pass(
-    "The existing OAuth token survives restart or backup restore at its original resource origin and retains its board restriction",
+    "The existing OAuth token survives restart or backup restore with its original board access",
   );
 }
 if (state.mcpTaskId) {
@@ -844,17 +850,21 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
         "POST",
         {
           allow: true,
+          accessLevel: "write",
           agentId: state.ownerId,
         },
+        400,
+      );
+      await request(
+        `/api/oauth/consent/${requestId}`,
+        "POST",
+        { allow: true, accessLevel: "write", boardIds: [state.boardId] },
         400,
       );
       const decision = await request(
         `/api/oauth/consent/${requestId}`,
         "POST",
-        {
-          allow: true,
-          boardIds: [state.boardId],
-        },
+        { allow: true, accessLevel: "write" },
       );
       const callback = new URL(decision.redirectTo);
       assert.equal(callback.searchParams.get("state"), oauthState);
@@ -913,7 +923,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
         (item) => item.oauthClientId === client.client_id,
       );
       assert.equal(metadata?.tokenType, "oauth");
-      assert.deepEqual(metadata?.boardIds, [state.boardId]);
+      assert.equal(metadata?.boardIds, null);
       assert.deepEqual(metadata?.scopes, ["read", "write"]);
       assert.equal("agentId" in metadata, false);
       assert.equal("agentName" in metadata, false);
@@ -933,7 +943,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
         mode: 0o600,
       });
       pass(
-        "Human OAuth consent, PKCE exchange and MCP retain approved boards and client metadata for backup",
+        "Human OAuth consent, PKCE exchange and MCP retain live board access and client metadata for backup",
       );
     }
     const initialized = await mcpRequest(mcpToken, transport, "initialize", {
@@ -959,8 +969,8 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     const { tools } = await mcpRequest(mcpToken, transport, "tools/list", {});
     assert.ok(tools.some((item) => item.name === "update_task"));
     assert.ok(
-      !tools.some((item) => item.name === "create_board"),
-      "Board-restricted MCP cannot create workspace boards",
+      tools.some((item) => item.name === "create_board"),
+      "An unrestricted write OAuth grant can create workspace boards",
     );
     for (const name of [
       "list_agents",
@@ -1038,18 +1048,14 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     });
     assert.equal(visibleBoards.isError, false);
     assert.deepEqual(
-      visibleBoards.structuredContent.items.map((item) => item.id),
-      [state.boardId],
+      visibleBoards.structuredContent.items.map((item) => item.id).sort(),
+      [state.boardId, state.futureBoardId].sort(),
     );
     const outside = await mcpRequest(mcpToken, transport, "tools/call", {
       name: "get_board",
       arguments: { boardId: state.futureBoardId },
     });
-    assert.equal(
-      outside.isError,
-      true,
-      "The OAuth-approved board selection remains narrower than workspace access",
-    );
+    assert.equal(outside.isError, false);
     await request(
       `/api/boards/${state.boardId}`,
       "GET",
@@ -1062,14 +1068,15 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
       name: "create_task",
       arguments: {
         boardId: state.futureBoardId,
-        title: "Rejected outside OAuth approval",
+        title: "Current OAuth board access",
+        idempotencyKey: "install-oauth-future-board-task",
       },
     });
-    assert.equal(outsideWrite.isError, true);
+    assert.equal(outsideWrite.isError, false);
     const history = await request(`/api/tasks/${state.mcpTaskId}/activity`);
     assert.ok(history.items.some((event) => event.actorKind === "oauth"));
     pass(
-      "OAuth-approved boards restrict reads and writes; MCP retains human assignments and client attribution",
+      "New OAuth grants follow live board access; MCP retains human assignments and client attribution",
     );
     const readonlyRedirect = `${origin}/installation-readonly-callback`;
     const readonlyClient = await request(
@@ -1105,10 +1112,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     const readonlyDecision = await request(
       `/api/oauth/consent/${readonlyRequestId}`,
       "POST",
-      {
-        allow: true,
-        boardIds: [state.boardId],
-      },
+      { allow: true, accessLevel: "read" },
     );
     const readonlyExchange = await fetch(`${origin}/oauth/token`, {
       method: "POST",

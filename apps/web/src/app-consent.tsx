@@ -2,14 +2,16 @@ import { apiOrigin, apiUrl } from "./runtime-config.js";
 import { useIdentityConfirmation } from "./identity-confirmation.js";
 import { QueryFeedback } from "./query-feedback.js";
 import { useEffect, useRef, useState } from "react";
-import { Choice, toast } from "@mill/web-design-system";
+import { toast } from "@mill/web-design-system";
 import {
   AuthScreen,
   ButtonLink,
   McpAuthorization,
   QueryLoading,
+  type McpAccessLevel,
 } from "@avgeek-oss/design-system";
 import { AuthBrand } from "./auth.js";
+import { McpClientLogo } from "./mcp-client-logo.js";
 import {
   ApiError,
   errorText,
@@ -17,7 +19,6 @@ import {
   responseError,
   type Session,
 } from "./api.js";
-import { useBoardDirectory } from "./board-directory.js";
 
 type ConsentDetails = {
   clientName: string;
@@ -26,6 +27,7 @@ type ConsentDetails = {
   redirectUri: string;
   scope: string;
   canApprove: boolean;
+  availableAccessLevels: McpAccessLevel[];
   expiresIn: number;
   user: { name: string; role: "admin" | "member" | "viewer" };
 };
@@ -46,6 +48,12 @@ function validDetails(value: unknown): value is ConsentDetails {
     typeof value.redirectUri !== "string" ||
     typeof value.scope !== "string" ||
     typeof value.canApprove !== "boolean" ||
+    !Array.isArray(value.availableAccessLevels) ||
+    !value.availableAccessLevels.includes("read") ||
+    !value.availableAccessLevels.every(
+      (level: unknown) =>
+        typeof level === "string" && ["read", "write", "admin"].includes(level),
+    ) ||
     !Number.isSafeInteger(value.expiresIn) ||
     Number(value.expiresIn) <= 0 ||
     typeof value.user.name !== "string" ||
@@ -104,7 +112,7 @@ function decisionRedirect(
 async function consentRequest(
   id: string,
   signal: AbortSignal,
-  decision?: { allow: boolean; boardIds?: string[] },
+  decision?: { allow: boolean; accessLevel?: McpAccessLevel },
 ): Promise<unknown> {
   let response: Response;
   try {
@@ -180,41 +188,24 @@ export function AppConsent({
     <ConsentRequest
       key={`${session.user.id}:${session.user.role}:${id ?? "missing"}`}
       id={id}
-      session={session}
     />
   );
 }
 
-function ConsentRequest({
-  id,
-  session,
-}: {
-  id: string | null;
-  session: Session;
-}) {
+function ConsentRequest({ id }: { id: string | null }) {
   const identity = useIdentityConfirmation();
   const [connection, setConnection] = useState<ConnectionState>({
     phase: "pending",
   });
   const [attempt, setAttempt] = useState(0);
-  const [boardId, setBoardId] = useState("");
   const [decisionError, setDecisionError] = useState("");
+  const [accessLevel, setAccessLevel] = useState<McpAccessLevel>("read");
   const [decision, setDecision] = useState<"allow" | "deny" | null>(null);
   const [complete, setComplete] = useState(false);
   const [unconfirmed, setUnconfirmed] = useState(false);
   const decisionPending = useRef(false);
   const decisionController = useRef<AbortController | null>(null);
   const active = useRef(true);
-  const directory = useBoardDirectory(
-    id ? `${session.user.id}:${session.user.role}:${id}` : null,
-  );
-  const [previousBoards, setPreviousBoards] = useState<typeof directory.boards>(
-    [],
-  );
-  useEffect(() => {
-    if (!directory.pending && !directory.error)
-      setPreviousBoards(directory.boards);
-  }, [directory.boards, directory.pending, directory.error]);
   useEffect(() => {
     active.current = true;
     return () => {
@@ -243,31 +234,10 @@ function ConsentRequest({
   }, [id, attempt]);
 
   const details = connection.phase === "ready" ? connection.details : null;
-  const scopes = details?.scope.trim().split(/\s+/) ?? [];
-  const validScope =
-    scopes.includes("read") &&
-    scopes.every((scope) => ["read", "write", "admin"].includes(scope)) &&
-    (!scopes.includes("admin") || scopes.includes("write"));
-  const write = scopes.includes("write");
-  const admin = scopes.includes("admin");
-  const canWrite =
-    details?.user.role !== "viewer" && session.user.role !== "viewer";
-  const canAdmin =
-    details?.user.role === "admin" && session.user.role === "admin";
-  const choices = directory.boards;
-  const displayedBoards =
-    directory.pending || directory.error ? previousBoards : choices;
-  const selectedAvailable =
-    !boardId || choices.some((board) => board.id === boardId);
   const allowAvailable =
     !!details &&
     details.canApprove &&
-    validScope &&
-    (!write || canWrite) &&
-    (!admin || canAdmin) &&
-    !directory.pending &&
-    !directory.error &&
-    selectedAvailable;
+    details.availableAccessLevels.includes(accessLevel);
 
   async function decide(allow: boolean) {
     if (
@@ -284,10 +254,7 @@ function ConsentRequest({
     const controller = new AbortController();
     decisionController.current = controller;
     try {
-      const selection = {
-        allow,
-        ...(allow && boardId ? { boardIds: [boardId] } : {}),
-      };
+      const selection = allow ? { allow, accessLevel } : { allow };
       let response: unknown;
       try {
         response = await consentRequest(id, controller.signal, selection);
@@ -316,32 +283,16 @@ function ConsentRequest({
     } catch (cause: unknown) {
       if (!active.current || controller.signal.aborted) return;
       setDecisionError(errorText(cause));
-      if (
-        allow &&
-        cause instanceof ApiError &&
-        [400, 403, 404].includes(cause.status)
-      )
-        void directory.reload();
       setDecision(null);
       decisionPending.current = false;
     }
   }
 
-  const blockedReason = !validScope ? (
-    "This app requested unsupported permissions. Start a new connection with read, write, or administrative access."
-  ) : write && !canWrite ? (
-    "Your Viewer role cannot grant edit access. Reconnect with read-only access."
-  ) : admin && !canAdmin ? (
-    "Only administrators can grant administrative access."
-  ) : !details?.canApprove ? (
-    "Your account cannot grant the requested access."
-  ) : directory.pending ? (
-    "Wait for your available boards to load."
-  ) : directory.error || !selectedAvailable ? (
-    <span className="text-muted">
-      Access requires a confirmed connection and an available board selection.
-    </span>
-  ) : undefined;
+  const blockedReason = !details?.canApprove
+    ? "Your account cannot grant access."
+    : !allowAvailable
+      ? "Your role changed. Start a new connection from your app."
+      : undefined;
   if (!id)
     return (
       <AuthScreen brand={<AuthBrand />} title="Connect to Mill">
@@ -379,76 +330,23 @@ function ConsentRequest({
       </AuthScreen>
     );
   if (!details) return null;
-  const redirect = new URL(details.redirectUri);
   return (
     <>
       {identity.confirmation}
       <McpAuthorization
         brand={<AuthBrand />}
         productName="Mill"
+        clientName={details.clientName}
+        clientLogo={<McpClientLogo client="other" />}
+        accessLevel={accessLevel}
+        availableAccessLevels={details.availableAccessLevels}
+        onAccessLevelChange={setAccessLevel}
         isPending={!!decision || complete}
         error={decisionError || undefined}
         approvalBlockedReason={blockedReason}
-        onAllow={() => void decide(true)}
+        onApprove={() => void decide(true)}
         onDeny={() => void decide(false)}
-        details={{
-          clientName: details.clientName,
-          clientId: details.clientId,
-          clientTrust: details.clientTrust,
-          identityDescription:
-            details.clientTrust === "metadata-document"
-              ? "The app publishes its details in an HTTPS metadata document. This does not verify the app making this request."
-              : "The app supplied its own name. Mill has not verified its identity.",
-          redirectUri: details.redirectUri,
-          account: {
-            email: session.user.email,
-            name: session.user.name,
-            teamName: session.workspace.name,
-            role: session.user.role,
-          },
-          permissionSummary: validScope
-            ? admin
-              ? "Wants to read, write, and manage your Mill boards, tasks, and comments."
-              : `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
-            : "Requested permissions are unsupported.",
-          accessDescription: `${admin ? "Can perform administrative board actions allowed by your Mill role." : write ? "Can view and make changes allowed by your Mill role." : "Can only view data allowed by your Mill role."} Cannot manage accounts or reveal stored credentials.`,
-          accessLifetime:
-            details.expiresIn % 86400 === 0
-              ? `${details.expiresIn / 86400} days`
-              : `${details.expiresIn} seconds`,
-          revocationDescription: "Revoke access anytime in MCP Connections.",
-          restrictions:
-            "Access remains limited by your current membership, role, and approved boards.",
-          deviceConnectionNotice: ["localhost", "127.0.0.1", "[::1]"].includes(
-            redirect.hostname,
-          )
-            ? "This opens an app on your device. Only continue if you started this connection yourself."
-            : undefined,
-        }}
-      >
-        <div className="content-grid min-w-0" aria-busy={directory.pending}>
-          <Choice
-            label="Approved boards"
-            value={boardId}
-            onChange={setBoardId}
-            items={[
-              { id: "", name: "All allowed boards" },
-              ...displayedBoards.map((board) => ({
-                id: board.id,
-                name: board.name,
-              })),
-            ]}
-            search
-            disabled={!!decision || directory.pending || !!directory.error}
-          />
-          {directory.error && (
-            <QueryFeedback
-              message={directory.error}
-              onRetry={() => void directory.reload()}
-            />
-          )}
-        </div>
-      </McpAuthorization>
+      />
     </>
   );
 }

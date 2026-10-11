@@ -1,7 +1,6 @@
 import { sql } from "../../../../packages/database/src/index.js";
 import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
 import { resolveClient } from "./clients.js";
-import { validateBoards } from "./credentials.js";
 import { lockAuthority } from "../authority.js";
 import {
   authorizationResponse,
@@ -29,10 +28,25 @@ type Grant = {
   userId: string | null;
   boardIds: string[] | null;
   codeHash: string | null;
+  approvedRole: Role | null;
+  reviewedRole: Role | null;
   credentialId: string | null;
   expiresAt: Date;
   consumedAt: Date | null;
 };
+export type OAuthAccessLevel = "read" | "write" | "admin";
+const scopeForAccess = (level: OAuthAccessLevel) =>
+  level === "admin"
+    ? "read write admin"
+    : level === "write"
+      ? "read write"
+      : "read";
+const allowedAccess = (role: Role): OAuthAccessLevel[] =>
+  role === "admin"
+    ? ["read", "write", "admin"]
+    : role === "member"
+      ? ["read", "write"]
+      : ["read"];
 export async function beginAuthorization(params: Record<string, string>) {
   const client = await resolveClient(params.client_id ?? "");
   if (
@@ -78,32 +92,38 @@ export async function beginAuthorization(params: Record<string, string>) {
   return { requestId: String(grant!.id) };
 }
 export async function consentDetails(id: string, a: Actor) {
-  const [grant] = await sql<
-    Grant[]
-  >`SELECT * FROM oauth_requests WHERE id=${id} AND expires_at>now() AND code_hash IS NULL AND consumed_at IS NULL`;
-  if (!grant)
-    throw new OAuthError(
-      "invalid_request",
-      "This connection link has expired or was already used. Start again from your app.",
-    );
-  return {
-    clientName: grant.clientName,
-    clientId: grant.clientId,
-    clientTrust: grant.clientTrust,
-    redirectUri: grant.redirectUri,
-    scope: grant.scope,
-    expiresIn: tokenLifetimeSeconds,
-    user: { name: a.name, role: a.role },
-    canApprove:
-      (a.role !== "viewer" || !grant.scope.includes("write")) &&
-      (a.role === "admin" || !grant.scope.includes("admin")),
-  };
+  return sql.begin(async (tx) => {
+    await lockAuthority(tx);
+    const [user] = await tx<
+      { role: Role; name: string }[]
+    >`SELECT role,name FROM users WHERE id=${a.userId} AND disabled_at IS NULL FOR SHARE`;
+    const [grant] = await tx<
+      Grant[]
+    >`SELECT * FROM oauth_requests WHERE id=${id} AND expires_at>now() AND code_hash IS NULL AND consumed_at IS NULL FOR UPDATE`;
+    if (!user || !grant || (grant.userId && grant.userId !== a.userId))
+      throw new OAuthError(
+        "invalid_request",
+        "This connection link has expired or was already used. Start again from your app.",
+      );
+    await tx`UPDATE oauth_requests SET user_id=${a.userId},reviewed_role=${user.role} WHERE id=${id}`;
+    return {
+      clientName: grant.clientName,
+      clientId: grant.clientId,
+      clientTrust: grant.clientTrust,
+      redirectUri: grant.redirectUri,
+      scope: grant.scope,
+      expiresIn: tokenLifetimeSeconds,
+      user: { name: user.name, role: user.role },
+      availableAccessLevels: allowedAccess(user.role),
+      canApprove: true,
+    };
+  });
 }
 export async function decideConsent(
   id: string,
   a: Actor,
   allow: boolean,
-  boardIds?: string[],
+  accessLevel?: OAuthAccessLevel,
 ) {
   if (a.kind !== "human" || a.credentialId)
     throw new OAuthError(
@@ -122,6 +142,8 @@ export async function decideConsent(
     if (
       !user ||
       !grant ||
+      (grant.userId && grant.userId !== a.userId) ||
+      (grant.reviewedRole && grant.reviewedRole !== user.role) ||
       grant.expiresAt <= new Date() ||
       grant.codeHash ||
       grant.consumedAt
@@ -135,21 +157,14 @@ export async function decideConsent(
 
       return authorizationResponse(grant, { error: "access_denied" });
     }
-    if (user.role === "viewer" && grant.scope.includes("write"))
+    if (!accessLevel || !allowedAccess(user.role).includes(accessLevel))
       throw new OAuthError(
         "access_denied",
-        "Requested access exceeds your role",
+        "Selected access exceeds your current role",
         403,
       );
-    if (grant.scope.includes("admin") && user.role !== "admin")
-      throw new OAuthError(
-        "access_denied",
-        "Administrative access requires an administrator and write access",
-        403,
-      );
-    await validateBoards(boardIds, tx);
     const code = secret();
-    await tx`UPDATE oauth_requests SET user_id=${a.userId},board_ids=${boardIds ?? null},code_hash=${digest(code)},expires_at=${new Date(Date.now() + 120000)} WHERE id=${id}`;
+    await tx`UPDATE oauth_requests SET user_id=${a.userId},approved_role=${user.role},scope=${scopeForAccess(accessLevel)},board_ids=NULL,code_hash=${digest(code)},expires_at=${new Date(Date.now() + 120000)} WHERE id=${id}`;
 
     return authorizationResponse(grant, { code });
   });
@@ -191,6 +206,7 @@ export async function exchangeCode(
     >`SELECT role,name FROM users WHERE id=${grant.userId} AND disabled_at IS NULL FOR SHARE`;
     if (
       !user ||
+      grant.approvedRole !== user.role ||
       (user.role === "viewer" && grant.scope.includes("write")) ||
       (grant.scope.includes("admin") && user.role !== "admin")
     )

@@ -228,7 +228,7 @@ for (const winner of ["delete", "issuance"] as const) {
   });
 }
 
-async function oauth(cookie: string, boardId: string) {
+async function oauth(cookie: string) {
   const redirect = "http://127.0.0.1:4182/callback";
   const client = await json(
     await request("/oauth/register", {
@@ -251,7 +251,7 @@ async function oauth(cookie: string, boardId: string) {
   const consent = () =>
     request(`/api/oauth/consent/${grantId}`, {
       cookie,
-      body: { allow: true, boardIds: [boardId] },
+      body: { allow: true, accessLevel: "read" },
     });
   const exchange = async (code: string) =>
     app.request("/oauth/token", {
@@ -270,62 +270,12 @@ async function oauth(cookie: string, boardId: string) {
 }
 
 for (const winner of ["delete", "issuance"] as const) {
-  test(`no-key OAuth consent and board deletion serialize when ${winner} goes first`, async () => {
-    const { cookie, board } = await fixture();
-    const flow = await oauth(cookie, board.id);
-    const gate = await barrier((tx) =>
-      winner === "delete"
-        ? tx`SELECT id FROM boards WHERE id=${board.id} FOR UPDATE`
-        : tx`SELECT id FROM oauth_requests WHERE id=${flow.grantId} FOR UPDATE`,
-    );
-    const deletion = () =>
-      request(`/api/boards/${board.id}`, {
-        cookie,
-        method: "DELETE",
-        body: { version: board.version },
-      });
-    let first: Promise<Response>;
-    let second: Promise<Response>;
-    try {
-      first = winner === "delete" ? deletion() : flow.consent();
-      await waitForBlocked(gate.pid);
-      second = winner === "delete" ? flow.consent() : deletion();
-      await waitForBlocked(gate.pid, 2);
-    } finally {
-      await gate.release();
-    }
-    const consent = await (winner === "delete" ? second! : first!);
-    const deleted = await (winner === "delete" ? first! : second!);
-    assert.equal(deleted.status, 200, await deleted.clone().text());
-    assert.equal(
-      consent.status,
-      winner === "delete" ? 400 : 200,
-      await consent.clone().text(),
-    );
-    assert.equal(
-      (
-        await sql`SELECT id FROM oauth_requests WHERE ${board.id}=ANY(board_ids)`
-      ).length,
-      0,
-    );
-    if (winner === "issuance") {
-      const { redirectTo } = await consent.json();
-      const code = new URL(redirectTo).searchParams.get("code")!;
-      assert.equal((await flow.exchange(code)).status, 400);
-      assert.equal(
-        (await sql`SELECT id FROM oauth_requests WHERE id=${flow.grantId}`)
-          .length,
-        0,
-      );
-    }
-  });
-}
-
-for (const winner of ["delete", "issuance"] as const) {
   test(`OAuth token exchange and board deletion serialize scope cleanup when ${winner} goes first`, async () => {
     const { cookie, board } = await fixture();
-    const flow = await oauth(cookie, board.id);
+    const flow = await oauth(cookie);
     const { redirectTo } = await json(await flow.consent());
+    // Represent a pending board-restricted approval issued before the new consent contract.
+    await sql`UPDATE oauth_requests SET board_ids=ARRAY[${board.id}::uuid] WHERE id=${flow.grantId}`;
     const code = new URL(redirectTo).searchParams.get("code")!;
     const gate = await barrier(
       (tx) =>

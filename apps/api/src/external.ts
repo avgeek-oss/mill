@@ -220,32 +220,25 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
   const parsed = z
     .object({
       allow: z.boolean(),
-      boardIds: z
-        .array(z.uuid())
-        .min(1)
-        .max(100)
-        .refine((ids) => new Set(ids).size === ids.length)
-        .optional(),
+      accessLevel: z.enum(["read", "write", "admin"]).optional(),
     })
     .strict()
     .safeParse(await c.req.json());
-  if (!parsed.success)
-    throw new OAuthError("invalid_request", "Choose whether to allow access");
+  if (
+    !parsed.success ||
+    (parsed.data.allow && !parsed.data.accessLevel) ||
+    (!parsed.data.allow && parsed.data.accessLevel)
+  )
+    throw new OAuthError("invalid_request", "Choose access before approving");
   if (parsed.data.allow) await recentSession(c);
-  try {
-    return c.json({
-      redirectTo: await decideConsent(
-        id.data,
-        a,
-        parsed.data.allow,
-        parsed.data.boardIds,
-      ),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === "Choose existing boards")
-      throw new OAuthError("invalid_request", error.message);
-    throw error;
-  }
+  return c.json({
+    redirectTo: await decideConsent(
+      id.data,
+      a,
+      parsed.data.allow,
+      parsed.data.accessLevel,
+    ),
+  });
 });
 async function readForm(request: Request) {
   if (

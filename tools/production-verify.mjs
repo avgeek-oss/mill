@@ -694,6 +694,16 @@ try {
   const permissionMigrationChecksum = createHash("sha256")
     .update(permissionMigrationSource)
     .digest("hex");
+  const reauthorizationSource = await readFile(
+    join(
+      root,
+      "packages/database/migrations/005_oauth_role_change_reauthorization.sql",
+    ),
+    "utf8",
+  );
+  const reauthorizationChecksum = createHash("sha256")
+    .update(reauthorizationSource)
+    .digest("hex");
   const installedMigrations = JSON.parse(
     await run(
       "baseline-migration-record",
@@ -711,6 +721,10 @@ try {
     {
       name: "004_oauth_admin_consent.sql",
       checksum: permissionMigrationChecksum,
+    },
+    {
+      name: "005_oauth_role_change_reauthorization.sql",
+      checksum: reauthorizationChecksum,
     },
   ]);
   const schemaShape = JSON.parse(
@@ -748,7 +762,7 @@ try {
     "node",
     "--input-type=module",
     "-e",
-    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await writeFile(join(directory,'003_task_attachments.sql'),await readFile('/app/packages/database/migrations/003_task_attachments.sql'));await writeFile(join(directory,'004_oauth_admin_consent.sql'),await readFile('/app/packages/database/migrations/004_oauth_admin_consent.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
+    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await writeFile(join(directory,'003_task_attachments.sql'),await readFile('/app/packages/database/migrations/003_task_attachments.sql'));await writeFile(join(directory,'004_oauth_admin_consent.sql'),await readFile('/app/packages/database/migrations/004_oauth_admin_consent.sql'));await writeFile(join(directory,'005_oauth_role_change_reauthorization.sql'),await readFile('/app/packages/database/migrations/005_oauth_role_change_reauthorization.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
   ]);
   await run("backup-quiesce-application", "docker", [
     ...primary.compose,

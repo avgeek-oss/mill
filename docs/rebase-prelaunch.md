@@ -1,6 +1,6 @@
 # Rebase a prelaunch installation
 
-Mill retains the clean `packages/database/migrations/001_initial.sql` baseline and applies forward migrations through `004_oauth_admin_consent.sql`. This is a maintainer procedure for the known earlier prelaunch schemas, including the clean baselines immediately before task types and start dates. It is not a general upgrade or import tool. After publication, applied migrations must remain unchanged and future releases must add forward migrations.
+Mill retains the clean `packages/database/migrations/001_initial.sql` baseline and applies forward migrations through `005_oauth_role_change_reauthorization.sql`. This is a maintainer procedure for the known earlier prelaunch schemas, including the clean baselines immediately before task types and start dates. It is not a general upgrade or import tool. After publication, applied migrations must remain unchanged and future releases must add forward migrations.
 
 Startup refuses a retired migration ledger without modifying its data. Do not clear the ledger, point the baseline at populated tables, or remove an existing database to get past that guard.
 
@@ -38,6 +38,6 @@ Tasks without a start date receive `null`; all prior task fields remain unchange
 
 ## Review before restarting
 
-Run the normal migration command and confirm that the ledger contains the expected `001_initial.sql` baseline and forward `002_key_policies.sql`, `003_task_attachments.sql`, and `004_oauth_admin_consent.sql` migrations with their reviewed checksums. Start Mill and review existing accounts, boards, direct task links, comments, activity and OAuth connections. Check that approved board restrictions still apply and that unassigned tasks remain unassigned.
+Run the normal migration command and confirm that the ledger contains the expected `001_initial.sql` baseline and forward `002_key_policies.sql`, `003_task_attachments.sql`, `004_oauth_admin_consent.sql`, and `005_oauth_role_change_reauthorization.sql` migrations with their reviewed checksums. Start Mill and review existing accounts, boards, direct task links, comments, and activity. Existing OAuth connections remain valid with their stored board restrictions; unexchanged approval codes must be requested again. Role changes revoke that person's OAuth connections and require fresh authorization. Check that unassigned tasks remain unassigned.
 
 Keep the archive name and the conversion receipt with the local review evidence. Do not present conversion of one local installation as a production upgrade or publication. If restoring an external backup, restore it into a separate database and follow the normal installation and restore verification first.

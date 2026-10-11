@@ -143,12 +143,12 @@ test("OAuth retry cannot return an earlier mutation after its human owner become
     }),
   );
   const retry = await callMcpTool(oauth.token, "create_task", args);
-  assert.ok(retry.response.status === 403 || retry.result?.isError);
+  assert.equal(retry.response.status, 401);
   assert.equal((await sql`SELECT id FROM tasks`).length, 1);
   const read = await callMcpTool(oauth.token, "get_task", {
     taskId: (created.result!.structuredContent!.task as { id: string }).id,
   });
-  assert.equal(read.result?.isError, false);
+  assert.equal(read.response.status, 401);
 });
 
 for (const action of ["remove", "revoke"] as const) {

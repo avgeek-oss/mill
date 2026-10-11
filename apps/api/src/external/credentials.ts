@@ -3,7 +3,6 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { sql } from "../../../../packages/database/src/index.js";
 import { badRequest } from "../http.js";
 import { HTTPException } from "hono/http-exception";
-import type { Tx } from "../domain/helpers.js";
 import { lockAuthority } from "../authority.js";
 import { digest, mcpResource, secret } from "./protocol.js";
 
@@ -56,13 +55,6 @@ export async function listCredentials(
   const items = rows.slice(0, limit);
   const hasMore = rows.length > limit;
   return { items, hasMore, nextCursor: hasMore ? items.at(-1)!.id : null };
-}
-export async function validateBoards(boardIds: string[] | undefined, tx: Tx) {
-  if (boardIds === undefined) return;
-  const boards =
-    await tx`SELECT id FROM boards WHERE id = ANY(${boardIds}::uuid[]) ORDER BY id FOR SHARE`;
-  if (boards.length !== boardIds.length)
-    throw new Error("Choose existing boards");
 }
 export async function createCredential(
   a: Actor,

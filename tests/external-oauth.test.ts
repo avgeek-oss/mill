@@ -84,7 +84,11 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
   };
   const consent = async (
     extra: Record<string, string> = {},
-    boardIds?: string[],
+    accessLevel: "read" | "write" | "admin" = extra.scope?.includes("admin")
+      ? "admin"
+      : extra.scope?.includes("write")
+        ? "write"
+        : "read",
   ) => {
     const begun = await start(extra);
     assert.equal(begun.response.status, 302);
@@ -94,10 +98,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
     const result = await ok<{ redirectTo: string }>(
       await request(`/api/oauth/consent/${begun.id}`, {
         cookie,
-        body: {
-          allow: true,
-          ...(boardIds ? { boardIds } : {}),
-        },
+        body: { allow: true, accessLevel },
       }),
     );
     const callback = new URL(result.redirectTo);
@@ -319,7 +320,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         const approved = await ok<{ redirectTo: string }>(
           await request(`/api/oauth/consent/${accepted.id}`, {
             cookie,
-            body: { allow: true },
+            body: { allow: true, accessLevel: "read" },
           }),
         );
         const code = new URL(approved.redirectTo).searchParams.get("code")!;
@@ -361,7 +362,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         const ipv6Approved = await ok<{ redirectTo: string }>(
           await request(`/api/oauth/consent/${ipv6Accepted.id}`, {
             cookie,
-            body: { allow: true },
+            body: { allow: true, accessLevel: "read" },
           }),
         );
         assert.equal(new URL(ipv6Approved.redirectTo).hostname, "[::1]");
@@ -442,7 +443,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (
             await request(`/api/oauth/consent/${begun.id}`, {
               cookie,
-              body: { allow: true },
+              body: { allow: true, accessLevel: "write" },
               headers: { Origin: "https://attacker.example" },
             })
           ).status,
@@ -453,6 +454,24 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         );
         assert.equal(details.clientName, "External agent");
         assert.equal(details.clientTrust, "unverified");
+        assert.equal(
+          (
+            await request(`/api/oauth/consent/${begun.id}`, {
+              cookie,
+              body: { allow: true },
+            })
+          ).status,
+          400,
+        );
+        assert.equal(
+          (
+            await request(`/api/oauth/consent/${begun.id}`, {
+              cookie,
+              body: { allow: false, accessLevel: "read" },
+            })
+          ).status,
+          400,
+        );
         const denied = await ok<{ redirectTo: string }>(
           await request(`/api/oauth/consent/${begun.id}`, {
             cookie,
@@ -467,7 +486,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (
             await request(`/api/oauth/consent/${begun.id}`, {
               cookie,
-              body: { allow: true },
+              body: { allow: true, accessLevel: "read" },
             })
           ).status,
           400,
@@ -609,7 +628,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (
             await request(`/api/oauth/consent/${begun.id}`, {
               cookie,
-              body: { allow: true },
+              body: { allow: true, accessLevel: "write" },
             })
           ).status,
           403,
@@ -680,16 +699,13 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           });
         assert.equal((await credentialActor(asRequest()))?.includeAdmin, true);
         await sql`UPDATE users SET role='member' WHERE id=${user.id}`;
-        const narrowed = await credentialActor(asRequest());
-        assert.equal(narrowed?.role, "member");
-        assert.equal(narrowed?.includeAdmin, false);
-        assert.deepEqual(narrowed?.scopes, ["read", "write"]);
+        assert.equal(await credentialActor(asRequest()), null);
         const pending = await start({ scope: "admin" });
         assert.equal(
           (
             await request(`/api/oauth/consent/${pending.id}`, {
               cookie,
-              body: { allow: true },
+              body: { allow: true, accessLevel: "admin" },
             })
           ).status,
           403,
@@ -701,28 +717,94 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
               `/api/oauth/consent/${(await start({ scope: "read write" })).id}`,
               {
                 cookie,
-                body: { allow: true },
+                body: { allow: true, accessLevel: "write" },
               },
             )
           ).status,
           403,
         );
         await sql`UPDATE users SET role='admin' WHERE id=${user.id}`;
-        assert.equal((await credentialActor(asRequest()))?.includeAdmin, false);
+        assert.equal(await credentialActor(asRequest()), null);
       },
     );
     await t.test(
-      "consent stores board restrictions without granting workspace administration",
+      "person-selected scope overrides the client request and promotions require reauthorization",
       async () => {
-        const created = await ok<{ board: { id: string } }>(
+        const limited = await consent({ scope: "admin" }, "read");
+        const readToken = await ok<{ access_token: string; scope: string }>(
+          await token(limited),
+        );
+        assert.equal(readToken.scope, "read");
+        const expanded = await consent({ scope: "read" }, "admin");
+        const adminToken = await ok<{ access_token: string; scope: string }>(
+          await token(expanded),
+        );
+        assert.equal(adminToken.scope, "read write admin");
+
+        await sql`UPDATE users SET role='member' WHERE id=${user.id}`;
+        const pending = await consent({ scope: "read" }, "read");
+        const reviewed = await start();
+        await ok(
+          await request(`/api/oauth/consent/${reviewed.id}`, { cookie }),
+        );
+        await sql`UPDATE users SET role='admin' WHERE id=${user.id}`;
+        assert.equal((await token(pending)).status, 400);
+        assert.equal(
+          (
+            await request(`/api/oauth/consent/${reviewed.id}`, {
+              cookie,
+              body: { allow: true, accessLevel: "read" },
+            })
+          ).status,
+          400,
+        );
+        for (const accessToken of [
+          readToken.access_token,
+          adminToken.access_token,
+        ])
+          assert.equal(
+            await credentialActor(
+              new Request(resource(), {
+                headers: { Authorization: `Bearer ${accessToken}` },
+              }),
+            ),
+            null,
+          );
+      },
+    );
+    await t.test(
+      "new consent follows current board access while existing restricted grants stay restricted",
+      async () => {
+        const first = await ok<{ board: { id: string } }>(
           await request("/api/boards", {
             cookie,
-            body: { name: "OAuth restricted board", prefix: "LIMITED" },
+            body: { name: "OAuth first board", prefix: "FIRST" },
           }),
         );
-        const grant = await consent({ scope: "read write" }, [
-          created.board.id,
-        ]);
+        const second = await ok<{ board: { id: string } }>(
+          await request("/api/boards", {
+            cookie,
+            body: { name: "OAuth second board", prefix: "SECOND" },
+          }),
+        );
+        const rejected = await start({ scope: "read write" });
+        const restrictedDecision = await request(
+          `/api/oauth/consent/${rejected.id}`,
+          {
+            cookie,
+            body: {
+              allow: true,
+              accessLevel: "write",
+              boardIds: [first.board.id],
+            },
+          },
+        );
+        assert.equal(restrictedDecision.status, 400);
+        const grant = await consent({ scope: "read write" });
+        const [pending] = await sql<
+          { boardIds: string[] | null }[]
+        >`SELECT board_ids FROM oauth_requests WHERE id=${grant.id}`;
+        assert.equal(pending!.boardIds, null);
         const issued = await ok<{ access_token: string }>(await token(grant));
         const principal = await credentialActor(
           new Request(resource(), {
@@ -730,13 +812,34 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           }),
         );
         assert(principal);
-        assert.deepEqual(principal.boardIds, [created.board.id]);
+        assert.equal(principal.boardIds, undefined);
         assert.deepEqual(principal.scopes, ["read", "write"]);
+        const readAs = (accessToken: string, boardId: string) =>
+          mcpDispatchTokens.run(digest(accessToken), () =>
+            request(`/api/boards/${boardId}`, { token: accessToken }),
+          );
+        assert.equal(
+          (await readAs(issued.access_token, second.board.id)).status,
+          200,
+        );
+        const legacyGrant = await consent({ scope: "read write" });
+        await sql`UPDATE oauth_requests SET board_ids=ARRAY[${first.board.id}::uuid] WHERE id=${legacyGrant.id}`;
+        const legacy = await ok<{ access_token: string }>(
+          await token(legacyGrant),
+        );
+        assert.equal(
+          (await readAs(legacy.access_token, first.board.id)).status,
+          200,
+        );
+        assert.equal(
+          (await readAs(legacy.access_token, second.board.id)).status,
+          403,
+        );
         assert.equal(
           (
             await request("/api/oauth/consent/" + (await start()).id, {
               token: issued.access_token,
-              body: { allow: true },
+              body: { allow: true, accessLevel: "read" },
             })
           ).status,
           403,
@@ -819,7 +922,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
                 Origin: process.env.MILL_WEB_URL!,
                 "Content-Type": "application/json",
               },
-              body: JSON.stringify({ allow: true }),
+              body: JSON.stringify({ allow: true, accessLevel: "write" }),
             }),
           );
           const callback = new URL(decision.redirectTo);
@@ -882,7 +985,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           const secondPage = nextBoards.structuredContent as {
             items: { id: string; name: string }[];
           };
-          assert.equal(secondPage.items[0]!.name, "OAuth restricted board");
+          assert.equal(secondPage.items[0]!.name, "OAuth first board");
           assert.notEqual(secondPage.items[0]!.id, firstPage.items[0]!.id);
           const task = await sdk.callTool({
             name: "create_task",

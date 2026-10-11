@@ -33,7 +33,7 @@ After publication, changes use new forward migrations; release notes describe co
 
 ## Check client access and task visibility
 
-Personal keys enforce their stored grant and the human owner's active membership and current role. Team keys enforce their stored team grant. MCP OAuth connections also enforce their owner's membership, approved scopes and optional board restrictions. Test allowed and denied actions after an upgrade.
+Personal keys enforce their stored grant and the human owner's active membership and current role. Team keys enforce their stored team grant. MCP OAuth connections enforce their owner's current membership, role and board access within approved scopes. Older restricted grants retain their stored board limits; migration does not broaden or disconnect issued OAuth tokens. Existing unexchanged approval codes expire and must be requested again. Any later role change revokes that person's OAuth connections and pending approvals, including promotions. Test allowed and denied actions after an upgrade.
 
 The default task list hides Done and Won't Do tasks after 24 hours in their current status. Explicit Status filters and direct task links still reach them. This rule does not delete tasks; unrelated edits do not reset the clock.
 

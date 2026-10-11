@@ -760,7 +760,7 @@ test("passkey recovery is atomic, single-use, digest-only and cannot approve sec
     `/api/oauth/consent/${approvedConsent.id}`,
     {
       cookie: recoveryCookie,
-      body: { allow: true },
+      body: { allow: true, accessLevel: "write" },
       headers: { "Idempotency-Key": "passkey-oauth-replay-001" },
     },
   );

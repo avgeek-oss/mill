@@ -40,11 +40,11 @@ Another person or client changed the task or its status after you opened it. Rev
 
 For a personal key on REST or MCP, check the owner's active membership and role, stored grant, expiry, and revocation state. A Viewer-owned key cannot write. For a team key, check its stored team grant, expiry, and revocation state. Neither key type can use browser-only identity, membership, account security, or credential-management routes.
 
-For MCP OAuth, check the connection owner's active membership, current role, approved scopes and approved boards. A board-restricted connection cannot create boards or list the team directory. If its last approved board is deleted, the connection is revoked; reconnect and review the new access request. See [the connection guide](clients.md) and [access security](authentication.md#external-credential-boundaries).
+For MCP OAuth, check the connection owner's active membership, current role, approved scopes and current board access. An older board-restricted connection cannot create boards or list the team directory. If its last approved board is deleted, the connection is revoked; reconnect and review the new access request. See [the connection guide](clients.md) and [access security](authentication.md#external-credential-boundaries).
 
 ## An MCP client cannot connect
 
-Use the exact URL shown in **Account Settings → MCP Guide**, ending in `/mcp`. Remote connections need HTTPS; local HTTP OAuth works only when the configured `MILL_API_URL` is an exact loopback origin. A connection approved for OAuth cannot use its token on REST routes. Check the client's consent, current scopes, optional approved boards, and expiry under **MCP Connections**. OAuth does not issue refresh tokens, so reconnect after expiry. API-key clients should use a current personal or team key as a bearer token. Do not place tokens in logs or support reports.
+Use the exact URL shown in **Account Settings → MCP Guide**, ending in `/mcp`. Remote connections need HTTPS; local HTTP OAuth works only when the configured `MILL_API_URL` is an exact loopback origin. A connection approved for OAuth cannot use its token on REST routes. Check the client's consent, current scopes, role, and expiry under **MCP Connections**. OAuth does not issue refresh tokens, so reconnect after expiry. API-key clients should use a current personal or team key as a bearer token. Do not place tokens in logs or support reports.
 
 ## A restore is rejected
 

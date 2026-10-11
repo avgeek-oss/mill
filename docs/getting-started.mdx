@@ -35,7 +35,7 @@ Review **Account Settings → Sessions** and revoke a device you no longer use. 
 
 For REST, open **Account Settings → API Keys**, choose **Create API key**, and enter a Name, Permissions (Read-only, Edit, or Administrative permissions), and Expires after (30 days, 90 days, 1 year, or Never). Save the one-time token in the client's secret store. Admins create team keys under **Team Settings → Team API Keys**.
 
-For MCP OAuth, enter Mill's `/mcp` URL in your client. Sign in, review the requesting client and scopes, and optionally choose approved boards before allowing access. The connection belongs to you and uses your current role within those approved permissions. Follow [the REST/MCP connection guide](/clients).
+For MCP OAuth, enter Mill's `/mcp` URL in your client. Sign in, check the application name, and choose Read-only, Write, or Administrator access before approving. The connection belongs to you and uses your current role within those approved scopes and your current board access. Follow [the REST/MCP connection guide](/clients).
 
 Revoke the key or connection when the client no longer needs access.
 
