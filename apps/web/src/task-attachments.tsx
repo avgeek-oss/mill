@@ -576,19 +576,6 @@ function TaskAttachments({
           </div>,
           document.body,
         )}
-      {writable && (
-        <Button
-          variant="secondary"
-          className="w-fit"
-          isDisabled={loading || busy}
-          onPress={() => {
-            setDroppedFile(undefined);
-            setUploadOpen(true);
-          }}
-        >
-          Upload attachment
-        </Button>
-      )}
       <QueryFeedback
         message={error}
         onRetry={loading ? undefined : () => void load()}
@@ -597,12 +584,12 @@ function TaskAttachments({
         <QueryLoading className="sr-only">Loading attachments</QueryLoading>
       )}
       {!!page.items.length && page.items.length <= 4 && !page.hasMore ? (
-        <div className="grid min-w-0 grid-cols-2 gap-3 sm:gap-4">
+        <div className="grid min-w-0 grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
           {page.items.map((item) => (
             <article
               key={item.id}
               aria-label={`Attachment ${item.fileName}`}
-              className="grid min-w-0 gap-3 rounded-xl border border-separator bg-surface p-2 sm:p-3"
+              className="grid min-w-0 gap-3 rounded-xl border border-separator bg-surface p-2"
             >
               <AttachmentPreview item={item} />
               <div className="grid min-w-0 gap-1">
@@ -670,6 +657,19 @@ function TaskAttachments({
           onPress={() => void load(true)}
         >
           Load more attachments
+        </Button>
+      )}
+      {writable && (
+        <Button
+          variant="secondary"
+          className="w-fit"
+          isDisabled={loading || busy}
+          onPress={() => {
+            setDroppedFile(undefined);
+            setUploadOpen(true);
+          }}
+        >
+          Upload attachment
         </Button>
       )}
       <Modal
