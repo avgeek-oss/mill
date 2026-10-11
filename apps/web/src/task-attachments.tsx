@@ -13,6 +13,7 @@ import {
   Download01Icon,
   EyeIcon,
   File01Icon,
+  PaperclipIcon,
 } from "@hugeicons/core-free-icons";
 import {
   Button,
@@ -673,6 +674,7 @@ function TaskAttachments({
             setUploadOpen(true);
           }}
         >
+          <HugeiconsIcon icon={PaperclipIcon} size={16} aria-hidden />
           Upload attachment
         </Button>
       )}
