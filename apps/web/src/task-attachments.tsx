@@ -662,7 +662,7 @@ function TaskAttachments({
       {writable && (
         <Button
           variant="secondary"
-          className="w-fit"
+          className="mb-4 w-fit min-[701px]:mb-0"
           isDisabled={loading || busy}
           onPress={() => {
             setDroppedFile(undefined);
