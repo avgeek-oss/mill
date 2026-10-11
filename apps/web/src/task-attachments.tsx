@@ -11,6 +11,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Delete02Icon,
   Download01Icon,
+  EyeIcon,
   File01Icon,
 } from "@hugeicons/core-free-icons";
 import {
@@ -128,7 +129,13 @@ function fileSize(size: number) {
     : `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AttachmentPreview({ item }: { item: Attachment }) {
+function AttachmentPreview({
+  item,
+  expanded = false,
+}: {
+  item: Attachment;
+  expanded?: boolean;
+}) {
   const run = useSettingsMutation(`preview:${item.id}`);
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -153,13 +160,16 @@ function AttachmentPreview({ item }: { item: Attachment }) {
     void load();
   }, [load]);
   return (
-    <div className="relative flex h-44 items-center justify-center overflow-hidden rounded-lg bg-default">
+    <div
+      className={`relative flex items-center justify-center overflow-hidden rounded-lg bg-default ${expanded ? "h-[min(65vh,48rem)]" : "h-28 sm:h-44"}`}
+    >
       {url ? (
         item.contentType === "application/pdf" ? (
           <Suspense fallback={<QueryLoading>Loading preview</QueryLoading>}>
             <PdfAttachmentPreview
               url={url}
               fileName={item.fileName}
+              expanded={expanded}
               onError={() => {
                 setUrl(null);
                 setError("The preview could not be loaded. Try again.");
@@ -241,6 +251,8 @@ function TaskAttachments({
   const [dropRevision, setDropRevision] = useState(0);
   const [dragging, setDragging] = useState(false);
   const [deleting, setDeleting] = useState<Attachment | null>(null);
+  const [previewing, setPreviewing] = useState<Attachment | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
@@ -504,10 +516,25 @@ function TaskAttachments({
 
   function actions(item: Attachment) {
     return (
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex flex-wrap items-center">
         <Button
-          variant="secondary"
+          variant="ghost"
+          size="sm"
           isIconOnly
+          className="size-11"
+          aria-label={`Preview ${item.fileName}`}
+          onPress={() => {
+            setPreviewing(item);
+            setPreviewOpen(true);
+          }}
+        >
+          <HugeiconsIcon aria-hidden icon={EyeIcon} size={16} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          isIconOnly
+          className="size-11"
           aria-label={`Download ${item.fileName}`}
           isPending={downloading === item.id}
           isDisabled={downloading !== null}
@@ -516,20 +543,22 @@ function TaskAttachments({
           {downloading === item.id ? (
             <Spinner size="sm" aria-hidden />
           ) : (
-            <HugeiconsIcon aria-hidden icon={Download01Icon} />
+            <HugeiconsIcon aria-hidden icon={Download01Icon} size={16} />
           )}
         </Button>
         {writable && (
           <Button
-            variant="danger-soft"
+            variant="ghost"
+            size="sm"
             isIconOnly
+            className="size-11 text-danger"
             aria-label={`Delete ${item.fileName}`}
             onPress={() => {
               setDeleting(item);
               setDeleteError("");
             }}
           >
-            <HugeiconsIcon aria-hidden icon={Delete02Icon} />
+            <HugeiconsIcon aria-hidden icon={Delete02Icon} size={16} />
           </Button>
         )}
       </div>
@@ -568,15 +597,15 @@ function TaskAttachments({
         <QueryLoading className="sr-only">Loading attachments</QueryLoading>
       )}
       {!!page.items.length && page.items.length <= 4 && !page.hasMore ? (
-        <div className="grid min-w-0 gap-4 sm:grid-cols-2">
+        <div className="grid min-w-0 grid-cols-2 gap-3 sm:gap-4">
           {page.items.map((item) => (
             <article
               key={item.id}
               aria-label={`Attachment ${item.fileName}`}
-              className="grid min-w-0 gap-3 rounded-xl border border-separator bg-surface p-3"
+              className="grid min-w-0 gap-3 rounded-xl border border-separator bg-surface p-2 sm:p-3"
             >
               <AttachmentPreview item={item} />
-              <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="grid min-w-0 gap-1">
                 <div className="min-w-0">
                   <p
                     className="truncate text-sm font-medium"
@@ -643,6 +672,32 @@ function TaskAttachments({
           Load more attachments
         </Button>
       )}
+      <Modal
+        isOpen={previewOpen && !overlay.isSuspended}
+        onOpenChange={setPreviewOpen}
+      >
+        <Modal.Backdrop>
+          <Modal.Container size="lg">
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading className="min-w-0 break-all">
+                  {previewing?.fileName}
+                </Modal.Heading>
+                <Modal.CloseTrigger />
+              </Modal.Header>
+              <Modal.Body>
+                {previewing && !overlay.isSuspended && (
+                  <AttachmentPreview
+                    key={previewing.id}
+                    item={previewing}
+                    expanded
+                  />
+                )}
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
       <Modal
         isOpen={uploadOpen && writable}
         onOpenChange={(open) => {
