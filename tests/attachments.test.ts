@@ -22,6 +22,7 @@ import {
   sql,
 } from "./support.js";
 import { cleanupAttachmentBatch } from "../apps/api/src/attachments/cleanup.js";
+import { attachmentStorage } from "../apps/api/src/attachments/storage.js";
 import type {
   AttachmentUpload,
   Attachment,
@@ -169,6 +170,354 @@ async function put(upload: AttachmentUpload, bytes = png) {
     "Private signed PUT must accept the declared image",
   );
 }
+async function withPausedVerification(
+  run: (controls: {
+    entered: Promise<void>;
+    release: () => void;
+  }) => Promise<void>,
+) {
+  const storage = attachmentStorage()!;
+  const complete = storage.complete;
+  let signalEntered!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    signalEntered = resolve;
+  });
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  storage.complete = async (row, verifiedKey) => {
+    signalEntered();
+    await held;
+    return complete.call(storage, row, verifiedKey);
+  };
+  try {
+    await run({ entered, release });
+  } finally {
+    release();
+    storage.complete = complete;
+  }
+}
+async function waitForVerification(
+  entered: Promise<void>,
+  completion: Promise<Response>,
+) {
+  await Promise.race([
+    entered,
+    completion.then((response) => {
+      throw new Error(
+        `Completion returned ${response.status} before storage verification`,
+      );
+    }),
+  ]);
+}
+test("a paused completion does not hold up authenticated reads or unrelated writes", async () => {
+  const f = await fixture();
+  const upload = await reserve(f);
+  await put(upload);
+  await withPausedVerification(async ({ entered, release }) => {
+    const completion = request(`${f.path}/${upload.attachmentId}/complete`, {
+      cookie: f.cookie,
+      headers: { "Idempotency-Key": randomUUID() },
+      body: {},
+    });
+    try {
+      await waitForVerification(entered, completion);
+      const registered = await sql<
+        { objectKey: string; deferred: boolean; recheckAt: Date | null }[]
+      >`SELECT object_key,available_at>now() AS deferred,recheck_at FROM attachment_cleanup
+        WHERE object_key LIKE ${`mill/objects/${upload.attachmentId}/%`}`;
+      assert.equal(registered.length, 1);
+      assert.equal(registered[0].deferred, true);
+      assert.ok(registered[0].recheckAt);
+      const otherRequests = Promise.all([
+        request(`/api/tasks/${f.task.id}`, { cookie: f.cookie }),
+        request("/api/boards", {
+          cookie: f.cookie,
+          body: { name: "Independent board", prefix: "IND" },
+        }),
+      ]);
+      let finished = false;
+      void otherRequests.then(() => {
+        finished = true;
+      });
+      await Promise.race([
+        otherRequests,
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
+      assert.equal(
+        finished,
+        true,
+        "S3 verification must not hold the workspace lock",
+      );
+      const [read, mutation] = await otherRequests;
+      assert.equal(read.status, 200);
+      assert.equal(mutation.status, 201);
+    } finally {
+      release();
+    }
+    assert.equal((await completion).status, 200);
+    assert.equal(
+      (
+        await sql`SELECT object_key FROM attachment_cleanup WHERE object_key LIKE ${`mill/objects/${upload.attachmentId}/%`}`
+      ).length,
+      0,
+      "Publishing a verified copy must remove its cleanup job",
+    );
+  });
+});
+test("many in-flight completions leave database connections available", async () => {
+  const f = await fixture();
+  const upload = await reserve(f);
+  await put(upload);
+  const storage = attachmentStorage()!;
+  const complete = storage.complete;
+  let release!: () => void;
+  let allEntered!: () => void;
+  let entered = 0;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const reachedStorage = new Promise<void>((resolve) => {
+    allEntered = resolve;
+  });
+  storage.complete = async (row, verifiedKey) => {
+    entered++;
+    if (entered === 12) allEntered();
+    await held;
+    return complete.call(storage, row, verifiedKey);
+  };
+  const completions = Array.from({ length: 12 }, () =>
+    request(`${f.path}/${upload.attachmentId}/complete`, {
+      cookie: f.cookie,
+      body: {},
+    }),
+  );
+  try {
+    const reached = await Promise.race([
+      reachedStorage.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 3000)),
+    ]);
+    assert.equal(
+      reached,
+      true,
+      "Completion requests must not queue on database locks",
+    );
+    const independent = await Promise.race([
+      request(`/api/tasks/${f.task.id}`, { cookie: f.cookie }),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000)),
+    ]);
+    assert.equal(independent?.status, 200);
+  } finally {
+    release();
+    storage.complete = complete;
+  }
+  const responses = await Promise.all(completions);
+  assert.ok(responses.some((response) => response.status === 200));
+  assert.ok(
+    responses.every((response) => [200, 429].includes(response.status)),
+  );
+  assert.equal(
+    (
+      await sql`SELECT count(*)::int AS count FROM activity WHERE action='attachment.added' AND task_id=${f.task.id}`
+    )[0].count,
+    1,
+  );
+});
+test("revocation during verification prevents publication and queues copied bytes for cleanup", async () => {
+  const f = await fixture();
+  const issued = await json<{ token: string; credential: { id: string } }>(
+    await request("/api/credentials", {
+      cookie: f.cookie,
+      body: {
+        name: "Attachment writer",
+        access: "edit",
+        includeAdmin: false,
+        expiresAt: null,
+      },
+    }),
+    201,
+  );
+  const upload = await reserve(f);
+  await put(upload);
+  await withPausedVerification(async ({ entered, release }) => {
+    const completion = request(`${f.path}/${upload.attachmentId}/complete`, {
+      token: issued.token,
+      body: {},
+    });
+    try {
+      await waitForVerification(entered, completion);
+      await sql`UPDATE credentials SET revoked_at=now() WHERE id=${issued.credential.id}`;
+    } finally {
+      release();
+    }
+    assert.equal((await completion).status, 401);
+  });
+  assert.equal(
+    (
+      await sql`SELECT id FROM task_attachments WHERE id=${upload.attachmentId} AND state='ready'`
+    ).length,
+    0,
+  );
+  assert.equal(
+    (
+      await sql`SELECT object_key FROM attachment_cleanup WHERE object_key LIKE ${`mill/objects/${upload.attachmentId}/%`}`
+    ).length,
+    1,
+  );
+  const [cleanup] = await sql<{ availableAt: Date; due: boolean }[]>`
+    SELECT available_at,available_at<=now() AS due FROM attachment_cleanup
+    WHERE object_key LIKE ${`mill/objects/${upload.attachmentId}/%`}`;
+  assert.equal(cleanup.due, true, cleanup.availableAt.toISOString());
+});
+test("task deletion during verification leaves no published attachment or copied object", async () => {
+  const f = await fixture();
+  const upload = await reserve(f);
+  await put(upload);
+  const completionKey = randomUUID();
+  await withPausedVerification(async ({ entered, release }) => {
+    const completion = request(`${f.path}/${upload.attachmentId}/complete`, {
+      cookie: f.cookie,
+      headers: { "Idempotency-Key": completionKey },
+      body: {},
+    });
+    try {
+      await waitForVerification(entered, completion);
+      assert.equal(
+        (
+          await request(`/api/tasks/${f.task.id}`, {
+            cookie: f.cookie,
+            method: "DELETE",
+            body: { version: f.task.version },
+          })
+        ).status,
+        200,
+      );
+    } finally {
+      release();
+    }
+    assert.equal((await completion).status, 404);
+  });
+  assert.equal(
+    (
+      await request(`${f.path}/${upload.attachmentId}/complete`, {
+        cookie: f.cookie,
+        headers: { "Idempotency-Key": completionKey },
+        body: {},
+      })
+    ).status,
+    410,
+  );
+  const [copy] = await sql<{ objectKey: string }[]>`
+    SELECT object_key FROM attachment_cleanup WHERE object_key LIKE ${`mill/objects/${upload.attachmentId}/%`}`;
+  assert.ok(copy);
+  await cleanupAttachmentBatch();
+  await assert.rejects(
+    client.send(new HeadObjectCommand({ Bucket: bucket, Key: copy.objectKey })),
+  );
+});
+test("an upload that expires during verification is not published", async () => {
+  const f = await fixture();
+  const upload = await reserve(f);
+  await put(upload);
+  await withPausedVerification(async ({ entered, release }) => {
+    const completion = request(`${f.path}/${upload.attachmentId}/complete`, {
+      cookie: f.cookie,
+      body: {},
+    });
+    try {
+      await waitForVerification(entered, completion);
+      await sql`UPDATE task_attachments SET upload_expires_at=now()-interval '1 second' WHERE id=${upload.attachmentId}`;
+    } finally {
+      release();
+    }
+    assert.equal((await completion).status, 410);
+  });
+  assert.equal(
+    (
+      await sql`SELECT id FROM task_attachments WHERE id=${upload.attachmentId} AND state='ready'`
+    ).length,
+    0,
+  );
+  assert.equal(
+    (
+      await sql`SELECT object_key FROM attachment_cleanup WHERE object_key LIKE ${`mill/objects/${upload.attachmentId}/%`}`
+    ).length,
+    1,
+  );
+});
+test("an abandoned completion claim recovers with the same retry key", async () => {
+  const f = await fixture();
+  const upload = await reserve(f);
+  await put(upload);
+  const path = `${f.path}/${upload.attachmentId}/complete`;
+  const key = randomUUID();
+  const hash = createHash("sha256").update(`POST\n${path}\n{}`).digest("hex");
+  await sql`INSERT INTO api_idempotency(actor_key,key,request_hash,response,task_ids,attachment_ids)
+    VALUES(${f.user.id},${key},${hash},${sql.json({ lease: "abandoned" })},ARRAY[${f.task.id}::uuid],ARRAY[${upload.attachmentId}::uuid])`;
+  const options = {
+    cookie: f.cookie,
+    headers: { "Idempotency-Key": key },
+    body: {},
+  };
+  assert.equal((await request(path, options)).status, 409);
+  assert.equal(
+    (await request(path, { ...options, body: { changed: true } })).status,
+    409,
+  );
+  await sql`UPDATE api_idempotency SET created_at=now()-interval '3 minutes' WHERE actor_key=${f.user.id} AND key=${key}`;
+  const completed = await json<{ attachment: Attachment }>(
+    await request(path, options),
+  );
+  assert.equal(completed.attachment.id, upload.attachmentId);
+  const replay = await request(path, options);
+  assert.equal(replay.status, 200);
+  assert.equal(replay.headers.get("Idempotency-Replayed"), "true");
+  assert.deepEqual(await replay.json(), completed);
+  assert.equal(
+    (
+      await sql`SELECT count(*)::int AS count FROM activity WHERE action='attachment.added' AND task_id=${f.task.id}`
+    )[0].count,
+    1,
+  );
+});
+test("completion replay respects a narrowed OAuth board grant", async () => {
+  const f = await fixture();
+  const otherBoard = await json<{ board: { id: string } }>(
+    await request("/api/boards", {
+      cookie: f.cookie,
+      body: { name: "Other board", prefix: "OTH" },
+    }),
+    201,
+  );
+  const oauth = await setupOAuth(f.cookie, {
+    boardIds: [f.board.id, otherBoard.board.id],
+  });
+  const upload = await reserve(f);
+  await put(upload);
+  const key = randomUUID();
+  const args = {
+    taskId: f.task.id,
+    attachmentId: upload.attachmentId,
+    idempotencyKey: key,
+  };
+  const completed = await callMcpTool(oauth.token, "complete_attachment", args);
+  assert.equal(completed.result?.isError, false);
+  assert.equal(
+    (completed.result?.structuredContent?.attachment as Attachment).id,
+    upload.attachmentId,
+  );
+  const [saved] = await sql<{ boardIds: string[] }[]>`
+    SELECT board_ids FROM api_idempotency WHERE actor_key=${oauth.credential.id} AND key=${key}`;
+  assert.deepEqual(saved.boardIds, [f.board.id]);
+  await sql`UPDATE credentials SET board_ids=ARRAY[${otherBoard.board.id}::uuid] WHERE id=${oauth.credential.id}`;
+  const replay = await callMcpTool(oauth.token, "complete_attachment", args);
+  assert.equal(replay.result?.isError, true);
+  const error = replay.result?.structuredContent?.error as
+    { code: string } | undefined;
+  assert.equal(error?.code, "retry_invalidated");
+  assert.ok(!JSON.stringify(replay.result).includes(upload.attachmentId));
+});
 test("optional capability hides storage secrets; disabled storage leaves ordinary tasks usable", async () => {
   const f = await fixture();
   assert.equal((await request("/api/attachments/config")).status, 401);
@@ -532,6 +881,16 @@ test("attachment/task/board deletion enqueues durable cleanup and invalidates co
       body: {},
     }),
   );
+  const completedReplay = await request(
+    `${f.path}/${upload.attachmentId}/complete`,
+    {
+      cookie: f.cookie,
+      headers: { "Idempotency-Key": completionKey },
+      body: {},
+    },
+  );
+  assert.equal(completedReplay.status, 200);
+  assert.equal(completedReplay.headers.get("Idempotency-Replayed"), "true");
   const download = await json<AttachmentDownload>(
     await request(`${f.path}/${upload.attachmentId}/download`, {
       cookie: f.cookie,

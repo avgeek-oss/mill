@@ -6,6 +6,7 @@ import {
 } from "node:crypto";
 import type { Context, MiddlewareHandler } from "hono";
 import { HTTPException } from "hono/http-exception";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import {
   sql,
   withDatabaseTransaction,
@@ -119,6 +120,71 @@ function responseResources(path: string, response: unknown) {
     attachmentIds: [...attachmentIds],
   };
 }
+type RetryRow = {
+  requestHash: string;
+  status: ContentfulStatusCode | null;
+  invalidationReason: string | null;
+  boardIds: string[];
+  response: { iv: string; tag: string; data: string };
+};
+async function replayIdempotency(
+  c: Context<Env>,
+  existing: RetryRow,
+  hash: string,
+  requestBody: string,
+) {
+  if (existing.requestHash !== hash)
+    throw new HTTPException(409, {
+      message: "This retry key was already used for a different request",
+    });
+  if (existing.invalidationReason) {
+    c.header("Idempotency-Replayed", "true");
+    return c.json(
+      {
+        error:
+          existing.invalidationReason === "deleted"
+            ? "This work was permanently deleted. Its changes cannot be retried."
+            : existing.invalidationReason === "access"
+              ? "Connection access changed. Reload Mill before making a new change."
+              : "This retry was invalidated by an upgrade. Reload Mill before making a new change.",
+        code: "retry_invalidated",
+      },
+      410,
+    );
+  }
+  if (!existing.status) {
+    c.header("Retry-After", "1");
+    throw new HTTPException(409, {
+      message: "This request is still being processed. Retry in a moment.",
+    });
+  }
+  c.header("Idempotency-Replayed", "true");
+  const current = c.get("actor");
+  const allowedBoardIds = current.boardIds;
+  if (
+    current.kind === "oauth" &&
+    allowedBoardIds &&
+    existing.boardIds.some((boardId) => !allowedBoardIds.includes(boardId))
+  )
+    return c.json(
+      {
+        error:
+          "Connection board access changed. Reload Mill before making a new change.",
+        code: "retry_invalidated",
+      },
+      410,
+    );
+  if (
+    c.req.method === "POST" &&
+    (c.req.path === "/api/credentials" ||
+      (c.req.path.startsWith("/api/oauth/consent/") &&
+        JSON.parse(requestBody).allow === true))
+  )
+    await recentSession(c);
+  if ([204, 205, 304].includes(existing.status))
+    return c.body(null, existing.status);
+  return c.json(decryptResponse(existing.response), existing.status);
+}
 export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
   const key = c.req.header("idempotency-key");
   if (
@@ -142,6 +208,75 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
       `${c.req.method}\n${requestUrl.pathname}${requestUrl.search}\n${requestBody}`,
     )
     .digest("hex");
+  const completion = c.req.path.match(
+    /^\/api\/tasks\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/complete$/i,
+  );
+  if (completion && c.req.method === "POST") {
+    const lease = randomBytes(16).toString("hex");
+    const existing = await withDatabaseTransaction(async () => {
+      await sql.begin(lockAuthority);
+      await currentAuthority(c);
+      await sql`DELETE FROM api_idempotency WHERE created_at < now()-interval '24 hours'`;
+      const rows =
+        await sql`INSERT INTO api_idempotency (actor_key,key,request_hash,response,task_ids,attachment_ids)
+        VALUES (${actorKey},${key},${hash},${sql.json({ lease })},ARRAY[${completion[1]}::uuid],ARRAY[${completion[2]}::uuid])
+        ON CONFLICT DO NOTHING RETURNING key`;
+      if (rows.length) return null;
+      const [retry] = await sql<
+        RetryRow[]
+      >`SELECT * FROM api_idempotency WHERE actor_key=${actorKey} AND key=${key}`;
+      if (
+        retry.requestHash === hash &&
+        !retry.status &&
+        !retry.invalidationReason
+      ) {
+        const renewed =
+          await sql`UPDATE api_idempotency SET response=${sql.json({ lease })},created_at=now()
+          WHERE actor_key=${actorKey} AND key=${key} AND status IS NULL AND invalidation_reason IS NULL
+            AND created_at<now()-interval '2 minutes' RETURNING key`;
+        if (renewed.length) return null;
+      }
+      return retry;
+    });
+    if (existing) return replayIdempotency(c, existing, hash, requestBody);
+    let stored = false;
+    try {
+      await next();
+      if (c.res.status >= 400) return;
+      const response = await c.res
+        .clone()
+        .json()
+        .catch(() => null);
+      const resources = responseResources(c.req.path, response);
+      await withDatabaseTransaction(async () => {
+        await sql.begin(lockAuthority);
+        const [ready] = await sql<{ boardId: string }[]>`
+          SELECT tasks.board_id FROM task_attachments
+          JOIN tasks ON tasks.id=task_attachments.task_id
+          WHERE task_attachments.id=${completion[2]} AND task_attachments.task_id=${completion[1]}
+          AND task_attachments.state='ready' FOR SHARE OF task_attachments,tasks`;
+        if (ready) {
+          resources.boardIds = [
+            ...new Set([...resources.boardIds, ready.boardId]),
+          ];
+          await sql`UPDATE api_idempotency SET response=${sql.json(encryptResponse(response))},status=${c.res.status},board_ids=${resources.boardIds},task_ids=${resources.taskIds},attachment_ids=${resources.attachmentIds}
+            WHERE actor_key=${actorKey} AND key=${key} AND status IS NULL AND invalidation_reason IS NULL AND response->>'lease'=${lease}`;
+        } else
+          await sql`UPDATE api_idempotency SET response=null,status=410,invalidation_reason='deleted',board_ids='{}',task_ids='{}',attachment_ids='{}'
+            WHERE actor_key=${actorKey} AND key=${key} AND status IS NULL AND invalidation_reason IS NULL AND response->>'lease'=${lease}`;
+      });
+      stored = true;
+    } finally {
+      if (!stored) {
+        if (c.res.status === 404)
+          await sql`UPDATE api_idempotency SET response=null,status=410,invalidation_reason='deleted',board_ids='{}',task_ids='{}',attachment_ids='{}'
+            WHERE actor_key=${actorKey} AND key=${key} AND status IS NULL AND response->>'lease'=${lease}`;
+        else
+          await sql`DELETE FROM api_idempotency WHERE actor_key=${actorKey} AND key=${key} AND status IS NULL AND invalidation_reason IS NULL AND response->>'lease'=${lease}`;
+      }
+    }
+    return;
+  }
   return withDatabaseTransaction(async () => {
     await sql.begin(lockAuthority);
     await currentAuthority(c);
@@ -149,59 +284,10 @@ export const idempotency: MiddlewareHandler<Env> = async (c, next) => {
     const rows =
       await sql`INSERT INTO api_idempotency (actor_key,key,request_hash) VALUES (${actorKey},${key},${hash}) ON CONFLICT DO NOTHING RETURNING key`;
     if (!rows.length) {
-      const [existing] =
-        await sql`SELECT * FROM api_idempotency WHERE actor_key=${actorKey} AND key=${key}`;
-      if (existing.requestHash !== hash)
-        throw new HTTPException(409, {
-          message: "This retry key was already used for a different request",
-        });
-      if (!existing.status) {
-        c.header("Retry-After", "1");
-        throw new HTTPException(409, {
-          message: "This request is still being processed. Retry in a moment.",
-        });
-      }
-      c.header("Idempotency-Replayed", "true");
-      if (existing.invalidationReason)
-        return c.json(
-          {
-            error:
-              existing.invalidationReason === "deleted"
-                ? "This work was permanently deleted. Its changes cannot be retried."
-                : existing.invalidationReason === "access"
-                  ? "Connection access changed. Reload Mill before making a new change."
-                  : "This retry was invalidated by an upgrade. Reload Mill before making a new change.",
-            code: "retry_invalidated",
-          },
-          410,
-        );
-      const current = c.get("actor");
-      const allowedBoardIds = current.boardIds;
-      if (
-        current.kind === "oauth" &&
-        allowedBoardIds &&
-        existing.boardIds.some(
-          (boardId: string) => !allowedBoardIds.includes(boardId),
-        )
-      )
-        return c.json(
-          {
-            error:
-              "Connection board access changed. Reload Mill before making a new change.",
-            code: "retry_invalidated",
-          },
-          410,
-        );
-      if (
-        c.req.method === "POST" &&
-        (c.req.path === "/api/credentials" ||
-          (c.req.path.startsWith("/api/oauth/consent/") &&
-            JSON.parse(requestBody).allow === true))
-      )
-        await recentSession(c);
-      if ([204, 205, 304].includes(existing.status))
-        return c.body(null, existing.status);
-      return c.json(decryptResponse(existing.response), existing.status);
+      const [existing] = await sql<
+        RetryRow[]
+      >`SELECT * FROM api_idempotency WHERE actor_key=${actorKey} AND key=${key}`;
+      return replayIdempotency(c, existing, hash, requestBody);
     }
     await next();
     const response = await c.res
@@ -369,7 +455,9 @@ export const mutationAuthority: MiddlewareHandler<Env> = async (c, next) => {
   if (
     !c.get("actor") ||
     c.req.path.startsWith("/api/auth/") ||
-    !["POST", "PATCH", "DELETE"].includes(c.req.method)
+    !["POST", "PATCH", "DELETE"].includes(c.req.method) ||
+    (c.req.method === "POST" &&
+      /^\/api\/tasks\/[^/]+\/attachments\/[^/]+\/complete$/.test(c.req.path))
   )
     return next();
   return withDatabaseTransaction(async () => {

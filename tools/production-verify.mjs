@@ -410,6 +410,68 @@ try {
     ...verifyEnv,
     MILL_VERIFY_MODE: "fresh",
   });
+  const attachmentKey = randomBytes(16).toString("hex");
+  const attachmentSecret = randomBytes(32).toString("hex");
+  secrets.push(attachmentKey, attachmentSecret);
+  const storageComposeFile = join(privateDirectory, "attachments.compose.yml");
+  await writeFile(
+    storageComposeFile,
+    [
+      "services:",
+      "  api:",
+      "    environment:",
+      "      MILL_S3_ENDPOINT: http://127.0.0.1:9000",
+      "      MILL_S3_REGION: us-east-1",
+      "      MILL_S3_BUCKET: mill-production-verification",
+      `      MILL_S3_ACCESS_KEY_ID: ${attachmentKey}`,
+      `      MILL_S3_SECRET_ACCESS_KEY: ${attachmentSecret}`,
+      "  attachment-storage:",
+      "    image: rustfs/rustfs@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff",
+      "    network_mode: service:api",
+      "    environment:",
+      `      RUSTFS_ACCESS_KEY: ${attachmentKey}`,
+      `      RUSTFS_SECRET_KEY: ${attachmentSecret}`,
+      "      RUSTFS_CONSOLE_ENABLE: 'false'",
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+  await run("attachment-enabled-installation", "docker", [
+    ...primary.compose,
+    "--file",
+    storageComposeFile,
+    "up",
+    "--no-build",
+    "--detach",
+    "--wait",
+    "api",
+    "attachment-storage",
+  ]);
+  const attachmentFixture = JSON.parse(await readFile(state, "utf8"));
+  await run("attachment-production-journey", "docker", [
+    ...primary.compose,
+    "--file",
+    storageComposeFile,
+    "exec",
+    "-T",
+    "--env",
+    `MILL_VERIFY_ATTACHMENT_TASK=${attachmentFixture.taskId}`,
+    "--env",
+    `MILL_VERIFY_PASSWORD=${secrets[2]}`,
+    "api",
+    "node",
+    "--input-type=module",
+    "-e",
+    await readFile(resolve(root, "tools/attachment-install-smoke.mjs"), "utf8"),
+  ]);
+  await run("attachment-disabled-installation", "docker", [
+    ...primary.compose,
+    "up",
+    "--no-build",
+    "--detach",
+    "--wait",
+    "api",
+  ]);
   await run("ui-independent-stop", "docker", [
     ...primary.compose,
     "stop",

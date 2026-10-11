@@ -96,35 +96,87 @@ attachmentRoutes.post(
     const taskId = id(c.req.param("taskId"));
     const attachmentId = id(c.req.param("attachmentId"));
     const storage = requireAttachmentStorage();
-    const attachment = await sql.begin(async (tx) => {
+    const row = await sql.begin(async (tx) => {
       const original = await task(c, taskId, "member", tx);
       await lockBoard(c, tx, original.boardId);
-      const [row] = await tx<
+      const [pending] = await tx<
         StoredAttachment[]
       >`SELECT * FROM task_attachments WHERE id=${attachmentId} AND task_id=${taskId} FOR UPDATE`;
-      if (!row) missing("Attachment not found");
-      if (row.state === "ready") return attachmentMetadata(row);
-      if (new Date(row.uploadExpiresAt).getTime() <= Date.now())
+      if (!pending) missing("Attachment not found");
+      if (
+        pending.state === "pending" &&
+        new Date(pending.uploadExpiresAt).getTime() <= Date.now()
+      )
         throw new HttpError(
           410,
           "UPLOAD_EXPIRED",
           "This upload expired. Start a new upload.",
         );
-      await storage.complete(row);
-      const a = await revalidateAuthority(c, tx, "member", original.boardId);
-      await tx`UPDATE task_attachments SET state='ready' WHERE id=${attachmentId}`;
-      await tx`INSERT INTO attachment_cleanup(storage_origin,storage_bucket,object_key,available_at,recheck_at)
-      VALUES(${row.storageOrigin},${row.storageBucket},${row.uploadKey},${new Date(new Date(row.uploadExpiresAt).getTime() + 60000)},${new Date(new Date(row.uploadExpiresAt).getTime() + 86400000)}) ON CONFLICT DO NOTHING`;
-      await recordActivity(
-        tx,
-        a,
-        "attachment.added",
-        { attachmentId, fileName: row.fileName },
-        original.boardId,
-        taskId,
-      );
-      return attachmentMetadata(row);
+      return pending;
     });
+    if (row.state === "ready")
+      return c.json({ attachment: attachmentMetadata(row) });
+    const verifiedKey = `${row.objectKey}/${randomUUID()}`;
+    const queueUnusedCopy = () =>
+      sql`INSERT INTO attachment_cleanup(storage_origin,storage_bucket,object_key,available_at,recheck_at)
+        VALUES(${row.storageOrigin},${row.storageBucket},${verifiedKey},now(),now()+interval '1 day')
+        ON CONFLICT(storage_origin,storage_bucket,object_key) DO UPDATE
+        SET available_at=now(),recheck_at=now()+interval '1 day'`;
+    await sql`INSERT INTO attachment_cleanup(storage_origin,storage_bucket,object_key,available_at,recheck_at)
+      VALUES(${row.storageOrigin},${row.storageBucket},${verifiedKey},
+        greatest(now()+interval '5 minutes',${row.uploadExpiresAt}::timestamptz+interval '1 minute'),
+        now()+interval '1 day')`;
+    let attachment: Attachment;
+    try {
+      await storage.complete(row, verifiedKey);
+      attachment = await sql.begin(async (tx) => {
+        const original = await task(c, taskId, "member", tx);
+        await lockBoard(c, tx, original.boardId);
+        const [current] = await tx<
+          StoredAttachment[]
+        >`SELECT * FROM task_attachments WHERE id=${attachmentId} AND task_id=${taskId} FOR UPDATE`;
+        if (!current) missing("Attachment not found");
+        const a = await revalidateAuthority(c, tx, "member", original.boardId);
+        if (current.state === "ready") {
+          await tx`INSERT INTO attachment_cleanup(storage_origin,storage_bucket,object_key,available_at,recheck_at)
+            VALUES(${row.storageOrigin},${row.storageBucket},${verifiedKey},now(),now()+interval '1 day')
+            ON CONFLICT(storage_origin,storage_bucket,object_key) DO UPDATE
+            SET available_at=now(),recheck_at=now()+interval '1 day'`;
+          return attachmentMetadata(current);
+        }
+        if (new Date(current.uploadExpiresAt).getTime() <= Date.now())
+          throw new HttpError(
+            410,
+            "UPLOAD_EXPIRED",
+            "This upload expired. Start a new upload.",
+          );
+        const [cleanup] = await tx<{ objectKey: string }[]>`
+          DELETE FROM attachment_cleanup WHERE storage_origin=${row.storageOrigin}
+          AND storage_bucket=${row.storageBucket} AND object_key=${verifiedKey}
+          RETURNING object_key`;
+        if (!cleanup)
+          throw new HttpError(
+            503,
+            "ATTACHMENT_STORAGE_UNAVAILABLE",
+            "Attachment storage is unavailable. Please try again.",
+          );
+        await tx`UPDATE task_attachments SET state='ready',object_key=${verifiedKey} WHERE id=${attachmentId}`;
+        await tx`INSERT INTO attachment_cleanup(storage_origin,storage_bucket,object_key,available_at,recheck_at)
+          VALUES(${row.storageOrigin},${row.storageBucket},${row.uploadKey},${new Date(new Date(row.uploadExpiresAt).getTime() + 60000)},${new Date(new Date(row.uploadExpiresAt).getTime() + 86400000)}) ON CONFLICT DO NOTHING`;
+        await recordActivity(
+          tx,
+          a,
+          "attachment.added",
+          { attachmentId, fileName: row.fileName },
+          original.boardId,
+          taskId,
+        );
+        return attachmentMetadata(current);
+      });
+    } catch (error) {
+      await queueUnusedCopy();
+      throw error;
+    }
     return c.json({ attachment });
   },
 );

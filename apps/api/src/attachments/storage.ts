@@ -132,7 +132,7 @@ export class AttachmentStorage {
       expiresAt: new Date(row.uploadExpiresAt).toISOString(),
     };
   }
-  async complete(row: StoredAttachment) {
+  async complete(row: StoredAttachment, verifiedKey: string) {
     this.assertLocation(row);
     if (this.completing >= 2)
       throw new HttpError(
@@ -185,7 +185,7 @@ export class AttachmentStorage {
       await this.client.send(
         new PutObjectCommand({
           Bucket: this.bucket,
-          Key: row.objectKey,
+          Key: verifiedKey,
           Body: bytes,
           ContentType: row.contentType,
           ContentLength: bytes.byteLength,
