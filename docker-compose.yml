@@ -1,6 +1,6 @@
 services:
   api:
-    image: ghcr.io/avgeek-oss/mill-api:1.0.2
+    image: ghcr.io/avgeek-oss/mill-api:1.0.3
     init: true
     restart: unless-stopped
     environment:
@@ -31,7 +31,7 @@ services:
     stop_grace_period: 30s
 
   web:
-    image: ghcr.io/avgeek-oss/mill-web:1.0.2
+    image: ghcr.io/avgeek-oss/mill-web:1.0.3
     init: true
     restart: unless-stopped
     environment:

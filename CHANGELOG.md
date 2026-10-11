@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3 (2026-10-11)
+
+- Support Codex OAuth client metadata and dynamic registration, including variable loopback callback ports with exact callback binding and PKCE.
+- Add explicit administrator consent for MCP connections, with current-role enforcement and permanent removal of administrator authority after demotion.
+- Keep API and UI images on version 1.0.3; preserve existing OAuth connections through forward migration 004.
+
 ## 1.0.2 (2026-10-11)
 
 - Add optional private S3-compatible task attachments for images and PDFs, shown below the task description with an upload dialog, page-wide drag and drop, verified uploads, two-column mobile and four-column desktop cards with the upload action beneath them, expanded image/PDF previews, inline downloads and cleanup after deletion.
