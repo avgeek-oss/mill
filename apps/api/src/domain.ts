@@ -88,7 +88,10 @@ function previewPage<T extends { id: string }>(rows: T[], limit: number) {
 
 function administrative(c: Parameters<typeof actor>[0], write = false): Actor {
   const a = requireRole(c, "admin");
-  if (a.kind === "oauth" || (write && !a.scopes.includes("write")))
+  if (
+    (a.kind === "oauth" && !a.includeAdmin) ||
+    (write && !a.scopes.includes("write"))
+  )
     badRequest("This action requires administrative permission");
   return a;
 }

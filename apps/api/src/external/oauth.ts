@@ -10,6 +10,7 @@ import {
   mcpResource,
   OAuthError,
   parseScope,
+  registeredRedirectUri,
   requireResource,
   secret,
   tokenLifetimeSeconds,
@@ -36,7 +37,7 @@ export async function beginAuthorization(params: Record<string, string>) {
   const client = await resolveClient(params.client_id ?? "");
   if (
     !params.redirect_uri ||
-    !client.redirectUris.includes(params.redirect_uri)
+    !registeredRedirectUri(client.redirectUris, params.redirect_uri)
   )
     throw new OAuthError(
       "invalid_request",
@@ -93,7 +94,9 @@ export async function consentDetails(id: string, a: Actor) {
     scope: grant.scope,
     expiresIn: tokenLifetimeSeconds,
     user: { name: a.name, role: a.role },
-    canApprove: a.role !== "viewer" || !grant.scope.includes("write"),
+    canApprove:
+      (a.role !== "viewer" || !grant.scope.includes("write")) &&
+      (a.role === "admin" || !grant.scope.includes("admin")),
   };
 }
 export async function decideConsent(
@@ -138,6 +141,12 @@ export async function decideConsent(
         "Requested access exceeds your role",
         403,
       );
+    if (grant.scope.includes("admin") && user.role !== "admin")
+      throw new OAuthError(
+        "access_denied",
+        "Administrative access requires an administrator and write access",
+        403,
+      );
     await validateBoards(boardIds, tx);
     const code = secret();
     await tx`UPDATE oauth_requests SET user_id=${a.userId},board_ids=${boardIds ?? null},code_hash=${digest(code)},expires_at=${new Date(Date.now() + 120000)} WHERE id=${id}`;
@@ -180,7 +189,11 @@ export async function exchangeCode(
     const [user] = await tx<
       { role: Role; name: string }[]
     >`SELECT role,name FROM users WHERE id=${grant.userId} AND disabled_at IS NULL FOR SHARE`;
-    if (!user || (user.role === "viewer" && grant.scope.includes("write")))
+    if (
+      !user ||
+      (user.role === "viewer" && grant.scope.includes("write")) ||
+      (grant.scope.includes("admin") && user.role !== "admin")
+    )
       return null;
     if (grant.boardIds !== null) {
       const boards =
@@ -192,7 +205,7 @@ export async function exchangeCode(
     }
     const token = `mill_${secret()}`;
     const [credential] =
-      await tx`INSERT INTO credentials(user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${grant.userId},${grant.userId},${grant.clientName},${digest(token)},${token.slice(0, 12)},${grant.scope.split(" ")},${grant.boardIds},'oauth',${clientId},${mcpResource()},${new Date(Date.now() + tokenLifetimeSeconds * 1000)},${grant.scope.includes("write") ? "edit" : "read"},false) RETURNING id`;
+      await tx`INSERT INTO credentials(user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${grant.userId},${grant.userId},${grant.clientName},${digest(token)},${token.slice(0, 12)},${grant.scope.split(" ")},${grant.boardIds},'oauth',${clientId},${mcpResource()},${new Date(Date.now() + tokenLifetimeSeconds * 1000)},${grant.scope.includes("write") ? "edit" : "read"},${grant.scope.includes("admin")}) RETURNING id`;
     await tx`UPDATE oauth_requests SET consumed_at=now(),credential_id=${credential!.id} WHERE id=${grant.id}`;
 
     return {

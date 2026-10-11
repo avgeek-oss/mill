@@ -246,10 +246,14 @@ function ConsentRequest({
   const scopes = details?.scope.trim().split(/\s+/) ?? [];
   const validScope =
     scopes.includes("read") &&
-    scopes.every((scope) => scope === "read" || scope === "write");
+    scopes.every((scope) => ["read", "write", "admin"].includes(scope)) &&
+    (!scopes.includes("admin") || scopes.includes("write"));
   const write = scopes.includes("write");
+  const admin = scopes.includes("admin");
   const canWrite =
     details?.user.role !== "viewer" && session.user.role !== "viewer";
+  const canAdmin =
+    details?.user.role === "admin" && session.user.role === "admin";
   const choices = directory.boards;
   const displayedBoards =
     directory.pending || directory.error ? previousBoards : choices;
@@ -260,6 +264,7 @@ function ConsentRequest({
     details.canApprove &&
     validScope &&
     (!write || canWrite) &&
+    (!admin || canAdmin) &&
     !directory.pending &&
     !directory.error &&
     selectedAvailable;
@@ -323,9 +328,11 @@ function ConsentRequest({
   }
 
   const blockedReason = !validScope ? (
-    "This app requested unsupported permissions. Start a new connection with read or read and write access."
+    "This app requested unsupported permissions. Start a new connection with read, write, or administrative access."
   ) : write && !canWrite ? (
     "Your Viewer role cannot grant edit access. Reconnect with read-only access."
+  ) : admin && !canAdmin ? (
+    "Only administrators can grant administrative access."
   ) : !details?.canApprove ? (
     "Your account cannot grant the requested access."
   ) : directory.pending ? (
@@ -400,16 +407,18 @@ function ConsentRequest({
             role: session.user.role,
           },
           permissionSummary: validScope
-            ? `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
+            ? admin
+              ? "Wants to read, write, and manage your Mill boards, tasks, and comments."
+              : `Wants to ${write ? "read and write to" : "read"} your Mill boards, tasks, and comments.`
             : "Requested permissions are unsupported.",
-          accessDescription: `${write ? "Can view and make changes allowed by your Mill role." : "Can only view data allowed by your Mill role."} Cannot manage accounts or reveal stored credentials.`,
+          accessDescription: `${admin ? "Can perform administrative board actions allowed by your Mill role." : write ? "Can view and make changes allowed by your Mill role." : "Can only view data allowed by your Mill role."} Cannot manage accounts or reveal stored credentials.`,
           accessLifetime:
             details.expiresIn % 86400 === 0
               ? `${details.expiresIn / 86400} days`
               : `${details.expiresIn} seconds`,
-          revocationDescription: "Revoke access anytime in API keys.",
+          revocationDescription: "Revoke access anytime in MCP Connections.",
           restrictions:
-            "Administrative access is excluded. Access remains limited by your current membership, role, and approved boards.",
+            "Access remains limited by your current membership, role, and approved boards.",
           deviceConnectionNotice: ["localhost", "127.0.0.1", "[::1]"].includes(
             redirect.hostname,
           )

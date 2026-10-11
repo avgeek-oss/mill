@@ -185,6 +185,7 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
       role: principal.role!,
       kind: "oauth",
       scopes: principal.scopes,
+      includeAdmin: principal.includeAdmin,
       credentialId: principal.id,
       credentialType: "oauth",
       boardIds: principal.boardIds ?? undefined,

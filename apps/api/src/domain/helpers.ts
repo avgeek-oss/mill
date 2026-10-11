@@ -150,6 +150,7 @@ export async function revalidateAuthority(
         role: member.role,
         credentialType: "oauth",
         scopes: credential.scopes,
+        includeAdmin: credential.includeAdmin,
         boardIds: credential.boardIds ?? undefined,
       });
     } else

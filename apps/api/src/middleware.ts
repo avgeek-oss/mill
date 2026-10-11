@@ -361,6 +361,7 @@ async function currentAuthority(c: Context<Env>) {
         ...a,
         boardIds: row.boardIds ?? undefined,
         scopes: row.scopes,
+        includeAdmin: row.includeAdmin,
       });
     } else {
       if (

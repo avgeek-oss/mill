@@ -192,14 +192,13 @@ export async function serveMcp(c: Context<Env>) {
     const parsedBody =
       c.req.method === "POST" ? ((await c.req.json()) as unknown) : undefined;
     const call = CallToolRequestSchema.safeParse(parsedBody);
-    if (
-      call.success &&
-      tools.some((tool) => tool.name === call.data.params.name) &&
-      !allowed.some((tool) => tool.name === call.data.params.name)
-    ) {
+    const requested = call.success
+      ? tools.find((tool) => tool.name === call.data.params.name)
+      : undefined;
+    if (requested && !allowed.some((tool) => tool.name === requested.name)) {
       c.header(
         "WWW-Authenticate",
-        `Bearer error="insufficient_scope", resource_metadata="${resourceMetadataUrl()}", scope="read write"`,
+        `Bearer error="insufficient_scope", resource_metadata="${resourceMetadataUrl()}", scope="${requested.admin ? "read write admin" : requested.readOnly ? "read" : "read write"}"`,
       );
       return c.json(
         {

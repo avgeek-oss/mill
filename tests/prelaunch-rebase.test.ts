@@ -53,6 +53,16 @@ const attachmentSource = await readFile(
 const attachmentChecksum = createHash("sha256")
   .update(attachmentSource)
   .digest("hex");
+const permissionMigrationSource = await readFile(
+  new URL(
+    "../packages/database/migrations/004_oauth_admin_consent.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const permissionMigrationChecksum = createHash("sha256")
+  .update(permissionMigrationSource)
+  .digest("hex");
 const previousBaseline = baseline
   .replace(
     "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
@@ -697,6 +707,10 @@ for (const source of [
           { name: "001_initial.sql", checksum: converted.baselineChecksum },
           { name: "002_key_policies.sql", checksum: keyPolicyChecksum },
           { name: "003_task_attachments.sql", checksum: attachmentChecksum },
+          {
+            name: "004_oauth_admin_consent.sql",
+            checksum: permissionMigrationChecksum,
+          },
         ],
       );
     } finally {
