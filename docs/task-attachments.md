@@ -1,18 +1,18 @@
 # Task attachments
 
-Use the **Attachments** tab on a task to keep images and PDFs with the work they describe. The tab appears when your operator enables [private S3 storage](configuration.md#optional-task-attachments).
+Images and PDFs appear directly below the task description when your operator enables [private S3 storage](configuration.md#optional-task-attachments). Comments and Activity remain separate tabs below the task content.
 
 ## Upload a file
 
-Members and administrators can choose **Upload attachment** and select a PNG, JPEG, WebP, GIF or PDF. Each file must be at most 20 MiB. A task can hold up to 100 attachments, including uploads still in progress. SVG and other formats are unsupported. Viewers can preview and download existing attachments but cannot upload or delete them.
+Members and administrators can choose the secondary **Upload attachment** button below the task description. Its dialog contains the shared file chooser and drop area. Choose or drop a PNG, JPEG, WebP, GIF or PDF. Each file must be at most 20 MiB. A task can hold up to 100 attachments, including uploads still in progress. SVG and other formats are unsupported. Viewers can preview and download existing attachments but cannot upload or delete them.
 
 The upload uses a temporary signed URL. Mill verifies the stored file before it appears in the list. An interrupted or rejected upload does not create a completed attachment. If the upload fails, check the toast message and try again. Signed upload URLs expire after five minutes; a new attempt gets a new URL.
 
 ## Preview and download
 
-Up to four attachments appear as cards. With more attachments, the tab uses a compact list. Cards show an image thumbnail or the first page of a PDF. The compact list shows file names, sizes and upload times. Use the download action in either layout to save the original file.
+Up to four attachments appear as cards. With more attachments, the same area uses a compact list. Cards show an image thumbnail or the first page of a PDF. The compact list shows file names, sizes and upload times. Use the download action in either layout to save the original file.
 
-Files stay in a private bucket. Preview and download URLs expire after five minutes and are issued only after Mill checks access to the task. If a preview has expired, use **Retry preview** or reload the tab to obtain a new URL. Download requests obtain a fresh URL each time. Do not share signed URLs as permanent file links.
+Files stay in a private bucket. Preview and download URLs expire after five minutes and are issued only after Mill checks access to the task. If a preview has expired, use **Retry preview** or reload the task page to obtain a new URL. Download requests obtain a fresh URL each time. Do not share signed URLs as permanent file links.
 
 ## Delete an attachment
 

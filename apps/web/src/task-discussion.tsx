@@ -49,10 +49,6 @@ import { RelativeDateTime } from "./relative-date-time.js";
 import { formatDate, formatDateTime } from "./date-time-preferences.js";
 import { hasCommentResponse, hasOkResponse } from "./responses.js";
 import { useSettingsMutation } from "./use-settings-mutation.js";
-import {
-  TaskAttachments,
-  useAttachmentConfiguration,
-} from "./task-attachments.js";
 
 type DiscussionKind = "comments" | "activity";
 type DiscussionItem = Comment | Activity;
@@ -78,7 +74,7 @@ export type TaskDiscussionProps = {
   taskId: string;
   user: User;
   editable: boolean;
-  refreshKey?: number;
+  refreshKey?: number | string;
   sessionRevision: number;
   members?: Member[];
 };
@@ -347,14 +343,6 @@ function TaskDiscussionContent({
   const comments = useDiscussionPages<Comment>(taskId, "comments");
   const activity = useDiscussionPages<Activity>(taskId, "activity");
   const [tab, setTab] = useState("comments");
-  const attachments = useAttachmentConfiguration(sessionRevision);
-  const attachmentTabChosen = useRef(false);
-  useEffect(() => {
-    if (attachments.configuration?.enabled && !attachmentTabChosen.current) {
-      attachmentTabChosen.current = true;
-      setTab("attachments");
-    }
-  }, [attachments.configuration]);
   const [draft, setDraft] = useState("");
   const [deleting, setDeleting] = useState<Comment | null>(null);
   const [busy, setBusy] = useState(false);
@@ -873,20 +861,11 @@ function TaskDiscussionContent({
     >
       <Tabs
         selectedKey={tab}
-        onSelectionChange={(key) => {
-          attachmentTabChosen.current = true;
-          setTab(String(key));
-        }}
+        onSelectionChange={(key) => setTab(String(key))}
         className="min-w-0"
       >
         <Tabs.ListContainer className="w-fit max-w-full">
           <Tabs.List aria-label="Task discussion">
-            {attachments.configuration?.enabled && (
-              <Tabs.Tab id="attachments" className="whitespace-nowrap">
-                Attachments
-                <Tabs.Indicator />
-              </Tabs.Tab>
-            )}
             <Tabs.Tab id="comments" className="whitespace-nowrap">
               Comments
               <Tabs.Indicator />
@@ -897,22 +876,6 @@ function TaskDiscussionContent({
             </Tabs.Tab>
           </Tabs.List>
         </Tabs.ListContainer>
-        <QueryFeedback
-          message={attachments.error}
-          onRetry={() => void attachments.retry()}
-        />
-        {attachments.configuration?.enabled && (
-          <Tabs.Panel id="attachments" className="min-w-0 pt-4">
-            <TaskAttachments
-              taskId={taskId}
-              user={user}
-              editable={writable}
-              configuration={attachments.configuration}
-              sessionRevision={sessionRevision}
-              onChange={() => void activity.refresh()}
-            />
-          </Tabs.Panel>
-        )}
         <Tabs.Panel
           id="comments"
           className="grid min-w-0 gap-5 pt-4"

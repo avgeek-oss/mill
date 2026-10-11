@@ -4,7 +4,7 @@ The proposed tag is `v1.0.1`; no release image or GitHub release exists until pu
 
 ## Unreleased: task attachments
 
-The development branch adds optional image/PDF attachments using private S3-compatible storage. Members and administrators can upload, preview, download and delete files; viewers can read them. Files are limited to 20 MiB, and completion verifies their stored bytes before exposing them. PostgreSQL retains metadata and a durable cleanup queue; the bucket retains completed files. These changes need a future matching API/UI release and do not alter an existing installation until it is upgraded and configured. See [task attachments](task-attachments.md) and [storage configuration](configuration.md#optional-task-attachments).
+The development branch adds optional image/PDF attachments using private S3-compatible storage. Files appear below the task description, and a secondary Upload attachment button opens a dialog with a file chooser and drop area. Comments and Activity remain tabs. Members and administrators can upload, preview, download and delete files; viewers can read them. Files are limited to 20 MiB, and completion verifies their stored bytes before exposing them. PostgreSQL retains metadata and a durable cleanup queue; the bucket retains completed files. These changes need a future matching API/UI release and do not alter an existing installation until it is upgraded and configured. See [task attachments](task-attachments.md) and [storage configuration](configuration.md#optional-task-attachments).
 
 ## Task lists
 

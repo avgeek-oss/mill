@@ -20,6 +20,7 @@ import {
   TypographyParagraph,
   useOverlaySuspension,
 } from "@avgeek-oss/design-system";
+import { Spinner } from "@avgeek-oss/design-system/feedback/spinner";
 import { Modal } from "@avgeek-oss/design-system/overlays/modal";
 import { toast } from "@avgeek-oss/design-system/overlays/toast";
 import type {
@@ -192,21 +193,36 @@ function AttachmentPreview({ item }: { item: Attachment }) {
   );
 }
 
-export function TaskAttachments({
+type AttachmentSectionProps = {
+  taskId: string;
+  user: User;
+  editable: boolean;
+  sessionRevision: number;
+  onChange: () => void;
+};
+
+export function TaskAttachmentSection(props: AttachmentSectionProps) {
+  const { configuration, error, retry } = useAttachmentConfiguration(
+    props.sessionRevision,
+  );
+  return (
+    <>
+      <QueryFeedback message={error} onRetry={() => void retry()} />
+      {configuration?.enabled && (
+        <TaskAttachments {...props} configuration={configuration} />
+      )}
+    </>
+  );
+}
+
+function TaskAttachments({
   taskId,
   user,
   editable,
   configuration,
   sessionRevision,
   onChange,
-}: {
-  taskId: string;
-  user: User;
-  editable: boolean;
-  configuration: AttachmentConfiguration;
-  sessionRevision: number;
-  onChange: () => void;
-}) {
+}: AttachmentSectionProps & { configuration: AttachmentConfiguration }) {
   const overlay = useOverlaySuspension();
   const run = useSettingsMutation(`${taskId}:attachments:${user.id}`);
   const [page, setPage] = useState<AttachmentPage>({
@@ -217,6 +233,8 @@ export function TaskAttachments({
   const [ready, setReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const [deleting, setDeleting] = useState<Attachment | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
@@ -288,105 +306,113 @@ export function TaskAttachments({
     if (!writable)
       throw new Error("You no longer have permission to upload attachments.");
     const captured = overlay.capture();
-    await run(async (signal) => {
-      let job = uploadJob.current;
-      const expired =
-        job && !job.uploaded && Date.parse(job.upload.expiresAt) <= Date.now();
-      if (uploadFile.current !== file || expired) {
-        uploadKey.reset();
-        completeKey.reset();
-        uploadFile.current = file;
-        uploadJob.current = null;
-        job = null;
-      }
-      if (!job) {
-        const bytes = await file.arrayBuffer();
-        signal.throwIfAborted();
-        const digest = await crypto.subtle.digest("SHA-256", bytes);
-        const sha256 = Array.from(new Uint8Array(digest), (byte) =>
-          byte.toString(16).padStart(2, "0"),
-        ).join("");
-        const path = `/tasks/${taskId}/attachments/uploads`;
-        const payload = {
-          fileName: file.name,
-          contentType: file.type,
-          sizeBytes: file.size,
-          sha256,
-        };
-        const signed = await api<Upload>(path, payload, "POST", {
-          signal,
-          headers: { "Idempotency-Key": uploadKey.forRequest(path, payload) },
-          validateResponse: (value) =>
-            isResponseObject(value) &&
-            typeof value.attachmentId === "string" &&
-            typeof value.uploadUrl === "string" &&
-            validStorageUrl(value.uploadUrl) &&
-            typeof value.expiresAt === "string" &&
-            isResponseObject(value.headers) &&
-            Object.values(value.headers).every(
-              (header) => typeof header === "string",
-            ),
-        });
-        job = { file, upload: signed, uploaded: false };
-        uploadJob.current = job;
-      }
-      if (!job.uploaded) {
-        const response = await fetch(job.upload.uploadUrl, {
-          method: "PUT",
-          headers: Object.fromEntries(
-            Object.entries(job.upload.headers).filter(
-              ([name]) => name.toLowerCase() !== "content-length",
-            ),
-          ),
-          body: file,
-          credentials: "omit",
-          referrerPolicy: "no-referrer",
-          signal,
-        }).catch((cause: unknown) => {
-          if (cause instanceof TypeError)
-            throw new Error(
-              "Attachment storage could not be reached. Check your connection and try again.",
-            );
-          throw cause;
-        });
-        if (!response.ok)
-          throw new Error(
-            "The file could not be uploaded. Check the storage CORS settings and try again.",
-          );
-        job.uploaded = true;
-      }
-      const path = `/tasks/${taskId}/attachments/${job.upload.attachmentId}/complete`;
-      const saved = await api<{ attachment: Attachment }>(path, {}, "POST", {
-        signal,
-        headers: { "Idempotency-Key": completeKey.forRequest(path, {}) },
-        validateResponse: (value) =>
-          isResponseObject(value) &&
-          attachmentResponse(value.attachment) &&
-          value.attachment.taskId === taskId,
-      }).catch((cause: unknown) => {
-        if (cause instanceof ApiError && cause.code === "UPLOAD_EXPIRED") {
-          uploadJob.current = null;
-          uploadFile.current = null;
+    setUploadBusy(true);
+    try {
+      await run(async (signal) => {
+        let job = uploadJob.current;
+        const expired =
+          job &&
+          !job.uploaded &&
+          Date.parse(job.upload.expiresAt) <= Date.now();
+        if (uploadFile.current !== file || expired) {
           uploadKey.reset();
           completeKey.reset();
+          uploadFile.current = file;
+          uploadJob.current = null;
+          job = null;
         }
-        throw cause;
+        if (!job) {
+          const bytes = await file.arrayBuffer();
+          signal.throwIfAborted();
+          const digest = await crypto.subtle.digest("SHA-256", bytes);
+          const sha256 = Array.from(new Uint8Array(digest), (byte) =>
+            byte.toString(16).padStart(2, "0"),
+          ).join("");
+          const path = `/tasks/${taskId}/attachments/uploads`;
+          const payload = {
+            fileName: file.name,
+            contentType: file.type,
+            sizeBytes: file.size,
+            sha256,
+          };
+          const signed = await api<Upload>(path, payload, "POST", {
+            signal,
+            headers: { "Idempotency-Key": uploadKey.forRequest(path, payload) },
+            validateResponse: (value) =>
+              isResponseObject(value) &&
+              typeof value.attachmentId === "string" &&
+              typeof value.uploadUrl === "string" &&
+              validStorageUrl(value.uploadUrl) &&
+              typeof value.expiresAt === "string" &&
+              isResponseObject(value.headers) &&
+              Object.values(value.headers).every(
+                (header) => typeof header === "string",
+              ),
+          });
+          job = { file, upload: signed, uploaded: false };
+          uploadJob.current = job;
+        }
+        if (!job.uploaded) {
+          const response = await fetch(job.upload.uploadUrl, {
+            method: "PUT",
+            headers: Object.fromEntries(
+              Object.entries(job.upload.headers).filter(
+                ([name]) => name.toLowerCase() !== "content-length",
+              ),
+            ),
+            body: file,
+            credentials: "omit",
+            referrerPolicy: "no-referrer",
+            signal,
+          }).catch((cause: unknown) => {
+            if (cause instanceof TypeError)
+              throw new Error(
+                "Attachment storage could not be reached. Check your connection and try again.",
+              );
+            throw cause;
+          });
+          if (!response.ok)
+            throw new Error(
+              "The file could not be uploaded. Check the storage CORS settings and try again.",
+            );
+          job.uploaded = true;
+        }
+        const path = `/tasks/${taskId}/attachments/${job.upload.attachmentId}/complete`;
+        const saved = await api<{ attachment: Attachment }>(path, {}, "POST", {
+          signal,
+          headers: { "Idempotency-Key": completeKey.forRequest(path, {}) },
+          validateResponse: (value) =>
+            isResponseObject(value) &&
+            attachmentResponse(value.attachment) &&
+            value.attachment.taskId === taskId,
+        }).catch((cause: unknown) => {
+          if (cause instanceof ApiError && cause.code === "UPLOAD_EXPIRED") {
+            uploadJob.current = null;
+            uploadFile.current = null;
+            uploadKey.reset();
+            completeKey.reset();
+          }
+          throw cause;
+        });
+        if (!captured()) return;
+        uploadJob.current = null;
+        uploadFile.current = null;
+        uploadKey.reset();
+        completeKey.reset();
+        setPage((previous) => ({
+          ...previous,
+          items: [
+            saved.attachment,
+            ...previous.items.filter((item) => item.id !== saved.attachment.id),
+          ],
+        }));
+        setUploadOpen(false);
+        toast.success("Attachment uploaded.");
+        onChange();
       });
-      if (!captured()) return;
-      uploadJob.current = null;
-      uploadFile.current = null;
-      uploadKey.reset();
-      completeKey.reset();
-      setPage((previous) => ({
-        ...previous,
-        items: [
-          saved.attachment,
-          ...previous.items.filter((item) => item.id !== saved.attachment.id),
-        ],
-      }));
-      toast.success("Attachment uploaded.");
-      onChange();
-    });
+    } finally {
+      setUploadBusy(false);
+    }
   }
 
   async function download(item: Attachment) {
@@ -460,7 +486,11 @@ export function TaskAttachments({
           isDisabled={downloading !== null}
           onPress={() => void download(item)}
         >
-          <HugeiconsIcon aria-hidden icon={Download01Icon} />
+          {downloading === item.id ? (
+            <Spinner size="sm" aria-hidden />
+          ) : (
+            <HugeiconsIcon aria-hidden icon={Download01Icon} />
+          )}
         </Button>
         {writable && (
           <Button
@@ -481,15 +511,14 @@ export function TaskAttachments({
   return (
     <div className="grid min-w-0 gap-4" aria-busy={loading}>
       {writable && (
-        <FileUpload
-          key={taskId}
-          label="Upload attachment"
-          accept={configuration.contentTypes.join(",")}
-          maxSizeBytes={configuration.maxBytes}
+        <Button
+          variant="secondary"
+          className="w-fit"
           isDisabled={loading || busy}
-          description="Images and PDFs, up to 20 MB each."
-          onUpload={upload}
-        />
+          onPress={() => setUploadOpen(true)}
+        >
+          Upload attachment
+        </Button>
       )}
       <QueryFeedback
         message={error}
@@ -497,11 +526,6 @@ export function TaskAttachments({
       />
       {!ready && loading && (
         <QueryLoading className="sr-only">Loading attachments</QueryLoading>
-      )}
-      {ready && !page.items.length && (
-        <TypographyParagraph className="text-sm text-muted">
-          No attachments yet.
-        </TypographyParagraph>
       )}
       {!!page.items.length && page.items.length <= 4 && !page.hasMore ? (
         <div className="grid min-w-0 gap-4 sm:grid-cols-2">
@@ -580,6 +604,42 @@ export function TaskAttachments({
         </Button>
       )}
       <Modal
+        isOpen={uploadOpen && writable}
+        onOpenChange={(open) => {
+          if (uploadBusy) return;
+          setUploadOpen(open);
+          if (!open) {
+            uploadJob.current = null;
+            uploadFile.current = null;
+            uploadKey.reset();
+            completeKey.reset();
+          }
+        }}
+      >
+        <Modal.Backdrop
+          isDismissable={!uploadBusy}
+          isKeyboardDismissDisabled={uploadBusy}
+        >
+          <Modal.Container>
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>Upload attachment</Modal.Heading>
+                <Modal.CloseTrigger isDisabled={uploadBusy} />
+              </Modal.Header>
+              <Modal.Body>
+                <FileUpload
+                  label="Choose file"
+                  accept={configuration.contentTypes.join(",")}
+                  maxSizeBytes={configuration.maxBytes}
+                  description="Images and PDFs, up to 20 MB each."
+                  onUpload={upload}
+                />
+              </Modal.Body>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+      <Modal
         isOpen={!!deleting && !overlay.isSuspended}
         onOpenChange={(open) => {
           if (!open && !busy) setDeleting(null);
@@ -613,7 +673,17 @@ export function TaskAttachments({
                   isDisabled={!writable || busy}
                   onPress={() => void remove()}
                 >
-                  Delete attachment
+                  <span className="relative">
+                    <span className={busy ? "invisible" : undefined}>
+                      Delete attachment
+                    </span>
+                    {busy && (
+                      <span className="absolute inset-0 inline-flex items-center justify-center gap-2">
+                        <Spinner size="sm" aria-hidden />
+                        Deleting…
+                      </span>
+                    )}
+                  </span>
                 </Button>
               </Modal.Footer>
             </Modal.Dialog>

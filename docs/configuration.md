@@ -27,7 +27,7 @@ The UI origin is used for passkeys and account links; the API origin is used for
 
 ## Optional: task attachments
 
-Task attachments require a private S3-compatible bucket, such as Cloudflare R2. Leave the storage settings unset to use Mill without attachments; the task page hides the Attachments tab. PostgreSQL, API and UI remain the only required services.
+Task attachments require a private S3-compatible bucket, such as Cloudflare R2. Leave the storage settings unset to use Mill without attachments; the task page hides the attachment area and upload button. PostgreSQL, API and UI remain the only required services.
 
 Set these values on the API:
 
