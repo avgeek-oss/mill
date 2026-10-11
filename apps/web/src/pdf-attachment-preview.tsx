@@ -100,39 +100,45 @@ export default function PdfAttachmentPreview({
         )}
       </div>
       {expanded && document && document.numPages > 1 && (
-        <div className="flex shrink-0 items-center justify-center gap-2 p-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-disabled={pageNumber === 1 || rendering}
-            className={pageNumber === 1 || rendering ? "text-muted" : undefined}
-            aria-label="Previous PDF page"
-            onPress={() => {
-              if (!rendering) setPageNumber((page) => Math.max(1, page - 1));
-            }}
-          >
-            Previous
-          </Button>
+        <div className="flex shrink-0 items-center justify-between gap-2 p-2">
           <span className="text-xs text-muted" aria-live="polite">
             Page {pageNumber} of {document.numPages}
           </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-disabled={pageNumber === document.numPages || rendering}
-            className={
-              pageNumber === document.numPages || rendering
-                ? "text-muted"
-                : undefined
-            }
-            aria-label="Next PDF page"
-            onPress={() => {
-              if (!rendering)
-                setPageNumber((page) => Math.min(document.numPages, page + 1));
-            }}
-          >
-            Next
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-disabled={pageNumber === 1 || rendering}
+              className={
+                pageNumber === 1 || rendering ? "text-muted" : undefined
+              }
+              aria-label="Previous PDF page"
+              onPress={() => {
+                if (!rendering) setPageNumber((page) => Math.max(1, page - 1));
+              }}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-disabled={pageNumber === document.numPages || rendering}
+              className={
+                pageNumber === document.numPages || rendering
+                  ? "text-muted"
+                  : undefined
+              }
+              aria-label="Next PDF page"
+              onPress={() => {
+                if (!rendering)
+                  setPageNumber((page) =>
+                    Math.min(document.numPages, page + 1),
+                  );
+              }}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
     </div>
