@@ -630,7 +630,11 @@ function TaskAttachments({
               {
                 key: "size",
                 header: "Size",
-                cell: (item) => fileSize(item.sizeBytes),
+                cell: (item) => (
+                  <span className="text-xs text-muted">
+                    {fileSize(item.sizeBytes)}
+                  </span>
+                ),
               },
               {
                 key: "date",
