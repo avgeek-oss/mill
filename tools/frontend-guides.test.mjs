@@ -15,7 +15,10 @@ test("curated installed guides retain commands, resolve every local link and exc
       .get("guides/installation.html")
       .includes('href="/guides/package-registry.html"'),
   );
-  assert.ok(guides.get("guides/package-registry.html").includes("npmjs.org"));
+  assert.match(
+    guides.get("guides/package-registry.html"),
+    /Source installation and Docker builds require no package-registry credentials\./,
+  );
   assert.ok(
     guides
       .get("guides/package-registry.html")
