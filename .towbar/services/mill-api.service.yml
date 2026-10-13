@@ -3,7 +3,7 @@ id: mill-api
 name: Mill API
 deployment:
   type: image
-  image: ghcr.io/avgeek-oss/mill-api:1.0.4
+  image: ghcr.io/avgeek-oss/mill-api:1.0.5
 autoDeploy: false
 rollout:
   type: recreate

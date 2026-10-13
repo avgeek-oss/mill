@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.5 (2026-10-13)
+
+- Install shared UI and Mintlify documentation packages from public npm without GitHub package credentials.
+- Keep API and UI images at version 1.0.5.
+- Use the shared API-key and MCP connection tables on desktop and mobile, without the obsolete All boards permission label.
+
 ## 1.0.4 (2026-10-11)
 
 - Use the shared MCP consent form with user-selected Read-only, Write or Administrator access, without a board selector.

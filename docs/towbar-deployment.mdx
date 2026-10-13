@@ -9,7 +9,7 @@ The repository includes `towbar.yml` and three manifests under `.towbar/`: Mill 
 
 ## Images and networking
 
-The API and UI manifests select version `1.0.4`. Before deployment, verify that its [GitHub release](https://github.com/avgeek-oss/mill/releases) contains `mill-images.json`. For immutable references, take both digests from that file and replace the corresponding `deployment.image` values. Keep the API and UI on the same release. Towbar selects the server's native architecture from the multi-platform images.
+The API and UI manifests select version `1.0.5`. Before deployment, verify that its [GitHub release](https://github.com/avgeek-oss/mill/releases) contains `mill-images.json`. For immutable references, take both digests from that file and replace the corresponding `deployment.image` values. Keep the API and UI on the same release. Towbar selects the server's native architecture from the multi-platform images.
 
 All three containers share a dedicated Docker network named `mill`. PostgreSQL is reachable as `mill-postgres:5432`. The API is independently exposed at `https://mill-api.avgeek.ltd` with public TLS and serves REST, authentication, OAuth discovery and token endpoints, MCP, and health. The UI is exposed at `https://mill.avgeek.ltd` and serves the built app plus a no-store runtime script containing the public API origin. Browsers call the API directly with credentialed requests.
 
