@@ -45,10 +45,10 @@ PostgreSQL major-version upgrades require a tested database upgrade plan. Changi
 
 ## Contributor source builds
 
-Source builds are optional for contributors, not required for a normal installation. In a checkout of the reviewed revision, use the [package registry credentials](/package-registry), container database URL and explicit source-build overlay:
+Source builds are optional for contributors, not required for a normal installation. In a checkout of the reviewed revision, use the [public package registry](/package-registry), container database URL and explicit source-build overlay:
 
 ```sh
-node tools/with-package-token.mjs docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-source.yml build --pull api web
+docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-source.yml build --pull api web
 docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-source.yml up --no-build --detach --wait --wait-timeout 180
 ```
 

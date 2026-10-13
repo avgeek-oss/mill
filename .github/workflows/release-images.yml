@@ -130,7 +130,6 @@ jobs:
           sbom: true
           cache-from: type=gha,scope=release-mill-${{ matrix.component }}-${{ matrix.architecture }}
           cache-to: type=gha,mode=max,scope=release-mill-${{ matrix.component }}-${{ matrix.architecture }}
-          secrets: npm_token=${{ github.token }}
           build-args: |
             SOURCE_COMMIT=${{ needs.prepare.outputs.commit }}
             RELEASE_VERSION=${{ needs.prepare.outputs.version }}
@@ -261,7 +260,6 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
           MILL_VERIFY_EXPECT_ARCH: ${{ matrix.architecture }}
-          NODE_AUTH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           node --input-type=module -e 'import {readReleaseImages} from "./tools/release-images.mjs"; await readReleaseImages("mill-images.json", process.env.RELEASE_TAG, process.env.RELEASE_COMMIT)'

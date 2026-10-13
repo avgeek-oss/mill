@@ -33,7 +33,7 @@
     "test:quick": "node --import tsx --test tests/api-client-errors.test.ts tests/config.test.ts tests/date-time-formatters.test.ts tests/mention-caret.test.ts tests/password-capacity.test.ts tests/time-zone.test.ts"
   },
   "dependencies": {
-    "@avgeek-oss/design-system": "1.2.16",
+    "@avgeek-oss/design-system": "1.2.17",
     "@aws-sdk/client-s3": "3.1149.0",
     "@aws-sdk/s3-request-presigner": "3.1149.0",
     "@hono/node-server": "2.0.11",
@@ -49,7 +49,6 @@
     "zod": "4.5.4"
   },
   "devDependencies": {
-    "@avgeek-oss/docs": "0.1.5",
     "@eslint/js": "9.39.4",
     "@types/node": "26.6.1",
     "@types/nodemailer": "8.0.2",
@@ -60,6 +59,7 @@
     "prettier": "3.9.8",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.57.0"
+    "typescript-eslint": "8.57.0",
+    "@avgeek-oss/mintlify-docs": "0.1.6"
   }
 }

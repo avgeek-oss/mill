@@ -1,6 +1,6 @@
 # Contributing
 
-Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before changing Mill. The task board is the product. Changes should work for people and connected clients without requiring private packages or another checkout. Source builds require [GitHub Packages authentication](docs/package-registry.md) for the public shared design system; the running application needs no registry credentials.
+Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before changing Mill. The task board is the product. Changes should work for people and connected clients without requiring private packages or another checkout. Source builds use public npm packages and require no registry credentials.
 
 ## Local setup
 
@@ -25,13 +25,13 @@ Use a disposable PostgreSQL database for `pnpm verify` and provide its `DATABASE
 
 The production runner builds the API and UI images, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
 
-The production runner accepts `NODE_AUTH_TOKEN` or your stored GitHub Packages npm login. It passes the credential to BuildKit as a build secret and redacts it from saved evidence. CI uses `GITHUB_TOKEN` with `packages:read`; the shared package must grant the Mill repository Actions access. See [package registry setup](docs/package-registry.md#continuous-integration).
+The production runner builds from public npm dependencies without a registry credential. CI preserves the same installation, migration, backup and restore gates. See [package registry setup](docs/package-registry.md#continuous-integration).
 
 When editing UI, manually review the running routes in light and dark themes, on desktop and phone widths. Include long titles, empty states, permission errors, keyboard movement, and scrolled selects inside dialogs. Preserve the shared components' keyboard, focus, and touch behavior.
 
 ## Documentation
 
-Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and the navigation/branding in `docs/site.json`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated `.mdx` pages, `docs.json`, and the shared snippets/styles live directly in `docs/`. Do not edit generated files; the build and `docs:check` keep them aligned with the pinned `@avgeek-oss/docs` package.
+Edit the maintained guides in `docs/`, the homepage in `docs/home.mdx`, and the navigation/branding in `docs/site.json`. Run `pnpm docs:build` to regenerate the Mintlify site, then `pnpm docs:dev` to review it at `http://localhost:4174`. Generated `.mdx` pages, `docs.json`, and the shared snippets/styles live directly in `docs/`. Do not edit generated files; the build and `docs:check` keep them aligned with the pinned `@avgeek-oss/mintlify-docs` package.
 
 For documentation images after a visible application change, use the optional [manual screenshot refresh workflow](docs/screenshot-refresh.md). `pnpm docs:screenshots` refreshes every application section from an isolated example workspace; `pnpm docs:screenshots --docs-url http://localhost:4174` also captures every documentation page. Review the desktop and mobile images in both themes before including them in the docs.
 

@@ -15,13 +15,11 @@ test("curated installed guides retain commands, resolve every local link and exc
       .get("guides/installation.html")
       .includes('href="/guides/package-registry.html"'),
   );
-  assert.ok(
-    guides.get("guides/package-registry.html").includes("read:packages"),
-  );
+  assert.ok(guides.get("guides/package-registry.html").includes("npmjs.org"));
   assert.ok(
     guides
       .get("guides/package-registry.html")
-      .includes("tools/with-package-token.mjs"),
+      .includes("pnpm install --frozen-lockfile"),
   );
   assert.ok(guides.get("guides/clients.html").includes("/mcp"));
   assert.ok(guides.get("guides/task-attachments.html").includes("20 MiB"));

@@ -38,11 +38,9 @@ jobs:
         with:
           node-version: 24.16.0
           cache: pnpm
-          registry-url: https://npm.pkg.github.com
+          registry-url: https://registry.npmjs.org
           scope: "@avgeek-oss"
       - run: pnpm install --frozen-lockfile
-        env:
-          NODE_AUTH_TOKEN: ${{ github.token }}
       - run: pnpm verify
         env:
           NODE_ENV: production
@@ -59,7 +57,6 @@ jobs:
       - name: Build and exercise a disposable production installation
         env:
           MILL_VERIFY_EXPECT_ARCH: amd64
-          NODE_AUTH_TOKEN: ${{ github.token }}
         run: node tools/production-verify.mjs
       - name: Preserve production evidence
         if: always()
