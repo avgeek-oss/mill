@@ -38,8 +38,6 @@ jobs:
         with:
           node-version: 24.16.0
           cache: pnpm
-          registry-url: https://registry.npmjs.org
-          scope: "@avgeek-oss"
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
         env:
