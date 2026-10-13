@@ -5,18 +5,12 @@ FROM base AS build
 WORKDIR /build
 RUN npm install --global pnpm@11.5.3
 COPY . .
-RUN --mount=type=secret,id=npm_token,required=true \
-    --mount=type=tmpfs,target=/run/npm-config \
-    --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
-    printf '//npm.pkg.github.com/:_authToken=%s\n' "$(cat /run/secrets/npm_token)" > /run/npm-config/npmrc \
-    && NPM_CONFIG_USERCONFIG=/run/npm-config/npmrc pnpm install --frozen-lockfile --store-dir /pnpm/store
+RUN --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --store-dir /pnpm/store
 RUN pnpm build
-RUN --mount=type=secret,id=npm_token,required=true \
-    --mount=type=tmpfs,target=/run/npm-config \
-    --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
-    printf '@avgeek-oss:registry=https://npm.pkg.github.com\n//npm.pkg.github.com/:_authToken=%s\n' "$(cat /run/secrets/npm_token)" > /run/npm-config/npmrc \
-    && NPM_CONFIG_USERCONFIG=/run/npm-config/npmrc pnpm --filter mill deploy --prod --offline --store-dir /pnpm/store /prod/mill \
-    && NPM_CONFIG_USERCONFIG=/run/npm-config/npmrc pnpm --filter @mill/web-server deploy --prod --offline --store-dir /pnpm/store /prod/web
+RUN --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
+    pnpm --filter mill deploy --prod --offline --store-dir /pnpm/store /prod/mill \
+    && pnpm --filter @mill/web-server deploy --prod --offline --store-dir /pnpm/store /prod/web
 
 FROM base AS runtime
 ARG SOURCE_COMMIT=development

@@ -9,7 +9,6 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { githubPackagesToken } from "./package-registry.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const runId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
@@ -56,7 +55,6 @@ const setupSecret = createHmac("sha256", secrets[1])
   .update("mill:installation-setup:v1")
   .digest("base64url");
 secrets.push(setupSecret);
-let packageToken;
 const results = [];
 const projects = [];
 await mkdir(evidence, { recursive: true, mode: 0o700 });
@@ -82,7 +80,6 @@ async function run(
       shell: false,
       env: {
         ...process.env,
-        ...(packageToken ? { NODE_AUTH_TOKEN: packageToken } : {}),
         ...extraEnv,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -254,10 +251,6 @@ let secureApiProxy;
 let sourceRevision;
 let sourceDirty;
 try {
-  if (!releaseImages) {
-    packageToken = await githubPackagesToken();
-    secrets.push(packageToken);
-  }
   sourceRevision = await run("source-revision", "git", ["rev-parse", "HEAD"]);
   sourceDirty = Boolean(
     await run("source-working-tree", "git", ["status", "--porcelain"]),

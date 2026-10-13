@@ -95,7 +95,7 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     );
     assert.ok(
       (await readFile(resolve(output, "oss-docs.css"), "utf8")).includes(
-        "@avgeek-oss/docs 0.1.5",
+        "@avgeek-oss/mintlify-docs 0.1.6",
       ),
     );
     const config = JSON.parse(

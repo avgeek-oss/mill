@@ -55,11 +55,11 @@ For Towbar, use the repository's API, UI, and PostgreSQL manifests and follow [D
 
 ## Develop
 
-The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source and available from npm or GitHub Packages; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.
+The toolchain is Node.js 24.16.0 and pnpm 11.5.3. Dependencies are open source and available from npmjs.org; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.
 
 ```sh
 npm install --global pnpm@11.5.3
-node tools/with-package-token.mjs pnpm install --frozen-lockfile
+pnpm install --frozen-lockfile
 node tools/init-env.mjs
 docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-development.yml up --detach --wait postgres
 pnpm migrate

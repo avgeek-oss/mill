@@ -4,7 +4,10 @@ import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { format } from "prettier";
 const { syncSite } = await import(
-  new URL("../bin/oss-docs.mjs", import.meta.resolve("@avgeek-oss/docs"))
+  new URL(
+    "../bin/mintlify-docs.mjs",
+    import.meta.resolve("@avgeek-oss/mintlify-docs"),
+  )
 );
 const root = fileURLToPath(new URL("../", import.meta.url));
 const source = resolve(root, "docs");
@@ -104,8 +107,8 @@ const pages = [
   ],
   [
     "package-registry",
-    "Package registry setup",
-    "Authenticate source builds to GitHub Packages.",
+    "Package registry",
+    "Install public npm dependencies for local and Docker source builds.",
   ],
   [
     "towbar-deployment",
@@ -227,5 +230,5 @@ try {
   await rm(temp, { recursive: true, force: true });
 }
 console.log(
-  `${check ? "Checked" : "Generated"} ${pages.length + 1} pages with @avgeek-oss/docs in docs/`,
+  `${check ? "Checked" : "Generated"} ${pages.length + 1} pages with @avgeek-oss/mintlify-docs in docs/`,
 );

@@ -15,13 +15,14 @@ test("curated installed guides retain commands, resolve every local link and exc
       .get("guides/installation.html")
       .includes('href="/guides/package-registry.html"'),
   );
-  assert.ok(
-    guides.get("guides/package-registry.html").includes("read:packages"),
+  assert.match(
+    guides.get("guides/package-registry.html"),
+    /Source installation and Docker builds require no package-registry credentials\./,
   );
   assert.ok(
     guides
       .get("guides/package-registry.html")
-      .includes("tools/with-package-token.mjs"),
+      .includes("pnpm install --frozen-lockfile"),
   );
   assert.ok(guides.get("guides/clients.html").includes("/mcp"));
   assert.ok(guides.get("guides/task-attachments.html").includes("20 MiB"));
