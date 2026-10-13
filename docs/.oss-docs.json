@@ -2,7 +2,7 @@
   "package": "@avgeek-oss/mintlify-docs",
   "version": "0.1.6",
   "files": {
-    "docs.json": "f8793c4e8ed3590e2eebb394077681bf18691f04c9215e15026598ccab36d8da",
+    "docs.json": "b61d310a93e6216488dc34d41d0f9cf4d09923823324b9c0035fea36f7a9868b",
     "oss-docs.css": "9c552b7725fddda38b0c18f26d5496d243ecb5dc94ba7d2ac8ab24e9a5a5c0ab",
     "oss-docs.js": "b8a59afe24dc7ff4e48ab23598db4c7fdc3aab9072f89d21d8f294fb8697829f",
     "snippets/oss/homepage.jsx": "71c40e2d0129a37d9065cb7623414797f5e289a8b4a97a35dfcb58830d981fbd",
