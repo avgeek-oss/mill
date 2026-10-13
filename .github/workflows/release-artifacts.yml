@@ -96,7 +96,7 @@ jobs:
             docker save --output "tmp/release/mill-$component-image-$RELEASE_ARCHITECTURE.tar" "$image"
           done
           node tools/package-release.mjs --api-image-archive "tmp/release/mill-api-image-$RELEASE_ARCHITECTURE.tar" --web-image-archive "tmp/release/mill-web-image-$RELEASE_ARCHITECTURE.tar" --platform "$RELEASE_PLATFORM" --output "tmp/release/package-$RELEASE_ARCHITECTURE"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: mill-release-${{ matrix.architecture }}
           path: tmp/release/package-${{ matrix.architecture }}/
@@ -104,7 +104,7 @@ jobs:
           retention-days: 30
       - name: Preserve verification evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-verification-${{ matrix.architecture }}
           path: tmp/verification/
