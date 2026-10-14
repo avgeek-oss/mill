@@ -38,6 +38,7 @@ COPY --from=build --chown=node:node /build/dist/package.json ./dist/package.json
 COPY --from=build --chown=node:node /build/dist/apps/api ./dist/apps/api
 COPY --from=build --chown=node:node /build/dist/apps/shared ./dist/apps/shared
 COPY --from=build --chown=node:node /build/dist/packages ./dist/packages
+COPY --from=build --chown=node:node /build/apps/web/public/brand/mill-favicon.png ./apps/web/public/brand/mill-favicon.png
 COPY --from=build --chown=node:node /build/packages/database/migrations ./packages/database/migrations
 EXPOSE 4321
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=12 \

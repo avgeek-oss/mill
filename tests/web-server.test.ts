@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { Server } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -34,6 +34,9 @@ test("UI needs a public API origin and validates it", () => {
 
 test("UI serves runtime API configuration without proxying API or OAuth", async () => {
   const root = await mkdtemp(join(tmpdir(), "mill-web-server-"));
+  const favicon = await readFile("apps/web/public/brand/mill-favicon.png");
+  await mkdir(join(root, "brand"));
+  await writeFile(join(root, "brand/mill-favicon.png"), favicon);
   await writeFile(
     join(root, "index.html"),
     '<html><script src="/runtime-config.js"></script>Mill UI</html>',
@@ -73,6 +76,34 @@ test("UI serves runtime API configuration without proxying API or OAuth", async 
       assert.equal((await fetch(`${origin}${path}`)).status, 404);
     assert.equal((await fetch(`${origin}/health/ready`)).status, 200);
     assert.equal((await fetch(`${origin}/assets/missing.js`)).status, 404);
+    for (const method of ["GET", "HEAD"]) {
+      const redirect = await fetch(`${origin}/favicon.ico`, {
+        method,
+        redirect: "manual",
+      });
+      assert.equal(redirect.status, 308);
+      assert.equal(redirect.headers.get("Location"), "/brand/mill-favicon.png");
+      const response = await fetch(`${origin}/favicon.ico`, {
+        method,
+        headers: { Origin: "https://dashboard.example" },
+      });
+      assert.equal(response.status, 200);
+      assert.equal(response.url, `${origin}/brand/mill-favicon.png`);
+      assert.equal(response.headers.get("Content-Type"), "image/png");
+      assert.equal(
+        response.headers.get("Cross-Origin-Resource-Policy"),
+        "cross-origin",
+      );
+      assert.equal(
+        response.headers.get("Cache-Control"),
+        "public, max-age=3600",
+      );
+      assert.equal(response.headers.get("Set-Cookie"), null);
+      assert.deepEqual(
+        Buffer.from(await response.arrayBuffer()),
+        method === "HEAD" ? Buffer.alloc(0) : favicon,
+      );
+    }
   } finally {
     web.closeAllConnections();
     await new Promise<void>((resolve) => web.close(() => resolve()));

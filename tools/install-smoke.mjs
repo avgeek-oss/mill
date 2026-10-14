@@ -193,6 +193,48 @@ assert.equal((await fetch(`${webOrigin}/api/auth/status`)).status, 404);
 pass("Independent UI and API origins respond without a UI API proxy");
 await verifyConfiguredStaticContent();
 
+const iconPath = "/brand/mill-favicon.png";
+const iconLink = '</favicon.ico>; rel="icon"; type="image/png"';
+const apiRoot = await fetch(`${origin}/`);
+assert.equal(apiRoot.status, 404);
+assert.equal(apiRoot.headers.get("Link"), iconLink);
+assert.equal(apiRoot.headers.get("Content-Type"), "application/json");
+assert.equal((await apiRoot.json()).error.code, "NOT_FOUND");
+const expectedIcon = await readFile(
+  new URL(`../apps/web/public${iconPath}`, import.meta.url),
+);
+for (const iconOrigin of [origin, webOrigin]) {
+  for (const method of ["GET", "HEAD"]) {
+    const redirect = await fetch(`${iconOrigin}/favicon.ico`, {
+      method,
+      redirect: "manual",
+    });
+    assert.equal(redirect.status, 308);
+    assert.equal(redirect.headers.get("Location"), iconPath);
+    const response = await fetch(`${iconOrigin}/favicon.ico`, { method });
+    assert.equal(response.status, 200);
+    assert.equal(response.url, `${iconOrigin}${iconPath}`);
+    assert.equal(response.headers.get("Content-Type"), "image/png");
+    assert.equal(
+      response.headers.get("Content-Length"),
+      String(expectedIcon.length),
+    );
+    assert.equal(
+      response.headers.get("Cross-Origin-Resource-Policy"),
+      "cross-origin",
+    );
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(response.headers.get("Set-Cookie"), null);
+    assert.deepEqual(
+      Buffer.from(await response.arrayBuffer()),
+      method === "HEAD" ? Buffer.alloc(0) : expectedIcon,
+    );
+  }
+}
+pass(
+  "API and UI images serve /favicon.ico anonymously with exact product PNG bytes",
+);
+
 let state;
 if (process.env.MILL_VERIFY_MODE === "fresh") {
   const status = await request("/api/auth/status");

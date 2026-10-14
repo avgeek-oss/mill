@@ -15,6 +15,14 @@ The application combines the icon-only MillMark with the name rendered as text t
 
 Documentation copies the application mark, favicon, and social card during `pnpm docs:build`. Unused wordmarks, combined logo images, alternate exports, and intermediate PNG masters are not kept in the repository; regenerate artwork from the Sketch source when needed.
 
+## Icon discovery
+
+`/favicon.ico` is the shared entry point on both the UI and API origins. Each redirects to the existing 64px PNG at `/brand/mill-favicon.png`, served as `image/png`; PNG bytes are never labelled as ICO. The web HTML keeps its existing PNG icon metadata. The API image copies this single public asset from the web source tree, and the UI image includes it in the built application. Neither icon needs a session or API key. Both origins permit cross-origin image embedding for these icon routes; other resources retain their existing authentication and resource policies.
+
+API responses advertise `Link: </favicon.ico>; rel="icon"; type="image/png"` using [HTTP Web Linking](https://www.rfc-editor.org/rfc/rfc8288). Discovery clients should inspect this header even on the root JSON 404, resolve the relative target against the API origin and follow its redirect. The root status, JSON response bodies and OAuth metadata remain unchanged. The icon uses a one-hour public cache; it is not immutable because the path stays stable across artwork updates.
+
+The shared OSS convention is to expose `/favicon.ico` on every web and API origin, using an actual ICO or a redirect to the existing product artwork. Existing declared icon paths remain valid: Mill, Towbar and Vitalog have `/brand/<product>-favicon.png` web assets, while Rootset's web app uses Next.js `/icon.png`. Peer applications need their own web and API routes and packaging under this convention. Towbar's generic discovery should read HTTP icon links as well as website HTML links and follow the `/favicon.ico` fallback redirect without hostname mappings.
+
 ## Export from Sketch
 
 From the repository root on a Mac with Sketch installed:

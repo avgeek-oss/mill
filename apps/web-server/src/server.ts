@@ -57,12 +57,22 @@ export function createWebServer(
   if (!existsSync(`${root}/index.html`))
     throw new Error("The Mill UI image must contain its built application");
   const app = new Hono();
+  const faviconPath = "/brand/mill-favicon.png";
+  for (const path of [faviconPath, "/favicon.ico"])
+    app.use(path, async (c, next) => {
+      await next();
+      if (["GET", "HEAD"].includes(c.req.method) && c.res.status < 400) {
+        c.header("Cross-Origin-Resource-Policy", "cross-origin");
+        c.header("Cache-Control", "public, max-age=3600");
+      }
+    });
   app.use(
     "*",
     webSecurity(configuration.api.origin, configuration.storage?.origin),
   );
   app.get("/health/live", (c) => c.json({ status: "ok" }));
   app.get("/health/ready", (c) => c.json({ status: "ready" }));
+  app.get("/favicon.ico", (c) => c.redirect(faviconPath, 308));
   app.get("/runtime-config.js", (c) => {
     c.header("Cache-Control", "no-store");
     c.header("Content-Type", "application/javascript; charset=utf-8");
