@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM node:24.16.0-alpine@sha256:21f403ab171f2dc89bad4dd69d7721bfd15f084ccb46cdd225f31f2bc59b5c9a AS base
+FROM node:26.11.1-alpine@sha256:143494b1da2945f061539253adc65e4f1569ddf07da2d384c022c791a9d90a4a AS base
 
 FROM base AS build
 WORKDIR /build
