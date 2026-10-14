@@ -1,5 +1,6 @@
 import { millVersion } from "./version.js";
 import { Hono } from "hono";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { httpSecurity } from "../../shared/security.js";
@@ -29,11 +30,13 @@ import {
   type Env,
 } from "./http.js";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+const faviconPath = "/brand/mill-favicon.png";
 export const app = new Hono<Env>();
 app.use("*", async (c, next) => {
   const id = requestId(c.req.header("x-request-id"));
   c.set("requestId", id);
   c.header("X-Request-Id", id);
+  c.header("Link", '</favicon.ico>; rel="icon"; type="image/png"');
   await requestContext.run(id, next);
   if (
     c.res.status < 400 ||
@@ -62,6 +65,14 @@ app.use("*", async (c, next) => {
   }
 });
 
+for (const path of [faviconPath, "/favicon.ico"])
+  app.use(path, async (c, next) => {
+    await next();
+    if (["GET", "HEAD"].includes(c.req.method) && c.res.status < 400) {
+      c.header("Cross-Origin-Resource-Policy", "cross-origin");
+      c.header("Cache-Control", "public, max-age=3600");
+    }
+  });
 app.use("*", httpSecurity);
 app.use(
   "/api/*",
@@ -80,6 +91,8 @@ const standardBodyLimit = bodyLimit({
 });
 app.use("*", standardBodyLimit);
 app.onError(handleError);
+app.get(faviconPath, serveStatic({ path: `./apps/web/public${faviconPath}` }));
+app.get("/favicon.ico", (c) => c.redirect(faviconPath, 308));
 app.get("/health/live", (c) => c.json({ status: "ok" }));
 app.get("/health/ready", async (c) => {
   c.header("Cache-Control", "no-store");
