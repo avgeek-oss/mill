@@ -35,7 +35,7 @@ test("task detail preserves maximum Unicode content while comment and activity p
     201,
   );
   await sql`INSERT INTO comments(task_id,author_id,body,created_at) SELECT ${task.id},${user.id},${"討".repeat(10000)},now()+sequence*interval '1 millisecond' FROM generate_series(1,12) sequence`;
-  await sql`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail,created_at) SELECT ${task.id},${board.id},${user.id},'Admin','human','comment.created','{}',now()+sequence*interval '1 millisecond' FROM generate_series(1,10) sequence`;
+  await sql`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,detail,created_at) SELECT ${task.id},${board.id},${user.id},'Admin','human','task.updated','{}',now()+sequence*interval '1 millisecond' FROM generate_series(1,10) sequence`;
   const boundedResponse = await request(
     `/api/tasks/${task.id}?commentLimit=0&activityLimit=0`,
     { cookie },

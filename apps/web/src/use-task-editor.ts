@@ -2,11 +2,13 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { Task } from "../../../packages/contracts/src/index.js";
 import { ApiError, api, errorText, isResponseObject } from "./api.js";
 import { hasTaskResponse } from "./responses.js";
+import { navigationCache } from "./navigation-cache.js";
 
 export type EditableTaskValues = Pick<
   Task,
   | "title"
   | "description"
+  | "acceptanceCriteria"
   | "type"
   | "status"
   | "assigneeId"
@@ -39,7 +41,10 @@ export type TaskEditor = EditorSnapshot & {
     field: K,
     value: EditableTaskValues[K],
   ) => void;
-  textChange: (field: "title" | "description", value: string) => void;
+  textChange: (
+    field: "title" | "description" | "acceptanceCriteria",
+    value: string,
+  ) => void;
   flushField: (field: TaskField) => Promise<boolean>;
   flushAll: () => Promise<boolean>;
   retryField: (field: TaskField) => void;
@@ -57,6 +62,7 @@ type SaveUnit = {
 const editableFields: TaskField[] = [
   "title",
   "description",
+  "acceptanceCriteria",
   "type",
   "status",
   "assigneeId",
@@ -69,6 +75,7 @@ function editable(task: Task): EditableTaskValues {
   return {
     title: task.title,
     description: task.description,
+    acceptanceCriteria: task.acceptanceCriteria ?? "",
     type: task.type,
     status: task.status,
     assigneeId: task.assigneeId,
@@ -97,6 +104,7 @@ function validTask(value: unknown, taskId: string) {
   return (
     task.id === taskId &&
     typeof task.description === "string" &&
+    typeof task.acceptanceCriteria === "string" &&
     (task.assigneeId === null ||
       (typeof task.assigneeId === "string" && task.assigneeId.length > 0)) &&
     (task.dueDate === null || typeof task.dueDate === "string") &&
@@ -109,6 +117,7 @@ function validTask(value: unknown, taskId: string) {
 }
 
 class TaskEditorController {
+  private cacheGeneration = navigationCache.generation;
   private active = false;
   private generation = 0;
   private loadSequence = 0;
@@ -139,7 +148,20 @@ class TaskEditorController {
     hasUnsavedChanges: false,
   };
 
-  constructor(private taskId: string) {}
+  constructor(private taskId: string) {
+    const task = navigationCache.task(taskId);
+    if (task) {
+      this.task = task;
+      this.values = editable(task);
+      this.loading = false;
+      this.snapshot = {
+        ...this.snapshot,
+        task,
+        values: this.values,
+        loading: false,
+      };
+    }
+  }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {
@@ -196,6 +218,7 @@ class TaskEditorController {
     return field;
   }
   private mergeTask(task: Task) {
+    navigationCache.rememberTask(task, this.cacheGeneration);
     const next = editable(task);
     this.task = task;
     const values = this.values ? copyValues(this.values) : next;
@@ -220,6 +243,7 @@ class TaskEditorController {
   }
   reload = async () => {
     if (!this.active) return;
+    this.cacheGeneration = navigationCache.generation;
     const generation = this.generation;
     const sequence = ++this.loadSequence;
     this.loading = true;
@@ -239,8 +263,12 @@ class TaskEditorController {
         if (!this.current(generation) || sequence !== this.loadSequence) return;
         this.loadError = errorText(cause);
         this.loadErrorStatus = cause instanceof ApiError ? cause.status : -1;
-        if (cause instanceof ApiError && [403, 404].includes(cause.status))
+        if (cause instanceof ApiError && [403, 404].includes(cause.status)) {
+          if (cause.status === 403 && this.task)
+            navigationCache.forgetBoard(this.task.boardId);
+          else navigationCache.forgetTask(this.taskId);
           this.accessDenied = true;
+        }
       } finally {
         if (this.current(generation) && sequence === this.loadSequence) {
           this.loading = false;
@@ -307,7 +335,10 @@ class TaskEditorController {
     const edit = this.edit(field, value);
     if (edit) this.enqueue(edit.key, edit.unit);
   };
-  textChange = (field: "title" | "description", value: string) => {
+  textChange = (
+    field: "title" | "description" | "acceptanceCriteria",
+    value: string,
+  ) => {
     const edit = this.edit(field, value);
     if (!edit) return;
     this.cancelTimer(edit.key);
@@ -348,6 +379,11 @@ class TaskEditorController {
       this.values.description.length > 100000
     )
       return "Keep the description to 100,000 characters or fewer.";
+    if (
+      unit.fields.includes("acceptanceCriteria") &&
+      this.values.acceptanceCriteria.length > 100000
+    )
+      return "Keep the acceptance criteria to 100,000 characters or fewer.";
     return "";
   }
   private fail(unit: SaveUnit, cause: unknown, conflict = false) {
@@ -432,6 +468,11 @@ class TaskEditorController {
       } catch (cause) {
         if (!this.current(generation)) return;
         if (!(cause instanceof ApiError) || cause.status !== 409) {
+          if (cause instanceof ApiError && [403, 404].includes(cause.status)) {
+            if (cause.status === 403 && this.task)
+              navigationCache.forgetBoard(this.task.boardId);
+            else navigationCache.forgetTask(this.taskId);
+          }
           const active = this.units.get(key);
           if (active) this.fail(active, cause);
           return;

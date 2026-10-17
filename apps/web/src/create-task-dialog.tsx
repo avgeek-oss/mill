@@ -16,10 +16,11 @@ import { taskTypeOptions } from "./task-type.js";
 import { priorityOptions } from "./task-priority.js";
 import { statusOptions } from "./task-status.js";
 import { useSettingsMutation } from "./use-settings-mutation.js";
+import { navigationCache } from "./navigation-cache.js";
 
 export type DuplicateTaskSource = Pick<
   Task,
-  "title" | "description" | "type" | "priority"
+  "title" | "description" | "acceptanceCriteria" | "type" | "priority"
 >;
 
 export function CreateTaskDialog({
@@ -44,10 +45,11 @@ export function CreateTaskDialog({
   const formId = useId();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
   const [type, setType] = useState<Task["type"]>("task");
   const [priority, setPriority] = useState<Task["priority"]>("none");
-  const [status, setStatus] = useState<Task["status"]>("backlog");
+  const [status, setStatus] = useState<Task["status"]>("todo");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [retryKey] = useState(createRetryKey);
@@ -61,10 +63,11 @@ export function CreateTaskDialog({
     setPending(false);
     setTitle(duplicateSource ? `[Copy] ${duplicateSource.title}` : "");
     setDescription(duplicateSource?.description ?? "");
+    setAcceptanceCriteria(duplicateSource?.acceptanceCriteria ?? "");
     setAssigneeId("");
     setType(duplicateSource?.type ?? "task");
     setPriority(duplicateSource?.priority ?? "none");
-    setStatus("backlog");
+    setStatus(duplicateSource ? "backlog" : "todo");
     setError("");
     retryKey.reset();
     return () => {
@@ -93,6 +96,7 @@ export function CreateTaskDialog({
       return;
     }
     const generation = requestGeneration.current;
+    const cacheGeneration = navigationCache.generation;
     const active = suspension.capture();
     const isCurrent = () =>
       active() && generation === requestGeneration.current;
@@ -100,11 +104,12 @@ export function CreateTaskDialog({
     const payload = {
       title: title.trim(),
       description,
+      acceptanceCriteria,
+      priority,
+      status,
       assigneeId: assigneeId || null,
       type,
-      ...(duplicateSource
-        ? { priority, status, startDate: null, dueDate: null }
-        : {}),
+      ...(duplicateSource ? { startDate: null, dueDate: null } : {}),
     };
     inFlight.current = true;
     setPending(true);
@@ -120,6 +125,7 @@ export function CreateTaskDialog({
         }),
       );
       if (!isCurrent()) return;
+      navigationCache.rememberTask(result.task, cacheGeneration);
       retryKey.reset();
       toast.success("Task created.");
       onClose();
@@ -198,18 +204,18 @@ export function CreateTaskDialog({
           disabled={!writable || pending}
           className="min-w-0 w-full max-md:text-base!"
         />
-        <div
-          className={
-            duplicateSource
-              ? "grid min-w-0 grid-cols-2 gap-4 sm:grid-cols-4"
-              : "content-grid min-w-0 grid-cols-1"
-          }
-        >
-          <div
-            className={
-              duplicateSource ? "col-span-2 sm:col-span-1 min-w-0" : "min-w-0"
-            }
-          >
+        <TextField
+          label="Acceptance criteria"
+          multiline
+          value={acceptanceCriteria}
+          onChange={(event) => setAcceptanceCriteria(event.target.value)}
+          maxLength={100000}
+          rows={6}
+          disabled={!writable || pending}
+          className="min-w-0 w-full max-md:text-base!"
+        />
+        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-4">
+          <div className="min-w-0">
             <ChoiceField
               label="Type"
               value={type}
@@ -222,36 +228,8 @@ export function CreateTaskDialog({
               }))}
             />
           </div>
-          {duplicateSource && (
-            <>
-              <ChoiceField
-                label="Status"
-                value={status}
-                onChange={(value) => setStatus(value as Task["status"])}
-                isDisabled={!writable || pending}
-                options={statusOptions.map((option) => ({
-                  id: option.id,
-                  label: option.name,
-                  icon: option.startContent,
-                }))}
-              />
-              <ChoiceField
-                label="Priority"
-                value={priority}
-                onChange={(value) => setPriority(value as Task["priority"])}
-                isDisabled={!writable || pending}
-                options={priorityOptions.map((option) => ({
-                  id: option.id,
-                  label: option.name,
-                  icon: option.startContent,
-                }))}
-              />
-            </>
-          )}
           <Choice
-            className={
-              duplicateSource ? "min-w-0 col-span-2 sm:col-span-1" : "min-w-0"
-            }
+            className="min-w-0"
             label="Assignee"
             value={assigneeId}
             onChange={setAssigneeId}
@@ -267,12 +245,38 @@ export function CreateTaskDialog({
                     email={member.email}
                     name={member.name}
                     size="sm"
-                    className="size-6"
+                    className="size-6 [&_[data-slot=avatar-fallback]]:text-[10px]"
                   />
                 ),
               })),
             ]}
           />
+          <div className="min-w-0">
+            <ChoiceField
+              label="Priority"
+              value={priority}
+              onChange={(value) => setPriority(value as Task["priority"])}
+              isDisabled={!writable || pending}
+              options={priorityOptions.map((option) => ({
+                id: option.id,
+                label: option.name,
+                icon: option.startContent,
+              }))}
+            />
+          </div>
+          <div className="min-w-0">
+            <ChoiceField
+              label="Status"
+              value={status}
+              onChange={(value) => setStatus(value as Task["status"])}
+              isDisabled={!writable || pending}
+              options={statusOptions.map((option) => ({
+                id: option.id,
+                label: option.name,
+                icon: option.startContent,
+              }))}
+            />
+          </div>
         </div>
         <ErrorMessage>{error}</ErrorMessage>
       </form>

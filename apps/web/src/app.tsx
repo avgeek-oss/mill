@@ -7,6 +7,7 @@ import {
   Component,
   Suspense,
   lazy,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -32,9 +33,12 @@ import {
 } from "@mill/web-design-system";
 import {
   ClipboardListIcon,
+  Settings01Icon,
+  Delete02Icon,
   UserAccountIcon,
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { OverlaySuspensionScope } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import type {
   Board,
@@ -43,7 +47,7 @@ import type {
   Task,
 } from "../../../packages/contracts/src/index.js";
 import {
-  SecondarySection,
+  SecondaryItems,
   SecondarySidebarLayout,
 } from "@avgeek-oss/design-system/navigation/secondary-sidebar";
 import { usePersistentAppSidebar } from "@avgeek-oss/design-system/layouts/app-shell";
@@ -67,6 +71,8 @@ import { hasBoardResponse, hasBoardSummariesResponse } from "./responses.js";
 import { BoardsPage } from "./boards-page.js";
 import { compareBoardNames } from "./board-directory.js";
 import { loadMemberDirectory } from "./member-directory.js";
+import { navigationCache } from "./navigation-cache.js";
+import { loadTaskPage } from "./task-page-loader.js";
 import {
   ApiError,
   api,
@@ -87,9 +93,10 @@ const Auth = lazy(() => import("./auth.js").then((m) => ({ default: m.Auth })));
 const BoardPage = lazy(() =>
   import("./board.js").then((m) => ({ default: m.BoardPage })),
 );
-const TaskPage = lazy(() =>
-  import("./task-page.js").then((m) => ({ default: m.TaskPage })),
+const BoardSettingsPage = lazy(() =>
+  import("./board-settings.js").then((m) => ({ default: m.BoardSettingsPage })),
 );
+const TaskPage = lazy(loadTaskPage);
 const SettingsPage = lazy(() =>
   import("./settings.js").then((m) => ({ default: m.SettingsPage })),
 );
@@ -109,13 +116,15 @@ function usePath() {
       window.location.pathname + window.location.search + window.location.hash;
     let currentIndex = navigationIndex() ?? 0;
     let restoration: { index: number; restored: () => void } | null = null;
+    let approvedPop: { index: number; path: string } | null = null;
     const listener = () => {
+      approvedPop = null;
       currentPath =
         window.location.pathname +
         window.location.search +
         window.location.hash;
       currentIndex = navigationIndex() ?? currentIndex;
-      setPath(currentPath);
+      startTransition(() => setPath(currentPath));
     };
     const pop = () => {
       const targetPath =
@@ -131,20 +140,33 @@ function usePath() {
         }
         return;
       }
+      if (
+        approvedPop?.index === targetIndex &&
+        approvedPop.path === targetPath
+      ) {
+        approvedPop = null;
+        listener();
+        return;
+      }
+      approvedPop = null;
       if (targetIndex !== null && targetIndex !== currentIndex) {
         const delta = targetIndex - currentIndex;
         let restored = false;
         let proceed = false;
+        const continuePop = () => {
+          approvedPop = { index: targetIndex, path: targetPath };
+          window.history.go(delta);
+        };
         const resume = () => {
           proceed = true;
-          if (restored) window.history.go(delta);
+          if (restored) continuePop();
         };
         if (!requestNavigation(targetPath, resume)) {
           restoration = {
             index: currentIndex,
             restored: () => {
               restored = true;
-              if (proceed) window.history.go(delta);
+              if (proceed) continuePop();
             },
           };
           window.history.go(-delta);
@@ -183,6 +205,12 @@ export function App() {
   const path = location.split(/[?#]/)[0];
   const settingsSection = settingsRoute(path);
   const activeBoardId = path.match(/^\/boards\/([^/]+)/)?.[1];
+  const boardSettings: "general" | "delete" | undefined =
+    activeBoardId && path === `/boards/${activeBoardId}/settings`
+      ? "general"
+      : activeBoardId && path === `/boards/${activeBoardId}/settings/delete`
+        ? "delete"
+        : undefined;
   const activeTaskId = path.match(/^\/boards\/[^/]+\/tasks\/([^/]+)\/?$/)?.[1];
   const [session, setSession] = useState<Session | null>(null);
   const [setup, setSetup] = useState(false);
@@ -195,9 +223,6 @@ export function App() {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [boardsPending, setBoardsPending] = useState(false);
   const [boardsError, setBoardsError] = useState("");
-  const [filterContainer, setFilterContainer] = useState<HTMLElement | null>(
-    null,
-  );
   const [routeBoard, setRouteBoard] = useState<Board | null>(null);
   const [routeTask, setRouteTask] = useState<Pick<
     Task,
@@ -229,6 +254,7 @@ export function App() {
   const rememberLoadedBoard = useCallback((board: Board) => {
     const current = latestLoadedBoard.current;
     if (current?.id === board.id && current.version > board.version) return;
+    navigationCache.rememberBoard(board);
     latestLoadedBoard.current = board;
     setRouteBoard(board);
     setBoards((previous) => {
@@ -253,6 +279,7 @@ export function App() {
     try {
       const { status, session: nextSession } = await readStartup(requestSignal);
       if (signal.aborted) return false;
+      navigationCache.clear();
       setEmailDeliveryConfigured(status.emailDeliveryConfigured);
       setSetup(status.setupRequired);
       setSession(nextSession);
@@ -284,6 +311,12 @@ export function App() {
         api<{ unreadCount: number }>("/notifications?limit=1"),
       ]);
       if (request !== lastRefreshRequest.current) return;
+      if (
+        session?.user.id !== me.user.id ||
+        session?.workspace.id !== me.workspace.id ||
+        session?.user.role !== me.user.role
+      )
+        navigationCache.clear();
       setSession(me);
       setMembers(people);
       setNotificationCount(notification.unreadCount);
@@ -374,6 +407,7 @@ export function App() {
     const listener = () => {
       if (suspensionActive.current) return;
       suspensionActive.current = true;
+      navigationCache.clear();
       interruptAccountActions();
       lastBoardsRequest.current++;
       lastRefreshRequest.current++;
@@ -492,6 +526,14 @@ export function App() {
   }
   function acceptSession(next: Session) {
     suspensionActive.current = false;
+    if (
+      !session ||
+      expired ||
+      session.user.id !== next.user.id ||
+      session.workspace.id !== next.workspace.id ||
+      session.user.role !== next.user.role
+    )
+      navigationCache.clear();
     const changedPerson =
       !!session &&
       (session.user.id !== next.user.id ||
@@ -553,6 +595,7 @@ export function App() {
           latestLoadedBoard.current = null;
           suspendedFocus.current = null;
           suspensionActive.current = false;
+          navigationCache.clear();
           setSession(null);
           setExpired(false);
           setBoards([]);
@@ -581,6 +624,7 @@ export function App() {
     if (requestNavigation("/", perform)) perform();
   }
   function discardRevokedSession() {
+    navigationCache.clear();
     interruptAccountActions(true);
     lastBoardsRequest.current++;
     lastRefreshRequest.current++;
@@ -681,16 +725,55 @@ export function App() {
   }
   const admin = session.user.role === "admin";
   const boardsHref = "/boards";
-  const secondarySidebar =
-    activeBoardId && !activeTaskId ? (
-      <SecondarySection className="contents">
-        <div ref={setFilterContainer} className="contents" />
-      </SecondarySection>
-    ) : settingsSection &&
-      knownSettings.includes(settingsSection) &&
-      (isAccountSection(settingsSection) || admin) ? (
-      <SettingsNavigation section={settingsSection} />
-    ) : undefined;
+  const secondarySidebar = activeBoardId ? (
+    <>
+      <SecondaryItems
+        title="Board"
+        selected={boardSettings ?? "tasks"}
+        items={[
+          {
+            id: "tasks",
+            label: "Tasks",
+            href: `/boards/${activeBoardId}${window.location.search}`,
+            icon: <HugeiconsIcon icon={ClipboardListIcon} aria-hidden />,
+          },
+        ]}
+      />
+      {session.user.role !== "viewer" && (
+        <SecondaryItems
+          title="Settings"
+          selected={boardSettings ?? "tasks"}
+          items={[
+            {
+              id: "general",
+              label: "General",
+              href: `/boards/${activeBoardId}/settings${window.location.search}`,
+              icon: <HugeiconsIcon icon={Settings01Icon} aria-hidden />,
+            },
+          ]}
+        />
+      )}
+      {admin && (
+        <SecondaryItems
+          title="Danger zone"
+          selected={boardSettings ?? "tasks"}
+          items={[
+            {
+              id: "delete",
+              label: "Delete board",
+              href: `/boards/${activeBoardId}/settings/delete${window.location.search}`,
+              destructive: true,
+              icon: <HugeiconsIcon icon={Delete02Icon} aria-hidden />,
+            },
+          ]}
+        />
+      )}
+    </>
+  ) : settingsSection &&
+    knownSettings.includes(settingsSection) &&
+    (isAccountSection(settingsSection) || admin) ? (
+    <SettingsNavigation section={settingsSection} />
+  ) : undefined;
   const sidebar = (
     <ApplicationSidebar
       config={{
@@ -774,6 +857,7 @@ export function App() {
     boardsHref,
     boardId: activeBoardId,
     boardName: navbarTitle,
+    boardSettings,
     taskId: activeTaskId,
     taskIdentifier:
       routeTask?.id === activeTaskId ? routeTask?.identifier : undefined,
@@ -876,31 +960,21 @@ export function App() {
                                 onTaskLoaded={setRouteTask}
                                 sessionRevision={sessionRevision}
                               />
-                            ) : activeBoardId ? (
-                              <BoardPage
-                                key={activeBoardId}
+                            ) : activeBoardId && boardSettings ? (
+                              <BoardSettingsPage
+                                key={`${activeBoardId}:${boardSettings}`}
+                                section={boardSettings}
                                 boardId={activeBoardId}
-                                onBoardLoaded={(board) => {
-                                  rememberLoadedBoard(board);
-                                  if (
-                                    recentlyCreatedBoard.current?.id ===
-                                    board.id
-                                  )
-                                    recentlyCreatedBoard.current = {
-                                      ...recentlyCreatedBoard.current,
-                                      ...board,
-                                    };
-                                }}
-                                boards={boards}
-                                filterContainer={filterContainer}
-                                onOpenFilters={() =>
-                                  sidebarState.onSidebarOpenChange(true)
-                                }
                                 user={session.user}
-                                members={members}
+                                boards={boards}
                                 sessionRevision={sessionRevision}
-                                onBoardsChanged={(removedBoardId?: string) => {
+                                onBoardLoaded={rememberLoadedBoard}
+                                onSaved={() => {
+                                  void loadBoards();
+                                }}
+                                onDeleted={(removedBoardId: string) => {
                                   if (removedBoardId) {
+                                    navigationCache.forgetBoard(removedBoardId);
                                     if (
                                       recentlyCreatedBoard.current?.id ===
                                       removedBoardId
@@ -922,6 +996,26 @@ export function App() {
                                   void loadBoards();
                                   void refresh();
                                 }}
+                              />
+                            ) : activeBoardId ? (
+                              <BoardPage
+                                key={activeBoardId}
+                                boardId={activeBoardId}
+                                onBoardLoaded={(board) => {
+                                  rememberLoadedBoard(board);
+                                  if (
+                                    recentlyCreatedBoard.current?.id ===
+                                    board.id
+                                  )
+                                    recentlyCreatedBoard.current = {
+                                      ...recentlyCreatedBoard.current,
+                                      ...board,
+                                    };
+                                }}
+                                boards={boards}
+                                user={session.user}
+                                members={members}
+                                sessionRevision={sessionRevision}
                                 path={location}
                               />
                             ) : settingsSection &&
@@ -943,6 +1037,23 @@ export function App() {
                             ) : overview ? (
                               <BoardsPage
                                 boards={boards}
+                                user={session.user}
+                                layout={
+                                  new URL(
+                                    location,
+                                    window.location.origin,
+                                  ).searchParams.get("layout") === "table"
+                                    ? "table"
+                                    : "grid"
+                                }
+                                onLayoutChange={(layout) => {
+                                  const url = new URL(window.location.href);
+                                  if (layout === "grid")
+                                    url.searchParams.delete("layout");
+                                  else url.searchParams.set("layout", layout);
+                                  const next = `${url.pathname}${url.search}${url.hash}`;
+                                  if (next !== location) navigate(next);
+                                }}
                                 pending={boardsPending}
                                 error={boardsError}
                                 canCreate={session.user.role !== "viewer"}
@@ -1028,6 +1139,13 @@ export function App() {
                               boardCreateKey.reset();
                               recentlyCreatedBoard.current = {
                                 ...result.board,
+                                createdBy: {
+                                  id: session.user.id,
+                                  name: session.user.name,
+                                  email: session.user.email,
+                                  kind: "human",
+                                },
+                                lastActivityAt: new Date().toISOString(),
                                 backlogCount: 0,
                                 activeCount: 0,
                                 inProgressCount: 0,

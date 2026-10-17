@@ -31,7 +31,7 @@ const presentation: Record<
     iconClassName: "text-warning",
     color: "warning",
   },
-  low: { label: "Low", iconClassName: "text-accent", color: "accent" },
+  low: { label: "Low", iconClassName: "priority-low-icon", color: "default" },
   none: {
     label: "No priority",
     iconClassName: "text-muted",
@@ -39,10 +39,11 @@ const presentation: Record<
   },
 };
 
-function PriorityIcon({ priority }: { priority: Priority }) {
+export function PriorityIcon({ priority = "none" }: { priority?: Priority }) {
   return (
     <HugeiconsIcon
       icon={Flag01Icon}
+      fill="currentColor"
       size={16}
       aria-hidden="true"
       className={`shrink-0 ${presentation[priority].iconClassName}`}
@@ -62,6 +63,7 @@ export function PriorityChip({ priority }: { priority: Priority }) {
   return (
     <StatusIndicator
       color={presentation[priority].color}
+      className={priority === "low" ? "priority-low-chip" : undefined}
       size="sm"
       icon={<PriorityIcon priority={priority} />}
       label={presentation[priority].label}

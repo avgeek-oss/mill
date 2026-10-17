@@ -45,7 +45,7 @@ async function member(cookie: string, role: "member" | "viewer") {
   };
 }
 
-test("workspace audit is absent for every role while task history retains human, OAuth and comment actions", async () => {
+test("workspace audit is absent for every role while task history retains human and OAuth task changes without recording comments", async () => {
   const { cookie, user } = await setupUser();
   const writer = await member(cookie, "member");
   const viewer = await member(cookie, "viewer");
@@ -155,23 +155,15 @@ test("workspace audit is absent for every role while task history retains human,
   const history = await json(
     await request(`/api/tasks/${task.id}/activity`, { cookie: viewer.cookie }),
   );
-  assert.equal(history.items.length, 7);
+  assert.equal(history.items.length, 4);
   assert.deepEqual(
     history.items.map((event: { action: string }) => event.action).sort(),
-    [
-      "task.created",
-      "task.updated",
-      "task.updated",
-      "task.moved",
-      "comment.created",
-      "comment.deleted",
-      "comment.created",
-    ].sort(),
+    ["task.created", "task.updated", "task.updated", "task.moved"].sort(),
   );
   const oauthEvents = history.items.filter(
     (event: { actorKind: string }) => event.actorKind === "oauth",
   );
-  assert.equal(oauthEvents.length, 3);
+  assert.equal(oauthEvents.length, 2);
   assert.ok(
     oauthEvents.every(
       (event: { actorId: string; actorName: string }) =>
@@ -193,6 +185,12 @@ test("workspace audit is absent for every role while task history retains human,
       (event: { taskId: string; boardId: string }) =>
         event.taskId === task.id && event.boardId === board.id,
     ),
+  );
+  assert.equal(
+    (
+      await sql`SELECT id FROM activity WHERE task_id=${task.id} AND action LIKE 'comment.%'`
+    ).length,
+    0,
   );
   const before = await sql`SELECT * FROM activity ORDER BY id`;
   await json(
@@ -525,4 +523,102 @@ test("fresh activity rows require an owning task in the same board", async () =>
       { code },
     );
   assert.equal((await sql`SELECT * FROM activity`).length, 1);
+});
+
+test("historical comment events are excluded before activity pagination and previews in REST and MCP", async () => {
+  const { cookie, user } = await setupUser();
+  const { board } = await json(
+    await request("/api/boards", {
+      cookie,
+      body: { name: "Activity filtering", prefix: "ACT" },
+    }),
+    201,
+  );
+  const { task } = await json(
+    await request(`/api/boards/${board.id}/tasks`, {
+      cookie,
+      body: { title: "Keep task history" },
+    }),
+    201,
+  );
+  await json(
+    await request(`/api/tasks/${task.id}`, {
+      cookie,
+      method: "PATCH",
+      body: { version: task.version, status: "in_progress" },
+    }),
+  );
+  const [legacy] =
+    await sql`INSERT INTO activity(task_id,board_id,actor_id,actor_name,actor_kind,action,created_at)
+    SELECT ${task.id},${board.id},${user.id},${user.name},'human',action,now()+interval '1 hour'
+    FROM unnest(ARRAY['comment.created','comment.updated','comment.deleted']) action RETURNING id`;
+  const page = await json(
+    await request(`/api/tasks/${task.id}/activity?limit=1`, { cookie }),
+  );
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0].action, "task.moved");
+  assert.equal(page.hasMore, true);
+  const next = await json(
+    await request(
+      `/api/tasks/${task.id}/activity?limit=1&cursor=${page.nextCursor}`,
+      { cookie },
+    ),
+  );
+  assert.deepEqual(
+    next.items.map((row: { action: string }) => row.action),
+    ["task.created"],
+  );
+  assert.equal(next.hasMore, false);
+  const preview = await json(
+    await request(`/api/tasks/${task.id}?activityLimit=1`, { cookie }),
+  );
+  assert.equal(preview.activity[0].id, page.items[0].id);
+  assert.equal(preview.activityPage.hasMore, true);
+  await json(
+    await request(`/api/tasks/${task.id}/activity?cursor=${legacy.id}`, {
+      cookie,
+    }),
+    400,
+  );
+  const oauth = await setupOAuth(cookie);
+  const mcp = await callMcpTool(oauth.token, "get_activity", {
+    taskId: task.id,
+  });
+  assert.equal(mcp.result?.isError, false);
+  const history = mcp.result!.structuredContent as {
+    items: { action: string }[];
+  };
+  assert.deepEqual(
+    history.items.map((row) => row.action),
+    ["task.moved", "task.created"],
+  );
+  const root = (
+    await json(
+      await request(`/api/tasks/${task.id}/comments`, {
+        cookie,
+        body: { body: "Root comment" },
+      }),
+      201,
+    )
+  ).comment;
+  const reply = (
+    await json(
+      await request(`/api/tasks/${task.id}/comments`, {
+        cookie,
+        body: { body: "Threaded reply", parentId: root.id },
+      }),
+      201,
+    )
+  ).comment;
+  await json(
+    await request(`/api/comments/${reply.id}`, {
+      cookie,
+      method: "DELETE",
+      body: { version: reply.version },
+    }),
+  );
+  assert.equal(
+    (await sql`SELECT id FROM activity WHERE task_id=${task.id}`).length,
+    5,
+  );
 });

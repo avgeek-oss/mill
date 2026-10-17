@@ -52,12 +52,16 @@ Personal credentials require the owner's active membership and current role. Tea
 | `GET /api/boards`        | Optional `directory`, `limit`, `cursor`              | `{items,hasMore,nextCursor}` alphabetically |
 | `POST /api/boards`       | `{name,prefix?,description?}`                        | `201 {board}`                               |
 | `GET /api/boards/:id`    | Board UUID                                           | `{board}`                                   |
-| `PATCH /api/boards/:id`  | `{version,name?,description?}`                       | `{board}`                                   |
+| `PATCH /api/boards/:id`  | `{version,name?,description?,prefix?}`               | `{board}`                                   |
 | `DELETE /api/boards/:id` | `{version}`; Admin session or Administrative API key | `{ok:true}`                                 |
 
-Names are 1–100 characters and descriptions at most 10,000. Custom prefixes match `^[A-Z][A-Z0-9]{1,9}$` and stay fixed after creation. There is no manual board order.
+Names are 1–100 characters and descriptions at most 10,000. Prefixes are trimmed, converted to uppercase and must match `^[A-Z][A-Z0-9]{1,9}$`. Each prefix is unique across all boards; a duplicate returns `409 BOARD_PREFIX_TAKEN`. Changing a prefix atomically updates existing task identifiers, preserving their numeric suffixes and UUID links. Task versions advance so stale edits and list cursors are rejected; the next task number continues from the existing sequence. There is no manual board order.
 
 Board list items include `backlogCount`, `todoCount`, `inProgressCount` and `activeCount` for all tasks in each board. The first three count only their corresponding statuses. The `activeCount` aggregate counts `todo`, `in_progress` and `in_review`, excluding Backlog and terminal states. Cards show Backlog, To Do and In Progress. These counts are independent of task pagination. Individual board, create and update responses keep their existing fields.
+
+Board list items also include `createdBy` and `lastActivityAt`. `createdBy` is `{id,name,email,kind}` for a recorded creator, or `null` for older boards without attribution. Human-owned sessions, personal keys and OAuth record the person; team keys record their key name with `kind:"team"` and null person fields. Names and avatars use the current person when available, retaining the recorded name if the person has been deleted. Existing board creators are not inferred from task history.
+
+`lastActivityAt` is a timestamp that advances on changes to the board's name or description, task creation/edit/deletion, comment creation/edit/deletion, and published attachment changes. Reads, notifications, pending uploads, unchanged values and rolled-back writes do not advance it. Deletion does not erase the timestamp. Existing boards start from their latest surviving board, task, comment, activity or published-attachment timestamp. The Boards table shows relative time and the absolute date/time using the signed-in person's preferences.
 
 Board deletion permanently removes its tasks, comments, notifications, and task activity. Older restricted OAuth grants lose that board and are revoked when no approved boards remain. There is no archive, trash, or restore API.
 
@@ -76,24 +80,30 @@ Every board uses these same values; there are no status resources or custom-stat
 
 ## Tasks
 
-| Method and path              | Request                                  | Response                                             |
-| ---------------------------- | ---------------------------------------- | ---------------------------------------------------- |
-| `GET /api/boards/:id/tasks`  | Search/filter/sort/pagination query      | `{items,total,page,revision,hasMore,nextCursor}`     |
-| `POST /api/boards/:id/tasks` | `{title,...task fields}`                 | `201 {task}`                                         |
-| `GET /api/tasks/:id`         | Optional `commentLimit`, `activityLimit` | `{task,comments,activity,commentsPage,activityPage}` |
-| `PATCH /api/tasks/:id`       | `{version,...changed task fields}`       | `{task}`                                             |
-| `DELETE /api/tasks/:id`      | `{version}`; Member                      | `{ok:true}`                                          |
+| Method and path                    | Request                                  | Response                                             |
+| ---------------------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| `GET /api/boards/:id/tasks`        | Search/filter/sort/pagination query      | `{items,total,page,revision,hasMore,nextCursor}`     |
+| `POST /api/boards/:id/tasks`       | `{title,...task fields}`                 | `201 {task}`                                         |
+| `GET /api/tasks/:id`               | Optional `commentLimit`, `activityLimit` | `{task,comments,activity,commentsPage,activityPage}` |
+| `PATCH /api/boards/:id/tasks/bulk` | `{tasks:[{id,version}],changes}`; Member | `{items}`                                            |
+| `PATCH /api/tasks/:id`             | `{version,...changed task fields}`       | `{task}`                                             |
+| `DELETE /api/tasks/:id`            | `{version}`; Member                      | `{ok:true}`                                          |
 
-| Field         | Accepted value                                      |
-| ------------- | --------------------------------------------------- |
-| `title`       | Nonempty text, at most 300 characters               |
-| `status`      | One fixed value above; creation defaults to `todo`  |
-| `description` | Markdown text, at most 100,000 characters           |
-| `assigneeId`  | Active member UUID or `null`                        |
-| `type`        | `task` (default), `bug`                             |
-| `priority`    | `none`, `low`, `medium`, `high`, `urgent`           |
-| `startDate`   | `YYYY-MM-DD` or `null`; creation defaults to `null` |
-| `dueDate`     | `YYYY-MM-DD` or `null`                              |
+Bulk updates accept 1–100 distinct tasks from the specified board and one or more changes to `status`, `assigneeId`, `priority`, `startDate`, or `dueDate`. Assignments accept an active member UUID or `null` to unassign; changed assignments use the same notification preferences as individual task updates. Dates accept `null` to clear them. Every task must include its current version. The operation is transactional: a stale version returns `409`, an unavailable task returns `404`, and no selected task changes in either case. Normal membership, credential scopes and board restrictions apply. Each updated task receives a new version and attributed activity, and list pagination revisions are invalidated.
+
+| Field                | Accepted value                                                         |
+| -------------------- | ---------------------------------------------------------------------- |
+| `title`              | Nonempty text, at most 300 characters                                  |
+| `status`             | One fixed value above; creation defaults to `todo`                     |
+| `description`        | Markdown text, at most 100,000 characters                              |
+| `acceptanceCriteria` | Markdown text, at most 100,000 characters; defaults to an empty string |
+| `assigneeId`         | Active member UUID or `null`                                           |
+| `type`               | `task` (default), `bug`                                                |
+| `priority`           | `none`, `low`, `medium`, `high`, `urgent`                              |
+| `startDate`          | `YYYY-MM-DD` or `null`; creation defaults to `null`                    |
+| `dueDate`            | `YYYY-MM-DD` or `null`                                                 |
+
+Description and acceptance criteria are independent Markdown fields. Existing tasks receive empty acceptance criteria without changing their descriptions. Both fields support mentions.
 
 PATCH can change status and other fields atomically. It requires the current row version, which increments on mutation. An actual status change records `task.moved` with `{fromStatus,status}`; edited non-status fields record `task.updated`. Existing historical activity details remain intact after migration and may contain earlier field names.
 
@@ -111,11 +121,11 @@ Without a `status` filter, Done and Won't Do tasks remain visible for 24 hours a
 
 | Parameter          | Value                                                                                 |
 | ------------------ | ------------------------------------------------------------------------------------- |
-| `q`                | Title, description, or identifier search; at most 300 characters                      |
+| `q`                | Title, description, acceptance criteria, or identifier search; at most 300 characters |
 | `status`           | One fixed status code                                                                 |
 | `assigneeId`       | Member UUID or `unassigned`                                                           |
 | `priority`         | One priority value                                                                    |
-| `sort`             | `createdAt` (default), `updatedAt`, `title`, `dueDate`, `priority`, `status`          |
+| `sort`             | `priority` (default), `createdAt`, `updatedAt`, `title`, `dueDate`, `status`          |
 | `limit`, `cursor`  | Maximum 100 and a cursor from the same filter/sort context                            |
 | `page`, `revision` | Positive page number and optional returned revision; cannot be combined with `cursor` |
 
@@ -153,14 +163,19 @@ Download URLs also expire after five minutes. The default is an attachment downl
 
 ## Comments, mentions, and activity
 
-| Method and path                | Request              | Response                                   |
-| ------------------------------ | -------------------- | ------------------------------------------ |
-| `GET /api/tasks/:id/comments`  | `limit`, `cursor`    | `{items,hasMore,nextCursor}`; newest first |
-| `POST /api/tasks/:id/comments` | `{body,mentionIds?}` | `201 {comment}`                            |
-| `DELETE /api/comments/:id`     | `{version}`          | `{ok:true}`                                |
-| `GET /api/tasks/:id/activity`  | `limit`, `cursor`    | `{items,hasMore,nextCursor}`; newest first |
+| Method and path                | Request                        | Response                                   |
+| ------------------------------ | ------------------------------ | ------------------------------------------ |
+| `GET /api/tasks/:id/comments`  | `limit`, `cursor`, `parentId?` | `{items,hasMore,nextCursor}`; newest first |
+| `POST /api/tasks/:id/comments` | `{body,mentionIds?,parentId?}` | `201 {comment}`                            |
+| `GET /api/comments/:id`        | Comment UUID                   | `{comment}`                                |
+| `DELETE /api/comments/:id`     | `{version}`                    | `{ok:true}`                                |
+| `GET /api/tasks/:id/activity`  | `limit`, `cursor`              | `{items,hasMore,nextCursor}`; newest first |
+
+Comments include `parentId` (null for a top-level comment) and `replyCount` (direct replies). Pass `parentId=root` when listing top-level comments or a comment UUID for its direct replies. Omit the parameter for the complete flat list. Cursors belong to the requested task and thread. A reply's parent must exist on the same task; replies can themselves receive replies, up to three reply levels beneath a top-level comment (depth 0). Creating a fourth reply level returns `400 COMMENT_DEPTH_LIMIT`. Existing deeper threads remain readable, with their visual indentation capped at three levels. Deleting a comment preserves its replies by moving them to its parent, or to the top level when deleting a root. Promoted replies receive new versions. Task and board deletion still removes their complete discussions.
 
 Comment Markdown is nonempty and at most 10,000 characters. Mentions use `@their-email`, `user:UUID` links, or active UUIDs in `mentionIds`. Assignment/mention notifications respect in-app preferences. Comments cannot be edited after creation. The author or an Admin can delete a comment. An OAuth client can delete its owner's comments within the owner's board access and write scope, but cannot moderate others. Activity retains `actorId`, `actorName`, and `actorKind` (`human`, `oauth`, or `team`) so readers can distinguish a person from a team key.
+
+Activity records task changes and attachment actions. Comment and reply creation/deletion do not create activity records; historical comment events are excluded from activity lists and task-detail previews. Comments still advance board last activity and deliver mention notifications.
 
 New activity records also include `detail.connection` with `type` (`session`, `api-key`, or `oauth`) and the originating `requestId`. This distinguishes browser, REST and MCP changes; team-key actions carry a team actor. It contains no tokens or credential values and survives revocation. Historical records without this metadata remain unattributed to a connection type.
 

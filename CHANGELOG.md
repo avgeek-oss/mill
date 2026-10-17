@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.6 (2026-10-18)
+
+- Add board table views, creator/activity metadata, dedicated settings pages and unique editable prefixes.
+- Group tasks by priority by default and move filters and sorting beside search.
+- Select tickets for transactional bulk status, assignee, priority and date changes, including unassignment.
+- Add independent Markdown acceptance criteria across task creation, editing, duplication, REST and MCP.
+- Support collapsed nested comment replies up to three levels; omit comment activity and simplify the activity table.
+- Cache board/task navigation, confirm before leaving unsent comments and refine table, date, priority and bulk-action controls.
+- Preserve existing data with forward migrations 006–008 and provide an explicit development fixture command.
+- Align API, UI and Compose images at 1.0.6; retain Towbar image changes for the post-publication manifest PR.
+
 ## 1.0.5 (2026-10-13)
 
 - Install shared UI and Mintlify documentation packages from public npm without GitHub package credentials.

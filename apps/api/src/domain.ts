@@ -7,11 +7,15 @@ import type {
   BoardSummary,
   Comment,
 } from "../../../packages/contracts/src/index.js";
-import { TASK_STATUSES } from "../../../packages/contracts/src/index.js";
+import {
+  DEFAULT_TASK_SORT,
+  MAX_COMMENT_REPLY_DEPTH,
+  TASK_STATUSES,
+} from "../../../packages/contracts/src/index.js";
 import {
   actor,
   badRequest,
-  conflict,
+  HttpError,
   requireHuman,
   requireRole,
   type Env,
@@ -56,15 +60,53 @@ const boardCreate = z
     description: z.string().max(10000).default(""),
   })
   .strict();
-const boardPatch = boardCreate.partial().extend({ version }).strict();
+const boardPatch = boardCreate
+  .partial()
+  .extend({ version, description: z.string().max(10000).optional() })
+  .strict();
 const taskCreate = z
   .object(taskFields)
   .partial()
   .extend({ title: taskFields.title })
   .strict();
 const taskPatch = z.object(taskFields).partial().extend({ version }).strict();
+const bulkTaskPatch = z
+  .object({
+    tasks: z
+      .array(
+        z
+          .object({
+            id: uuid.transform((value) => value.toLowerCase()),
+            version,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100)
+      .refine(
+        (tasks) => new Set(tasks.map((task) => task.id)).size === tasks.length,
+        "Select each task only once",
+      ),
+    changes: z
+      .object({
+        status: taskFields.status,
+        assigneeId: taskFields.assigneeId,
+        priority: taskFields.priority,
+        startDate: taskFields.startDate,
+        dueDate: taskFields.dueDate,
+      })
+      .partial()
+      .strict()
+      .refine(
+        (changes) => Object.keys(changes).length > 0,
+        "Choose at least one field to update",
+      ),
+  })
+  .strict();
+const commentSelection = sql`comments.id,comments.task_id,CASE WHEN comments.author_kind='team' THEN NULL ELSE comments.author_id END AS author_id,comments.author_kind,COALESCE(comments.author_name,users.name) AS author_name,comments.body,comments.version,comments.created_at,comments.updated_at,comments.parent_id,(SELECT count(*)::int FROM comments replies WHERE replies.parent_id=comments.id AND replies.task_id=comments.task_id) AS reply_count`;
 const commentCreate = z
   .object({
+    parentId: uuid.optional(),
     body: z.string().trim().min(1).max(10000),
     mentionIds: z.array(uuid).max(50).default([]),
   })
@@ -135,7 +177,7 @@ domainRoutes.get("/boards", async (c) => {
     badRequest("This board cursor does not match the accessible board list");
   const filters = a.boardIds
     ? a.boardIds.length
-      ? sql`id IN ${sql(a.boardIds)}`
+      ? sql`boards.id IN ${sql(a.boardIds)}`
       : sql`false`
     : sql`true`;
   const revisionFields = sql`id::text||':'||name||':'||version::text`;
@@ -155,9 +197,15 @@ domainRoutes.get("/boards", async (c) => {
           "This board cursor does not belong to the accessible board list",
         );
       const rows = await tx<BoardSummary[]>`
-        SELECT boards.*, task_counts.backlog_count, task_counts.active_count,
+        SELECT boards.*,
+          CASE WHEN boards.created_by_kind IS NULL THEN NULL ELSE
+            jsonb_build_object('id',creator.id,'name',COALESCE(creator.name,boards.created_by_name),
+              'email',creator.email,'kind',boards.created_by_kind)
+          END AS created_by,
+          task_counts.backlog_count, task_counts.active_count,
           task_counts.in_progress_count, task_counts.todo_count
         FROM boards
+        LEFT JOIN users creator ON creator.id=boards.created_by_user_id
         CROSS JOIN LATERAL (
           SELECT count(*) FILTER (WHERE status='backlog')::int AS backlog_count,
             count(*) FILTER (WHERE status IN ('todo','in_progress','in_review'))::int AS active_count,
@@ -166,8 +214,8 @@ domainRoutes.get("/boards", async (c) => {
           FROM tasks WHERE tasks.board_id=boards.id
         ) task_counts
         WHERE ${filters}
-          ${cursor ? tx`AND (lower(name),name,id)>(lower(${cursor.name}),${cursor.name},${cursor.id}::uuid)` : tx``}
-        ORDER BY lower(name),name,id LIMIT ${limit + 1}`;
+          ${cursor ? tx`AND (lower(boards.name),boards.name,boards.id)>(lower(${cursor.name}),${cursor.name},${cursor.id}::uuid)` : tx``}
+        ORDER BY lower(boards.name),boards.name,boards.id LIMIT ${limit + 1}`;
       const items = rows.slice(0, limit);
       const hasMore = rows.length > limit;
       const last = items.at(-1);
@@ -220,7 +268,12 @@ domainRoutes.post("/boards", async (c) => {
     if (!/^[A-Z][A-Z0-9]{1,9}$/.test(prefix)) prefix = "TASK";
     if (input.prefix) {
       const [existing] = await tx`SELECT id FROM boards WHERE prefix=${prefix}`;
-      if (existing) conflict("A board already uses this task prefix");
+      if (existing)
+        throw new HttpError(
+          409,
+          "BOARD_PREFIX_TAKEN",
+          "A board already uses this task prefix",
+        );
     } else {
       const base = prefix;
       let suffix = 1;
@@ -228,7 +281,8 @@ domainRoutes.post("/boards", async (c) => {
         prefix = `${base}${++suffix}`;
     }
     const [created] =
-      await tx`INSERT INTO boards (workspace_id,name,prefix,description) VALUES (${workspace.id},${input.name},${prefix},${input.description}) RETURNING *`;
+      await tx`INSERT INTO boards (workspace_id,name,prefix,description,created_by_user_id,created_by_name,created_by_kind)
+        VALUES (${workspace.id},${input.name},${prefix},${input.description},${current.kind === "team" ? null : current.userId},${current.name},${current.kind === "team" ? "team" : "human"}) RETURNING *`;
     return created;
   });
   if (!result)
@@ -250,10 +304,21 @@ domainRoutes.patch("/boards/:id", async (c) => {
     await tx`SELECT id FROM workspace FOR UPDATE`;
     const row = await lockBoard(c, tx, boardId, "member");
     assertVersion(row, input.version);
-    if (input.prefix && input.prefix !== row.prefix)
-      badRequest("Task prefixes stay fixed so task identifiers remain useful");
+    const prefix = input.prefix ?? row.prefix;
+    const prefixChanged = prefix !== row.prefix;
+    if (prefixChanged) {
+      const [existing] =
+        await tx`SELECT id FROM boards WHERE prefix=${prefix} AND id<>${boardId}`;
+      if (existing)
+        throw new HttpError(
+          409,
+          "BOARD_PREFIX_TAKEN",
+          "A board already uses this task prefix",
+        );
+      await tx`UPDATE tasks SET identifier=${prefix} || substring(identifier FROM ${row.prefix.length + 1}::integer),version=version+1,updated_at=now() WHERE board_id=${boardId}`;
+    }
     const [updated] =
-      await tx`UPDATE boards SET name=${input.name ?? row.name},description=${input.description ?? row.description},version=version+1,updated_at=now() WHERE id=${boardId} RETURNING *`;
+      await tx`UPDATE boards SET name=${input.name ?? row.name},description=${input.description ?? row.description},prefix=${prefix},last_activity_at=CASE WHEN ${prefixChanged} THEN greatest(last_activity_at,statement_timestamp()) ELSE last_activity_at END,version=version+1,updated_at=now() WHERE id=${boardId} RETURNING *`;
 
     return updated;
   });
@@ -318,7 +383,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
     c.req.query("deleted") !== undefined
   )
     badRequest("Archive and deleted filters are no longer supported");
-  const sort = c.req.query("sort") ?? "createdAt";
+  const sort = c.req.query("sort") ?? DEFAULT_TASK_SORT;
   const sorts = {
     title: sql`lower(tasks.title)`,
     dueDate: sql`coalesce(to_char(tasks.due_date,'YYYY-MM-DD'),'9999-12-31')`,
@@ -347,7 +412,7 @@ domainRoutes.get("/boards/:id/tasks", async (c) => {
       : sql`(tasks.status NOT IN ('done','wont_do') OR tasks.status_changed_at >= now() - interval '24 hours')`;
   const filters = sql`tasks.board_id=${boardId}
     AND ${visibleByStatusAge}
-    ${q ? sql`AND (tasks.title ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.description ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.identifier ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"})` : sql``}
+    ${q ? sql`AND (tasks.title ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.description ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.acceptance_criteria ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"} OR tasks.identifier ILIKE ${"%" + q.replace(/[%_\\]/g, "\\$&") + "%"})` : sql``}
     ${status ? sql`AND tasks.status=${status}` : sql``}
     ${assigneeRaw === "unassigned" ? sql`AND tasks.assignee_id IS NULL` : assigneeId ? sql`AND tasks.assignee_id=${assigneeId}` : sql``}
     ${priority ? sql`AND tasks.priority=${priority}` : sql``}`;
@@ -426,7 +491,7 @@ domainRoutes.post("/boards/:id/tasks", async (c) => {
     const a = requireRole(c, "member", boardId);
     const [created] = await tx<
       TaskRow[]
-    >`INSERT INTO tasks (board_id,type,status,identifier,title,description,assignee_id,priority,start_date,due_date,created_by) VALUES (${boardId},${input.type ?? "task"},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.assigneeId ?? null},${input.priority ?? "none"},${input.startDate ?? null},${input.dueDate ?? null},${a.userId}) RETURNING *`;
+    >`INSERT INTO tasks (board_id,type,status,identifier,title,description,acceptance_criteria,assignee_id,priority,start_date,due_date,created_by) VALUES (${boardId},${input.type ?? "task"},${input.status ?? "todo"},${row.prefix + "-" + row.nextNumber},${input.title},${input.description ?? ""},${input.acceptanceCriteria ?? ""},${input.assigneeId ?? null},${input.priority ?? "none"},${input.startDate ?? null},${input.dueDate ?? null},${a.userId}) RETURNING *`;
     await tx`UPDATE boards SET next_number=next_number+1 WHERE id=${boardId}`;
     await recordActivity(
       tx,
@@ -442,7 +507,12 @@ domainRoutes.post("/boards/:id/tasks", async (c) => {
     );
     if (created.assigneeId)
       await notify(tx, a, created.id, created.assigneeId, "assignment");
-    await mentionNotifications(tx, a, created.id, created.description);
+    await mentionNotifications(
+      tx,
+      a,
+      created.id,
+      `${created.description}\n${created.acceptanceCriteria}`,
+    );
     return created;
   });
   return c.json({ task: result }, 201);
@@ -456,13 +526,13 @@ domainRoutes.get("/tasks/:id", async (c) => {
   const comments = previewPage(
     await sql<
       Comment[]
-    >`SELECT comments.id,comments.task_id,CASE WHEN comments.author_kind='team' THEN NULL ELSE comments.author_id END AS author_id,comments.author_kind,COALESCE(comments.author_name,users.name) AS author_name,comments.body,comments.version,comments.created_at,comments.updated_at FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ORDER BY comments.created_at DESC,comments.id DESC LIMIT ${commentLimit + 1}`,
+    >`SELECT ${commentSelection} FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ORDER BY comments.created_at DESC,comments.id DESC LIMIT ${commentLimit + 1}`,
     commentLimit,
   );
   const activity = previewPage(
     await sql<
       Activity[]
-    >`SELECT * FROM activity WHERE task_id=${row.id} ORDER BY created_at DESC,id DESC LIMIT ${activityLimit + 1}`,
+    >`SELECT * FROM activity WHERE task_id=${row.id} AND action NOT LIKE 'comment.%' ORDER BY created_at DESC,id DESC LIMIT ${activityLimit + 1}`,
     activityLimit,
   );
   return c.json({
@@ -473,6 +543,59 @@ domainRoutes.get("/tasks/:id", async (c) => {
     activityPage: activity.page,
   });
 });
+domainRoutes.patch("/boards/:id/tasks/bulk", async (c) => {
+  const boardId = id(c.req.param("id"));
+  const input = await body(c, bulkTaskPatch);
+  const items = await sql.begin(async (tx) => {
+    await lockBoard(c, tx, boardId);
+    const a = requireRole(c, "member", boardId);
+    const ids = input.tasks.map((task) => task.id);
+    const rows = await tx<
+      TaskRow[]
+    >`SELECT tasks.* FROM tasks WHERE board_id=${boardId} AND id IN ${tx(ids)} ORDER BY id FOR UPDATE`;
+    if (rows.length !== ids.length)
+      missing("One or more selected tasks are no longer on this board");
+    const expected = new Map(
+      input.tasks.map((task) => [task.id, task.version]),
+    );
+    for (const row of rows) assertVersion(row, expected.get(row.id)!);
+    const changes = input.changes;
+    await validateAssignee(tx, changes.assigneeId);
+    const updated = await tx<
+      TaskRow[]
+    >`UPDATE tasks SET status=${changes.status ?? tx`status`},assignee_id=${changes.assigneeId === undefined ? tx`assignee_id` : changes.assigneeId},priority=${changes.priority ?? tx`priority`},start_date=${changes.startDate === undefined ? tx`start_date` : changes.startDate},due_date=${changes.dueDate === undefined ? tx`due_date` : changes.dueDate},version=version+1,updated_at=now() WHERE board_id=${boardId} AND id IN ${tx(ids)} RETURNING tasks.*`;
+    const previous = new Map(rows.map((task) => [task.id, task]));
+    const fields = Object.keys(changes).filter((field) => field !== "status");
+    for (const item of updated) {
+      if (fields.length)
+        await recordActivity(
+          tx,
+          a,
+          "task.updated",
+          { fields },
+          boardId,
+          item.id,
+        );
+      const fromStatus = previous.get(item.id)!.status;
+      if (
+        item.assigneeId &&
+        item.assigneeId !== previous.get(item.id)!.assigneeId
+      )
+        await notify(tx, a, item.id, item.assigneeId, "assignment");
+      if (item.status !== fromStatus)
+        await recordActivity(
+          tx,
+          a,
+          "task.moved",
+          { fromStatus, status: item.status },
+          boardId,
+          item.id,
+        );
+    }
+    return updated;
+  });
+  return c.json({ items });
+});
 domainRoutes.patch("/tasks/:id", async (c) => {
   const taskId = id(c.req.param("id"));
   const input = await body(c, taskPatch);
@@ -480,7 +603,7 @@ domainRoutes.patch("/tasks/:id", async (c) => {
     const row = await lockedTask(c, tx, taskId, input.version);
     const a = requireRole(c, "member", row.boardId);
     await validateAssignee(tx, input.assigneeId);
-    await tx`UPDATE tasks SET type=${input.type ?? row.type},status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},priority=${input.priority ?? row.priority},start_date=${input.startDate === undefined ? row.startDate : input.startDate},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},version=version+1,updated_at=now() WHERE id=${taskId}`;
+    await tx`UPDATE tasks SET type=${input.type ?? row.type},status=${input.status ?? row.status},title=${input.title ?? row.title},description=${input.description ?? row.description},acceptance_criteria=${input.acceptanceCriteria ?? row.acceptanceCriteria},assignee_id=${input.assigneeId === undefined ? row.assigneeId : input.assigneeId},priority=${input.priority ?? row.priority},start_date=${input.startDate === undefined ? row.startDate : input.startDate},due_date=${input.dueDate === undefined ? row.dueDate : input.dueDate},version=version+1,updated_at=now() WHERE id=${taskId}`;
     const [updated] = await tx<
       TaskRow[]
     >`SELECT tasks.* FROM tasks WHERE tasks.id=${taskId}`;
@@ -507,14 +630,17 @@ domainRoutes.patch("/tasks/:id", async (c) => {
       );
     if (updated.assigneeId && updated.assigneeId !== row.assigneeId)
       await notify(tx, a, taskId, updated.assigneeId, "assignment");
-    if (input.description !== undefined)
+    if (
+      input.description !== undefined ||
+      input.acceptanceCriteria !== undefined
+    )
       await mentionNotifications(
         tx,
         a,
         taskId,
-        updated.description,
+        `${updated.description}\n${updated.acceptanceCriteria}`,
         [],
-        row.description,
+        `${row.description}\n${row.acceptanceCriteria}`,
       );
     return updated;
   });
@@ -533,14 +659,28 @@ domainRoutes.delete("/tasks/:id", async (c) => {
 domainRoutes.get("/tasks/:id/comments", async (c) => {
   const row = await task(c, id(c.req.param("id")));
   const limit = pagination(c);
+  const parentRaw = c.req.query("parentId");
+  const parentId =
+    parentRaw !== undefined && parentRaw !== "root" ? id(parentRaw) : null;
+  if (parentId) {
+    const [parent] =
+      await sql`SELECT id FROM comments WHERE id=${parentId} AND task_id=${row.id}`;
+    if (!parent) missing("Parent comment not found on this task");
+  }
+  const parentFilter =
+    parentRaw === undefined
+      ? sql`true`
+      : parentId
+        ? sql`comments.parent_id=${parentId}`
+        : sql`comments.parent_id IS NULL`;
   const cursor = c.req.query("cursor") ? id(c.req.query("cursor")) : null;
   const [anchor] = cursor
-    ? await sql`SELECT id,created_at FROM comments WHERE id=${cursor} AND task_id=${row.id}`
+    ? await sql`SELECT id,created_at FROM comments WHERE id=${cursor} AND task_id=${row.id} AND ${parentFilter}`
     : [];
   if (cursor && !anchor)
     badRequest("This comment cursor does not belong to the task");
   const rows =
-    await sql`SELECT comments.id,comments.task_id,CASE WHEN comments.author_kind='team' THEN NULL ELSE comments.author_id END AS author_id,comments.author_kind,COALESCE(comments.author_name,users.name) AS author_name,comments.body,comments.version,comments.created_at,comments.updated_at FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} ${anchor ? sql`AND (comments.created_at,comments.id)<(SELECT created_at,id FROM comments WHERE id=${anchor.id})` : sql``} ORDER BY comments.created_at DESC,comments.id DESC LIMIT ${limit + 1}`;
+    await sql`SELECT ${commentSelection} FROM comments JOIN users ON users.id=comments.author_id WHERE task_id=${row.id} AND ${parentFilter} ${anchor ? sql`AND (comments.created_at,comments.id)<(SELECT created_at,id FROM comments WHERE id=${anchor.id})` : sql``} ORDER BY comments.created_at DESC,comments.id DESC LIMIT ${limit + 1}`;
   const items = rows.slice(0, limit);
   return c.json({
     items,
@@ -559,24 +699,46 @@ domainRoutes.post("/tasks/:id/comments", async (c) => {
     >`SELECT tasks.* FROM tasks WHERE tasks.id=${taskId}`;
     if (!fresh) missing("Task not found");
     const a = requireRole(c, "member", row.boardId);
+    if (input.parentId) {
+      const [parent] =
+        await tx`SELECT id FROM comments WHERE id=${input.parentId} AND task_id=${taskId} FOR KEY SHARE`;
+      if (!parent) missing("Parent comment not found on this task");
+      const [ancestry] = await tx`WITH RECURSIVE ancestors AS (
+        SELECT id,parent_id,0 AS depth FROM comments WHERE id=${input.parentId} AND task_id=${taskId}
+        UNION ALL
+        SELECT parent.id,parent.parent_id,ancestors.depth+1 FROM comments parent
+          JOIN ancestors ON parent.id=ancestors.parent_id
+          WHERE parent.task_id=${taskId} AND ancestors.depth<${MAX_COMMENT_REPLY_DEPTH}::integer
+      ) SELECT max(depth)::int AS depth FROM ancestors`;
+      if (ancestry.depth >= MAX_COMMENT_REPLY_DEPTH)
+        throw new HttpError(
+          400,
+          "COMMENT_DEPTH_LIMIT",
+          "Replies can be nested up to three levels.",
+        );
+    }
     const [created] =
-      await tx`INSERT INTO comments (task_id,author_id,author_kind,author_name,body) VALUES (${taskId},${a.userId},${a.kind},${a.kind === "team" ? a.name : null},${input.body}) RETURNING *`;
+      await tx`INSERT INTO comments (task_id,parent_id,author_id,author_kind,author_name,body) VALUES (${taskId},${input.parentId ?? null},${a.userId},${a.kind},${a.kind === "team" ? a.name : null},${input.body}) RETURNING *`;
     await mentionNotifications(tx, a, taskId, input.body, input.mentionIds);
-    await recordActivity(
-      tx,
-      a,
-      "comment.created",
-      { commentId: created.id },
-      row.boardId,
-      taskId,
-    );
     return {
       ...created,
+      replyCount: 0,
       authorId: a.kind === "team" ? null : a.userId,
       authorName: a.name,
     };
   });
   return c.json({ comment: result }, 201);
+});
+domainRoutes.get("/comments/:id", async (c) => {
+  const commentId = id(c.req.param("id"));
+  const [original] =
+    await sql`SELECT task_id FROM comments WHERE id=${commentId}`;
+  if (!original) missing("Comment not found");
+  await task(c, original.taskId);
+  const [comment] =
+    await sql`SELECT ${commentSelection} FROM comments JOIN users ON users.id=comments.author_id WHERE comments.id=${commentId}`;
+  if (!comment) missing("Comment not found");
+  return c.json({ comment });
 });
 async function deleteComment(c: Parameters<typeof actor>[0]) {
   requireRole(c, "member");
@@ -608,15 +770,8 @@ async function deleteComment(c: Parameters<typeof actor>[0]) {
     >`SELECT * FROM comments WHERE id=${commentId} FOR UPDATE`;
     if (!current) missing("Comment not found");
     assertVersion(current, input.version);
+    await tx`UPDATE comments SET parent_id=${current.parentId},version=version+1,updated_at=now() WHERE parent_id=${commentId} AND task_id=${row.id}`;
     await tx`DELETE FROM comments WHERE id=${commentId}`;
-    await recordActivity(
-      tx,
-      a,
-      "comment.deleted",
-      { commentId },
-      row.boardId,
-      row.id,
-    );
     return { ok: true };
   });
 }
@@ -634,12 +789,12 @@ domainRoutes.get("/tasks/:id/activity", async (c) => {
   const limit = pagination(c);
   const cursor = c.req.query("cursor") ? id(c.req.query("cursor")) : null;
   const [anchor] = cursor
-    ? await sql`SELECT id,created_at FROM activity WHERE id=${cursor} AND task_id=${row.id}`
+    ? await sql`SELECT id,created_at FROM activity WHERE id=${cursor} AND task_id=${row.id} AND action NOT LIKE 'comment.%'`
     : [];
   if (cursor && !anchor)
     badRequest("This activity cursor does not belong to the task");
   const rows =
-    await sql`SELECT * FROM activity WHERE task_id=${row.id} ${anchor ? sql`AND (created_at,id)<(SELECT created_at,id FROM activity WHERE id=${anchor.id})` : sql``} ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`;
+    await sql`SELECT * FROM activity WHERE task_id=${row.id} AND action NOT LIKE 'comment.%' ${anchor ? sql`AND (created_at,id)<(SELECT created_at,id FROM activity WHERE id=${anchor.id})` : sql``} ORDER BY created_at DESC,id DESC LIMIT ${limit + 1}`;
   const items = rows.slice(0, limit);
   return c.json({
     items,

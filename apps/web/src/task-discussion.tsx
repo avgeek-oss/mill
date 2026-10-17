@@ -1,5 +1,7 @@
 import { QueryFeedback } from "./query-feedback.js";
 import {
+  createContext,
+  useContext,
   useCallback,
   useEffect,
   useEffectEvent,
@@ -8,9 +10,13 @@ import {
   useRef,
   useState,
 } from "react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ArrowRight02Icon, Delete02Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowRight02Icon,
+  Delete02Icon,
+  ReplyIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Button,
@@ -22,7 +28,6 @@ import {
 } from "@avgeek-oss/design-system";
 import { ErrorMessage, useAppSuspended } from "@mill/web-design-system";
 import { UserAvatar } from "@avgeek-oss/design-system/patterns/user-avatar";
-import { Chip } from "@avgeek-oss/design-system/data-display/chip";
 import { Modal } from "@avgeek-oss/design-system/overlays/modal";
 import { Tabs } from "@avgeek-oss/design-system/navigation/tabs";
 import { Textarea } from "@avgeek-oss/design-system/forms/textarea";
@@ -49,6 +54,8 @@ import { RelativeDateTime } from "./relative-date-time.js";
 import { formatDate, formatDateTime } from "./date-time-preferences.js";
 import { hasCommentResponse, hasOkResponse } from "./responses.js";
 import { useSettingsMutation } from "./use-settings-mutation.js";
+
+import { MAX_COMMENT_REPLY_DEPTH } from "../../../packages/contracts/src/index.js";
 
 type DiscussionKind = "comments" | "activity";
 type DiscussionItem = Comment | Activity;
@@ -116,13 +123,6 @@ function CommentDate({ value, user }: { value: string; user: User }) {
   );
 }
 
-function activityEntity(action: string) {
-  if (action.startsWith("comment.")) return "Comment";
-  if (action.startsWith("attachment.")) return "Attachment";
-  if (action.startsWith("task.")) return "Task";
-  return "Change";
-}
-
 function mentionAtCaret(
   value: string,
   caret: number,
@@ -178,6 +178,9 @@ function hasDiscussionPage(value: unknown, kind: DiscussionKind) {
 function useDiscussionPages<T extends DiscussionItem>(
   taskId: string,
   kind: DiscussionKind,
+  parentId?: string,
+  enabled = true,
+  refreshKey?: string,
 ) {
   const overlay = useOverlaySuspension();
   const capture = useRef(overlay.capture);
@@ -232,6 +235,7 @@ function useDiscussionPages<T extends DiscussionItem>(
         let page: Page<T>;
         do {
           const params = new URLSearchParams({ limit: "100" });
+          if (parentId) params.set("parentId", parentId);
           if (cursor) params.set("cursor", cursor);
           page = await runQuery((signal) =>
             api<Page<T>>(
@@ -245,7 +249,16 @@ function useDiscussionPages<T extends DiscussionItem>(
             ),
           );
           if (!isCurrent()) return null;
-          if (page.items.some((item) => item.taskId !== taskId))
+          if (
+            page.items.some(
+              (item) =>
+                item.taskId !== taskId ||
+                (kind === "comments" &&
+                  parentId &&
+                  (item as Comment).parentId !==
+                    (parentId === "root" ? null : parentId)),
+            )
+          )
             throw new Error(
               "The server returned discussion for a different task. Try again.",
             );
@@ -291,7 +304,7 @@ function useDiscussionPages<T extends DiscussionItem>(
         if (isCurrent()) update((state) => ({ ...state, busy: false }));
       }
     },
-    [taskId, kind, update, runQuery],
+    [taskId, kind, parentId, update, runQuery],
   );
 
   useLayoutEffect(() => {
@@ -307,8 +320,8 @@ function useDiscussionPages<T extends DiscussionItem>(
   }, [overlay.isSuspended, update]);
 
   useEffect(() => {
-    void load(false);
-  }, [load]);
+    if (enabled) void load(false);
+  }, [load, enabled, refreshKey]);
 
   const refresh = useCallback(() => load(false), [load]);
   const loadMore = useCallback(() => load(true), [load]);
@@ -318,6 +331,176 @@ function useDiscussionPages<T extends DiscussionItem>(
     [update],
   );
   return { ...collection, refresh, loadMore, updateItems };
+}
+
+type CommentThreadsState = {
+  taskId: string;
+  user: User;
+  busy: boolean;
+  writable: boolean;
+  replying: Comment | null;
+  composer: ReactNode;
+  refreshKey: string;
+  canChange: (comment: Comment) => boolean;
+  avatar: (id: string | null, name: string, className: string) => ReactNode;
+  onReply: (comment: Comment, path: string[]) => boolean;
+  onCollapse: (commentId: string) => boolean;
+  onDelete: (comment: Comment) => void;
+};
+const CommentThreads = createContext<CommentThreadsState | null>(null);
+
+function CommentThread({
+  comment,
+  nested = false,
+  ancestors = [],
+}: {
+  comment: Comment;
+  nested?: boolean;
+  ancestors?: string[];
+}) {
+  const context = useContext(CommentThreads);
+  if (!context) throw new Error("Comment threads require a discussion.");
+  const {
+    taskId,
+    user,
+    busy,
+    writable,
+    replying,
+    composer,
+    canChange,
+    avatar,
+    onReply,
+    onCollapse,
+    onDelete,
+    refreshKey,
+  } = context;
+  const [expanded, setExpanded] = useState(false);
+  const repliesId = useId();
+  const replies = useDiscussionPages<Comment>(
+    taskId,
+    "comments",
+    comment.id,
+    expanded,
+    refreshKey,
+  );
+  const name =
+    comment.authorName ||
+    (comment.authorId === user.id ? user.name : "Unknown member");
+  return (
+    <article
+      className="task-comment min-w-0"
+      aria-label={`${nested ? "Reply" : "Comment"} by ${name}`}
+    >
+      <div className="task-comment-row flex min-w-0 items-start gap-3">
+        {!nested && avatar(comment.authorId, name, "mt-0.5 shrink-0")}
+        <div className="grid min-w-0 flex-1 gap-0.5">
+          <div
+            className={`task-comment-header flex min-h-7 min-w-0 items-center gap-2${nested && ancestors.length <= MAX_COMMENT_REPLY_DEPTH ? " comment-reply-header" : ""}`}
+          >
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+              <TypographyText className="min-w-0 truncate text-sm/5 font-medium">
+                {name}
+              </TypographyText>
+              <CommentDate value={comment.createdAt} user={user} />
+            </div>
+            {canChange(comment) && (
+              <Button
+                variant="danger-soft"
+                isIconOnly
+                className="task-comment-delete shrink-0"
+                aria-label={`Delete ${nested ? "reply" : "comment"} by ${name}`}
+                isDisabled={busy}
+                onPress={() => onDelete(comment)}
+              >
+                <HugeiconsIcon aria-hidden icon={Delete02Icon} />
+              </Button>
+            )}
+          </div>
+          <div className="min-w-0 break-words text-sm text-muted">
+            <Markdown>{comment.body}</Markdown>
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4">
+            {writable && ancestors.length < MAX_COMMENT_REPLY_DEPTH && (
+              <Button
+                variant="ghost"
+                className="comment-thread-link"
+                isDisabled={busy}
+                onPress={() => {
+                  if (onReply(comment, [...ancestors, comment.id]))
+                    setExpanded(true);
+                }}
+              >
+                <HugeiconsIcon aria-hidden icon={ReplyIcon} size={16} />
+                Reply
+              </Button>
+            )}
+            {comment.replyCount > 0 && (
+              <Button
+                variant="ghost"
+                className="comment-thread-link"
+                aria-expanded={expanded}
+                aria-controls={repliesId}
+                onPress={() => {
+                  if (!expanded || onCollapse(comment.id))
+                    setExpanded((value) => !value);
+                }}
+              >
+                {expanded ? "Hide replies" : "Show replies"} (
+                {comment.replyCount})
+              </Button>
+            )}
+          </div>
+          {replying?.id === comment.id && (
+            <div className="pt-2">{composer}</div>
+          )}
+        </div>
+      </div>
+      <div id={repliesId} hidden={!expanded}>
+        {expanded && (
+          <>
+            {replies.error && (
+              <QueryFeedback
+                message={`Unable to load replies. ${replies.error}`}
+                onRetry={
+                  replies.busy ? undefined : () => void replies.refresh()
+                }
+              />
+            )}
+            {replies.busy && !replies.ready && (
+              <QueryLoading className="sr-only">Loading replies…</QueryLoading>
+            )}
+            <ul
+              className={`comment-replies${nested ? " comment-replies-nested" : ""}`}
+              aria-label={`Replies to ${name}`}
+            >
+              {replies.items.map((reply) => (
+                <li
+                  key={reply.id}
+                  className={`comment-reply${ancestors.length >= MAX_COMMENT_REPLY_DEPTH ? " comment-reply-flat" : ""}`}
+                >
+                  <CommentThread
+                    comment={reply}
+                    nested
+                    ancestors={[...ancestors, comment.id]}
+                  />
+                </li>
+              ))}
+            </ul>
+            {replies.hasMore && (
+              <Button
+                variant="ghost"
+                className="comment-thread-link"
+                isDisabled={busy || replies.busy}
+                onPress={() => void replies.loadMore()}
+              >
+                Load more replies
+              </Button>
+            )}
+          </>
+        )}
+      </div>
+    </article>
+  );
 }
 
 export function TaskDiscussion(props: TaskDiscussionProps) {
@@ -340,22 +523,27 @@ function TaskDiscussionContent({
   const appSuspended = useAppSuspended();
   const overlay = useOverlaySuspension();
   const runMutation = useSettingsMutation(`${taskId}:${user.id}`);
-  const comments = useDiscussionPages<Comment>(taskId, "comments");
+  const comments = useDiscussionPages<Comment>(taskId, "comments", "root");
   const activity = useDiscussionPages<Activity>(taskId, "activity");
   const [tab, setTab] = useState("comments");
   const [draft, setDraft] = useState("");
+  const [replying, setReplying] = useState<Comment | null>(null);
+  const [replyPath, setReplyPath] = useState<string[]>([]);
+  const [threadRevision, setThreadRevision] = useState(0);
   const [deleting, setDeleting] = useState<Comment | null>(null);
   const [busy, setBusy] = useState(false);
   const [commentError, setCommentError] = useState("");
   const [deleteError, setDeleteError] = useState("");
   const [deleteConflict, setDeleteConflict] = useState(false);
-  const [navigationNotice, setNavigationNotice] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+  const navigationDecision = useRef<((leave: boolean) => void) | null>(null);
   const [mention, setMention] = useState<MentionMatch | null>(null);
   const [activeMention, setActiveMention] = useState(0);
   const mentionListId = useId();
   const [createKey] = useState(createRetryKey);
   const [deleteKey] = useState(createRetryKey);
   const commentInput = useRef<HTMLTextAreaElement>(null);
+  const returnToCommentInput = useRef(false);
   const pendingMentionCaret = useRef<number | null>(null);
   const mentionContainer = useRef<HTMLDivElement>(null);
   const mentionPopup = useRef<HTMLDivElement>(null);
@@ -432,6 +620,11 @@ function TaskDiscussionContent({
     input?.setSelectionRange(caret, caret);
   }, [draft]);
 
+  useLayoutEffect(() => {
+    if (replying || returnToCommentInput.current) commentInput.current?.focus();
+    returnToCommentInput.current = false;
+  }, [replying]);
+
   function humanAvatar(id: string | null, name: string, className: string) {
     const member = members?.find((item) => item.id === id);
     return (
@@ -451,20 +644,26 @@ function TaskDiscussionContent({
       value.includes(item.token),
     );
     setDraft(value);
-    if (!value.trim()) setNavigationNotice(false);
   }
 
   function hasUnsentDraft() {
     return Boolean(currentDraft.current.trim());
   }
 
-  function warnAboutDraft() {
-    setTab("comments");
-    setNavigationNotice(true);
-    toast.danger(
-      "You have an unsent comment. Submit it or clear the draft before leaving this task.",
-    );
-    commentInput.current?.focus();
+  function confirmLeavingDraft() {
+    navigationDecision.current?.(false);
+    setMention(null);
+    setConfirmLeave(true);
+    return new Promise<boolean>((resolve) => {
+      navigationDecision.current = resolve;
+    });
+  }
+
+  function finishNavigationDecision(leave: boolean) {
+    const resolve = navigationDecision.current;
+    navigationDecision.current = null;
+    setConfirmLeave(false);
+    resolve?.(leave);
   }
 
   const beforeNavigate = useEffectEvent((event: Event) => {
@@ -476,14 +675,12 @@ function TaskDiscussionContent({
         outcome.then((saved) => {
           if (!saved || !mounted.current) return false;
           if (!hasUnsentDraft()) return true;
-          warnAboutDraft();
-          return false;
+          return confirmLeavingDraft();
         }),
       );
     } else if (hasUnsentDraft()) {
       event.preventDefault();
-      destination.waitUntil(Promise.resolve(false));
-      warnAboutDraft();
+      destination.waitUntil(confirmLeavingDraft());
     }
   });
 
@@ -529,11 +726,14 @@ function TaskDiscussionContent({
     if (appSuspended || overlay.isSuspended) {
       ++generation.current;
       finishPendingMutation.current?.(false);
+      finishNavigationDecision(false);
     }
     return () => {
       mounted.current = false;
       ++generation.current;
       finishPendingMutation.current?.(false);
+      navigationDecision.current?.(false);
+      navigationDecision.current = null;
     };
   }, [appSuspended, overlay.isSuspended]);
 
@@ -641,6 +841,7 @@ function TaskDiscussionContent({
       mounted.current && captured() && generation.current === requestGeneration;
     const path = `/tasks/${taskId}/comments`;
     const payload = {
+      ...(replying ? { parentId: replying.id } : {}),
       body,
       mentionIds: [...new Set(selectedMentions.current.map((item) => item.id))],
     };
@@ -667,13 +868,18 @@ function TaskDiscussionContent({
         ...result.comment,
         authorName: result.comment.authorName ?? user.name,
       };
-      comments.updateItems((items) => mergeItems(items, [saved]));
+      if (!saved.parentId)
+        comments.updateItems((items) => mergeItems(items, [saved]));
+      setThreadRevision((value) => value + 1);
+      setReplying(null);
+      void comments.refresh();
       changeDraft("");
-      toast.success("Comment added.");
-      void activity.refresh();
+      toast.success(saved.parentId ? "Reply added." : "Comment added.");
       succeeded = true;
     } catch (error) {
       if (isCurrent()) {
+        if (replying && error instanceof ApiError && error.status === 404)
+          setReplying(null);
         setCommentError(errorText(error));
       }
     } finally {
@@ -716,9 +922,10 @@ function TaskDiscussionContent({
         items.filter((item) => item.id !== target.id),
       );
       setDeleting(null);
+      setThreadRevision((value) => value + 1);
+      if (replying?.id === target.id) setReplying(null);
       toast.success("Comment deleted.");
       void comments.refresh();
-      void activity.refresh();
       succeeded = true;
     } catch (error) {
       if (isCurrent()) {
@@ -740,17 +947,17 @@ function TaskDiscussionContent({
     const finishMutation = beginMutation();
     setDeleteError("");
     try {
-      const items = await comments.refresh();
-      if (!isCurrent() || !items) return;
-      const latest = items.find((item) => item.id === target.id);
-      if (!latest) {
-        setDeleteError(
-          "This comment has already been deleted. Close this confirmation to continue.",
-        );
-        return;
-      }
+      const { comment: latest } = await runMutation((signal) =>
+        api<{ comment: Comment }>(`/comments/${target.id}`, undefined, "GET", {
+          signal,
+          validateResponse: hasCommentResponse,
+        }),
+      );
+      if (!isCurrent()) return;
       setDeleting((current) => (current?.id === target.id ? latest : current));
       setDeleteConflict(false);
+    } catch (error) {
+      if (isCurrent()) setDeleteError(errorText(error));
     } finally {
       finishMutation(false);
     }
@@ -854,6 +1061,95 @@ function TaskDiscussionContent({
     );
   }
 
+  const composer = writable ? (
+    <div className="grid min-w-0 gap-2">
+      {replying && (
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+          <span className="text-sm italic text-muted">
+            Replying to {replying.authorName}
+          </span>
+          <Button
+            variant="ghost"
+            className="comment-thread-link"
+            isDisabled={busy}
+            onPress={() => {
+              returnToCommentInput.current = true;
+              setMention(null);
+              setReplying(null);
+            }}
+          >
+            Cancel reply
+          </Button>
+        </div>
+      )}
+
+      <form
+        className="grid min-w-0 gap-3"
+        aria-busy={busy}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submitComment();
+        }}
+      >
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3">
+          <div ref={mentionContainer} className="relative min-w-0">
+            <Textarea
+              ref={commentInput}
+              variant="primary"
+              aria-label={replying ? "Add a reply" : "Add a comment"}
+              placeholder={replying ? "Add a reply…" : "Add a comment…"}
+              className="min-h-20 w-full min-w-0 resize-y"
+              rows={2}
+              value={draft}
+              disabled={busy}
+              maxLength={10000}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={!!mention}
+              aria-controls={mention ? mentionListId : undefined}
+              aria-activedescendant={
+                mention && mentionCandidates[activeMention]
+                  ? `${mentionListId}-${mentionCandidates[activeMention].id}`
+                  : undefined
+              }
+              onChange={(event) => {
+                changeDraft(event.target.value);
+                updateMention(event.target.value, event.target.selectionStart);
+              }}
+              onSelect={(event) =>
+                updateMention(
+                  event.currentTarget.value,
+                  event.currentTarget.selectionStart,
+                )
+              }
+              onKeyDown={handleEditorKeyDown}
+              onCompositionStart={() => setMention(null)}
+              onCompositionEnd={(event) =>
+                updateMention(
+                  event.currentTarget.value,
+                  event.currentTarget.selectionStart,
+                )
+              }
+            />
+            {mentionOptions()}
+          </div>
+          <Button
+            type="submit"
+            variant={canSubmitComment ? "primary" : "secondary"}
+            isIconOnly
+            aria-label={replying ? "Send reply" : "Send comment"}
+            className="shrink-0 self-start rounded-lg"
+            isDisabled={!canSubmitComment}
+            isPending={busy && !deleting}
+          >
+            <HugeiconsIcon aria-hidden icon={ArrowRight02Icon} />
+          </Button>
+        </div>
+        <ErrorMessage>{commentError}</ErrorMessage>
+      </form>
+    </div>
+  ) : null;
+
   return (
     <section
       className="task-page-discussion min-w-0"
@@ -881,91 +1177,7 @@ function TaskDiscussionContent({
           className="grid min-w-0 gap-5 pt-4"
           aria-busy={comments.busy}
         >
-          {writable && (
-            <form
-              className="grid min-w-0 gap-3"
-              aria-busy={busy}
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submitComment();
-              }}
-            >
-              <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
-                <div ref={mentionContainer} className="relative min-w-0">
-                  <Textarea
-                    ref={commentInput}
-                    variant="primary"
-                    aria-label="Add a comment"
-                    placeholder="Add a comment…"
-                    className="min-h-20 w-full min-w-0 resize-y"
-                    rows={2}
-                    value={draft}
-                    disabled={busy}
-                    maxLength={10000}
-                    role="combobox"
-                    aria-autocomplete="list"
-                    aria-expanded={!!mention}
-                    aria-controls={mention ? mentionListId : undefined}
-                    aria-activedescendant={
-                      mention && mentionCandidates[activeMention]
-                        ? `${mentionListId}-${mentionCandidates[activeMention].id}`
-                        : undefined
-                    }
-                    onChange={(event) => {
-                      changeDraft(event.target.value);
-                      updateMention(
-                        event.target.value,
-                        event.target.selectionStart,
-                      );
-                    }}
-                    onSelect={(event) =>
-                      updateMention(
-                        event.currentTarget.value,
-                        event.currentTarget.selectionStart,
-                      )
-                    }
-                    onKeyDown={handleEditorKeyDown}
-                    onCompositionStart={() => setMention(null)}
-                    onCompositionEnd={(event) =>
-                      updateMention(
-                        event.currentTarget.value,
-                        event.currentTarget.selectionStart,
-                      )
-                    }
-                  />
-                  {mentionOptions()}
-                </div>
-                <Button
-                  type="submit"
-                  variant={canSubmitComment ? "primary" : "secondary"}
-                  isIconOnly
-                  aria-label="Send comment"
-                  className="shrink-0 self-start rounded-lg"
-                  isDisabled={!canSubmitComment}
-                  isPending={busy && !deleting}
-                >
-                  <HugeiconsIcon aria-hidden icon={ArrowRight02Icon} />
-                </Button>
-              </div>
-              <ErrorMessage>{commentError}</ErrorMessage>
-            </form>
-          )}
-          {navigationNotice && (
-            <div>
-              <Button
-                variant="secondary"
-                className="w-fit"
-                isDisabled={busy}
-                onPress={() => {
-                  if (mutationPending.current) return;
-                  changeDraft("");
-                  commentInput.current?.focus();
-                }}
-              >
-                Clear draft
-              </Button>
-            </div>
-          )}
+          {!replying && composer}
           {comments.error && (
             <QueryFeedback
               message={`Unable to load comments. ${comments.error}`}
@@ -979,51 +1191,58 @@ function TaskDiscussionContent({
           {comments.busy && !comments.ready && (
             <QueryLoading className="sr-only">Loading comments…</QueryLoading>
           )}
-          <div className="grid min-w-0 gap-6">
-            {comments.items.map((item) => {
-              const name =
-                item.authorName ||
-                (item.authorId === user.id ? user.name : "Unknown member");
-              return (
-                <article
-                  key={item.id}
-                  className="task-comment min-w-0"
-                  aria-label={`Comment by ${name}`}
-                >
-                  <div className="flex min-w-0 items-start gap-3">
-                    {humanAvatar(item.authorId, name, "mt-0.5 shrink-0")}
-                    <div className="grid min-w-0 flex-1 gap-0.5">
-                      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-                        <TypographyText className="min-w-0 truncate text-sm/5 font-medium">
-                          {name}
-                        </TypographyText>
-                        <CommentDate value={item.createdAt} user={user} />
-                        {canChange(item) && (
-                          <Button
-                            variant="danger-soft"
-                            isIconOnly
-                            className="task-comment-delete shrink-0"
-                            aria-label={`Delete comment by ${name}`}
-                            isDisabled={busy || comments.busy}
-                            onPress={() => {
-                              setDeleting(item);
-                              setDeleteError("");
-                              setDeleteConflict(false);
-                            }}
-                          >
-                            <HugeiconsIcon aria-hidden icon={Delete02Icon} />
-                          </Button>
-                        )}
-                      </div>
-                      <div className="min-w-0 break-words text-sm text-muted">
-                        <Markdown>{item.body}</Markdown>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+          <CommentThreads.Provider
+            value={{
+              taskId,
+              user,
+              busy: busy || comments.busy,
+              writable,
+              replying,
+              composer,
+              refreshKey: `${threadRevision}:${sessionRevision}`,
+              canChange,
+              avatar: humanAvatar,
+              onDelete: (item) => {
+                setDeleting(item);
+                setDeleteError("");
+                setDeleteConflict(false);
+              },
+              onCollapse: (commentId) => {
+                if (replying && replyPath.includes(commentId)) {
+                  if (hasUnsentDraft()) {
+                    toast.danger(
+                      "Send or clear your reply before hiding this thread.",
+                    );
+                    commentInput.current?.focus();
+                    return false;
+                  }
+                  setReplying(null);
+                }
+                return true;
+              },
+              onReply: (item, path) => {
+                if (path.length > MAX_COMMENT_REPLY_DEPTH) return false;
+                if (mutationPending.current) return false;
+                if (hasUnsentDraft() && replying?.id !== item.id) {
+                  toast.danger(
+                    "Send or clear your current draft before replying to another comment.",
+                  );
+                  commentInput.current?.focus();
+                  return false;
+                }
+                setReplyPath(path);
+                setReplying(item);
+                setCommentError("");
+                return true;
+              },
+            }}
+          >
+            <div className="grid min-w-0 gap-6">
+              {comments.items.map((item) => (
+                <CommentThread key={item.id} comment={item} />
+              ))}
+            </div>
+          </CommentThreads.Provider>
           {comments.hasMore && (
             <Button
               variant="secondary"
@@ -1052,7 +1271,7 @@ function TaskDiscussionContent({
             <HistoryTable
               label="Task activity"
               items={activity.items}
-              emptyDescription="Task changes and comment actions appear here."
+              emptyDescription="Task changes and attachment actions appear here."
               isLoading={!activity.ready && activity.busy}
               isRefreshing={activity.ready && activity.busy}
               columns={[
@@ -1066,8 +1285,8 @@ function TaskDiscussionContent({
                     ),
                 },
                 {
-                  key: "subject",
-                  header: "Subject",
+                  key: "actor",
+                  header: "Actor",
                   headerClassName: "w-52",
                   cell: (item) => (
                     <div className="flex min-w-0 items-center gap-2">
@@ -1080,21 +1299,6 @@ function TaskDiscussionContent({
                         {item.actorName}
                       </span>
                     </div>
-                  ),
-                },
-                {
-                  key: "entity",
-                  header: "Entity",
-                  headerClassName: "w-28",
-                  cell: (item) => (
-                    <Chip
-                      color={
-                        item.action.startsWith("task.") ? "accent" : "default"
-                      }
-                      size="sm"
-                    >
-                      <Chip.Label>{activityEntity(item.action)}</Chip.Label>
-                    </Chip>
                   ),
                 },
                 {
@@ -1128,6 +1332,44 @@ function TaskDiscussionContent({
         </Tabs.Panel>
       </Tabs>
       <Modal
+        isOpen={confirmLeave && !appSuspended}
+        onOpenChange={(open) => {
+          if (!open) finishNavigationDecision(false);
+        }}
+      >
+        <Modal.Backdrop isDismissable>
+          <Modal.Container size="sm">
+            <Modal.Dialog>
+              <Modal.Header>
+                <Modal.Heading>Unsaved changes</Modal.Heading>
+                <Modal.CloseTrigger />
+              </Modal.Header>
+              <Modal.Body>
+                <TypographyParagraph className="text-sm">
+                  You have an unsent {replying ? "reply" : "comment"}. If you
+                  leave this task, your draft will be lost.
+                </TypographyParagraph>
+              </Modal.Body>
+              <Modal.Footer>
+                <Button
+                  variant="secondary"
+                  autoFocus
+                  onPress={() => finishNavigationDecision(false)}
+                >
+                  Stay
+                </Button>
+                <Button
+                  variant="danger"
+                  onPress={() => finishNavigationDecision(true)}
+                >
+                  Leave without saving
+                </Button>
+              </Modal.Footer>
+            </Modal.Dialog>
+          </Modal.Container>
+        </Modal.Backdrop>
+      </Modal>
+      <Modal
         isOpen={!!deleting && !appSuspended}
         onOpenChange={(open) => {
           if (!open && !appSuspended && !busy && !comments.busy) closeDelete();
@@ -1146,7 +1388,7 @@ function TaskDiscussionContent({
               <Modal.Body>
                 <TypographyParagraph className="text-sm">
                   Permanently delete this comment from the task discussion? This
-                  cannot be undone.
+                  cannot be undone. Replies will be kept and moved up one level.
                 </TypographyParagraph>
                 <ErrorMessage>{deleteError}</ErrorMessage>
                 {deleteConflict && (

@@ -385,6 +385,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           const withoutHuman = await result<TaskResult>(client, "create_task", {
             ...args,
             title: "Unassigned OAuth task",
+            priority: "low",
             type: undefined,
             startDate: undefined,
             assigneeId: null,
@@ -401,7 +402,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           );
           assert.deepEqual(
             assigned.items.map((item) => item.id),
-            [withoutHuman.task.id, task.task.id],
+            [task.task.id, withoutHuman.task.id],
           );
           const detail = await result<TaskResult>(client, "get_task", {
             taskId: task.task.id,
@@ -757,6 +758,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
             });
             boundedIds.push(created.task.id);
           }
+          const expectedBoundedIds = [...boundedIds].sort();
           const oversized = await client.callTool({
             name: "list_tasks",
             arguments: {
@@ -773,7 +775,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
             { boardId: first.board.id, q: "Bounded content", limit: 1 },
           );
           assert.equal(bounded.items.length, 1);
-          assert.equal(bounded.items[0]!.id, boundedIds.at(-1));
+          assert.equal(bounded.items[0]!.id, expectedBoundedIds[0]);
           const firstTaskPage = await result<{
             items: { id: string }[];
             hasMore: boolean;
@@ -794,8 +796,8 @@ test("External credentials and actual MCP task workflows enforce current permiss
             },
           );
           assert.equal(firstTaskPage.hasMore, true);
-          assert.equal(firstTaskPage.items[0]!.id, boundedIds.at(-1));
-          assert.equal(secondTaskPage.items[0]!.id, boundedIds.at(-2));
+          assert.equal(firstTaskPage.items[0]!.id, expectedBoundedIds[0]);
+          assert.equal(secondTaskPage.items[0]!.id, expectedBoundedIds[1]);
           const large = await result<TaskResult>(client, "create_task", {
             boardId: first.board.id,
             title: "Full-size readable task",

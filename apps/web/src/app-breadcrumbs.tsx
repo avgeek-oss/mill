@@ -27,6 +27,7 @@ function breadcrumbItems({
   boardsHref,
   boardId,
   boardName,
+  boardSettings,
   taskId,
   taskIdentifier,
   settingsSection,
@@ -37,6 +38,7 @@ function breadcrumbItems({
   boardsHref: string;
   boardId?: string;
   boardName: string;
+  boardSettings?: "general" | "delete";
   taskId?: string;
   taskIdentifier?: string;
   settingsSection?: string;
@@ -59,7 +61,9 @@ function breadcrumbItems({
             key !== boardId &&
             boards.some((board) => board.id === key)
           )
-            navigate(`/boards/${key}`);
+            navigate(
+              `/boards/${key}${boardSettings === "delete" ? "/settings/delete" : boardSettings === "general" ? "/settings" : ""}`,
+            );
         }}
       >
         <BreadcrumbSelect.Trigger
@@ -128,6 +132,7 @@ function breadcrumbItems({
         contentKey: JSON.stringify({
           boardId,
           taskId,
+          boardSettings,
           boardName,
           search,
           options: options.map(({ id, name }) => ({ id, name })),
@@ -147,6 +152,16 @@ function breadcrumbItems({
         ),
       },
       ...(taskId ? [{ label: taskIdentifier ?? "Task" }] : []),
+      ...(boardSettings
+        ? [
+            {
+              label:
+                boardSettings === "delete"
+                  ? "Delete board"
+                  : "General settings",
+            },
+          ]
+        : []),
     ];
   }
   if (settingsSection && settingsTitles[settingsSection]) {

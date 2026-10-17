@@ -328,14 +328,17 @@ async function prepare(page, entry) {
     );
   }
   if (entry.action === "board-settings") {
-    await page
-      .getByRole("button", { name: "Board actions", exact: true })
-      .click();
-    await page
-      .getByRole("menuitem", { name: "Board settings", exact: true })
-      .click();
+    if (
+      !(await page
+        .getByRole("link", { name: "General", exact: true })
+        .isVisible())
+    )
+      await page
+        .getByRole("button", { name: "Toggle navigation", exact: true })
+        .click();
+    await page.getByRole("link", { name: "General", exact: true }).click();
     await waitForVisible(
-      page.getByRole("dialog", { name: "Board settings", exact: true }),
+      page.getByRole("region", { name: "Board details", exact: true }),
     );
   }
   if (entry.action === "notifications") {
