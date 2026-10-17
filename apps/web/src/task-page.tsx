@@ -12,6 +12,7 @@ import {
   Dialog,
   Dropdown,
   ErrorMessage,
+  QueryLoading,
   PortalProvider,
   SuspendedAppProvider,
   useAppSuspended,
@@ -24,6 +25,7 @@ import { DatePickerField } from "@mill/web-design-system/date-picker-field";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft02Icon,
+  CheckCheckIcon,
   Copy01Icon,
   PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
@@ -52,6 +54,7 @@ import { LinkIcon, MoreHorizontal, Trash2 } from "./icons.js";
 import { Markdown } from "./markdown.js";
 import { priorityOptions } from "./task-priority.js";
 import { statusOptions } from "./task-status.js";
+import { navigationCache } from "./navigation-cache.js";
 import { taskTypeOptions } from "./task-type.js";
 import { TaskDiscussion } from "./task-discussion.js";
 import { TaskAttachmentSection } from "./task-attachments.js";
@@ -279,6 +282,7 @@ export function TaskPage({
       });
       if (!current()) return;
       deleteKey.reset();
+      navigationCache.forgetTask(taskId);
       toast.success("Task deleted.");
       window.history.replaceState(
         { ...window.history.state, millFocusAfterTaskDeletion: true },
@@ -307,6 +311,17 @@ export function TaskPage({
   }
 
   const error = editor.loadError;
+  const backToBoard = (
+    <Button
+      variant="ghost"
+      className="task-back-button"
+      onPress={() => navigate(returnHref)}
+      isDisabled={deleting || leaving}
+    >
+      <HugeiconsIcon aria-hidden icon={ArrowLeft02Icon} size={16} />
+      Back to board
+    </Button>
+  );
   const loadFailure = (
     <ErrorPage
       code={errorPageCode(editor.loadErrorStatus)}
@@ -326,8 +341,15 @@ export function TaskPage({
       onRetry={() => void editor.reload()}
     />
   );
-  if (!editor.loading && (!task || !values)) {
-    return loadFailure;
+  if (!task || !values) {
+    return editor.loading ? (
+      <div className="task-page w-full min-w-0 pt-5" aria-busy>
+        {backToBoard}
+        <QueryLoading className="sr-only">Loading task…</QueryLoading>
+      </div>
+    ) : (
+      loadFailure
+    );
   }
   if (task && task.boardId !== boardId)
     return (
@@ -344,7 +366,7 @@ export function TaskPage({
       name: member.name,
       startContent: (
         <Avatar
-          className="size-6"
+          className="size-6 [&_[data-slot=avatar-fallback]]:text-[10px]"
           size="sm"
           email={member.email}
           name={member.name}
@@ -389,20 +411,8 @@ export function TaskPage({
                   aria-label="Task details"
                   className="content-grid min-w-0 items-start gap-y-2 pt-5 min-[701px]:grid-cols-[minmax(0,1fr)_20rem] min-[701px]:gap-x-8"
                 >
-                  <header className="task-page-header col-span-full grid min-w-0">
-                    <Button
-                      variant="ghost"
-                      className="task-back-button"
-                      onPress={() => navigate(returnHref)}
-                      isDisabled={deleting || leaving}
-                    >
-                      <HugeiconsIcon
-                        aria-hidden
-                        icon={ArrowLeft02Icon}
-                        size={16}
-                      />
-                      Back to board
-                    </Button>
+                  <header className="task-page-header col-span-full grid min-w-0 gap-3">
+                    {backToBoard}
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <section
                         className="min-w-0 flex-1"
@@ -486,6 +496,8 @@ export function TaskPage({
                                     setDuplicateSource({
                                       title: values.title,
                                       description: values.description,
+                                      acceptanceCriteria:
+                                        values.acceptanceCriteria,
                                       type: values.type,
                                       priority: values.priority,
                                     });
@@ -541,6 +553,32 @@ export function TaskPage({
                           ) : (
                             <TypographyParagraph size="sm" color="muted">
                               No description yet.
+                            </TypographyParagraph>
+                          )}
+                        </div>
+                      </section>
+                      <section
+                        className="grid min-w-0 gap-3"
+                        aria-label="Acceptance criteria"
+                      >
+                        <TypographyHeading
+                          elementType="h2"
+                          className="flex items-center gap-2 text-sm font-medium"
+                        >
+                          <HugeiconsIcon
+                            aria-hidden
+                            icon={CheckCheckIcon}
+                            size={16}
+                            className="shrink-0"
+                          />
+                          Acceptance criteria
+                        </TypographyHeading>
+                        <div className="min-w-0 text-sm text-foreground">
+                          {values.acceptanceCriteria ? (
+                            <Markdown>{values.acceptanceCriteria}</Markdown>
+                          ) : (
+                            <TypographyParagraph size="sm" color="muted">
+                              No acceptance criteria yet.
                             </TypographyParagraph>
                           )}
                         </div>
@@ -634,7 +672,7 @@ export function TaskPage({
                       />
                       <FieldFeedback editor={editor} field="priority" />
                     </div>
-                    <div className="grid min-w-0 grid-cols-1 gap-2">
+                    <div className="col-span-full grid min-w-0 grid-cols-1 gap-2 min-[481px]:col-span-1">
                       <DatePickerField
                         label="Start date"
                         value={values.startDate?.slice(0, 10) ?? null}
@@ -645,7 +683,7 @@ export function TaskPage({
                       />
                       <FieldFeedback editor={editor} field="startDate" />
                     </div>
-                    <div className="grid min-w-0 grid-cols-1 gap-2">
+                    <div className="col-span-full grid min-w-0 grid-cols-1 gap-2 min-[481px]:col-span-1">
                       <DatePickerField
                         label="Due date"
                         value={values.dueDate?.slice(0, 10) ?? null}
@@ -709,6 +747,32 @@ export function TaskPage({
                         }
                       />
                       <FieldFeedback editor={editor} field="description" />
+                    </div>
+                    <div className="grid gap-2">
+                      <TextField
+                        label="Acceptance criteria"
+                        multiline
+                        rows={6}
+                        value={values.acceptanceCriteria}
+                        maxLength={100000}
+                        disabled={disabled || closingDetails}
+                        onChange={(event) =>
+                          editor.textChange(
+                            "acceptanceCriteria",
+                            event.target.value,
+                          )
+                        }
+                        onBlur={() =>
+                          void editor.flushField("acceptanceCriteria")
+                        }
+                        aria-invalid={
+                          editor.fields.acceptanceCriteria?.state === "error"
+                        }
+                      />
+                      <FieldFeedback
+                        editor={editor}
+                        field="acceptanceCriteria"
+                      />
                     </div>
                   </div>
                 )}

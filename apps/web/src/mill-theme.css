@@ -9,6 +9,7 @@
     --default-foreground: var(--foreground);
     --field-foreground: var(--foreground);
     --segment-foreground: var(--foreground);
+    --priority-low: oklch(0.48 0.15 255);
   }
 
   .dark,
@@ -20,5 +21,6 @@
     --default-foreground: var(--foreground);
     --field-foreground: var(--foreground);
     --segment-foreground: var(--foreground);
+    --priority-low: oklch(0.78 0.1 255);
   }
 }

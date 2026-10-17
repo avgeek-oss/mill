@@ -2,7 +2,7 @@
 
 Mill is a self-hosted task list for teams, created by Avgeek, Inc. It runs an API image and a UI image connected to PostgreSQL. You own the data; everyday task management needs no LLM key or paid service.
 
-Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, comments, activity, and optional image/PDF attachments. Team members use Admin, Member, or Viewer access.
+Create boards and work in a task list with six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Boards appear alphabetically. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional assignees, priorities, start and due dates, threaded comments, activity, and optional image/PDF attachments. Team members use Admin, Member, or Viewer access.
 
 Personal and team API keys have explicit Read-only, Edit, or Administrative permissions for REST. Personal keys remain bounded by their owner's active membership and current role; administrators issue team keys against the team policy. MCP clients connect only through OAuth with approved read, write, or administrative scopes and the person's current board access.
 
@@ -19,7 +19,7 @@ If you prefer the terminal:
 ```sh
 mkdir mill
 cd mill
-release_tag=v1.0.4 # choose a published release
+release_tag=v1.0.6 # choose a published release
 curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
 curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
 cp .env.example .env
@@ -67,6 +67,16 @@ MILL_WEB_URL=http://localhost:4322 MILL_API_URL=http://localhost:4321 pnpm dev
 ```
 
 Run `pnpm dev:web` in a second terminal for the frontend development server at [localhost:4322](http://localhost:4322). The frontend uses a runtime API origin of `http://localhost:4321`; the API trusts browser requests from `http://localhost:4322`. If `.env` already exists, keep it and skip `init-env`.
+
+After completing setup, preload representative local data with your administrator's email:
+
+```sh
+pnpm fixtures --admin-email you@example.test
+```
+
+This adds Product, Engineering, Website and an empty Ideas board, 44 tasks across all six statuses and five priorities, three sample members, comments, activity and unread mention notifications. Tasks include bugs, assignments, Markdown descriptions, start dates and overdue/upcoming due dates. Dates are relative to the first run. Sample members use non-deliverable `example.test` addresses and random passwords; keep using your own account to sign in.
+
+The command requires loopback database, API and UI hosts and refuses production mode. It runs in one transaction, preserves existing records and skips previously seeded boards on subsequent runs, including any edits you make to their tasks. Run it explicitly for each new local database; ordinary app startup does not insert sample data.
 
 Run `pnpm test:quick` for fast Node checks of frontend helpers, configuration and date formatting. See [contributing](CONTRIBUTING.md) for the complete `pnpm verify` and `pnpm verify:production` gates and manual UI review. CI requires the `verify` and `production` gates.
 

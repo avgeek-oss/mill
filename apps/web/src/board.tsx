@@ -1,5 +1,4 @@
 import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
-import { ActionConfirmation, ResourceTable } from "@avgeek-oss/design-system";
 import {
   Suspense,
   lazy,
@@ -9,16 +8,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal, flushSync } from "react-dom";
+import { flushSync } from "react-dom";
 import {
   Button,
   Avatar,
   Choice,
-  Dialog,
   ErrorMessage,
-  TextField,
   SearchField,
-  Dropdown,
   EmptyState,
   TableCellStack,
   TableCellDescription,
@@ -32,41 +28,47 @@ import {
   useAppSuspended,
   toast,
 } from "@mill/web-design-system";
-import {
-  List,
-  Plus,
-  Settings2,
-  Save,
-  MoreHorizontal,
-  Trash2,
-} from "./icons.js";
+import { List, Plus, Filter, Sort } from "./icons.js";
 import { PageHeading } from "./page-heading.js";
-import { BoardFilters } from "./board-filters.js";
+import { BoardFiltersDialog, BoardSortDialog } from "./board-filters.js";
+import { Tooltip } from "@avgeek-oss/design-system/overlays/tooltip";
 import type {
   Board,
   Member,
   Task,
+  BulkTaskChanges,
 } from "../../../packages/contracts/src/index.js";
+import { DEFAULT_TASK_SORT } from "../../../packages/contracts/src/index.js";
 import {
   ApiError,
   api,
-  createRetryKey,
   errorText,
+  isResponseObject,
   navigate,
+  type NavigationRequest,
   type User,
 } from "./api.js";
 import { boardUrl, parseBoardUrl, type BoardUrlState } from "./board-url.js";
-import { hasOkResponse } from "./responses.js";
+import { formatDate } from "./date-time-preferences.js";
 import { PriorityChip, priorityOptions } from "./task-priority.js";
 import { StatusChip, statusOptions } from "./task-status.js";
 import { TaskTypeIndicator } from "./task-type.js";
+import { navigationCache, type TaskListPage } from "./navigation-cache.js";
+import { preloadTaskPage } from "./task-page-loader.js";
+import { TaskTable } from "./task-table.js";
+import {
+  BulkTaskBar,
+  BulkTaskDialog,
+  type BulkTaskField,
+} from "./bulk-task-actions.js";
+import { hasTaskResponse } from "./responses.js";
 const CreateTaskDialog = lazy(() =>
   import("./create-task-dialog.js").then((m) => ({
     default: m.CreateTaskDialog,
   })),
 );
 import { ErrorPage, errorPageCode } from "./error-page.js";
-type Page = { items: Task[]; total: number; page: number; revision: string };
+type Page = TaskListPage;
 
 function TaskIdentity({ name, email = "" }: { name?: string; email?: string }) {
   return (
@@ -80,7 +82,7 @@ function TaskIdentity({ name, email = "" }: { name?: string; email?: string }) {
         />
       )}
       <TooltipText
-        className={`block min-w-0 flex-1 truncate${name ? "" : " text-muted"}`}
+        className={`block min-w-0 flex-1 truncate${name ? "" : " text-muted opacity-50"}`}
         tooltip={name || "Unassigned"}
       >
         {name || "Unassigned"}
@@ -94,33 +96,34 @@ export function BoardPage({
   boards,
   user,
   members,
-  onBoardsChanged,
   onBoardLoaded,
   path,
   sessionRevision,
-  filterContainer,
-  onOpenFilters,
 }: {
   boardId: string;
   boards: Board[];
   user: User;
   members: Member[];
-  onBoardsChanged: (removedBoardId?: string) => void;
   onBoardLoaded: (board: Board) => void;
   path: string;
   sessionRevision: number;
-  filterContainer?: HTMLElement | null;
-  onOpenFilters?: () => void;
 }) {
   const listState = useMemo(() => parseBoardUrl(path), [path]);
   const q = listState.q;
   const filters = listState;
   const pageSize = listState.limit;
-  const [board, setBoard] = useState<Board | null>(null);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [initialPage] = useState(() =>
+    navigationCache.boardPage(boardId, listState),
+  );
+  const [board, setBoard] = useState<Board | null>(
+    initialPage?.board ?? boards.find((item) => item.id === boardId) ?? null,
+  );
+  const [tasks, setTasks] = useState<Task[]>(initialPage?.tasks.items ?? []);
   const [taskPage, setTaskPage] = useState(listState.page);
   const [displayedPageSize, setDisplayedPageSize] = useState(pageSize);
-  const [taskTotal, setTaskTotal] = useState<number | null>(null);
+  const [taskTotal, setTaskTotal] = useState<number | null>(
+    initialPage?.tasks.total ?? null,
+  );
   const [displayedSort, setDisplayedSort] = useState(filters.sort);
   const [errorStatus, setErrorStatus] = useState(0);
   const [accessDenied, setAccessDenied] = useState(false);
@@ -130,17 +133,6 @@ export function BoardPage({
   const [taskListChanged, setTaskListChanged] = useState(false);
   const [query, setQuery] = useState(q);
   const [creatingTask, setCreatingTask] = useState(false);
-  const [confirmBoard, setConfirmBoard] = useState(false);
-  const [boardDeleteKey] = useState(createRetryKey);
-  const [settings, setSettings] = useState(false);
-  const [settingsDraft, setSettingsDraft] = useState({
-    name: "",
-    description: "",
-  });
-  const [busy, setBusy] = useState(false);
-  const mutationRequest = useRef<AbortController | null>(null);
-  const pendingSettingsOpener = useRef<HTMLElement | null>(null);
-  const [settingsError, setSettingsError] = useState("");
   const latestLoad = useRef(0);
   const requestedPage = useRef(listState.page);
   const pageCollection = useRef<{ query: string; revision?: string }>({
@@ -155,21 +147,55 @@ export function BoardPage({
   const paginationOpener = useRef<HTMLElement | null>(null);
   const retryTasksButton = useRef<HTMLButtonElement | null>(null);
   const newTaskButton = useRef<HTMLButtonElement | null>(null);
-  const boardActionsButton = useRef<HTMLButtonElement | null>(null);
-  const boardDialogWasOpen = useRef(false);
   const boardContent = useRef<HTMLDivElement>(null);
-  const [filterOverlayHost, setFilterOverlayHost] =
-    useState<HTMLDivElement | null>(null);
-  const mobileFilterContainer = filterContainer?.closest(
-    '[data-slot="drawer-content"]',
-  );
+  const [listDialog, setListDialog] = useState<"filters" | "sort" | null>(null);
   const appSuspended = useAppSuspended();
   const writable = !!board && user.role !== "viewer";
-  useLayoutEffect(() => {
-    setBusy(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkField, setBulkField] = useState<BulkTaskField | null>(null);
+  const [bulkPending, setBulkPending] = useState(false);
+  const bulkRequest = useRef(false);
+  const bulkOutcome = useRef<Promise<boolean> | null>(null);
+  const bulkContext = useRef(0);
+  useEffect(() => {
+    const beforeNavigate = (event: Event) => {
+      if (!bulkOutcome.current) return;
+      event.preventDefault();
+      (event as CustomEvent<NavigationRequest>).detail.waitUntil(
+        bulkOutcome.current,
+      );
+    };
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (!bulkOutcome.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("mill:before-navigate", beforeNavigate);
+    window.addEventListener("beforeunload", beforeUnload);
     return () => {
-      mutationRequest.current?.abort();
-      mutationRequest.current = null;
+      window.removeEventListener("mill:before-navigate", beforeNavigate);
+      window.removeEventListener("beforeunload", beforeUnload);
+    };
+  }, []);
+  useLayoutEffect(() => {
+    setSelected(new Set());
+    setBulkField(null);
+    setBulkPending(false);
+    return () => {
+      ++bulkContext.current;
+    };
+  }, [boardId, path, sessionRevision, appSuspended, writable, accessDenied]);
+  useEffect(() => {
+    if (loading) return;
+    const visible = new Set(tasks.map((task) => task.id));
+    setSelected((previous) => {
+      const next = new Set([...previous].filter((id) => visible.has(id)));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [tasks, loading]);
+  useEffect(preloadTaskPage, []);
+  useLayoutEffect(() => {
+    return () => {
       ++latestLoad.current;
     };
   }, [appSuspended, boardId]);
@@ -240,6 +266,7 @@ export function BoardPage({
   }
   async function load(targetPage = 1, refresh = false) {
     const request = ++latestLoad.current;
+    const cacheGeneration = navigationCache.generation;
     requestedPage.current = targetPage;
     setLoading(true);
     setError("");
@@ -249,6 +276,17 @@ export function BoardPage({
       pageCollection.current = { query: queryKey };
     }
     const collection = pageCollection.current;
+    const cached = !refresh
+      ? navigationCache.boardPage(boardId, { ...listState, page: targetPage })
+      : null;
+    if (cached) {
+      setBoard(cached.board);
+      setTasks(cached.tasks.items);
+      setTaskPage(cached.tasks.page);
+      setTaskTotal(cached.tasks.total);
+      setDisplayedPageSize(pageSize);
+      setDisplayedSort(filters.sort);
+    }
     async function readPage() {
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
@@ -270,6 +308,12 @@ export function BoardPage({
         readPage(),
       ]);
       if (!page || request !== latestLoad.current) return;
+      navigationCache.rememberBoardPage(
+        info.board,
+        listState,
+        page,
+        cacheGeneration,
+      );
       setBoard(info.board);
       deniedRef.current = false;
       setAccessDenied(false);
@@ -288,6 +332,7 @@ export function BoardPage({
       if (request === latestLoad.current) {
         const changed = e instanceof ApiError && e.status === 409;
         if (e instanceof ApiError && [403, 404].includes(e.status)) {
+          navigationCache.forgetBoard(boardId);
           if (!deniedRef.current)
             window.dispatchEvent(new Event("mill:route-access-denied"));
           deniedRef.current = true;
@@ -433,8 +478,7 @@ export function BoardPage({
         e.metaKey ||
         e.ctrlKey ||
         e.altKey ||
-        creatingTask ||
-        settings
+        creatingTask
       )
         return;
       if (e.key.toLowerCase() === "n" && writable) {
@@ -448,144 +492,18 @@ export function BoardPage({
     }
     window.addEventListener("keydown", shortcuts);
     return () => window.removeEventListener("keydown", shortcuts);
-  }, [creatingTask, settings, writable]);
-  useLayoutEffect(() => {
-    if (!settings) {
-      pendingSettingsOpener.current = null;
-      return;
-    }
-    if (busy) return;
-    const target = pendingSettingsOpener.current;
-    pendingSettingsOpener.current = null;
-    if (
-      target?.isConnected &&
-      !target.matches(":disabled") &&
-      target.getAttribute("aria-disabled") !== "true" &&
-      (document.activeElement === document.body ||
-        document.activeElement === target)
-    )
-      target.focus({ preventScroll: true });
-  }, [busy, settings]);
-  useLayoutEffect(
-    () => () => {
-      pendingSettingsOpener.current = null;
-    },
-    [],
-  );
-  useEffect(() => {
-    if (settings || confirmBoard) {
-      boardDialogWasOpen.current = true;
-      return;
-    }
-    if (!boardDialogWasOpen.current) return;
-    let frame = 0;
-    const restore = () => {
-      boardDialogWasOpen.current = false;
-      const active = document.activeElement;
-      if (
-        active === document.body ||
-        active === boardActionsButton.current ||
-        active?.closest('[role="menu"]') ||
-        taskList.current?.contains(active)
-      )
-        boardActionsButton.current?.focus({ preventScroll: true });
-    };
-    const afterDialogRemoved = () => {
-      if (document.querySelector('[data-board-dialog], [role="dialog"]'))
-        return;
-      observer.disconnect();
-      frame = requestAnimationFrame(restore);
-    };
-    const observer = new MutationObserver(afterDialogRemoved);
-    observer.observe(document.body, { childList: true, subtree: true });
-    afterDialogRemoved();
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-    };
-  }, [settings, confirmBoard]);
-  async function settingsRun(
-    action: (signal: AbortSignal) => Promise<void>,
-    notice = "Changes saved.",
-  ) {
-    if (busy || appSuspended || mutationRequest.current) return false;
-    const request = new AbortController();
-    mutationRequest.current = request;
-    const current = () =>
-      mutationRequest.current === request && !request.signal.aborted;
-    pendingSettingsOpener.current =
-      settings && document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    setBusy(true);
-    setSettingsError("");
-    try {
-      await action(request.signal);
-      if (!current()) return false;
-      await load(taskPage, true);
-      if (!current()) return false;
-      onBoardsChanged();
-      toast.success(notice);
-      return true;
-    } catch (e) {
-      if (current()) setSettingsError(errorText(e));
-      return false;
-    } finally {
-      if (mutationRequest.current === request) {
-        mutationRequest.current = null;
-        setBusy(false);
-      }
-    }
-  }
-  async function deleteBoard() {
-    if (
-      busy ||
-      appSuspended ||
-      mutationRequest.current ||
-      !board ||
-      user.role !== "admin"
-    )
-      return;
-    const request = new AbortController();
-    mutationRequest.current = request;
-    setBusy(true);
-    setSettingsError("");
-    try {
-      await api(`/boards/${board.id}`, { version: board.version }, "DELETE", {
-        validateResponse: hasOkResponse,
-        signal: request.signal,
-        headers: {
-          "Idempotency-Key": boardDeleteKey.forRequest(
-            `/boards/${board.id}`,
-            { version: board.version },
-            "DELETE",
-          ),
-        },
-      });
-      if (mutationRequest.current !== request || request.signal.aborted) return;
-      boardDeleteKey.reset();
-      ++latestLoad.current;
-      setConfirmBoard(false);
-      setSettings(false);
-      onBoardsChanged(board.id);
-      toast.success("Board deleted.");
-      navigate("/boards");
-    } catch (cause) {
-      if (mutationRequest.current === request && !request.signal.aborted)
-        throw cause;
-    } finally {
-      if (mutationRequest.current === request) {
-        mutationRequest.current = null;
-        setBusy(false);
-      }
-    }
-  }
+  }, [creatingTask, writable]);
   const hasFilters = !!(
     q ||
     filters.assigneeId ||
     filters.priority ||
     filters.status
   );
+  const activeFilterCount = [
+    filters.assigneeId,
+    filters.priority,
+    filters.status,
+  ].filter(Boolean).length;
   function clearFilters() {
     setQuery("");
     changeList({
@@ -594,8 +512,82 @@ export function BoardPage({
       assigneeId: "",
       priority: "",
       status: "",
-      sort: "createdAt",
+      sort: DEFAULT_TASK_SORT,
     });
+  }
+  const selectedTasks = tasks.filter((task) => selected.has(task.id));
+  const selectionDisabled =
+    loading || bulkPending || query !== q || appSuspended || !!error;
+  function applyBulk(changes: BulkTaskChanges) {
+    if (bulkOutcome.current) return;
+    const outcome = updateSelected(changes);
+    bulkOutcome.current = outcome;
+    void outcome.finally(() => {
+      if (bulkOutcome.current === outcome) bulkOutcome.current = null;
+    });
+  }
+  async function updateSelected(changes: BulkTaskChanges): Promise<boolean> {
+    if (
+      !writable ||
+      !selectedTasks.length ||
+      selectionDisabled ||
+      bulkRequest.current
+    )
+      return false;
+    const context = bulkContext.current;
+    const cacheGeneration = navigationCache.generation;
+    const current = () =>
+      context === bulkContext.current &&
+      cacheGeneration === navigationCache.generation;
+    bulkRequest.current = true;
+    setBulkPending(true);
+    navigationCache.forgetBoardPages(boardId);
+    try {
+      const result = await api<{ items: Task[] }>(
+        `/boards/${boardId}/tasks/bulk`,
+        {
+          tasks: selectedTasks.map(({ id, version }) => ({ id, version })),
+          changes,
+        },
+        "PATCH",
+        {
+          validateResponse: (result) =>
+            isResponseObject(result) &&
+            Array.isArray(result.items) &&
+            result.items.length === selectedTasks.length &&
+            result.items.every(
+              (task) => hasTaskResponse({ task }) && selected.has(task.id),
+            ),
+        },
+      );
+      if (cacheGeneration === navigationCache.generation) {
+        navigationCache.forgetBoardPages(boardId);
+        for (const task of result.items)
+          navigationCache.rememberTask(task, cacheGeneration);
+      }
+      if (!current()) return false;
+      const saved = new Map(result.items.map((task) => [task.id, task]));
+      setTasks((items) => items.map((task) => saved.get(task.id) ?? task));
+      setBulkField(null);
+      toast.success(
+        `Updated ${result.items.length} ${result.items.length === 1 ? "task" : "tasks"}.`,
+      );
+      return true;
+    } catch (cause) {
+      if (!current()) return false;
+      toast.danger(
+        cause instanceof ApiError && cause.status === 409
+          ? "One or more selected tasks changed elsewhere. No tasks were updated. Review the latest values and try again."
+          : errorText(cause),
+      );
+      return false;
+    } finally {
+      bulkRequest.current = false;
+      if (current()) {
+        await load(requestedPage.current, true);
+        if (current()) setBulkPending(false);
+      }
+    }
   }
   const groups =
     displayedSort === "priority" || displayedSort === "status"
@@ -665,6 +657,7 @@ export function BoardPage({
       {accessDenied && accessFailure}
       <div
         ref={boardContent}
+        className={selectedTasks.length ? "pb-12" : undefined}
         hidden={accessDenied}
         inert={accessDenied}
         aria-hidden={accessDenied}
@@ -688,60 +681,6 @@ export function BoardPage({
                       New task
                     </Button>
                   )}
-                  {user.role !== "viewer" && (
-                    <Dropdown>
-                      <Button
-                        ref={boardActionsButton}
-                        variant="secondary"
-                        aria-label="Board actions"
-                        isIconOnly
-                        isDisabled={!board || busy}
-                      >
-                        <MoreHorizontal />
-                      </Button>
-                      <Dropdown.Popover
-                        placement="bottom end"
-                        className="min-w-44"
-                      >
-                        <Dropdown.Menu
-                          aria-label="Board actions"
-                          onAction={(key) => {
-                            setSettingsError("");
-                            if (key === "settings" && board) {
-                              setSettingsDraft({
-                                name: board.name,
-                                description: board.description ?? "",
-                              });
-                              setSettings(true);
-                            } else if (
-                              key === "delete" &&
-                              user.role === "admin"
-                            )
-                              setConfirmBoard(true);
-                          }}
-                        >
-                          <Dropdown.Item
-                            id="settings"
-                            textValue="Board settings"
-                          >
-                            <Settings2 />
-                            Board settings
-                          </Dropdown.Item>
-                          {user.role === "admin" && (
-                            <Dropdown.Item
-                              id="delete"
-                              textValue="Delete board"
-                              variant="danger"
-                              className="text-danger-soft-foreground [&_svg]:text-danger-soft-foreground"
-                            >
-                              <Trash2 />
-                              Delete board
-                            </Dropdown.Item>
-                          )}
-                        </Dropdown.Menu>
-                      </Dropdown.Popover>
-                    </Dropdown>
-                  )}
                 </div>
               }
             />
@@ -763,46 +702,77 @@ export function BoardPage({
                   <SearchField.ClearButton aria-label="Clear task search" />
                 </SearchField.Group>
               </SearchField>
-              {onOpenFilters && (
+              <Button
+                className="shrink-0"
+                variant="secondary"
+                aria-haspopup="dialog"
+                onPress={() => setListDialog("filters")}
+              >
+                <Filter aria-hidden />
+                Filters
+                {activeFilterCount > 0 && (
+                  <Chip
+                    size="sm"
+                    variant="soft"
+                    aria-label={`${activeFilterCount} active ${activeFilterCount === 1 ? "filter" : "filters"}`}
+                  >
+                    {activeFilterCount}
+                  </Chip>
+                )}
+              </Button>
+              <Tooltip>
                 <Button
-                  className="shrink-0 lg:hidden"
                   variant="secondary"
-                  onPress={onOpenFilters}
+                  isIconOnly
+                  aria-label="Sort tasks"
+                  aria-haspopup="dialog"
+                  onPress={() => setListDialog("sort")}
                 >
-                  <Settings2 />
-                  Filters
+                  <Sort aria-hidden />
                 </Button>
-              )}
+                <Tooltip.Content>Sort tasks</Tooltip.Content>
+              </Tooltip>
             </div>
-            {mobileFilterContainer &&
-              createPortal(
-                <div
-                  ref={setFilterOverlayHost}
-                  className="contents pointer-events-auto"
-                />,
-                mobileFilterContainer,
-              )}
-            {filterContainer &&
-              !appSuspended &&
-              !accessDenied &&
-              createPortal(
-                <PortalProvider
-                  getContainer={() =>
-                    mobileFilterContainer
-                      ? filterOverlayHost
-                      : boardContent.current
-                  }
-                >
-                  <BoardFilters
-                    filters={filters}
-                    members={members}
-                    hasFilters={hasFilters}
-                    onChange={changeList}
-                    onClear={clearFilters}
-                  />
-                </PortalProvider>,
-                filterContainer,
-              )}
+            {listDialog === "filters" && (
+              <BoardFiltersDialog
+                filters={filters}
+                members={members}
+                onClose={() => setListDialog(null)}
+                onApply={(next) => {
+                  changeList({ ...next, page: 1 });
+                  setListDialog(null);
+                }}
+              />
+            )}
+            {listDialog === "sort" && (
+              <BoardSortDialog
+                sort={filters.sort}
+                onClose={() => setListDialog(null)}
+                onApply={(sort) => {
+                  changeList({ sort, page: 1 });
+                  setListDialog(null);
+                }}
+              />
+            )}
+            {writable && selectedTasks.length > 0 && (
+              <BulkTaskBar
+                count={selectedTasks.length}
+                disabled={selectionDisabled}
+                onClear={() => setSelected(new Set())}
+                onAction={setBulkField}
+              />
+            )}
+            {writable && bulkField && selectedTasks.length > 0 && (
+              <BulkTaskDialog
+                key={bulkField}
+                field={bulkField}
+                count={selectedTasks.length}
+                pending={bulkPending}
+                members={members}
+                onApply={applyBulk}
+                onClose={() => setBulkField(null)}
+              />
+            )}
             {!accessDenied && error && board && (
               <ErrorMessage>{error}</ErrorMessage>
             )}
@@ -834,15 +804,17 @@ export function BoardPage({
                         </Chip>
                       </div>
                     )}
-                    <ResourceTable
-                      ariaLabel={
-                        group.name ? `${group.name} tasks` : "Task list"
-                      }
-                      tableClassName="task-table"
+                    <TaskTable
+                      label={group.name}
                       items={group.tasks}
-                      getRowKey={(task) => task.id}
-                      emptyTitle="No tasks yet"
-                      emptyDescription="Tasks created by your team will appear here."
+                      writable={writable}
+                      disabled={
+                        selectionDisabled ||
+                        bulkField !== null ||
+                        listDialog !== null
+                      }
+                      selected={selected}
+                      onSelectionChange={setSelected}
                       columns={[
                         {
                           key: "identifier",
@@ -855,6 +827,12 @@ export function BoardPage({
                               <TaskTypeIndicator type={task.type} />
                               <Link
                                 href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                                onNavigate={() =>
+                                  navigationCache.rememberTask(
+                                    task,
+                                    navigationCache.generation,
+                                  )
+                                }
                                 className="block shrink-0 whitespace-nowrap rounded-lg font-mono text-sm text-muted hover:underline"
                               >
                                 {task.identifier}
@@ -865,10 +843,18 @@ export function BoardPage({
                         {
                           key: "title",
                           header: "Task",
+                          className: "task-title-column",
+                          headerClassName: "task-title-column",
                           isRowHeader: true,
                           cell: (task) => (
                             <Link
                               href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                              onNavigate={() =>
+                                navigationCache.rememberTask(
+                                  task,
+                                  navigationCache.generation,
+                                )
+                              }
                               className="block min-w-0 rounded-lg hover:underline"
                             >
                               <TableCellStack>
@@ -894,13 +880,13 @@ export function BoardPage({
                         {
                           key: "status",
                           header: "Status",
-                          headerClassName: "w-36",
+                          headerClassName: "w-40 min-w-40 whitespace-nowrap",
                           cell: (task) => <StatusChip status={task.status} />,
                         },
                         {
                           key: "assignee",
                           header: "Assignee",
-                          headerClassName: "w-40",
+                          headerClassName: "w-52 min-w-52 whitespace-nowrap",
                           cell: (task) => {
                             const member = members.find(
                               (member) => member.id === task.assigneeId,
@@ -916,10 +902,42 @@ export function BoardPage({
                         {
                           key: "priority",
                           header: "Priority",
-                          headerClassName: "w-32",
+                          headerClassName: "w-40 min-w-40 whitespace-nowrap",
                           cell: (task) => (
                             <PriorityChip priority={task.priority} />
                           ),
+                        },
+                        {
+                          key: "startDate",
+                          header: "Start date",
+                          headerClassName: "w-40 min-w-40 whitespace-nowrap",
+                          cell: (task) =>
+                            task.startDate ? (
+                              <time
+                                dateTime={task.startDate}
+                                className="whitespace-nowrap tabular-nums"
+                              >
+                                {formatDate(task.startDate, user)}
+                              </time>
+                            ) : (
+                              <span className="text-muted opacity-50">—</span>
+                            ),
+                        },
+                        {
+                          key: "dueDate",
+                          header: "Due date",
+                          headerClassName: "w-40 min-w-40 whitespace-nowrap",
+                          cell: (task) =>
+                            task.dueDate ? (
+                              <time
+                                dateTime={task.dueDate}
+                                className="whitespace-nowrap tabular-nums"
+                              >
+                                {formatDate(task.dueDate, user)}
+                              </time>
+                            ) : (
+                              <span className="text-muted opacity-50">—</span>
+                            ),
                         },
                       ]}
                     />
@@ -993,98 +1011,6 @@ export function BoardPage({
                   }}
                 />
               </Suspense>
-            )}
-            {settings && board && (
-              <Dialog
-                data-board-dialog
-                isDismissDisabled={busy}
-                open
-                onClose={() => {
-                  pendingSettingsOpener.current = null;
-                  setSettings(false);
-                }}
-                title="Board settings"
-              >
-                <ErrorMessage>{settingsError}</ErrorMessage>
-                <form
-                  className="content-grid min-w-0"
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    const data = new FormData(e.currentTarget);
-                    void settingsRun(async (signal) => {
-                      await api(
-                        `/boards/${board.id}`,
-                        {
-                          version: board.version,
-                          name: data.get("name"),
-                          description: data.get("description"),
-                        },
-                        "PATCH",
-                        { signal },
-                      );
-                    }, "Board updated.");
-                  }}
-                >
-                  <TextField
-                    label="Board name"
-                    name="name"
-                    value={settingsDraft.name}
-                    onChange={(event) =>
-                      setSettingsDraft((draft) => ({
-                        ...draft,
-                        name: event.target.value,
-                      }))
-                    }
-                    required
-                    maxLength={100}
-                    disabled={!writable}
-                    className="min-w-0 w-full"
-                  />
-                  <TextField
-                    label="Description"
-                    name="description"
-                    value={settingsDraft.description}
-                    onChange={(event) =>
-                      setSettingsDraft((draft) => ({
-                        ...draft,
-                        description: event.target.value,
-                      }))
-                    }
-                    multiline
-                    maxLength={2000}
-                    disabled={!writable}
-                    className="min-w-0 w-full"
-                  />
-                  <div className="flex">
-                    <Button
-                      type="submit"
-                      isPending={busy}
-                      isDisabled={!writable}
-                    >
-                      <Save />
-                      <span className="grid">
-                        <span aria-hidden className="invisible [grid-area:1/1]">
-                          Save board
-                        </span>
-                        <span className="[grid-area:1/1]">
-                          {busy ? "Saving…" : "Save board"}
-                        </span>
-                      </span>
-                    </Button>
-                  </div>
-                </form>
-              </Dialog>
-            )}
-            {confirmBoard && board && user.role === "admin" && (
-              <ActionConfirmation
-                isOpen
-                onOpenChange={setConfirmBoard}
-                title="Delete board?"
-                description={`Permanently delete “${board.name}” and all of its tasks and comments? This cannot be undone. There is no restore.`}
-                confirmLabel="Delete board"
-                variant="danger"
-                onConfirm={deleteBoard}
-              />
             )}
           </PortalProvider>
         </SuspendedAppProvider>

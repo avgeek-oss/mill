@@ -22,6 +22,7 @@ const taskFields = {
   type: domainTaskFields.type.optional(),
   title: domainTaskFields.title,
   description: domainTaskFields.description.optional(),
+  acceptanceCriteria: domainTaskFields.acceptanceCriteria.optional(),
   assigneeId: domainTaskFields.assigneeId.optional(),
   priority: domainTaskFields.priority.optional(),
   status: z.enum(TASK_STATUSES).optional(),
@@ -145,7 +146,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "update_board",
-    "Edit board settings. Send the current version to protect concurrent edits.",
+    "Edit board settings. Prefixes must be unique; changing one renames existing task identifiers while preserving task numbers and links. Send the current version to protect concurrent edits.",
     "PATCH",
     "/api/boards/:boardId",
     {
@@ -153,12 +154,18 @@ export const tools: Tool[] = [
       version,
       name: z.string().min(1).max(100).optional(),
       description: z.string().max(10000).optional(),
+      prefix: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z][A-Z0-9]{1,9}$/)
+        .optional(),
       ...retry,
     },
   ),
   tool(
     "list_tasks",
-    "Search and filter tasks in one board. Combine q, status, assigneeId, priority and sort. Without a status filter, done and wont_do tasks are hidden after 24 hours in that status. Set status explicitly to include older tasks in that status. Tasks are newest first by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists.",
+    "Search and filter tasks in one board. Combine q, status, assigneeId, priority and sort. Without a status filter, done and wont_do tasks are hidden after 24 hours in that status. Set status explicitly to include older tasks in that status. Tasks are sorted by priority from urgent through none by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists.",
     "GET",
     "/api/boards/:boardId/tasks",
     { ...board, ...query },
@@ -176,14 +183,14 @@ export const tools: Tool[] = [
   ),
   tool(
     "create_task",
-    "Create a task, optionally with type task or bug, a fixed status, assignee, priority and due date. Type defaults to task and status to todo. Reuse idempotencyKey on retries.",
+    "Create a task with optional Markdown description and acceptance criteria, type task or bug, a fixed status, assignee, priority, start date and due date. Type defaults to task and status to todo. Reuse idempotencyKey on retries.",
     "POST",
     "/api/boards/:boardId/tasks",
     { ...board, ...taskFields, ...retry },
   ),
   tool(
     "update_task",
-    "Edit a task, including type task or bug, or change its fixed status using the current version. A stale version returns a conflict.",
+    "Edit task fields, including separate Markdown description and acceptance criteria, type task or bug, or its fixed status using the current version. A stale version returns a conflict.",
     "PATCH",
     "/api/tasks/:taskId",
     {
@@ -208,22 +215,24 @@ export const tools: Tool[] = [
   ),
   tool(
     "list_comments",
-    "Read comments on a task, newest first. Use the cursor to load older comments.",
+    "Read comments on a task, newest first. Set parentId to root for top-level comments or a comment UUID for its direct replies. Omit it for all comments. Each comment includes parentId and replyCount; use the cursor within the same thread to load older comments.",
     "GET",
     "/api/tasks/:taskId/comments",
     {
       ...task,
+      parentId: z.union([id, z.literal("root")]).optional(),
       limit: z.number().int().min(1).max(100).optional(),
       cursor: z.string().max(2048).optional(),
     },
   ),
   tool(
     "add_comment",
-    "Add a Markdown comment. Mention with @email, @[Name](user:UUID), or mentionIds. Reuse idempotencyKey on retries.",
+    "Add a Markdown comment or a nested reply using parentId. Top-level comments have depth zero; replies support at most three nested levels. Mention with @email, @[Name](user:UUID), or mentionIds. Reuse idempotencyKey on retries.",
     "POST",
     "/api/tasks/:taskId/comments",
     {
       ...task,
+      parentId: id.optional(),
       body: z.string().min(1).max(10000),
       mentionIds: z.array(id).max(50).optional(),
       ...retry,
@@ -239,7 +248,7 @@ export const tools: Tool[] = [
   ),
   tool(
     "get_activity",
-    "Read task activity, including who made each change.",
+    "Read task and attachment activity, including who made each change. Comment and reply actions are not included.",
     "GET",
     "/api/tasks/:taskId/activity",
     {

@@ -47,6 +47,16 @@ export function hasBoardSummariesResponse(value: unknown) {
     value.items.every(
       (board) =>
         isResponseObject(board) &&
+        typeof board.lastActivityAt === "string" &&
+        Number.isFinite(Date.parse(board.lastActivityAt)) &&
+        (board.createdBy === null ||
+          (isResponseObject(board.createdBy) &&
+            (board.createdBy.id === null ||
+              typeof board.createdBy.id === "string") &&
+            typeof board.createdBy.name === "string" &&
+            (board.createdBy.email === null ||
+              typeof board.createdBy.email === "string") &&
+            ["human", "team"].includes(String(board.createdBy.kind)))) &&
         [
           board.backlogCount,
           board.activeCount,
@@ -83,6 +93,9 @@ export function hasCommentResponse(value: unknown) {
     ["human", "oauth", "team"].includes(String(comment.authorKind)) &&
     (comment.authorName === undefined ||
       typeof comment.authorName === "string") &&
+    (comment.parentId === null || typeof comment.parentId === "string") &&
+    Number.isSafeInteger(comment.replyCount) &&
+    Number(comment.replyCount) >= 0 &&
     version(comment.version)
   );
 }

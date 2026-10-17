@@ -186,7 +186,7 @@ test("status filtering composes with search and priority and binds pagination to
     );
 });
 
-test("task sorts traverse ties deterministically and default to newest creation first", async () => {
+test("task sorts traverse ties deterministically and default to priority", async () => {
   const { cookie, board } = await fixture();
   const rows = [
     {
@@ -277,7 +277,7 @@ test("task sorts traverse ties deterministically and default to newest creation 
     );
   assert.deepEqual(
     (await tasks(cookie, board.id, "")).map((item) => item.id),
-    expectedFor("createdAt"),
+    expectedFor("priority"),
   );
 });
 

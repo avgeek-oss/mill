@@ -42,8 +42,8 @@ const presentation: Record<
   },
   in_review: {
     icon: ProgressIcon,
-    iconClassName: "text-accent",
-    color: "accent",
+    iconClassName: "text-warning",
+    color: "warning",
   },
   done: {
     icon: CheckmarkCircle02Icon,

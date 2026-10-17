@@ -2,6 +2,8 @@ import type { ComponentProps } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   FloppyDiskIcon,
+  FilterIcon,
+  Sorting01Icon,
   CheckmarkCircle02Icon,
   Link01Icon,
   Delete02Icon,
@@ -28,3 +30,6 @@ export const Save = controlIcon(FloppyDiskIcon);
 export const Check = controlIcon(CheckmarkCircle02Icon);
 export const LinkIcon = controlIcon(Link01Icon);
 export const Trash2 = controlIcon(Delete02Icon);
+
+export const Filter = controlIcon(FilterIcon);
+export const Sort = controlIcon(Sorting01Icon);

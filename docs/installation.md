@@ -11,7 +11,7 @@ Choose a version from [Mill releases](https://github.com/avgeek-oss/mill/release
 ```sh
 mkdir mill
 cd mill
-release_tag=v1.0.4 # choose a published release
+release_tag=v1.0.6 # choose a published release
 curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
 curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
 cp .env.example .env

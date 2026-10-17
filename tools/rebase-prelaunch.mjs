@@ -11,6 +11,9 @@ const policyName = "002_key_policies.sql";
 const attachmentName = "003_task_attachments.sql";
 const permissionMigrationName = "004_oauth_admin_consent.sql";
 const reauthorizationName = "005_oauth_role_change_reauthorization.sql";
+const boardMetadataName = "006_board_metadata.sql";
+const commentRepliesName = "007_comment_replies.sql";
+const acceptanceCriteriaName = "008_task_acceptance_criteria.sql";
 const reviewedBaselineChecksum =
   "e82748c4b57ade74641a6d6ab051016daa3df5eef0ea05aac6c39c6b7ddd1466";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -460,6 +463,33 @@ export async function rebasePrelaunch(
       `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
       [reauthorizationName, digest(reauthorizationMigration)],
     );
+    const boardMetadata = await readFile(
+      path.join(root, "packages/database/migrations", boardMetadataName),
+      "utf8",
+    );
+    await tx.unsafe(boardMetadata);
+    await tx.unsafe(
+      `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
+      [boardMetadataName, digest(boardMetadata)],
+    );
+    const commentReplies = await readFile(
+      path.join(root, "packages/database/migrations", commentRepliesName),
+      "utf8",
+    );
+    await tx.unsafe(commentReplies);
+    await tx.unsafe(
+      `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
+      [commentRepliesName, digest(commentReplies)],
+    );
+    const acceptanceCriteria = await readFile(
+      path.join(root, "packages/database/migrations", acceptanceCriteriaName),
+      "utf8",
+    );
+    await tx.unsafe(acceptanceCriteria);
+    await tx.unsafe(
+      `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
+      [acceptanceCriteriaName, digest(acceptanceCriteria)],
+    );
     await requireStopped(tx);
     await tx.unsafe(
       `ALTER SCHEMA ${quote(schema)} RENAME TO ${quote(archived)}`,
@@ -500,12 +530,15 @@ async function main(args) {
     await readdir(path.join(root, "packages/database/migrations"))
   ).filter((name) => name.endsWith(".sql"));
   if (
-    files.length !== 5 ||
+    files.length !== 8 ||
     !files.includes(baselineName) ||
     !files.includes(policyName) ||
     !files.includes(attachmentName) ||
     !files.includes(permissionMigrationName) ||
-    !files.includes(reauthorizationName)
+    !files.includes(reauthorizationName) ||
+    !files.includes(boardMetadataName) ||
+    !files.includes(commentRepliesName) ||
+    !files.includes(acceptanceCriteriaName)
   )
     throw new Error(
       "The rebase requires the reviewed baseline and forward migrations",

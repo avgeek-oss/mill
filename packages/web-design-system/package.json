@@ -6,6 +6,7 @@
   "license": "Apache-2.0",
   "exports": {
     ".": "./src/index.tsx",
+    "./styles.css": "./src/styles.css",
     "./date-picker-field": "./src/forms/date-picker-field.tsx"
   },
   "dependencies": {

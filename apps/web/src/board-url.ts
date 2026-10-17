@@ -1,3 +1,5 @@
+import { DEFAULT_TASK_SORT } from "../../../packages/contracts/src/index.js";
+
 export type BoardUrlState = {
   q: string;
   assigneeId: string;
@@ -46,13 +48,13 @@ export function parseBoardUrl(path: string): BoardUrlState {
   const limit = Number(limitRaw);
   const priority = params.get("priority") ?? "";
   const status = params.get("status") ?? "";
-  const sort = params.get("sort") ?? "createdAt";
+  const sort = params.get("sort") ?? DEFAULT_TASK_SORT;
   return {
     q: (params.get("q") ?? "").slice(0, 200),
     assigneeId: identity("assigneeId"),
     priority: priorities.has(priority) ? priority : "",
     status: statuses.has(status) ? status : "",
-    sort: sorts.has(sort) ? sort : "createdAt",
+    sort: sorts.has(sort) ? sort : DEFAULT_TASK_SORT,
     page:
       /^\d+$/.test(pageRaw) && Number.isSafeInteger(page) && page > 0
         ? page
@@ -71,7 +73,7 @@ export function boardUrl(boardId: string, state: BoardUrlState, search = "") {
   params.delete("sort");
   params.delete("page");
   params.delete("limit");
-  if (state.sort !== "createdAt") params.set("sort", state.sort);
+  if (state.sort !== DEFAULT_TASK_SORT) params.set("sort", state.sort);
   if (state.page !== 1) params.set("page", String(state.page));
   if (state.limit !== 25) params.set("limit", String(state.limit));
   const query = params.toString();

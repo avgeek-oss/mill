@@ -18,6 +18,13 @@ export type Board = {
   version: number;
 };
 export type BoardSummary = Board & {
+  createdBy: {
+    id: string | null;
+    name: string;
+    email: string | null;
+    kind: "human" | "team";
+  } | null;
+  lastActivityAt: string;
   backlogCount: number;
   activeCount: number;
   inProgressCount: number;
@@ -34,6 +41,10 @@ export const TASK_STATUSES = [
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 export const TASK_TYPES = ["task", "bug"] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
+export const DEFAULT_TASK_SORT = "priority";
+export type BulkTaskChanges = Partial<
+  Pick<Task, "status" | "assigneeId" | "priority" | "startDate" | "dueDate">
+>;
 export type Task = {
   id: string;
   boardId: string;
@@ -43,6 +54,7 @@ export type Task = {
   identifier: string;
   title: string;
   description: string;
+  acceptanceCriteria: string;
   assigneeId: string | null;
   priority: "none" | "low" | "medium" | "high" | "urgent";
   startDate: string | null;
@@ -70,8 +82,12 @@ export type Activity = {
   detail: unknown;
   createdAt: string;
 };
+export const MAX_COMMENT_REPLY_DEPTH = 3;
+
 export type Comment = {
   id: string;
+  parentId: string | null;
+  replyCount: number;
   taskId: string;
   authorId: string | null;
   authorKind: "human" | "oauth" | "team";

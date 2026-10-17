@@ -35,6 +35,7 @@ export const taskFields = {
   type: z.enum(TASK_TYPES),
   title: z.string().trim().min(1).max(300),
   description: z.string().max(100000),
+  acceptanceCriteria: z.string().max(100000),
   assigneeId: uuid.nullable(),
   priority: z.enum(priorities),
   status: z.enum(TASK_STATUSES),

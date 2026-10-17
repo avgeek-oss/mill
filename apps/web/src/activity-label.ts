@@ -4,9 +4,6 @@ const labels: Record<string, string> = {
   "task.updated": "updated this task",
   "task.moved": "changed the task status",
   "task.deleted": "deleted this task",
-  "comment.created": "added a comment",
-  "comment.updated": "edited a comment",
-  "comment.deleted": "deleted a comment",
   "attachment.added": "uploaded an attachment",
   "attachment.deleted": "deleted an attachment",
 };

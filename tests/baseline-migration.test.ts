@@ -53,6 +53,36 @@ const reauthorizationSource = await readFile(
 const reauthorizationChecksum = createHash("sha256")
   .update(reauthorizationSource)
   .digest("hex");
+const boardMetadataSource = await readFile(
+  new URL(
+    "../packages/database/migrations/006_board_metadata.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const boardMetadataChecksum = createHash("sha256")
+  .update(boardMetadataSource)
+  .digest("hex");
+const commentRepliesSource = await readFile(
+  new URL(
+    "../packages/database/migrations/007_comment_replies.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const commentRepliesChecksum = createHash("sha256")
+  .update(commentRepliesSource)
+  .digest("hex");
+const acceptanceCriteriaSource = await readFile(
+  new URL(
+    "../packages/database/migrations/008_task_acceptance_criteria.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const acceptanceCriteriaChecksum = createHash("sha256")
+  .update(acceptanceCriteriaSource)
+  .digest("hex");
 function runMigration(schema: string, directory?: string) {
   return new Promise<{ code: number | null; output: string }>(
     (resolve, reject) => {
@@ -112,6 +142,9 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       "003_task_attachments.sql",
       "004_oauth_admin_consent.sql",
       "005_oauth_role_change_reauthorization.sql",
+      "006_board_metadata.sql",
+      "007_comment_replies.sql",
+      "008_task_acceptance_criteria.sql",
     ],
   );
   const schema = `baseline_${randomUUID().replaceAll("-", "")}`;
@@ -138,6 +171,12 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
           {
             name: "005_oauth_role_change_reauthorization.sql",
             checksum: reauthorizationChecksum,
+          },
+          { name: "006_board_metadata.sql", checksum: boardMetadataChecksum },
+          { name: "007_comment_replies.sql", checksum: commentRepliesChecksum },
+          {
+            name: "008_task_acceptance_criteria.sql",
+            checksum: acceptanceCriteriaChecksum,
           },
         ],
       );
@@ -195,6 +234,18 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
     await writeFile(
       join(directory, "005_oauth_role_change_reauthorization.sql"),
       reauthorizationSource,
+    );
+    await writeFile(
+      join(directory, "006_board_metadata.sql"),
+      boardMetadataSource,
+    );
+    await writeFile(
+      join(directory, "007_comment_replies.sql"),
+      commentRepliesSource,
+    );
+    await writeFile(
+      join(directory, "008_task_acceptance_criteria.sql"),
+      acceptanceCriteriaSource,
     );
     const changed = await runMigration(schema, directory);
     assert.equal(changed.code, 1);
@@ -268,13 +319,15 @@ test("forward OAuth migration preserves restricted tokens and invalidates unsnap
         requests.find((entry) => entry.id === pendingId)?.consumedAt,
         null,
       );
+      const [{ databaseNow }] =
+        await tx`SELECT clock_timestamp() AS database_now`;
       assert.ok(
         requests.find((entry) => entry.id === approvedId)!.expiresAt <=
-          new Date(),
+          databaseNow,
       );
       assert.ok(
         requests.find((entry) => entry.id === pendingId)!.expiresAt >
-          new Date(),
+          databaseNow,
       );
       await tx`UPDATE users SET role='member' WHERE id=${ownerId}`;
       assert.ok(

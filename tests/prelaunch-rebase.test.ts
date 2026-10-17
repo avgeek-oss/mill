@@ -73,6 +73,36 @@ const reauthorizationSource = await readFile(
 const reauthorizationChecksum = createHash("sha256")
   .update(reauthorizationSource)
   .digest("hex");
+const boardMetadataSource = await readFile(
+  new URL(
+    "../packages/database/migrations/006_board_metadata.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const boardMetadataChecksum = createHash("sha256")
+  .update(boardMetadataSource)
+  .digest("hex");
+const commentRepliesSource = await readFile(
+  new URL(
+    "../packages/database/migrations/007_comment_replies.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const commentRepliesChecksum = createHash("sha256")
+  .update(commentRepliesSource)
+  .digest("hex");
+const acceptanceCriteriaSource = await readFile(
+  new URL(
+    "../packages/database/migrations/008_task_acceptance_criteria.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const acceptanceCriteriaChecksum = createHash("sha256")
+  .update(acceptanceCriteriaSource)
+  .digest("hex");
 const previousBaseline = baseline
   .replace(
     "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
@@ -668,6 +698,8 @@ for (const source of [
         );
       }
       if (!source.hasType) delete retained.type;
+      assert.equal(retained.acceptance_criteria, "");
+      delete retained.acceptance_criteria;
       assert.deepEqual(retained, before[0]);
       assert.deepEqual(
         (await sql`SELECT * FROM credentials`).map((row) =>
@@ -737,6 +769,12 @@ for (const source of [
           {
             name: "005_oauth_role_change_reauthorization.sql",
             checksum: reauthorizationChecksum,
+          },
+          { name: "006_board_metadata.sql", checksum: boardMetadataChecksum },
+          { name: "007_comment_replies.sql", checksum: commentRepliesChecksum },
+          {
+            name: "008_task_acceptance_criteria.sql",
+            checksum: acceptanceCriteriaChecksum,
           },
         ],
       );

@@ -932,7 +932,7 @@ test("archive fields, deleted filters and restore routes are rejected", async ()
 test("comment, activity and notification pagination preserve PostgreSQL microsecond ordering", async () => {
   const { cookie, board, user } = await fixture();
   const item = await createTask(cookie, board.id);
-  for (let index = 0; index < 7; index++)
+  for (let index = 0; index < 7; index++) {
     await json(
       await request(`/api/tasks/${item.id}/comments`, {
         cookie,
@@ -940,6 +940,14 @@ test("comment, activity and notification pagination preserve PostgreSQL microsec
       }),
       201,
     );
+    await json(
+      await request(`/api/tasks/${item.id}`, {
+        cookie,
+        method: "PATCH",
+        body: { version: item.version + index, title: `Task update ${index}` },
+      }),
+    );
+  }
   await sql`UPDATE comments SET created_at='2026-09-28T00:00:00.000001Z'::timestamptz WHERE task_id=${item.id}`;
   await sql`UPDATE activity SET created_at='2026-09-28T00:00:00.000002Z'::timestamptz WHERE task_id=${item.id}`;
   for (let index = 0; index < 7; index++)

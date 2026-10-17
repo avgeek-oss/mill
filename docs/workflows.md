@@ -2,7 +2,7 @@
 
 Mill opens on **Boards** under **Operate**. The page lists accessible boards as alphabetical cards with separate Backlog, To Do and In Progress task counts. Each count includes only its named status and covers all tasks in the board. Choose a card to open its task table, or choose **Create Board** at the top right to create a board with a short name and a prefix such as `ENG`. Search tasks above the table. The board's secondary sidebar contains filters and sort; on smaller screens, choose **Filters** to open the navigation drawer. The breadcrumb links back to Boards or the selected board, preserving your table view when you return from a task.
 
-A board's prefix is permanent. Its tasks receive identifiers such as `ENG-1`; editing a title or changing a status keeps that identifier. Share the task's link with teammates.
+Tasks receive identifiers such as `ENG-1`; editing a title or changing a status keeps that identifier. Changing the board prefix updates existing identifiers while preserving task numbers and task links. Share the task's link with teammates.
 
 ## Create and update a task
 
@@ -26,7 +26,7 @@ Use **Search tasks** above the table to match titles, descriptions, and task ide
 
 Done and Won't Do tasks appear in the default list for one day after entering that status. After that, choose Done or Won't Do in the Status dropdown to find them. Editing other fields does not restart the day. This also applies when searching without a status filter. Direct task links continue to work.
 
-Sort by title, priority, status, due date, creation time, or latest update. Priority and status sorting split the current page into named groups. Creation time is the default, newest first. Pagination applies to the entire filtered result, with one footer across the groups. Search, filters, sort, page and page size are stored in the URL, so reload and task return links preserve your view. Changing filters returns to page 1. If work changes between pages, Mill asks you to reload the current filtered list rather than combining pages from different revisions. Existing rows stay visible while the replacement list loads.
+Sort by title, priority, status, due date, creation time, or latest update. Priority and status sorting split the current page into named groups. Priority is the default, from Urgent to None. Pagination applies to the entire filtered result, with one footer across the groups. Search, filters, sort, page and page size are stored in the URL, so reload and task return links preserve your view. Changing filters returns to page 1. If work changes between pages, Mill asks you to reload the current filtered list rather than combining pages from different revisions. Existing rows stay visible while the replacement list loads.
 
 Boards are alphabetical and task order comes from the selected sort. There are no drag-and-drop lanes, custom statuses, labels, manual positions, or task parent/subtask controls. Existing subtasks from an older installation remain independent tasks after upgrade.
 
@@ -40,11 +40,21 @@ Comments cannot be edited after posting. You can delete your own comments. An ad
 
 Task activity shows changes and the person responsible for each action. Workspace-wide audit history is excluded from v1.
 
+## Update a board
+
+Members and administrators choose **Settings → General** in the board’s secondary sidebar. Edit the name or description in the **Board details** widget, then choose **Save board**. Use the **Board prefix** widget alongside it to change the task prefix, then choose **Save prefix**. Prefixes must be unique across all boards and use 2–10 letters or numbers, starting with a letter. Saving a prefix updates existing task IDs while keeping their numbers and links. The two widgets save independently. Choose **Tasks** in the same sidebar to return to the task list with its search, filters and sort preserved.
+
+## Reply to comments
+
+Choose the dashed **Reply** link below a comment to open an editor beneath it. Replies are indented with curved thread lines, without another avatar. You can reply to a reply, up to three reply levels beneath the original comment. Mentions and the send shortcut work in reply editors too. Choose **Cancel reply** to return the unsent draft to the main comment editor.
+
+Replies start collapsed. Choose **Show replies (count)** to expand the direct replies to a comment, and **Hide replies (count)** to collapse them again. Each reply can reveal its own replies. Newly posted replies expand automatically. Send or clear an unfinished reply before hiding its thread. Deleting a comment keeps its replies and moves them up one level.
+
 ## Delete work permanently
 
 Delete a task from its detail view when it is no longer needed. Confirming permanently removes that task, its comments, notifications, and task activity. Other independent tasks remain. Members and administrators can delete tasks; viewers cannot.
 
-An administrator opens the menu beside **New task** and chooses **Delete board**. The separate confirmation dialog covers every task and its associated discussion in that board. **Board settings** in the same menu contains the board's name and description. After deletion, Mill removes the board from navigation and returns to the Boards overview.
+An administrator chooses **Danger zone → Delete board** in the board’s secondary sidebar, then **Delete board** in the deletion widget. The separate confirmation dialog covers every task and its associated discussion in that board. After deletion, Mill removes the board from navigation and returns to the Boards overview.
 
 There is no archive, trash, or restore view. Save a [full database backup](backup.md) before deleting work you may need later. There is no portable export/import feature. Task numbers are not reused within an existing board.
 

@@ -1,6 +1,12 @@
+import { useRef } from "react";
 import { parseDate } from "@internationalized/date";
-import { Calendar, DateField, DatePicker, Label } from "@heroui/react";
-import { Button } from "../button.js";
+import {
+  Calendar,
+  CloseButton,
+  DateField,
+  DatePicker,
+  Label,
+} from "@heroui/react";
 
 export function DatePickerField({
   label,
@@ -13,6 +19,7 @@ export function DatePickerField({
   onChange: (value: string | null) => void;
   disabled?: boolean;
 }) {
+  const calendarTrigger = useRef<HTMLButtonElement>(null);
   return (
     <DatePicker
       className="w-full"
@@ -25,23 +32,26 @@ export function DatePickerField({
         <DateField.Input>
           {(segment) => <DateField.Segment segment={segment} />}
         </DateField.Input>
-        <DateField.Suffix>
-          <DatePicker.Trigger aria-label={`Choose ${label.toLowerCase()}`}>
+        <DateField.Suffix className="gap-1">
+          {value && !disabled && (
+            <CloseButton
+              slot={null}
+              aria-label={`Clear ${label.toLowerCase()}`}
+              onPress={() => {
+                onChange(null);
+                calendarTrigger.current?.focus();
+              }}
+            />
+          )}
+          <DatePicker.Trigger
+            ref={calendarTrigger}
+            className="w-auto"
+            aria-label={`Choose ${label.toLowerCase()}`}
+          >
             <DatePicker.TriggerIndicator />
           </DatePicker.Trigger>
         </DateField.Suffix>
       </DateField.Group>
-      {value && !disabled ? (
-        <Button
-          slot={null}
-          variant="secondary"
-          aria-label={`Clear ${label.toLowerCase()}`}
-          className="mt-1 w-fit"
-          onPress={() => onChange(null)}
-        >
-          Clear date
-        </Button>
-      ) : null}
       <DatePicker.Popover placement="bottom end">
         <Calendar aria-label={`Choose ${label.toLowerCase()}`}>
           <Calendar.Header>
