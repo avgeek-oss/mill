@@ -1,5 +1,3 @@
-import "@fontsource-variable/inter/wght-italic.css";
-
 export * from "@avgeek-oss/design-system";
 export { RouterProvider, Header } from "react-aria-components";
 export { UNSAFE_PortalProvider as PortalProvider } from "react-aria";
