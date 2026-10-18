@@ -26,6 +26,16 @@ test("curated installed guides retain commands, resolve every local link and exc
   );
   assert.ok(guides.get("guides/clients.html").includes("/mcp"));
   assert.ok(guides.get("guides/task-attachments.html").includes("20 MiB"));
+  const towbarGuide = guides.get("guides/installation/towbar.html");
+  assert.ok(
+    towbarGuide.includes("buildServer"),
+    "Installed guide must retain the root repository manifest",
+  );
+  assert.ok(
+    towbarGuide.includes("mill-api.service.yml"),
+    "Installed guide must retain the deployment file tree",
+  );
+  assert.ok(towbarGuide.includes("mill-postgres.datastore.yml"));
   assert.ok(
     guides
       .get("guides/configuration.html")

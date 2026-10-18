@@ -19,11 +19,26 @@ Copy these files into your deployment repository. Keep their folder structure:
   </Tree.Folder>
 </Tree>
 
+<!-- installed-only:start -->
+
+```text
+towbar.yml
+.towbar/
+  services/
+    mill-api.service.yml
+    mill-web.service.yml
+  datastores/
+    mill-postgres.datastore.yml
+```
+
+<!-- installed-only:end -->
+
 Replace `192.0.2.10` with your registered server's address and replace the two `example.com` domains with your own. Both domains must use the same site, such as `tasks.example.com` and `tasks-api.example.com`, for browser sessions to work.
 
 The examples use direct TLS with unproxied DNS records. Adjust the TLS settings if your Towbar installation uses another certificate method. Resource limits are starting values; check available server capacity before deployment.
 
 <CodeGroup>
+
 ```yaml towbar.yml
 # yaml-language-server: $schema=https://towbar.dev/schemas/repository.v2.json
 version: 2
