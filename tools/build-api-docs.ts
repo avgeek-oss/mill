@@ -80,7 +80,7 @@ const argumentDescriptions: Record<string, string> = {
   boardId: "Board UUID, not its task prefix.",
   taskId: "Task UUID, not its human identifier such as ENG-1.",
   parentId:
-    "Same-task comment UUID for replies, or root when listing top-level comments. Omit to list all comments.",
+    "Same-task parent comment UUID. When posting, omit it to create a top-level comment. When listing, use root for top-level comments or omit it to include every level.",
   assigneeId:
     "Active member UUID; null clears an assignment on mutation, unassigned filters unassigned tasks when listing.",
   acceptanceCriteria:

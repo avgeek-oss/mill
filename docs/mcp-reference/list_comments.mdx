@@ -23,12 +23,12 @@ Omit `parentId` for a flat list, use root for top-level comments, or a same-task
 
 ## Arguments
 
-| Argument   | Required | Type or meaning                                                                                         |
-| ---------- | -------- | ------------------------------------------------------------------------------------------------------- |
-| `taskId`   | Yes      | Task UUID, not its human identifier such as ENG-1.                                                      |
-| `parentId` | No       | Same-task comment UUID for replies, or root when listing top-level comments. Omit to list all comments. |
-| `limit`    | No       | integer                                                                                                 |
-| `cursor`   | No       | Opaque nextCursor from the preceding response with identical filters.                                   |
+| Argument   | Required | Type or meaning                                                                                                                                                      |
+| ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `taskId`   | Yes      | Task UUID, not its human identifier such as ENG-1.                                                                                                                   |
+| `parentId` | No       | Same-task parent comment UUID. When posting, omit it to create a top-level comment. When listing, use root for top-level comments or omit it to include every level. |
+| `limit`    | No       | integer                                                                                                                                                              |
+| `cursor`   | No       | Opaque nextCursor from the preceding response with identical filters.                                                                                                |
 
 <Accordion title="Complete input schema">
 
