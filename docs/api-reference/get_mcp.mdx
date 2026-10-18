@@ -1,0 +1,12 @@
+---
+title: "MCP streaming request"
+description: "The SDK accepts a GET with Accept: text/event-stream. Mill closes the per-request server after the response is created and does not provide a persistent event session. Use POST JSON-RPC for normal tool calls. Missing the SSE Accept type returns HTTP 406."
+playground: simple
+openapi: "/api-reference/openapi.json GET /mcp"
+---
+
+An OAuth bearer token issued for this installation's MCP resource is required. Static REST API keys cannot access /mcp.
+
+The SDK accepts a GET with Accept: text/event-stream. Mill closes the per-request server after the response is created and does not provide a persistent event session. Use POST JSON-RPC for normal tool calls. Missing the SSE Accept type returns HTTP 406.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

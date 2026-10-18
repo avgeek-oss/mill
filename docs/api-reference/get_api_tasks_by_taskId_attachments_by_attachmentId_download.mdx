@@ -1,0 +1,16 @@
+---
+title: "Get a private download URL"
+description: "Obtain a short-lived private GET URL for an attachment. preview:true returns an inline image/PDF. Do not log returned URLs."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/tasks/{taskId}/attachments/{attachmentId}/download"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+Obtain a short-lived private GET URL for an attachment. preview:true returns an inline image/PDF. Do not log returned URLs.
+
+URLs expire after five minutes and are private capabilities. preview:true requests inline image/PDF display; otherwise the URL downloads the attachment.
+
+MCP clients can use [`get_attachment_download`](/mcp-reference/get_attachment_download) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

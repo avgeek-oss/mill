@@ -29,7 +29,7 @@ Generate passwords and `MILL_SECRET` with a password manager or `openssl rand -h
 
 The two configured origins must match their public HTTPS hostnames. `MILL_WEB_URL` controls passkeys, account links, CORS and CSRF. `MILL_API_URL` controls OAuth issuer, MCP resource, the session cookie and the UI runtime API configuration. Keep both services on the same release and both hosts under the same site so SameSite=Lax browser sessions work.
 
-SMTP is optional. To enable identity and invitation email, add the supported `MILL_SMTP_*` keys to the API manifest's `secrets.runtime` list and configure them in Towbar. See [configuration](configuration.md#notifications). Do not add empty SMTP requirements for an installation without mail.
+SMTP is optional. To enable identity and invitation email, add the supported `MILL_SMTP_*` keys to the API manifest's `secrets.runtime` list and configure them in Towbar. See [configuration](configuration.md#smtp). Do not add empty SMTP requirements for an installation without mail.
 
 ## Optional attachment storage
 
@@ -37,7 +37,7 @@ The production deployment manifests enable task attachments. Configure `MILL_S3_
 
 For an installation without attachments, remove the `MILL_S3_*` declarations from both manifests. The rest of Mill works without object storage.
 
-The endpoint must accept browser requests from the exact configured `MILL_WEB_URL`, using bucket CORS for PUT, GET and HEAD. Keep the bucket private and restrict the credential to it. Follow [configuration](configuration.md#optional-task-attachments) for the CORS example and accepted file types. These settings require a compatible API/UI release; updating a manifest does not publish or deploy that release.
+The endpoint must accept browser requests from the exact configured `MILL_WEB_URL`, using bucket CORS for PUT, GET and HEAD. Keep the bucket private and restrict the credential to it. Follow [configuration](configuration.md#s3-source) for the CORS example and accepted file types. These settings require a compatible API/UI release; updating a manifest does not publish or deploy that release.
 
 ## First deployment
 

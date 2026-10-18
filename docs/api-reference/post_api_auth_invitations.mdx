@@ -1,0 +1,12 @@
+---
+title: "Invite a team member"
+description: "Creates an invitation and revokes older unused invitations for the same email. Returns its token and inviteUrl once, and queues email if SMTP is configured."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/auth/invitations"
+---
+
+A signed-in human administrator is required. API keys and MCP credentials cannot replace that session. Sensitive operations can also require recent authentication.
+
+Creates an invitation and revokes older unused invitations for the same email. Returns its token and inviteUrl once, and queues email if SMTP is configured.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

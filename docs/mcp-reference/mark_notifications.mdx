@@ -1,0 +1,101 @@
+---
+title: "mark_notifications"
+description: "Mark personal notifications with Mill MCP."
+icon: "plug"
+---
+
+Mark selected notifications or all notifications present at the request snapshot as read/unread. Repeated read marks preserve the first read time. Choose ids OR all:true.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Choose IDs or all"] --> step1
+  step1["Set read state"] --> step2
+  step2["Preserve later arrivals"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+Choose ids or all:true, never both. read defaults to true; false marks unread. All applies to the request snapshot, leaving later arrivals unread. Repeated read marks preserve the original receipt time. Team API keys cannot mutate personal notifications.
+
+## Arguments
+
+| Argument         | Required | Type or meaning                                                                                            |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `ids`            | No       | array                                                                                                      |
+| `all`            | No       | boolean                                                                                                    |
+| `read`           | No       | boolean                                                                                                    |
+| `idempotencyKey` | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "ids": {
+      "minItems": 1,
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid",
+        "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+      }
+    },
+    "all": {
+      "type": "boolean",
+      "const": true
+    },
+    "read": {
+      "type": "boolean"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "mark_notifications",
+    "arguments": {
+      "ids": ["77777777-7777-4777-8777-777777777777"],
+      "read": true,
+      "idempotencyKey": "notification-read-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "ok": true,
+  "updated": 1
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/patch_api_notifications) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

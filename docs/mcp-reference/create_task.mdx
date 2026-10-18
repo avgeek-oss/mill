@@ -1,0 +1,183 @@
+---
+title: "create_task"
+description: "Create a task with Mill MCP."
+icon: "plug"
+---
+
+Create a task with optional Markdown description and acceptance criteria, type task or bug, a fixed status, assignee, priority, start date and due date. Type defaults to task and status to todo. Reuse `idempotencyKey` on retries.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Resolve board and member UUIDs"] --> step1
+  step1["Set fields and criteria"] --> step2
+  step2["Create once with a retry key"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+Creation requires title and defaults type to task, status to todo, priority to none, assignee and dates to null, and Markdown fields to empty. Active human assignees only. Mentions and assignments respect in-app notification preferences.
+
+## Arguments
+
+| Argument             | Required | Type or meaning                                                                                              |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `boardId`            | Yes      | Board UUID, not its task prefix.                                                                             |
+| `type`               | No       | task, bug                                                                                                    |
+| `title`              | Yes      | string                                                                                                       |
+| `description`        | No       | string                                                                                                       |
+| `acceptanceCriteria` | No       | Independent Markdown acceptance criteria, at most 100,000 characters.                                        |
+| `assigneeId`         | No       | Active member UUID; null clears an assignment on mutation, unassigned filters unassigned tasks when listing. |
+| `priority`           | No       | none, low, medium, high, urgent                                                                              |
+| `status`             | No       | backlog, todo, in_progress, in_review, done, wont_do                                                         |
+| `startDate`          | No       | Optional calendar date YYYY-MM-DD; null clears it.                                                           |
+| `dueDate`            | No       | Optional calendar date YYYY-MM-DD; null clears it.                                                           |
+| `idempotencyKey`     | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header.   |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "boardId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["task", "bug"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "acceptanceCriteria": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "assigneeId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high", "urgent"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["backlog", "todo", "in_progress", "in_review", "done", "wont_do"]
+    },
+    "startDate": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dueDate": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["boardId", "title"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "create_task",
+    "arguments": {
+      "boardId": "11111111-1111-4111-8111-111111111111",
+      "title": "Verify database restore",
+      "description": "Restore a recent backup into an isolated database.",
+      "acceptanceCriteria": "- Confirm task and comment counts match\n- Record the result",
+      "type": "task",
+      "priority": "high",
+      "status": "todo",
+      "assigneeId": "66666666-6666-4666-8666-666666666666",
+      "startDate": "2027-01-18",
+      "dueDate": "2027-01-20",
+      "idempotencyKey": "restore-check-create-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "task": {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "boardId": "11111111-1111-4111-8111-111111111111",
+    "identifier": "ENG-1",
+    "title": "Verify database restore",
+    "description": "Restore a recent backup into an isolated database.",
+    "acceptanceCriteria": "- Confirm task and comment counts match\n- Record the result",
+    "type": "task",
+    "status": "todo",
+    "priority": "high",
+    "assigneeId": "66666666-6666-4666-8666-666666666666",
+    "startDate": "2027-01-18",
+    "dueDate": "2027-01-20",
+    "version": 1,
+    "statusChangedAt": "2027-01-18T09:30:00.000Z",
+    "createdAt": "2027-01-18T09:30:00.000Z",
+    "updatedAt": "2027-01-18T09:30:00.000Z",
+    "createdBy": "66666666-6666-4666-8666-666666666666"
+  }
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/post_api_boards_by_boardId_tasks) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

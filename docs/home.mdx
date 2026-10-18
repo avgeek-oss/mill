@@ -39,7 +39,7 @@ import { ThemeImage } from "/snippets/oss/screenshot.jsx";
       </span>
     </p>
     <Actions>
-      <ActionLink href="/getting-started">Get started →</ActionLink>
+      <ActionLink href="/boards">Get started →</ActionLink>
       <ActionLink href="https://github.com/avgeek-oss/mill" variant="secondary">
         Explore on GitHub ↗
       </ActionLink>
@@ -79,7 +79,7 @@ import { ThemeImage } from "/snippets/oss/screenshot.jsx";
         Use REST or MCP with explicit permissions. Personal keys, team keys and
         scoped OAuth connections keep access under your control.
       </p>
-      <InlineLink href="/clients">Connect a client →</InlineLink>
+      <InlineLink href="/mcp-connections">Connect a client →</InlineLink>
     </div>
   </Highlights>
   <FeatureGroup>
@@ -199,9 +199,9 @@ import { ThemeImage } from "/snippets/oss/screenshot.jsx";
         <Eyebrow>MCP and REST</Eyebrow>
         <h2 id="mcp-heading">Use Mill from a connected client.</h2>
         <p>
-          Connect an MCP client through OAuth or use a key for REST and MCP.
-          Approve read or write access, restrict an OAuth connection to selected
-          boards and revoke it from your account.
+          Connect an MCP client through OAuth or use an API key for REST.
+          Approve access within your current role and revoke a connection from
+          your account.
         </p>
         <InlineLink href="/mcp-connections">
           Connect and revoke MCP clients →
@@ -252,8 +252,8 @@ import { ThemeImage } from "/snippets/oss/screenshot.jsx";
       <div>
         <h3>Install published images</h3>
         <p>
-          Choose a release and supply three environment values. Use your own
-          PostgreSQL database or add the optional Compose database service.
+          Choose a release and supply the required environment values. Use your
+          own PostgreSQL database or add the optional Compose database service.
         </p>
         <InlineLink href="/installation">Installation guide →</InlineLink>
       </div>
@@ -272,12 +272,12 @@ import { ThemeImage } from "/snippets/oss/screenshot.jsx";
           Keep secrets outside images and limit credentials to the access
           clients need.
         </p>
-        <InlineLink href="/operations">Operations guide →</InlineLink>
+        <InlineLink href="/troubleshooting">Troubleshooting →</InlineLink>
       </div>
     </Points>
   </SplitSection>
   <Actions>
-    <ActionLink href="/getting-started">Create your first board →</ActionLink>
+    <ActionLink href="/boards">Create your first board →</ActionLink>
     <ActionLink href="/installation" variant="secondary">
       Install Mill →
     </ActionLink>

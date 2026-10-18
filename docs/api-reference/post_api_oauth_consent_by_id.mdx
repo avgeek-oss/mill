@@ -1,0 +1,12 @@
+---
+title: "Approve or deny MCP consent"
+description: "The human selects accessLevel. Approval requires recent authentication. When allow is false, omit accessLevel. A client cannot select or approve its own permissions."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/oauth/consent/{id}"
+---
+
+A signed-in human session is required. API keys and MCP bearer credentials cannot replace that session.
+
+The human selects accessLevel. Approval requires recent authentication. When allow is false, omit accessLevel. A client cannot select or approve its own permissions.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

@@ -1,0 +1,16 @@
+---
+title: "List boards"
+description: "List accessible boards alphabetically. Results are bounded; use returned pagination cursor when present."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/boards"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+List accessible boards alphabetically. Results are bounded; use returned pagination cursor when present.
+
+Boards sort by case-insensitive name, exact name and UUID. Cursors bind the accessible directory and revision; restart on 409 `board_list_changed`. Historical creators can be null.
+
+MCP clients can use [`list_boards`](/mcp-reference/list_boards) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

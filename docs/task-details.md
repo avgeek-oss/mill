@@ -2,6 +2,8 @@
 
 Open a task from its board list. Its page shows the stable task ID, title, Markdown description, acceptance criteria, properties, comments and activity. **Back to board** returns to the search, filters, sort and page you were using.
 
+<!-- screenshot:task -->
+
 ## Create and edit
 
 Choose **New task** on a board. Enter a title and optionally add a Markdown description and acceptance criteria. Choose Type, Assignee, Priority and Status in one row on desktop; these controls stack on mobile. Creating the task opens its detail page. A new task defaults to Task type and Todo status. REST/MCP creation can also set start date and due date.

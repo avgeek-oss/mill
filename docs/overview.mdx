@@ -1,70 +1,20 @@
 ---
-title: "Mill"
-description: "A self-hosted task list for teams."
+title: "About Mill"
+description: "Self-hosted task lists for teams."
+icon: "book-open"
 ---
 
-import { Screenshot } from "/snippets/oss/screenshot.jsx";
+Mill is an open-source task list for teams. Organize work into boards, assign tasks, set priorities and dates, and keep the discussion alongside each task.
 
-Mill is a self-hosted task list for teams and their clients. Run an API image and a UI image connected to your PostgreSQL database. An optional Compose overlay supplies PostgreSQL when you need it. Ordinary task management needs no LLM key, external runtime, or paid service.
+You host Mill and own its data. The UI and API run as container images, with PostgreSQL for storage. Choose [Docker Compose](/installation/docker-compose) or [Towbar](/installation/towbar) to manage your installation.
 
-Create boards and track work through six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional human assignees, priorities, start and due dates, comments, and activity. Search, combine filters, sort, and page through each board's list. Completed tasks leave the default list after 24 hours but remain available through an explicit status filter or direct link.
+## Keep work together
 
-Optional [task attachments](/task-attachments) show images and PDFs below each task's description, with an Upload attachment dialog. An operator enables a private S3-compatible bucket; members upload and delete files, while viewers can read them.
+- **Boards** group related tasks and give them a recognizable prefix, such as `ENG-17`.
+- **Tasks** include a description, acceptance criteria, an assignee, priority and dates.
+- **Comments and replies** keep decisions with the work. In-app notifications highlight assignments and mentions.
+- **REST and MCP** let scripts and assistants work with your team’s permissioned access.
 
-People sign in with their own accounts. Administrators manage invitations and roles; assignment and mention notifications stay in the app. Optional SMTP enables invitation, verification, and password-reset email. Without SMTP, administrators share invitation links privately and the server operator can issue a private account-recovery link. Mill does not send task notifications by email.
+Start with [Installation](/installation), then [create your first board](/boards). Explore [task lists](/task-lists) to search, filter and update several tasks together, or [task details](/task-details) to work on an individual task.
 
-External clients can use personal or team API keys with explicit grants for REST. Personal keys remain bounded by the owner's current active role; team keys use a stored team policy. MCP requires OAuth with approved scopes and the approving person's current role and board access. Mill does not run external clients or launch jobs when a task is assigned.
-
-Start with [installation](/installation) and [your first board](/getting-started). Read [everyday work](/workflows) for the task model, [accounts and team access](/authentication) for invitations and passkeys, [REST and MCP connections](/clients) for external clients, and [backup and recovery](/backup) before storing important work.
-
-Mill is licensed under Apache 2.0. See [release notes](/release-notes) for the proposed version and [installation](/installation) for the available installation methods.
-
-## In the app
-
-### Boards
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/boards-light.png"
-      dark="/assets/screenshots/release-v1/boards-dark.png"
-      alt="Boards in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/boards-mobile-light.png"
-      dark="/assets/screenshots/release-v1/boards-mobile-dark.png"
-      alt="Boards in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Task list
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/board-light.png"
-      dark="/assets/screenshots/release-v1/board-dark.png"
-      alt="Task list in Mill with sample data."
-      width={5120}
-      height={3600}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/board-mobile-light.png"
-      dark="/assets/screenshots/release-v1/board-mobile-dark.png"
-      alt="Task list in Mill with sample data."
-      width={1560}
-      height={3376}
-      portrait
-    />
-  </Tab>
-</Tabs>
+Mill is licensed under [Apache 2.0](https://github.com/avgeek-oss/mill/blob/main/LICENSE). Source code and [release history](https://github.com/avgeek-oss/mill/releases) are on GitHub.

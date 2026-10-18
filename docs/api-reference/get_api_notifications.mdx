@@ -1,0 +1,16 @@
+---
+title: "List personal notifications"
+description: "Read every unread assignment and mention notification and notifications read in the last 24 hours. Use `nextCursor` for all pages; `unreadCount` is independent of page size."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/notifications"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+Read every unread assignment and mention notification and notifications read in the last 24 hours. Use `nextCursor` for all pages; `unreadCount` is independent of page size.
+
+Unread notifications remain visible; read notifications are retained in the list for 24 hours. `unreadCount` is independent of page size. These are personal notifications; team API keys cannot access them.
+
+MCP clients can use [`list_notifications`](/mcp-reference/list_notifications) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

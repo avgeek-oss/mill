@@ -1,0 +1,78 @@
+---
+title: "get_attachment_config"
+description: "Read attachment configuration with Mill MCP."
+icon: "plug"
+---
+
+Check whether optional private image/PDF attachments are enabled, and read accepted file types and size limit.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Check enabled"] --> step1
+  step1["Inspect MIME types and byte limit"] --> step2
+  step2["Choose an allowed file"]
+```
+
+## Access and behavior
+
+A Read-only, Write or Administrator OAuth grant can call this tool within the user’s current team role. Tools are listed and callable only when the current grant and role permit them.
+
+Storage is optional. When disabled, this operation still returns configuration with enabled:false; other attachment operations are unavailable.
+
+## Arguments
+
+| Argument | Required | Type or meaning       |
+| -------- | -------- | --------------------- |
+| None     | No       | Pass an empty object. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "get_attachment_config",
+    "arguments": {}
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "enabled": true,
+  "maxBytes": 20971520,
+  "contentTypes": [
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+    "application/pdf"
+  ]
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/get_api_attachments_config) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

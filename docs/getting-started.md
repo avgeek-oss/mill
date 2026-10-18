@@ -4,9 +4,9 @@ Install Mill using [the installation guide](installation.md), then open its URL.
 
 ## Make a board and task
 
-Choose **Boards** under **Operate**, then choose **Create Board**. Give the board a short name and, if useful, a description and task prefix. The prefix becomes part of task IDs such as `ENG-1` and cannot be changed later. Boards appear as alphabetical cards with separate Backlog, To Do and In Progress task counts. Open the card to see its task table.
+Choose **Boards** under **Operate**, then choose **Create Board**. Give the board a short name and, if useful, a description and task prefix. The prefix becomes part of task IDs such as `ENG-1` and can be changed later in General settings. Boards appear as alphabetical cards with separate Backlog, To Do and In Progress task counts. Open the card to see its task table.
 
-Choose **New task**. Enter a title, select Task or Bug, and optionally add a description and assignee. The task page opens after creation. New tasks default to Task type and Todo status. On the task page, use **Type** above **Status** and add a priority, start date, or due date as needed. Use **Edit task** for the title and Markdown description. Each property saves independently; the task ID stays the same when its title or type changes.
+Choose **New task**. Enter a title, select Task or Bug, and optionally add a description, acceptance criteria and assignee. The task page opens after creation. New tasks default to Task type and Todo status; the creation form also lets you choose priority and status. On the task page, use **Type** above **Status** and add a priority, start date, or due date as needed. Use **Edit task** for the title and Markdown description. Each property saves independently; the task ID stays the same when its title or type changes.
 
 Change Todo to In Progress, then In Review or Done. The six fixed statuses are Backlog, Todo, In Progress, In Review, Done, and Won't Do. Leave a comment and reload to check that it was saved. The task page records changes in **Activity**.
 

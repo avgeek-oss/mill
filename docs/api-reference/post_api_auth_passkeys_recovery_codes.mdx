@@ -1,0 +1,12 @@
+---
+title: "Replace passkey recovery codes"
+description: "Requires a passkey verification within the last ten minutes and an existing passkey. Returns newly generated one-time codes; retain them privately."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/auth/passkeys/recovery-codes"
+---
+
+A signed-in human session with recent authentication is required. Complete password/passkey reauthentication when requested.
+
+Requires a passkey verification within the last ten minutes and an existing passkey. Returns newly generated one-time codes; retain them privately.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

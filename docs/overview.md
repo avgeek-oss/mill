@@ -1,15 +1,16 @@
-# Mill
+# About Mill
 
-Mill is a self-hosted task list for teams and their clients. Run an API image and a UI image connected to your PostgreSQL database. An optional Compose overlay supplies PostgreSQL when you need it. Ordinary task management needs no LLM key, external runtime, or paid service.
+Mill is an open-source task list for teams. Organize work into boards, assign tasks, set priorities and dates, and keep the discussion alongside each task.
 
-Create boards and track work through six fixed statuses: Backlog, Todo, In Progress, In Review, Done, and Won't Do. Tasks have Task or Bug types, stable identifiers, Markdown descriptions, optional human assignees, priorities, start and due dates, comments, and activity. Search, combine filters, sort, and page through each board's list. Completed tasks leave the default list after 24 hours but remain available through an explicit status filter or direct link.
+You host Mill and own its data. The UI and API run as container images, with PostgreSQL for storage. Choose [Docker Compose](installation/docker-compose.md) or [Towbar](installation/towbar.md) to manage your installation.
 
-Optional [task attachments](task-attachments.md) show images and PDFs below each task's description, with an Upload attachment dialog. An operator enables a private S3-compatible bucket; members upload and delete files, while viewers can read them.
+## Keep work together
 
-People sign in with their own accounts. Administrators manage invitations and roles; assignment and mention notifications stay in the app. Optional SMTP enables invitation, verification, and password-reset email. Without SMTP, administrators share invitation links privately and the server operator can issue a private account-recovery link. Mill does not send task notifications by email.
+- **Boards** group related tasks and give them a recognizable prefix, such as `ENG-17`.
+- **Tasks** include a description, acceptance criteria, an assignee, priority and dates.
+- **Comments and replies** keep decisions with the work. In-app notifications highlight assignments and mentions.
+- **REST and MCP** let scripts and assistants work with your team’s permissioned access.
 
-External clients can use personal or team API keys with explicit grants for REST. Personal keys remain bounded by the owner's current active role; team keys use a stored team policy. MCP requires OAuth with approved scopes and the approving person's current role and board access. Mill does not run external clients or launch jobs when a task is assigned.
+Start with [Installation](installation.md), then [create your first board](boards.md). Explore [task lists](task-lists.md) to search, filter and update several tasks together, or [task details](task-details.md) to work on an individual task.
 
-Start with [installation](installation.md) and [your first board](getting-started.md). Read [everyday work](workflows.md) for the task model, [accounts and team access](authentication.md) for invitations and passkeys, [REST and MCP connections](clients.md) for external clients, and [backup and recovery](backup.md) before storing important work.
-
-Mill is licensed under Apache 2.0. See [release notes](release-notes.md) for the proposed version and [installation](installation.md) for the available installation methods.
+Mill is licensed under [Apache 2.0](https://github.com/avgeek-oss/mill/blob/main/LICENSE). Source code and [release history](https://github.com/avgeek-oss/mill/releases) are on GitHub.

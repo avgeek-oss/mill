@@ -1,0 +1,12 @@
+---
+title: "Complete passkey registration"
+description: "Verifies the browser's RegistrationResponseJSON against the stored challenge, origin and RP ID. The first passkey also returns recoveryCodes."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/auth/passkeys/register/verify"
+---
+
+A signed-in human session with recent authentication is required. Complete password/passkey reauthentication when requested.
+
+Verifies the browser's RegistrationResponseJSON against the stored challenge, origin and RP ID. The first passkey also returns recoveryCodes.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

@@ -1,6 +1,6 @@
 # Task attachments
 
-Images and PDFs appear directly below the task description when your operator enables [private S3 storage](configuration.md#optional-task-attachments). Comments and Activity remain separate tabs below the task content.
+Images and PDFs appear directly below the task description when your operator enables [private S3 storage](configuration.md#s3-source). Comments and Activity remain separate tabs below the task content.
 
 ## Upload a file
 

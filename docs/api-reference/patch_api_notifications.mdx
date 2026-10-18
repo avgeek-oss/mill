@@ -1,0 +1,16 @@
+---
+title: "Mark personal notifications"
+description: "Mark selected notifications or all notifications present at the request snapshot as read/unread. Repeated read marks preserve the first read time. Choose ids OR all:true."
+playground: simple
+openapi: "/api-reference/openapi.json PATCH /api/notifications"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Mark selected notifications or all notifications present at the request snapshot as read/unread. Repeated read marks preserve the first read time. Choose ids OR all:true.
+
+Choose ids or all:true, never both. read defaults to true; false marks unread. All applies to the request snapshot, leaving later arrivals unread. Repeated read marks preserve the original receipt time. Team API keys cannot mutate personal notifications.
+
+MCP clients can use [`mark_notifications`](/mcp-reference/mark_notifications) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

@@ -1,0 +1,98 @@
+---
+title: "delete_task"
+description: "Delete a task with Mill MCP."
+icon: "plug"
+---
+
+Permanently delete a task and its discussion. Confirm with the user before deleting their work.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Read task and current version"] --> step1
+  step1["Confirm permanent deletion"] --> step2
+  step2["Delete task and discussion"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+Permanently removes the task, discussion, activity and notifications, and queues attachment cleanup. Task numbers are not reused. Without the same retry key a repeated delete returns 404.
+
+<Warning>
+  Confirm the exact target and consequence with the user before calling this
+  tool.
+</Warning>
+
+## Arguments
+
+| Argument         | Required | Type or meaning                                                                                            |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `taskId`         | Yes      | Task UUID, not its human identifier such as ENG-1.                                                         |
+| `version`        | Yes      | Latest row version; stale mutations return HTTP 409.                                                       |
+| `idempotencyKey` | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["taskId", "version"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "delete_task",
+    "arguments": {
+      "taskId": "22222222-2222-4222-8222-222222222222",
+      "version": 1,
+      "idempotencyKey": "restore-check-delete-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "ok": true
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/delete_api_tasks_by_taskId) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

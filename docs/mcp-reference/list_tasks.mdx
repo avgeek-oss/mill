@@ -1,0 +1,170 @@
+---
+title: "list_tasks"
+description: "List and filter tasks with Mill MCP."
+icon: "plug"
+---
+
+Search and filter tasks in one board. Combine q, status, `assigneeId`, priority and sort. Without a status filter, done and wont_do tasks are hidden after 24 hours in that status. Set status explicitly to include older tasks in that status. Tasks are sorted by priority from urgent through none by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Choose board and filters"] --> step1
+  step1["Read a page"] --> step2
+  step2["Continue with revision or cursor"]
+```
+
+## Access and behavior
+
+A Read-only, Write or Administrator OAuth grant can call this tool within the user’s current team role. Tools are listed and callable only when the current grant and role permit them.
+
+Priority is the default: urgent, high, medium, low, none. Without an explicit status filter, done and wont_do tasks disappear from lists after 24 hours in that status but retain direct access. q searches title, description, acceptance criteria and identifier. `assigneeId`:unassigned finds tasks without an assignee.
+
+## Arguments
+
+| Argument     | Required | Type or meaning                                                                                              |
+| ------------ | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `boardId`    | Yes      | Board UUID, not its task prefix.                                                                             |
+| `q`          | No       | string                                                                                                       |
+| `status`     | No       | backlog, todo, in_progress, in_review, done, wont_do                                                         |
+| `assigneeId` | No       | Active member UUID; null clears an assignment on mutation, unassigned filters unassigned tasks when listing. |
+| `priority`   | No       | none, low, medium, high, urgent                                                                              |
+| `sort`       | No       | createdAt, updatedAt, dueDate, priority, status, title                                                       |
+| `limit`      | No       | integer                                                                                                      |
+| `cursor`     | No       | Opaque nextCursor from the preceding response with identical filters.                                        |
+| `page`       | No       | integer                                                                                                      |
+| `revision`   | No       | Revision returned by the task list; send with numbered pages to reject concurrent list changes.              |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "boardId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "q": {
+      "type": "string",
+      "maxLength": 300
+    },
+    "status": {
+      "type": "string",
+      "enum": ["backlog", "todo", "in_progress", "in_review", "done", "wont_do"]
+    },
+    "assigneeId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "string",
+          "const": "unassigned"
+        }
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high", "urgent"]
+    },
+    "sort": {
+      "type": "string",
+      "enum": [
+        "createdAt",
+        "updatedAt",
+        "dueDate",
+        "priority",
+        "status",
+        "title"
+      ]
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "cursor": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "page": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{32}$"
+    }
+  },
+  "required": ["boardId"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "list_tasks",
+    "arguments": {
+      "boardId": "11111111-1111-4111-8111-111111111111",
+      "sort": "priority",
+      "page": 1,
+      "limit": 25
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "items": [
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "boardId": "11111111-1111-4111-8111-111111111111",
+      "identifier": "ENG-1",
+      "title": "Verify database restore",
+      "description": "Restore a recent backup into an isolated database.",
+      "acceptanceCriteria": "- Confirm task and comment counts match\n- Record the result",
+      "type": "task",
+      "status": "todo",
+      "priority": "high",
+      "assigneeId": "66666666-6666-4666-8666-666666666666",
+      "startDate": "2027-01-18",
+      "dueDate": "2027-01-20",
+      "version": 1,
+      "statusChangedAt": "2027-01-18T09:30:00.000Z",
+      "createdAt": "2027-01-18T09:30:00.000Z",
+      "updatedAt": "2027-01-18T09:30:00.000Z",
+      "createdBy": "66666666-6666-4666-8666-666666666666"
+    }
+  ],
+  "hasMore": false,
+  "nextCursor": null,
+  "total": 1,
+  "page": 1,
+  "revision": "0123456789abcdef0123456789abcdef"
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/get_api_boards_by_boardId_tasks) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

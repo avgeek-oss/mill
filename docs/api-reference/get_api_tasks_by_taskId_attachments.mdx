@@ -1,0 +1,16 @@
+---
+title: "List task attachments"
+description: "List completed attachments for a task, newest first. Use `nextCursor` to continue."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/tasks/{taskId}/attachments"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+List completed attachments for a task, newest first. Use `nextCursor` to continue.
+
+Pending uploads are not listed. Metadata never contains permanent public URLs.
+
+MCP clients can use [`list_attachments`](/mcp-reference/list_attachments) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

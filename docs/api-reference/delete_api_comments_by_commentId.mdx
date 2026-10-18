@@ -1,0 +1,16 @@
+---
+title: "Delete a comment"
+description: "Delete your comment."
+playground: simple
+openapi: "/api-reference/openapi.json DELETE /api/comments/{commentId}"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Delete your comment.
+
+Authors can delete their own comments. Human administrators can moderate with sufficient permission; OAuth clients can delete only their owner's comments. Children move to the deleted comment's parent, receive new versions, and retain their text. Comments cannot be edited.
+
+MCP clients can use [`delete_comment`](/mcp-reference/delete_comment) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

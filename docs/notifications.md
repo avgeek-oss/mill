@@ -2,6 +2,8 @@
 
 Mill creates in-app notifications when a teammate assigns a task to you or mentions you in a comment. Your own actions do not notify you. Task notifications are not sent by email. Everyone with an active account can manage their own notification preferences and read state.
 
+<!-- screenshot:notifications -->
+
 ## Read and clear notifications
 
 Choose the bell in the header to open your notifications. Unread items are marked in the list and reflected in the bell count. Choose an item to open its task; opening an unread item marks it as read. Choose **Mark all read** to clear the unread state of the visible account's notifications. Use **Load older notifications** when the list has more items.

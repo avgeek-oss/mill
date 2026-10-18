@@ -43,15 +43,15 @@ docker compose --project-name mill up --detach --wait
 
 Compose pulls `ghcr.io/avgeek-oss/mill-api` and `ghcr.io/avgeek-oss/mill-web` at the release version already written in the Compose file. Both services publish separate loopback ports. The browser calls the public API origin directly; expose each service with its own HTTPS hostname.
 
-Read the installation setup secret from `docker compose --project-name mill logs api`, then open [localhost:4322](http://localhost:4322), enter the secret and create your workspace and first administrator, and [make your first board](docs/getting-started.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
+Read the installation setup secret from `docker compose --project-name mill logs api`, then open [localhost:4322](http://localhost:4322), enter the secret and create your workspace and first administrator, and [make your first board](docs/boards.md). There is no default account or password. The published images need no GitHub login, npm credentials, Git, Node.js, or source build.
 
-If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation.md#optional-run-postgresql-with-compose). Your existing or managed PostgreSQL instance works directly with the default Compose file.
+If you want Compose to run PostgreSQL too, download `docker-compose.postgres.yml` from the same release and follow the [bundled PostgreSQL instructions](docs/installation/docker-compose.md#choose-your-database). Your existing or managed PostgreSQL instance works directly with the default Compose file.
 
-Images and PDFs appear below the task description. **Upload attachment** opens a dialog with a file chooser and drop area. Dropping a file onto the task page also opens the dialog and starts uploading. To enable this, configure optional private S3-compatible storage through [configuration](docs/configuration.md#optional-task-attachments). Ordinary task management works without a bucket.
+Images and PDFs appear below the task description. **Upload attachment** opens a dialog with a file chooser and drop area. Dropping a file onto the task page also opens the dialog and starts uploading. To enable this, configure optional private S3-compatible storage through [configuration](docs/configuration.md#s3-source). Ordinary task management works without a bucket.
 
 Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 
-For Towbar, use the repository's API, UI, and PostgreSQL manifests and follow [Deploy with Towbar](docs/towbar-deployment.md). They use packaged images with separate public UI and API origins.
+For Towbar, follow [the installation guide](docs/installation/towbar.md) for copyable API, UI and PostgreSQL manifests. The examples use packaged images with separate public UI and API origins.
 
 ## Develop
 
@@ -86,12 +86,11 @@ Run `pnpm docs:dev` to preview the documentation from the repository's `docs` ro
 
 Read the [Mill website and documentation](https://www.mill.fyi) or use the guides in this repository.
 
-- [Overview](docs/overview.md), [installation](docs/installation.md), [configuration](docs/configuration.md), and [first board](docs/getting-started.md)
+- [Overview](docs/overview.md), [installation](docs/installation.md), [configuration](docs/configuration.md), and [first board](docs/boards.md)
 - [Task lists and filters](docs/task-lists.md), [task details and discussion](docs/task-details.md), [task attachments](docs/task-attachments.md), and [notifications](docs/notifications.md)
-- [Team, tasks, and permissions](docs/workflows.md)
-- [Personal and team API keys](docs/api-keys.md), [MCP connections](docs/mcp-connections.md), and [REST API and MCP](docs/clients.md), [API reference](docs/api.md), and [access security](docs/authentication.md#external-credential-boundaries)
+- [Personal and team API keys](docs/api-keys.md), [MCP connections](docs/mcp-connections.md), [MCP tool reference](https://www.mill.fyi/mcp-reference/overview), [API reference](https://www.mill.fyi/api-reference/overview), and [access security](docs/authentication.md#external-credential-boundaries)
 - [Operations](docs/operations.md), [backup and recovery](docs/backup.md), and [upgrades](docs/upgrades.md)
-- [Troubleshooting](docs/troubleshooting.md), [security reporting](docs/security.md), and [v1 release notes](docs/release-notes.md)
+- [Troubleshooting](docs/troubleshooting.md), [security reporting](docs/security.md), and [changelog](https://github.com/avgeek-oss/mill/releases)
 - [Contributing](CONTRIBUTING.md), [security reports](SECURITY.md), and [code of conduct](CODE_OF_CONDUCT.md)
 
 ## License

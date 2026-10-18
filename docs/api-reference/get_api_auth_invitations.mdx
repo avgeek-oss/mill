@@ -1,0 +1,12 @@
+---
+title: "List team invitations"
+description: "Lists unexpired invitations, including accepted or revoked entries, with cursor pagination. Use `nextCursor` unchanged; a cursor from another team is rejected."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/auth/invitations"
+---
+
+A signed-in human administrator is required. API keys and MCP credentials cannot replace that session. Sensitive operations can also require recent authentication.
+
+Lists unexpired invitations, including accepted or revoked entries, with cursor pagination. Use `nextCursor` unchanged; a cursor from another team is rejected.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

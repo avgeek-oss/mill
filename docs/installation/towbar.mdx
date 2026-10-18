@@ -1,0 +1,210 @@
+---
+title: "Towbar"
+description: "Deploy Mill through your existing Towbar installation."
+icon: "/assets/installation/towbar.png"
+---
+
+Deploy Mill on a server already registered with your [Towbar](https://www.towbar.dev) installation. You need a Git repository for the deployment files and separate domains for Mill and its API.
+
+## 1. Add the deployment files
+
+Copy these files into your deployment repository. Keep their folder structure:
+
+<Tree>
+  <Tree.File name="towbar.yml" />
+  <Tree.Folder name=".towbar" defaultOpen>
+    <Tree.Folder name="services" defaultOpen>
+      <Tree.File name="mill-api.service.yml" />
+      <Tree.File name="mill-web.service.yml" />
+    </Tree.Folder>
+    <Tree.Folder name="datastores" defaultOpen>
+      <Tree.File name="mill-postgres.datastore.yml" />
+    </Tree.Folder>
+  </Tree.Folder>
+</Tree>
+
+Replace `192.0.2.10` with your registered server's address and replace the two `example.com` domains with your own. Both domains must use the same site, such as `tasks.example.com` and `tasks-api.example.com`, for browser sessions to work.
+
+The examples use direct TLS with unproxied DNS records. Adjust the TLS settings if your Towbar installation uses another certificate method. Resource limits are starting values; check available server capacity before deployment.
+
+<CodeGroup>
+```yaml towbar.yml
+# yaml-language-server: $schema=https://towbar.dev/schemas/repository.v2.json
+version: 2
+buildServer: null
+environments:
+  production: {}
+```
+
+```yaml .towbar/services/mill-api.service.yml
+# yaml-language-server: $schema=https://towbar.dev/schemas/app.v2.json
+id: mill-api
+name: Mill API
+deployment:
+  type: image
+  image: ghcr.io/avgeek-oss/mill-api@sha256:774035bd81e8e65fc32c2026eacba4300d39776b01ca182a7dd5e7ae89e2a66a
+autoDeploy: false
+rollout:
+  type: recreate
+  maintenanceMode: true
+  reason: Keep one API container during the upgrade.
+container:
+  network: mill
+  port: 4321
+  resources:
+    cpus: 0.25
+    memory: 512m
+health:
+  type: http
+  path: /health/ready
+  timeoutSeconds: 180
+secrets:
+  runtime:
+    - NODE_ENV
+    - DATABASE_URL
+    - MILL_SECRET
+    - MILL_WEB_URL
+    - MILL_API_URL
+    # Uncomment this group to enable task attachments.
+    # - MILL_S3_ENDPOINT
+    # - MILL_S3_REGION
+    # - MILL_S3_BUCKET
+    # - MILL_S3_ACCESS_KEY_ID
+    # - MILL_S3_SECRET_ACCESS_KEY
+    # Uncomment to configure identity and invitation email.
+    # - MILL_SMTP_HOST
+    # - MILL_SMTP_PORT
+    # - MILL_SMTP_SECURE
+    # - MILL_SMTP_USER
+    # - MILL_SMTP_PASSWORD
+    # - MILL_SMTP_FROM
+environments:
+  production:
+    server: 192.0.2.10
+domains:
+  primary: tasks-api.example.com
+tls:
+  mode: direct
+```
+
+```yaml .towbar/services/mill-web.service.yml
+# yaml-language-server: $schema=https://towbar.dev/schemas/app.v2.json
+id: mill-web
+name: Mill UI
+deployment:
+  type: image
+  image: ghcr.io/avgeek-oss/mill-web@sha256:6bcc376ce5e9035636bb7822db2f08709da25dee3a881e6db1d5ab93f9e5a7b4
+autoDeploy: false
+rollout:
+  type: recreate
+  maintenanceMode: true
+  reason: Keep one UI container during the upgrade.
+container:
+  network: mill
+  port: 4322
+  resources:
+    cpus: 0.125
+    memory: 256m
+health:
+  type: http
+  path: /health/ready
+  timeoutSeconds: 180
+secrets:
+  runtime:
+    - NODE_ENV
+    - MILL_API_URL
+    # Uncomment when attachments are configured on the API.
+    # - MILL_S3_ENDPOINT
+environments:
+  production:
+    server: 192.0.2.10
+domains:
+  primary: tasks.example.com
+tls:
+  mode: direct
+```
+
+```yaml .towbar/datastores/mill-postgres.datastore.yml
+# yaml-language-server: $schema=https://towbar.dev/schemas/resource.v2.json
+id: mill-postgres
+name: Mill PostgreSQL
+type: postgres
+image: postgres:17.9-alpine@sha256:c7526c0f6c3f30260a563d7bcf8ad778effac59a44f8ffa86678c35418338609
+autoDeploy: false
+container:
+  network: mill
+  networkAlias: mill-postgres
+  resources:
+    cpus: 0.25
+    memory: 512m
+secrets:
+  runtime:
+    - POSTGRES_USER
+    - POSTGRES_DB
+    - POSTGRES_PASSWORD
+environments:
+  production:
+    server: 192.0.2.10
+```
+
+</CodeGroup>
+
+The API and UI references above are the published [Mill 1.0.6](https://github.com/avgeek-oss/mill/releases/tag/v1.0.6) images. For another release, copy both digest-pinned image references from that release and update them together. Towbar selects the server's native AMD64 or ARM64 image.
+
+## 2. Connect the repository
+
+Add your deployment repository as a source in Towbar, map `production` to your deployment branch, and sync it. Review the two services and PostgreSQL datastore.
+
+The files set `autoDeploy: false`, so syncing does not start workloads. Save runtime values before starting each deployment.
+
+## 3. Add runtime values
+
+Run this command twice to generate separate values for the database password and `MILL_SECRET`:
+
+```sh
+openssl rand -hex 32
+```
+
+Save these values in Towbar's runtime secrets, rather than in Git:
+
+| Workload   | Runtime values                                                                            |
+| ---------- | ----------------------------------------------------------------------------------------- |
+| PostgreSQL | `POSTGRES_USER=mill`, `POSTGRES_DB=mill`, and your generated `POSTGRES_PASSWORD`.         |
+| API        | `NODE_ENV=production`, `DATABASE_URL`, `MILL_SECRET`, `MILL_WEB_URL`, and `MILL_API_URL`. |
+| UI         | `NODE_ENV=production` and the same public `MILL_API_URL`.                                 |
+
+Use `postgres://mill:YOUR_DATABASE_PASSWORD@mill-postgres:5432/mill` as `DATABASE_URL`. Replace the placeholder privately with the datastore's password. Percent-encode special characters if you use a password format other than the generated hexadecimal value.
+
+Set `MILL_WEB_URL=https://tasks.example.com` and `MILL_API_URL=https://tasks-api.example.com`, replacing the domains with your final HTTPS origins. The API and UI must use the same API origin. Keep `MILL_SECRET` private and preserve it across upgrades and restores.
+
+### Optional email and attachments
+
+Leave the commented runtime keys out for an installation without email or attachments. Towbar requires a value for every uncommented runtime key.
+
+For identity and invitation email, uncomment the `MILL_SMTP_*` keys you need on the API and supply their values. `MILL_SMTP_HOST` and `MILL_SMTP_FROM` are required together; configure user and password together when authentication is needed. See [email configuration](/configuration#smtp) for ports and TLS settings.
+
+For task attachments, uncomment all five `MILL_S3_*` keys on the API and `MILL_S3_ENDPOINT` on the UI. Use a private bucket and a browser-accessible HTTPS endpoint with CORS allowing your exact `MILL_WEB_URL`. The UI needs only the public endpoint; storage credentials stay on the API. Follow [attachment storage configuration](/configuration#s3-source) for credentials, CORS and lifecycle rules.
+
+## 4. Deploy Mill
+
+Deploy PostgreSQL first, then API and UI. Wait for each workload to become ready before continuing. Towbar manages the datastore's persistent volume; retain it during upgrades.
+
+The API prepares the database automatically before accepting requests. The UI serves the app and its public runtime configuration. Browser requests go directly to the public API origin, so both API and UI domains must resolve and have valid HTTPS certificates. Keep PostgreSQL on the private `mill` network.
+
+Check `/health/ready` on both public origins, then open the app. A ready UI alone does not establish database or API connectivity.
+
+## 5. Create your team
+
+Open the API startup log in Towbar and find the line labelled `Mill installation setup secret`. Open your Mill URL, enter the setup secret, and create your team and first administrator. The setup secret is separate from `MILL_SECRET`; keep it and the startup logs private.
+
+There is no default account. Setup closes once the workspace exists. Verify sign-in and task creation, then continue with [your first board and task](/boards).
+
+## Use an existing database
+
+Omit the PostgreSQL datastore file and point `DATABASE_URL` at a dedicated PostgreSQL database reachable from the API container. Include the provider's required TLS settings and use a database user that can create and modify Mill's tables. The API and UI manifests otherwise stay the same.
+
+## Backups and upgrades
+
+Set up [Backup and recovery](/backup) before storing production data. Preserve the original `MILL_SECRET`, keep encrypted backups off the deployment server, and rehearse a restore into a separate database. Back up attachment objects separately when S3 storage is enabled. The datastore example does not configure a Towbar backup destination; configure one separately if needed.
+
+Before upgrading, back up the database and read [Upgrades](/upgrades). Update the API and UI digest pair together, sync the repository, and deploy API followed by UI. The examples use recreate rollouts with maintenance mode, so expect brief downtime. An image rollback does not undo a database migration.

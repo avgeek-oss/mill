@@ -1,0 +1,38 @@
+---
+title: "HTTP API reference"
+description: "Every Mill HTTP operation, with request schemas and response examples."
+---
+
+Use [API keys](/api-keys) for REST clients and [MCP connections](/mcp-connections) for OAuth clients. This reference covers 85 registered HTTP operations. The [OpenAPI document](/api-reference/openapi.json) uses fictional example data and the installation URL `https://mill-api.example.com`.
+
+## Requests and authorization
+
+REST API keys use the `Authorization: Bearer` header. Personal grants remain bounded by current active membership; team grants use stored team policy. OAuth bearer tokens authorize `/mcp` only. Human account, security and credential-management routes require a signed-in browser session. Browser mutations carrying cookies require the exact configured UI `Origin`. Public setup, email and passkey flows can still require private endpoint-specific tokens or challenges.
+
+Use a resource's UUID in its path. Human task identifiers such as `ENG-1` are labels. Send a current version on protected edits; a stale edit returns 409 and leaves the operation unchanged. Prefix changes preserve UUID links while renaming existing task identifiers.
+
+## Retry safety
+
+For `POST`, `PATCH` and `DELETE` below `/api` outside human authentication, send `Idempotency-Key` with 8–128 letters, digits or `._:-` without spaces. Reuse the key with the exact same request bytes for one logical retry. A changed payload conflicts. Saved responses last 24 hours and replay with `Idempotency-Replayed: true`. Permanent deletion invalidates saved work responses; a terminal `410 retry_invalidated` must not be retried as a new create.
+
+## Pagination and dates
+
+Continue lists with `nextCursor` and identical filters until `hasMore: false`. Do not interpret cursors. Changed board, task or member collections can return 409; restart without the old cursor. Task lists also support numbered pages with a returned revision. Task sorting defaults to `priority`. Done and Won't Do tasks leave default lists after 24 hours in their current status; an explicit status filter includes older records. Start and due dates are nullable `YYYY-MM-DD` calendar dates without time zones.
+
+## Failures and limits
+
+Generic JSON errors use `{error:{code,message,requestId}}`; the correlation ID is also in `X-Request-Id`. OAuth failures can use `{error,error_description}`; MCP tool failures set `isError` and must not be treated as a completed change. Authentication and current access are checked on every operation.
+
+Rate limits are 240 authenticated requests per minute per person/credential and 120 anonymous requests per minute per client address; MCP dispatch also uses the REST limit. HTTP 429 includes `Retry-After: 60`. Ordinary bodies are at most 2 MiB, credential/OAuth bodies 16 KiB, and MCP requests/responses 1 MiB. Endpoint validation and file-size limits still apply.
+
+| Status | Recovery                                                               |
+| ------ | ---------------------------------------------------------------------- |
+| 400    | Correct invalid fields or cursor context.                              |
+| 401    | Authenticate again or renew the connection.                            |
+| 403    | Check the current role, grant and board scope.                         |
+| 404    | Refresh the resource; it may have been deleted.                        |
+| 409    | Refresh versions or restart list pagination; inspect the error code.   |
+| 410    | The upload or saved retry is terminal; follow its documented recovery. |
+| 413    | Reduce the request body.                                               |
+| 429    | Wait for `Retry-After` before retrying.                                |
+| 503    | Service, database or optional attachment storage is unavailable.       |

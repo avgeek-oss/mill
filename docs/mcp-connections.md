@@ -2,6 +2,8 @@
 
 Mill exposes a remote MCP server at your installation's `/mcp` URL. A compatible client connects only with OAuth, which you approve in Mill. Personal and team API keys are for REST access. Mill does not run the client or require an LLM key for task management.
 
+<!-- screenshot:mcp-connections -->
+
 ## Connect a client with OAuth
 
 Open **Account Settings → MCP Guide** and choose your client: Codex, Claude Code, Cursor, VS Code, or Other clients. Copy the configuration shown for your installation. The guide uses the configured public API origin plus `/mcp`; remote connections need HTTPS. Local HTTP OAuth works automatically when `MILL_API_URL` is an exact loopback origin.
@@ -18,4 +20,4 @@ Open **Account Settings → MCP Connections** to see connected clients, their re
 
 OAuth access tokens work only with `/mcp`, expire after 30 days, and have no refresh token. Clients may advertise refresh-token support in their metadata, but Mill issues authorization-code access tokens only. Reconnect from the client when one expires. Older board-restricted connections cannot create boards or list the team directory. MCP tools available to the client depend on its approved scopes and your current role and board access; its writes use the same task versions and retry behavior as REST. When private S3 storage is configured, attachment tools create signed image/PDF uploads, verify completion, list files, issue download URLs and delete attachments within the approved task scope. File bytes move directly through the signed URL. There are no Agent, Kanban, custom-status or checklist tools.
 
-If a connection fails, check the exact `/mcp` URL, HTTPS or loopback setting, chosen access level, and current role. A `401` usually means the credential expired or was revoked; a `403` means the action exceeds the approved access. See [client troubleshooting](troubleshooting.md#an-mcp-client-cannot-connect) and the [full REST/MCP guide](clients.md).
+If a connection fails, check the exact `/mcp` URL, HTTPS or loopback setting, chosen access level, and current role. A `401` usually means the credential expired or was revoked; a `403` means the action exceeds the approved access. See [client troubleshooting](troubleshooting.md#an-mcp-client-cannot-connect) and [individual tool reference](https://www.mill.fyi/mcp-reference/overview).

@@ -1,0 +1,12 @@
+---
+title: "Begin passkey authentication"
+description: "Returns challengeId and WebAuthn request options. Supply an active challengeId for password-login or reauthentication; a signed-in session without one starts reauthentication."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/auth/passkeys/authenticate/options"
+---
+
+No signed-in session is required. Endpoint-specific tokens, setup secrets or challenges may still be required.
+
+Returns challengeId and WebAuthn request options. Supply an active challengeId for password-login or reauthentication; a signed-in session without one starts reauthentication.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

@@ -1,0 +1,16 @@
+---
+title: "Read a board"
+description: "Read a board's settings."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/boards/{boardId}"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+Read a board's settings.
+
+Use the UUID in API paths. The task prefix is a human-readable identifier component, not the board ID. Creator presentation and task counts are supplied by list_boards.
+
+MCP clients can use [`get_board`](/mcp-reference/get_board) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

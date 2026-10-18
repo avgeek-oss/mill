@@ -1,0 +1,16 @@
+---
+title: "Reserve an attachment upload"
+description: "Reserve an image/PDF attachment and obtain a short-lived private PUT URL. Upload file bytes directly to uploadUrl using the returned headers, then call complete_attachment. Treat URLs as temporary credentials; do not log them."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/tasks/{taskId}/attachments/uploads"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Reserve an image/PDF attachment and obtain a short-lived private PUT URL. Upload file bytes directly to uploadUrl using the returned headers, then call complete_attachment. Treat URLs as temporary credentials; do not log them.
+
+The signed PUT URL lasts five minutes. Upload directly using the returned headers; never forward a Mill cookie or bearer token to storage. Browsers set Content-Type and derive Content-Length from the file body.
+
+MCP clients can use [`create_attachment_upload`](/mcp-reference/create_attachment_upload) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

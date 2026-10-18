@@ -56,7 +56,7 @@ Include the exact commit/version, failed action, HTTP status, and configuration 
 
 ## Attachments do not appear or uploads fail
 
-The attachment area and Upload attachment button below the task description are hidden when the API has no S3 storage configuration. Configure the endpoint, bucket and both keys together, and restart with the new environment. Check [configuration](configuration.md#optional-task-attachments) for the full list.
+The attachment area and Upload attachment button below the task description are hidden when the API has no S3 storage configuration. Configure the endpoint, bucket and both keys together, and restart with the new environment. Check [configuration](configuration.md#s3-source) for the full list.
 
 For a browser upload failure, check that bucket CORS allows the exact `MILL_WEB_URL` origin, PUT/GET/HEAD and Content-Type. The API and UI must use the same public S3 endpoint; recreate both services after a change. A private container hostname cannot be reached by the browser. Confirm the key can read, write and delete objects in the configured private bucket.
 

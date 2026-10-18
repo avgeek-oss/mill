@@ -1,0 +1,101 @@
+---
+title: "complete_attachment"
+description: "Complete an attachment upload with Mill MCP."
+icon: "plug"
+---
+
+Verify the uploaded image/PDF and attach it to the task. Invalid bytes, size or type are rejected; reuse `idempotencyKey` on retries.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Upload the bytes"] --> step1
+  step1["Verify and complete"] --> step2
+  step2["List or download the ready file"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+Checks byte length, detected MIME/signature and optional SHA-256. Mill copies verified bytes to a final object. An expired upload returns 410 `UPLOAD_EXPIRED`; start a new upload.
+
+## Arguments
+
+| Argument         | Required | Type or meaning                                                                                            |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `taskId`         | Yes      | Task UUID, not its human identifier such as ENG-1.                                                         |
+| `attachmentId`   | Yes      | uuid                                                                                                       |
+| `idempotencyKey` | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "attachmentId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["taskId", "attachmentId"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "complete_attachment",
+    "arguments": {
+      "taskId": "22222222-2222-4222-8222-222222222222",
+      "attachmentId": "44444444-4444-4444-8444-444444444444",
+      "idempotencyKey": "restore-report-complete-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "attachment": {
+    "id": "44444444-4444-4444-8444-444444444444",
+    "taskId": "22222222-2222-4222-8222-222222222222",
+    "fileName": "restore-report.pdf",
+    "contentType": "application/pdf",
+    "sizeBytes": 2048,
+    "createdBy": "66666666-6666-4666-8666-666666666666",
+    "createdAt": "2027-01-18T09:30:00.000Z"
+  }
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/post_api_tasks_by_taskId_attachments_by_attachmentId_complete) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

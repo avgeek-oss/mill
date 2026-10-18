@@ -1,0 +1,124 @@
+---
+title: "update_board"
+description: "Update a board with Mill MCP."
+icon: "plug"
+---
+
+Edit board settings. Prefixes must be unique; changing one renames existing task identifiers while preserving task numbers and links. Send the current version to protect concurrent edits.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Read current board version"] --> step1
+  step1["Choose an available prefix"] --> step2
+  step2["Save and refresh task identifiers"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+A prefix change atomically renames existing task identifiers while preserving task numbers and UUID links. Existing task versions increase. Duplicate prefixes return 409 `BOARD_PREFIX_TAKEN`; stale versions conflict. Omitted fields remain unchanged.
+
+## Arguments
+
+| Argument         | Required | Type or meaning                                                                                            |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `boardId`        | Yes      | Board UUID, not its task prefix.                                                                           |
+| `version`        | Yes      | Latest row version; stale mutations return HTTP 409.                                                       |
+| `name`           | No       | string                                                                                                     |
+| `description`    | No       | string                                                                                                     |
+| `prefix`         | No       | string                                                                                                     |
+| `idempotencyKey` | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "boardId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 10000
+    },
+    "prefix": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9]{1,9}$"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["boardId", "version"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "update_board",
+    "arguments": {
+      "boardId": "11111111-1111-4111-8111-111111111111",
+      "version": 1,
+      "prefix": "OPS",
+      "idempotencyKey": "engineering-prefix-edit-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "board": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "workspaceId": "55555555-5555-4555-8555-555555555555",
+    "name": "Engineering",
+    "prefix": "OPS",
+    "description": "Track delivery and reliability.",
+    "version": 2,
+    "nextNumber": 2,
+    "createdAt": "2027-01-18T09:30:00.000Z",
+    "updatedAt": "2027-01-18T09:30:00.000Z",
+    "createdByUserId": "66666666-6666-4666-8666-666666666666",
+    "createdByName": "Alex Morgan",
+    "createdByKind": "human",
+    "lastActivityAt": "2027-01-18T09:30:00.000Z"
+  }
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/patch_api_boards_by_boardId) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)
