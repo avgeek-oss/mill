@@ -1,0 +1,12 @@
+---
+title: "MCP session termination request"
+description: "Accepts transport termination with an empty HTTP 200 response. Mill allocates no persistent MCP session, so this does not revoke the OAuth grant. Revoke the grant in account settings or through the OAuth revocation endpoint."
+playground: simple
+openapi: "/api-reference/openapi.json DELETE /mcp"
+---
+
+An OAuth bearer token issued for this installation's MCP resource is required. Static REST API keys cannot access /mcp.
+
+Accepts transport termination with an empty HTTP 200 response. Mill allocates no persistent MCP session, so this does not revoke the OAuth grant. Revoke the grant in account settings or through the OAuth revocation endpoint.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

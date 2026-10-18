@@ -1,0 +1,12 @@
+---
+title: "Send account verification email"
+description: "Queues verification for the signed-in account. Requires SMTP. resendAvailableAt is an epoch timestamp in milliseconds. X-Mill-User-Id can guard against a changed signed-in identity."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/auth/email-verification/request"
+---
+
+A signed-in human session is required. API keys and MCP bearer credentials cannot replace that session.
+
+Queues verification for the signed-in account. Requires SMTP. resendAvailableAt is an epoch timestamp in milliseconds. X-Mill-User-Id can guard against a changed signed-in identity.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

@@ -1,0 +1,93 @@
+---
+title: "get_board"
+description: "Read a board with Mill MCP."
+icon: "plug"
+---
+
+Read a board's settings.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Choose a board UUID"] --> step1
+  step1["Read current settings"] --> step2
+  step2["Keep its version for edits"]
+```
+
+## Access and behavior
+
+A Read-only, Write or Administrator OAuth grant can call this tool within the user’s current team role. Tools are listed and callable only when the current grant and role permit them.
+
+Use the UUID in API paths. The task prefix is a human-readable identifier component, not the board ID. Creator presentation and task counts are supplied by list_boards.
+
+## Arguments
+
+| Argument  | Required | Type or meaning                  |
+| --------- | -------- | -------------------------------- |
+| `boardId` | Yes      | Board UUID, not its task prefix. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "boardId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    }
+  },
+  "required": ["boardId"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "get_board",
+    "arguments": {
+      "boardId": "11111111-1111-4111-8111-111111111111"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "board": {
+    "id": "11111111-1111-4111-8111-111111111111",
+    "workspaceId": "55555555-5555-4555-8555-555555555555",
+    "name": "Engineering",
+    "prefix": "ENG",
+    "description": "Track delivery and reliability.",
+    "version": 1,
+    "nextNumber": 2,
+    "createdAt": "2027-01-18T09:30:00.000Z",
+    "updatedAt": "2027-01-18T09:30:00.000Z",
+    "createdByUserId": "66666666-6666-4666-8666-666666666666",
+    "createdByName": "Alex Morgan",
+    "createdByKind": "human",
+    "lastActivityAt": "2027-01-18T09:30:00.000Z"
+  }
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/get_api_boards_by_boardId) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

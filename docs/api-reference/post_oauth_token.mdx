@@ -1,0 +1,12 @@
+---
+title: "Exchange an OAuth authorization code"
+description: "Uses an authorization code once with the original redirect URI, MCP resource and PKCE verifier. This server does not issue refresh tokens. Client authentication follows the registered method."
+playground: simple
+openapi: "/api-reference/openapi.json POST /oauth/token"
+---
+
+Authenticate the OAuth client using its registered method: none, client_secret_basic or client_secret_post. Client credentials are distinct from a user's API key.
+
+Uses an authorization code once with the original redirect URI, MCP resource and PKCE verifier. This server does not issue refresh tokens. Client authentication follows the registered method.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

@@ -1,0 +1,16 @@
+---
+title: "List and filter tasks"
+description: "Search and filter tasks in one board. Combine q, status, `assigneeId`, priority and sort. Without a status filter, done and wont_do tasks are hidden after 24 hours in that status. Set status explicitly to include older tasks in that status. Tasks are sorted by priority from urgent through none by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/boards/{boardId}/tasks"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+Search and filter tasks in one board. Combine q, status, `assigneeId`, priority and sort. Without a status filter, done and wont_do tasks are hidden after 24 hours in that status. Set status explicitly to include older tasks in that status. Tasks are sorted by priority from urgent through none by default; status sort follows backlog, todo, in_progress, in_review, done, wont_do. Maximum 100 results per page, with total matching tasks and the current revision. Use either cursor continuation or a positive page number. Cursor cannot be combined with page or revision. Page requests clamp to the last available page; send the returned revision on subsequent page requests to reject changed lists.
+
+Priority is the default: urgent, high, medium, low, none. Without an explicit status filter, done and wont_do tasks disappear from lists after 24 hours in that status but retain direct access. q searches title, description, acceptance criteria and identifier. `assigneeId`:unassigned finds tasks without an assignee.
+
+MCP clients can use [`list_tasks`](/mcp-reference/list_tasks) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

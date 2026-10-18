@@ -1,0 +1,16 @@
+---
+title: "Read attachment configuration"
+description: "Check whether optional private image/PDF attachments are enabled, and read accepted file types and size limit."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/attachments/config"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+Check whether optional private image/PDF attachments are enabled, and read accepted file types and size limit.
+
+Storage is optional. When disabled, this operation still returns configuration with enabled:false; other attachment operations are unavailable.
+
+MCP clients can use [`get_attachment_config`](/mcp-reference/get_attachment_config) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

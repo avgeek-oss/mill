@@ -1,0 +1,16 @@
+---
+title: "Read task activity"
+description: "Read task and attachment activity, including who made each change. Comment and reply actions are not included."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/tasks/{taskId}/activity"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+Read task and attachment activity, including who made each change. Comment and reply actions are not included.
+
+Task and attachment changes are recorded; comment and reply events are excluded, including historical comment rows. Activity identifies the responsible actor and, on new records, connection type and request ID.
+
+MCP clients can use [`get_activity`](/mcp-reference/get_activity) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

@@ -1,0 +1,98 @@
+---
+title: "delete_comment"
+description: "Delete a comment with Mill MCP."
+icon: "plug"
+---
+
+Delete your comment.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Read comment version"] --> step1
+  step1["Confirm deletion"] --> step2
+  step2["Promote surviving replies"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+Authors can delete their own comments. Human administrators can moderate with sufficient permission; OAuth clients can delete only their owner's comments. Children move to the deleted comment's parent, receive new versions, and retain their text. Comments cannot be edited.
+
+<Warning>
+  Confirm the exact target and consequence with the user before calling this
+  tool.
+</Warning>
+
+## Arguments
+
+| Argument         | Required | Type or meaning                                                                                            |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `commentId`      | Yes      | uuid                                                                                                       |
+| `version`        | Yes      | Latest row version; stale mutations return HTTP 409.                                                       |
+| `idempotencyKey` | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "commentId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["commentId", "version"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "delete_comment",
+    "arguments": {
+      "commentId": "33333333-3333-4333-8333-333333333333",
+      "version": 1,
+      "idempotencyKey": "restore-check-comment-delete-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "ok": true
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/delete_api_comments_by_commentId) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

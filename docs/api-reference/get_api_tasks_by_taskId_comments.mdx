@@ -1,0 +1,16 @@
+---
+title: "List comments and replies"
+description: "Read comments on a task, newest first. Set `parentId` to root for top-level comments or a comment UUID for its direct replies. Omit it for all comments. Each comment includes `parentId` and `replyCount`; use the cursor within the same thread to load older comments."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/tasks/{taskId}/comments"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+Read comments on a task, newest first. Set `parentId` to root for top-level comments or a comment UUID for its direct replies. Omit it for all comments. Each comment includes `parentId` and `replyCount`; use the cursor within the same thread to load older comments.
+
+Omit `parentId` for a flat list, use root for top-level comments, or a same-task comment UUID for direct replies. Each thread has its own cursor. Replies collapse in the UI; the API returns `parentId` and direct `replyCount`.
+
+MCP clients can use [`list_comments`](/mcp-reference/list_comments) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

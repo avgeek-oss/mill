@@ -1,11 +1,34 @@
 ---
 title: "Accounts and team access"
-description: "Invitations, sessions, passkeys, recovery, and access boundaries."
+description: "Manage invitations, sessions, passkeys and recovery."
+icon: "users"
 ---
 
 import { Screenshot } from "/snippets/oss/screenshot.jsx";
 
 Mill has one workspace per installation. The first person to open it creates the workspace and an administrator account. There are no default accounts or passwords. Setup is protected by a database lock and a singleton constraint, so simultaneous setup requests cannot create separate workspaces.
+
+<Tabs>
+  <Tab title="Desktop">
+    <Screenshot
+      light="/assets/screenshots/release-v1/people-light.png"
+      dark="/assets/screenshots/release-v1/people-dark.png"
+      alt="People in Mill with sample data."
+      width={2560}
+      height={1800}
+    />
+  </Tab>
+  <Tab title="Mobile">
+    <Screenshot
+      light="/assets/screenshots/release-v1/people-mobile-light.png"
+      dark="/assets/screenshots/release-v1/people-mobile-dark.png"
+      alt="People in Mill with sample data."
+      width={780}
+      height={1688}
+      portrait
+    />
+  </Tab>
+</Tabs>
 
 Passwords require 15-1,024 characters. Mill stores them with scrypt using N=32768, r=8 and p=3, one of [OWASP's recommended scrypt configurations](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#scrypt). Browser sessions last seven days. The session cookie is HttpOnly, SameSite=Lax, and Secure when `MILL_API_URL` uses HTTPS. Expose the API with HTTPS and configure `MILL_API_URL` as its public origin. Browser mutations require the exact `MILL_WEB_URL` origin.
 
@@ -25,7 +48,7 @@ The person following the link chooses their name and password. With SMTP configu
 
 Mill always keeps at least one active administrator. Role changes and removals use a workspace lock so concurrent requests cannot remove the final administrator. Personal API keys are capped by their stored grant and their human owner's current active role; team keys use their stored team policy. Neither can access identity routes, including the team directory. MCP OAuth uses the owner's current role and board access within its granted scopes; older board-restricted grants retain their stored limits. An unrestricted OAuth connection may read basic member metadata through MCP for assignments and mentions. Membership, sessions, security settings, and other human administration require a browser session.
 
-People are human accounts. **Personal API keys** belong to their creator; **team API keys** belong to the team and are managed by Admins. Both use REST only with required Name, Permissions, and Expires after selections. MCP OAuth creates a connection owned by the person approving it, with approved scopes and the owner's current board access. Use **Account Settings → API Keys** for personal keys and **Team Settings → Team API Keys** for team keys. See [the client guide](/clients) for connection steps.
+People are human accounts. **Personal API keys** belong to their creator; **team API keys** belong to the team and are managed by Admins. Both use REST only with required Name, Permissions, and Expires after selections. MCP OAuth creates a connection owned by the person approving it, with approved scopes and the owner's current board access. Use **Account Settings → API Keys** for personal keys and **Team Settings → Team API Keys** for team keys. See [the client guide](/api-keys) for connection steps.
 
 ## External credential boundaries
 
@@ -44,7 +67,7 @@ OAuth belongs to the person approving consent and cannot use public REST. Its ef
 
 Store one-time tokens in the external client's secret store. Mill stores hashes and returns later metadata without tokens or hashes. Expiry, explicit revocation, account disablement, password changes and recovery end credential access. Approving a new connection does not reactivate a revoked one. See [upgrades](/upgrades) before changing a private pre-launch installation.
 
-See [connection steps](/clients), [the API reference](/rest-reference), and [private vulnerability reporting](https://github.com/avgeek-oss/mill/blob/main/SECURITY.md). Protect configuration files and database backups because they contain account and credential data.
+See [connection steps](/api-keys), [the API reference](/api-reference/overview), and [private vulnerability reporting](https://github.com/avgeek-oss/mill/blob/main/SECURITY.md). Protect configuration files and database backups because they contain account and credential data.
 
 ## Account Settings
 
@@ -160,173 +183,3 @@ All endpoints are under `/api/auth`, return JSON and enforce the same access rul
 Account actions report success and errors through toast alerts. Failed changes retain their drafts and retry controls. Required-field validation focuses the first invalid field.
 
 Authentication and invitation emails include HTML and plain text. Mill queues messages for delivery; a successful request means the message was queued, not received. If a message does not arrive, check the installation's SMTP configuration and delivery logs, then use the applicable resend action. Pending codes and links retain their original expiry.
-
-## In the app
-
-### People
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/people-light.png"
-      dark="/assets/screenshots/release-v1/people-dark.png"
-      alt="People in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/people-mobile-light.png"
-      dark="/assets/screenshots/release-v1/people-mobile-dark.png"
-      alt="People in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Profile
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/account-light.png"
-      dark="/assets/screenshots/release-v1/account-dark.png"
-      alt="Profile in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/account-mobile-light.png"
-      dark="/assets/screenshots/release-v1/account-mobile-dark.png"
-      alt="Profile in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Preferences
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/preferences-light.png"
-      dark="/assets/screenshots/release-v1/preferences-dark.png"
-      alt="Preferences in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/preferences-mobile-light.png"
-      dark="/assets/screenshots/release-v1/preferences-mobile-dark.png"
-      alt="Preferences in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Email & Password
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/email-password-light.png"
-      dark="/assets/screenshots/release-v1/email-password-dark.png"
-      alt="Email & Password in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/email-password-mobile-light.png"
-      dark="/assets/screenshots/release-v1/email-password-mobile-dark.png"
-      alt="Email & Password in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Sessions
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/sessions-light.png"
-      dark="/assets/screenshots/release-v1/sessions-dark.png"
-      alt="Sessions in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/sessions-mobile-light.png"
-      dark="/assets/screenshots/release-v1/sessions-mobile-dark.png"
-      alt="Sessions in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Passkeys
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/security-light.png"
-      dark="/assets/screenshots/release-v1/security-dark.png"
-      alt="Passkeys in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/security-mobile-light.png"
-      dark="/assets/screenshots/release-v1/security-mobile-dark.png"
-      alt="Passkeys in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Sign in
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/sign-in-light.png"
-      dark="/assets/screenshots/release-v1/sign-in-dark.png"
-      alt="Sign in in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/sign-in-mobile-light.png"
-      dark="/assets/screenshots/release-v1/sign-in-mobile-dark.png"
-      alt="Sign in in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>

@@ -1,0 +1,123 @@
+---
+title: "create_attachment_upload"
+description: "Reserve an attachment upload with Mill MCP."
+icon: "plug"
+---
+
+Reserve an image/PDF attachment and obtain a short-lived private PUT URL. Upload file bytes directly to uploadUrl using the returned headers, then call complete_attachment. Treat URLs as temporary credentials; do not log them.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Reserve upload"] --> step1
+  step1["PUT exact bytes to signed URL"] --> step2
+  step2["Complete attachment"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+The signed PUT URL lasts five minutes. Upload directly using the returned headers; never forward a Mill cookie or bearer token to storage. Browsers set Content-Type and derive Content-Length from the file body.
+
+## Arguments
+
+| Argument         | Required | Type or meaning                                                                                            |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------- |
+| `taskId`         | Yes      | Task UUID, not its human identifier such as ENG-1.                                                         |
+| `fileName`       | Yes      | string                                                                                                     |
+| `contentType`    | Yes      | image/png, image/jpeg, image/webp, image/gif, application/pdf                                              |
+| `sizeBytes`      | Yes      | integer                                                                                                    |
+| `sha256`         | No       | string                                                                                                     |
+| `idempotencyKey` | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header. |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "fileName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "contentType": {
+      "type": "string",
+      "enum": [
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif",
+        "application/pdf"
+      ]
+    },
+    "sizeBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 20971520
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["taskId", "fileName", "contentType", "sizeBytes"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "create_attachment_upload",
+    "arguments": {
+      "taskId": "22222222-2222-4222-8222-222222222222",
+      "fileName": "restore-report.pdf",
+      "contentType": "application/pdf",
+      "sizeBytes": 2048,
+      "idempotencyKey": "restore-report-upload-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "attachmentId": "44444444-4444-4444-8444-444444444444",
+  "uploadUrl": "https://storage.example.test/private-upload?signature=example",
+  "headers": {
+    "Content-Type": "application/pdf",
+    "Content-Length": "2048"
+  },
+  "expiresAt": "2027-01-18T09:30:00.000Z"
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/post_api_tasks_by_taskId_attachments_uploads) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)

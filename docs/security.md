@@ -1,6 +1,6 @@
 # Security
 
-Use HTTPS for every remote installation. Expose UI and API as separate HTTPS applications; keep PostgreSQL private. Set `MILL_WEB_URL` and `MILL_API_URL` to their exact public origins. Authenticated request limits use the account or API credential. Anonymous address limits use the direct connection address. Behind a reverse proxy, they may group clients under the proxy address; do not assume forwarded headers change the limit identity.
+Use HTTPS for remote access and keep PostgreSQL private. Use the [configuration guide](configuration.md) to set up the public UI and API URLs.
 
 Protect `.env`, the Docker host, and full database backups. A backup contains accounts, password hashes, client credential records, and encrypted authentication data. Preserve the original `MILL_SECRET` in your recovery plan so a restore can read protected values. Store encrypted backup copies away from the host and [practice a restore](backup.md#back-up-an-existing-or-managed-database).
 
@@ -8,6 +8,6 @@ Grant people and external clients only the access they need. Review **Account Se
 
 Passkeys require `localhost` or an HTTPS DNS hostname. Save single-use recovery codes when you register your first passkey. Password recovery does not remove passkeys; if the passkey and codes are lost, the server operator must use the explicit [account-recovery procedure](authentication.md#recover-an-account). Mill does not execute external code or connect to an LLM provider. The server checks authorization for UI, REST, and MCP requests.
 
-Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/avgeek-oss/mill/security/advisories/new) once the repository is public and the reporting form is enabled. If that form is unavailable, contact a repository owner through their GitHub profile and request a private reporting channel. Include the affected version, a reproduction with secrets removed, and likely impact. Do not post exploit details, passwords, tokens, recovery links, or backups in a public issue.
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/avgeek-oss/mill/security/advisories/new). If that form is unavailable, contact a repository owner through their GitHub profile and request a private reporting channel. Include the affected version, a reproduction with secrets removed, and likely impact. Do not post exploit details, passwords, tokens, recovery links, or backups in a public issue.
 
 For endpoint limits, OAuth consent and retry behavior, see the [REST API](api.md) and [client guide](clients.md).

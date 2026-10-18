@@ -1,11 +1,34 @@
 ---
 title: "Task details"
-description: "Edit tasks, discuss work, attach files and inspect its history."
+description: "Edit tasks, discuss work and review changes."
+icon: "file-text"
 ---
 
 import { Screenshot } from "/snippets/oss/screenshot.jsx";
 
 Open a task from its board list. Its page shows the stable task ID, title, Markdown description, acceptance criteria, properties, comments and activity. **Back to board** returns to the search, filters, sort and page you were using.
+
+<Tabs>
+  <Tab title="Desktop">
+    <Screenshot
+      light="/assets/screenshots/release-v1/task-light.png"
+      dark="/assets/screenshots/release-v1/task-dark.png"
+      alt="Task details and comments in Mill with sample data."
+      width={2560}
+      height={1800}
+    />
+  </Tab>
+  <Tab title="Mobile">
+    <Screenshot
+      light="/assets/screenshots/release-v1/task-mobile-light.png"
+      dark="/assets/screenshots/release-v1/task-mobile-dark.png"
+      alt="Task details and comments in Mill with sample data."
+      width={780}
+      height={1688}
+      portrait
+    />
+  </Tab>
+</Tabs>
 
 ## Create and edit
 
@@ -39,78 +62,4 @@ When your operator configures private S3 storage, uploaded images and PDFs appea
 
 Members and administrators can choose **Delete task** from the task menu. Confirming permanently removes the task, its comments, attachments, notifications and activity. Independent tasks remain. Mill has no trash or task restore view, so take a [full database backup](/backup) before removing work you may need later.
 
-For finding older Done and Won't Do tasks, see [task lists](/task-lists). For fields and version conflicts in clients, see the [REST API](/rest-reference#tasks).
-
-## In the app
-
-### Task details and comments
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/task-light.png"
-      dark="/assets/screenshots/release-v1/task-dark.png"
-      alt="Task details and comments in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/task-mobile-light.png"
-      dark="/assets/screenshots/release-v1/task-mobile-dark.png"
-      alt="Task details and comments in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Task activity
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/task-activity-light.png"
-      dark="/assets/screenshots/release-v1/task-activity-dark.png"
-      alt="Task activity in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/task-activity-mobile-light.png"
-      dark="/assets/screenshots/release-v1/task-activity-mobile-dark.png"
-      alt="Task activity in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### Create a task
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/create-task-light.png"
-      dark="/assets/screenshots/release-v1/create-task-dark.png"
-      alt="Create a task in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/create-task-mobile-light.png"
-      dark="/assets/screenshots/release-v1/create-task-mobile-dark.png"
-      alt="Create a task in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
+For finding older Done and Won't Do tasks, see [task lists](/task-lists). For fields and version conflicts in clients, see the [REST API](/api-reference/overview).

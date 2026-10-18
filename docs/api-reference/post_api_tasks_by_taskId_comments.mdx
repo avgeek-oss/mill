@@ -1,0 +1,16 @@
+---
+title: "Add a comment or reply"
+description: "Add a Markdown comment or a nested reply using `parentId`. Top-level comments have depth zero; replies support at most three nested levels. Mention with `@email`, `@[Name](user:UUID)`, or `mentionIds`. Reuse the `Idempotency-Key` header on retries."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/tasks/{taskId}/comments"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Add a Markdown comment or a nested reply using `parentId`. Top-level comments have depth zero; replies support at most three nested levels. Mention with `@email`, `@[Name](user:UUID)`, or `mentionIds`. Reuse the `Idempotency-Key` header on retries.
+
+Body is nonempty and at most 10,000 characters. Supports `@email`, `user:UUID` links and `mentionIds`. Root depth is zero; a fourth reply level returns 400 `COMMENT_DEPTH_LIMIT`. Comments advance board activity but do not produce activity-table rows.
+
+MCP clients can use [`add_comment`](/mcp-reference/add_comment) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

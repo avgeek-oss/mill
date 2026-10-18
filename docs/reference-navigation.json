@@ -1,0 +1,203 @@
+{
+  "api": [
+    {
+      "group": "Health",
+      "pages": [
+        "api-reference/get_health_live",
+        "api-reference/get_health_ready",
+        "api-reference/get_brand_mill_favicon_png",
+        "api-reference/get_favicon_ico"
+      ]
+    },
+    {
+      "group": "Account and sessions",
+      "pages": [
+        "api-reference/get_api_auth_status",
+        "api-reference/post_api_auth_setup",
+        "api-reference/post_api_auth_login",
+        "api-reference/post_api_auth_reauth",
+        "api-reference/post_api_auth_logout",
+        "api-reference/get_api_auth_me",
+        "api-reference/patch_api_auth_profile",
+        "api-reference/get_api_auth_sessions",
+        "api-reference/delete_api_auth_sessions_by_id",
+        "api-reference/post_api_auth_password"
+      ]
+    },
+    {
+      "group": "Passkeys and recovery",
+      "pages": [
+        "api-reference/post_api_auth_passkeys_recovery_verify",
+        "api-reference/post_api_auth_passkeys_recovery_codes",
+        "api-reference/get_api_auth_passkeys",
+        "api-reference/post_api_auth_passkeys_register_options",
+        "api-reference/post_api_auth_passkeys_register_verify",
+        "api-reference/delete_api_auth_passkeys_by_id",
+        "api-reference/post_api_auth_passkeys_authenticate_options",
+        "api-reference/post_api_auth_passkeys_authenticate_verify",
+        "api-reference/post_api_auth_recovery_reset"
+      ]
+    },
+    {
+      "group": "Members and invitations",
+      "pages": [
+        "api-reference/get_api_auth_invitations",
+        "api-reference/post_api_auth_invitations",
+        "api-reference/delete_api_auth_invitations_by_id",
+        "api-reference/get_api_auth_invitation",
+        "api-reference/post_api_auth_accept_invitation",
+        "api-reference/patch_api_auth_members_by_id",
+        "api-reference/delete_api_auth_members_by_id"
+      ]
+    },
+    {
+      "group": "Account email",
+      "pages": [
+        "api-reference/post_api_auth_email_verification_request",
+        "api-reference/post_api_auth_verification_email",
+        "api-reference/post_api_auth_password_reset_request",
+        "api-reference/post_api_auth_email_verification_confirm",
+        "api-reference/get_api_auth_email_change",
+        "api-reference/post_api_auth_email_change",
+        "api-reference/delete_api_auth_email_change",
+        "api-reference/post_api_auth_email_change_confirm",
+        "api-reference/post_api_auth_invitation_verification_request",
+        "api-reference/post_api_auth_invitation_verification_confirm"
+      ]
+    },
+    {
+      "group": "API key management",
+      "pages": [
+        "api-reference/get_api_credentials",
+        "api-reference/post_api_credentials",
+        "api-reference/delete_api_credentials_by_id",
+        "api-reference/get_api_team_credentials",
+        "api-reference/post_api_team_credentials",
+        "api-reference/delete_api_team_credentials_by_id"
+      ]
+    },
+    {
+      "group": "OAuth and MCP transport",
+      "pages": [
+        "api-reference/get_well_known_oauth_authorization_server",
+        "api-reference/get_well_known_oauth_protected_resource",
+        "api-reference/get_well_known_oauth_protected_resource_mcp",
+        "api-reference/post_oauth_register",
+        "api-reference/get_oauth_authorize",
+        "api-reference/get_api_oauth_consent_by_id",
+        "api-reference/post_api_oauth_consent_by_id",
+        "api-reference/post_oauth_token",
+        "api-reference/post_oauth_revoke",
+        "api-reference/post_mcp",
+        "api-reference/get_mcp",
+        "api-reference/delete_mcp"
+      ]
+    },
+    {
+      "group": "Boards",
+      "pages": [
+        "api-reference/delete_api_boards_by_boardId",
+        "api-reference/get_api_boards",
+        "api-reference/get_api_boards_by_boardId",
+        "api-reference/post_api_boards",
+        "api-reference/patch_api_boards_by_boardId"
+      ]
+    },
+    {
+      "group": "Comments and activity",
+      "pages": [
+        "api-reference/get_api_comments_by_commentId",
+        "api-reference/get_api_tasks_by_taskId_comments",
+        "api-reference/post_api_tasks_by_taskId_comments",
+        "api-reference/delete_api_comments_by_commentId",
+        "api-reference/get_api_tasks_by_taskId_activity"
+      ]
+    },
+    {
+      "group": "Tasks",
+      "pages": [
+        "api-reference/patch_api_boards_by_boardId_tasks_bulk",
+        "api-reference/get_api_boards_by_boardId_tasks",
+        "api-reference/get_api_tasks_by_taskId",
+        "api-reference/post_api_boards_by_boardId_tasks",
+        "api-reference/patch_api_tasks_by_taskId",
+        "api-reference/delete_api_tasks_by_taskId"
+      ]
+    },
+    {
+      "group": "Team",
+      "pages": [
+        "api-reference/get_api_workspace",
+        "api-reference/patch_api_workspace"
+      ]
+    },
+    {
+      "group": "Attachments",
+      "pages": [
+        "api-reference/get_api_attachments_config",
+        "api-reference/get_api_tasks_by_taskId_attachments",
+        "api-reference/post_api_tasks_by_taskId_attachments_uploads",
+        "api-reference/post_api_tasks_by_taskId_attachments_by_attachmentId_complete",
+        "api-reference/get_api_tasks_by_taskId_attachments_by_attachmentId_download",
+        "api-reference/delete_api_tasks_by_taskId_attachments_by_attachmentId"
+      ]
+    },
+    {
+      "group": "Notifications",
+      "pages": [
+        "api-reference/get_api_notifications",
+        "api-reference/patch_api_notifications"
+      ]
+    },
+    { "group": "Members", "pages": ["api-reference/get_api_auth_members"] }
+  ],
+  "mcp": [
+    {
+      "group": "Attachments",
+      "pages": [
+        "mcp-reference/get_attachment_config",
+        "mcp-reference/list_attachments",
+        "mcp-reference/create_attachment_upload",
+        "mcp-reference/complete_attachment",
+        "mcp-reference/get_attachment_download",
+        "mcp-reference/delete_attachment"
+      ]
+    },
+    {
+      "group": "Boards",
+      "pages": [
+        "mcp-reference/list_boards",
+        "mcp-reference/get_board",
+        "mcp-reference/create_board",
+        "mcp-reference/update_board"
+      ]
+    },
+    {
+      "group": "Tasks",
+      "pages": [
+        "mcp-reference/list_tasks",
+        "mcp-reference/get_task",
+        "mcp-reference/create_task",
+        "mcp-reference/update_task",
+        "mcp-reference/delete_task"
+      ]
+    },
+    {
+      "group": "Comments and activity",
+      "pages": [
+        "mcp-reference/list_comments",
+        "mcp-reference/add_comment",
+        "mcp-reference/delete_comment",
+        "mcp-reference/get_activity"
+      ]
+    },
+    {
+      "group": "Notifications",
+      "pages": [
+        "mcp-reference/list_notifications",
+        "mcp-reference/mark_notifications"
+      ]
+    },
+    { "group": "Members", "pages": ["mcp-reference/list_members"] }
+  ]
+}

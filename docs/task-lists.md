@@ -2,6 +2,8 @@
 
 Choose **Boards** under **Operate** to see the boards you can access. Cards are ordered alphabetically and show separate counts for Backlog, To Do and In Progress. These counts include every task in those statuses, even when a board list is filtered or paginated. Choose a card to open its task list.
 
+<!-- screenshot:board -->
+
 ## Search and filter
 
 Type in **Search tasks** above the table to find a task by title, description, acceptance criteria, or stable task ID such as `ENG-17`. The search applies to the current board. Choose **Filters** beside the search field to combine **Assignee**, **Priority**, and **Status** in a modal, then choose **Apply filters**. **Unassigned** finds tasks without an assignee. The button shows the number of active filters. **Cancel** closes the modal without applying changes. The board’s secondary sidebar groups **Tasks** under **Board**, **General** under **Settings**, and **Delete board** under **Danger zone** for administrators. **Tasks** returns to this list from a task or settings page.

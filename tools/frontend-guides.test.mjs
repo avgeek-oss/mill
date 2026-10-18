@@ -9,11 +9,11 @@ test("curated installed guides retain commands, resolve every local link and exc
   const guides = await renderGuides({
     stylesheets: ["assets/index-guide.css"],
   });
-  assert.equal(guides.size, 16);
+  assert.equal(guides.size, 21);
   assert.ok(
     guides
       .get("guides/installation.html")
-      .includes('href="/guides/package-registry.html"'),
+      .includes('href="/guides/installation/docker-compose.html"'),
   );
   assert.match(
     guides.get("guides/package-registry.html"),
@@ -26,6 +26,16 @@ test("curated installed guides retain commands, resolve every local link and exc
   );
   assert.ok(guides.get("guides/clients.html").includes("/mcp"));
   assert.ok(guides.get("guides/task-attachments.html").includes("20 MiB"));
+  const towbarGuide = guides.get("guides/installation/towbar.html");
+  assert.ok(
+    towbarGuide.includes("buildServer"),
+    "Installed guide must retain the root repository manifest",
+  );
+  assert.ok(
+    towbarGuide.includes("mill-api.service.yml"),
+    "Installed guide must retain the deployment file tree",
+  );
+  assert.ok(towbarGuide.includes("mill-postgres.datastore.yml"));
   assert.ok(
     guides
       .get("guides/configuration.html")
@@ -113,7 +123,7 @@ test("build plugin emits static guides using actual CSS assets and rejects a sty
       script: { type: "chunk", fileName: "assets/index-built.js" },
     },
   );
-  assert.equal(emitted.length, 16);
+  assert.equal(emitted.length, 21);
   assert.ok(emitted.every((asset) => asset.type === "asset"));
   assert.ok(
     emitted

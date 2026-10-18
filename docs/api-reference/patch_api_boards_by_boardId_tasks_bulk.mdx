@@ -1,0 +1,12 @@
+---
+title: "Update multiple tasks"
+description: "Atomically updates 1–100 distinct tasks in this board. Every task needs its current version. Stale versions return 409; unavailable tasks return 404; either failure rolls back every selected change. Assignees must be active members, null unassigns. Dates accept null to clear. Actual status changes reset `statusChangedAt`; unrelated edits preserve it. Assignments respect notification preferences. Omitted fields are preserved."
+playground: simple
+openapi: "/api-reference/openapi.json PATCH /api/boards/{boardId}/tasks/bulk"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Atomically updates 1–100 distinct tasks in this board. Every task needs its current version. Stale versions return 409; unavailable tasks return 404; either failure rolls back every selected change. Assignees must be active members, null unassigns. Dates accept null to clear. Actual status changes reset `statusChangedAt`; unrelated edits preserve it. Assignments respect notification preferences. Omitted fields are preserved.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

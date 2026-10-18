@@ -1,0 +1,16 @@
+---
+title: "Update a task"
+description: "Edit task fields, including separate Markdown description and acceptance criteria, type task or bug, or its fixed status using the current version. A stale version returns a conflict."
+playground: simple
+openapi: "/api-reference/openapi.json PATCH /api/tasks/{taskId}"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Edit task fields, including separate Markdown description and acceptance criteria, type task or bug, or its fixed status using the current version. A stale version returns a conflict.
+
+Fields save atomically. Pass null to clear `assigneeId`, `startDate` or `dueDate`. Actual status changes reset `statusChangedAt`; unrelated edits preserve it. A stale version returns 409 without applying the edit.
+
+MCP clients can use [`update_task`](/mcp-reference/update_task) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

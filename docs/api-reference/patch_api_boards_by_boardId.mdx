@@ -1,0 +1,16 @@
+---
+title: "Update a board"
+description: "Edit board settings. Prefixes must be unique; changing one renames existing task identifiers while preserving task numbers and links. Send the current version to protect concurrent edits."
+playground: simple
+openapi: "/api-reference/openapi.json PATCH /api/boards/{boardId}"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Edit board settings. Prefixes must be unique; changing one renames existing task identifiers while preserving task numbers and links. Send the current version to protect concurrent edits.
+
+A prefix change atomically renames existing task identifiers while preserving task numbers and UUID links. Existing task versions increase. Duplicate prefixes return 409 `BOARD_PREFIX_TAKEN`; stale versions conflict. Omitted fields remain unchanged.
+
+MCP clients can use [`update_board`](/mcp-reference/update_board) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

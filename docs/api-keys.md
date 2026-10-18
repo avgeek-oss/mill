@@ -2,6 +2,8 @@
 
 API keys let an external client use Mill's REST API without a browser session. Create a personal key for your own client or, as an administrator, a team key for a shared integration. Each key has a name, explicit permissions and an expiry selection. Keep one key per integration so you can revoke it without interrupting others.
 
+<!-- screenshot:api-keys -->
+
 ## Create a key
 
 For a personal key, open **Account Settings → API Keys**. For a team key, an administrator opens **Team Settings → Team API Keys**. Choose **Create API key**, then enter a **Name**, choose **Permissions**, and choose **Expires after**. All three are required. You may be asked to confirm your identity before the key is issued.
@@ -21,11 +23,11 @@ The **Copy your API key** dialog shows the complete token once. Copy it into the
 Send the token as a bearer credential to REST. MCP accepts only OAuth access tokens. For example, after loading it into `MILL_TOKEN` from your secret store:
 
 ```sh
-curl --fail-with-body 'https://tasks.example.com/api/boards' \
+curl --fail-with-body 'https://tasks-api.example.com/api/boards' \
   -H "Authorization: Bearer $MILL_TOKEN"
 ```
 
-Use a new `Idempotency-Key` for each intended REST mutation and reuse that same key when retrying an uncertain request. Task edits and deletes also need the current task `version`. See [REST and MCP clients](clients.md) for a complete connection example and [the REST API](api.md) for fields and errors.
+Use a new `Idempotency-Key` for each intended REST mutation and reuse that same key when retrying an uncertain request. Task edits and deletes also need the current task `version`. See [the REST API](api.md) for connection examples, fields and errors.
 
 Use the key's **Revoke** action when the integration no longer needs access. Revocation ends access on the next request and removes the key from the active list. Expired keys remain listed until revoked. Password changes and account recovery revoke personal keys owned by that person. Team keys remain subject to their stored team policy, so administrators should review them separately when membership changes.
 

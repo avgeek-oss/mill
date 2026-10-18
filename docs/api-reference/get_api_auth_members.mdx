@@ -1,0 +1,16 @@
+---
+title: "List team members"
+description: "List active workspace members to resolve assignments and mentions. Use `nextCursor` to continue beyond the first page."
+playground: simple
+openapi: "/api-reference/openapi.json GET /api/auth/members"
+---
+
+Read access: a read-enabled personal or team REST API key, or a signed-in user. OAuth clients use the corresponding MCP tool through /mcp.
+
+List active workspace members to resolve assignments and mentions. Use `nextCursor` to continue beyond the first page.
+
+Requires workspace-wide read access. A changed directory returns 409 `member_list_changed`; restart without a cursor. Disabled members are not returned.
+
+MCP clients can use [`list_members`](/mcp-reference/list_members) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

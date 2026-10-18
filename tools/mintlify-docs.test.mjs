@@ -20,6 +20,10 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
   const fixture = await mkdtemp(resolve(root, "tmp/mintlify-generation-"));
   const inputs = [
     "home.mdx",
+    "boards.md",
+    "installation/docker-compose.md",
+    "installation/towbar.md",
+    "reference-navigation.json",
     "site.json",
     "task-lists.md",
     "task-details.md",
@@ -47,8 +51,19 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
   try {
     await mkdir(resolve(fixture, "tools"), { recursive: true });
     await mkdir(resolve(fixture, "docs"), { recursive: true });
-    for (const name of inputs)
+    for (const name of inputs) {
+      await mkdir(resolve(fixture, "docs", name, ".."), { recursive: true });
       await cp(resolve(root, "docs", name), resolve(fixture, "docs", name));
+    }
+    for (const name of [
+      "api-reference",
+      "mcp-reference",
+      "assets/installation",
+      "assets/projects",
+    ])
+      await cp(resolve(root, "docs", name), resolve(fixture, "docs", name), {
+        recursive: true,
+      });
     await cp(
       resolve(root, "tools/build-mintlify-docs.mjs"),
       resolve(fixture, "tools/build-mintlify-docs.mjs"),
@@ -101,18 +116,33 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     const config = JSON.parse(
       await readFile(resolve(output, "docs.json"), "utf8"),
     );
-    assert.equal(config.navbar.links[0].label, "v2.3.4");
+    assert.equal(config.navbar.links[0].type, "github");
+    const flattenPages = (pages) =>
+      pages.flatMap((page) =>
+        typeof page === "string" ? [page] : flattenPages(page.pages),
+      );
     const routes = config.navigation.dropdowns.flatMap((section) =>
-      section.groups.flatMap((group) => group.pages),
+      section.groups.flatMap((group) => flattenPages(group.pages)),
     );
-    assert.ok(routes.includes("package-registry"));
+    assert.ok(routes.includes("installation/docker-compose"));
+    assert.ok(routes.includes("mcp-reference/list_tasks"));
+    assert.ok(routes.includes("api-reference/get_api_boards"));
+    assert.ok(!routes.includes("package-registry"));
+    assert.ok(!routes.includes("clients"));
+    assert.equal(
+      config.redirects.find(
+        (redirect) => redirect.source === "/getting-started",
+      ).destination,
+      "/boards",
+    );
     assert.ok(
-      (await readFile(resolve(output, "installation.mdx"), "utf8")).includes(
-        "](/package-registry)",
+      !(await readFile(resolve(output, "installation.mdx"), "utf8")).includes(
+        "installed-only",
       ),
     );
     const pages = ["index.mdx", ...routes.map((route) => `${route}.mdx`)];
     const links = [
+      ...config.redirects.map((redirect) => redirect.destination),
       config.logo.href,
       config.logo.light,
       config.logo.dark,
@@ -125,6 +155,9 @@ test("Mintlify generation preserves maintained sources and produces navigable pa
     ];
     for (const page of pages) {
       const content = await readFile(resolve(output, page), "utf8");
+      links.push(
+        ...[...content.matchAll(/^icon: "([^"]+)"/gm)].map((match) => match[1]),
+      );
       links.push(
         ...[...content.matchAll(/(?:href|src)="([^"]+)"|\]\((\/[^)]+)\)/g)].map(
           (match) => match[1] || match[2],

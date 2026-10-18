@@ -1,0 +1,12 @@
+---
+title: "Remove a passkey"
+description: "Removes an owned WebAuthn credential. Removing the last passkey also removes its recovery codes. The path ID is the credential ID, not a UUID."
+playground: simple
+openapi: "/api-reference/openapi.json DELETE /api/auth/passkeys/{id}"
+---
+
+A signed-in human session with recent authentication is required. Complete password/passkey reauthentication when requested.
+
+Removes an owned WebAuthn credential. Removing the last passkey also removes its recovery codes. The path ID is the credential ID, not a UUID.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

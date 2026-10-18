@@ -1,0 +1,16 @@
+---
+title: "Delete a task"
+description: "Permanently delete a task and its discussion. Confirm with the user before deleting their work."
+playground: simple
+openapi: "/api-reference/openapi.json DELETE /api/tasks/{taskId}"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Permanently delete a task and its discussion. Confirm with the user before deleting their work.
+
+Permanently removes the task, discussion, activity and notifications, and queues attachment cleanup. Task numbers are not reused. Without the same retry key a repeated delete returns 404.
+
+MCP clients can use [`delete_task`](/mcp-reference/delete_task) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

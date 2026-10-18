@@ -1,56 +1,65 @@
 ---
 title: "Configuration"
-description: "Required and optional environment settings."
+description: "Configure public origins, private storage and email."
+icon: "settings"
 ---
 
-import { Screenshot } from "/snippets/oss/screenshot.jsx";
+For Docker Compose, copy `.env.example` to `.env` and edit the values for your installation. With Towbar, add them to the corresponding workload’s runtime secrets.
 
-The API needs four values. Copy `.env.example` to `.env` for Compose, or supply them as runtime environment variables through your deployment platform:
+## Required settings
 
-| Variable       | Purpose                                                                                             |
-| -------------- | --------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL` | Complete PostgreSQL connection URL for your dedicated Mill database. Include required TLS settings. |
-| `MILL_SECRET`  | Random secret of at least 32 characters. Preserve it across upgrades and restores.                  |
-| `MILL_WEB_URL` | Exact public UI origin, such as `https://tasks.example.com` or `http://localhost:4322`.             |
-| `MILL_API_URL` | Exact public API origin, such as `https://tasks-api.example.com` or `http://localhost:4321`.        |
+The API needs a PostgreSQL connection, a secret and the public URLs of your UI and API:
 
-Percent-encode special characters in the database URL's username or password. Mill rejects missing or invalid configuration before it serves requests; there is no fallback production database or default login. It applies the migrations packaged in the API image automatically.
+```dotenv
+DATABASE_URL=postgres://mill:your-database-password@postgres:5432/mill
+MILL_SECRET=replace-with-a-random-secret-of-at-least-32-characters
+MILL_WEB_URL=https://tasks.example.com
+MILL_API_URL=https://tasks-api.example.com
+```
 
-For [bundled PostgreSQL](/installation#optional-run-postgresql-with-compose), also set `POSTGRES_PASSWORD` and put that same password in `DATABASE_URL=postgres://mill:<password>@postgres:5432/mill`. An existing or managed database needs no `POSTGRES_PASSWORD` variable.
+Use your database’s actual hostname. The `postgres` hostname above is for [bundled PostgreSQL with Compose](/installation/docker-compose#choose-your-database). Encode special characters in the database username and password.
 
-The UI needs `MILL_API_URL` set to the same public API origin as the API. It emits this value in a no-store runtime script, so one built image can serve different installations. Never give the UI database credentials or `MILL_SECRET`.
+The UI needs only the API URL:
 
-Image versions and published ports belong in the Compose file. Both API and UI image references must come from the same release. Runtime internals such as migration paths, production mode and password-work limits are already set by the images and their safe defaults; they are not installation fields.
+```dotenv
+MILL_API_URL=https://tasks-api.example.com
+```
 
-Environment changes take effect when you recreate the affected service using your installation's Compose command. A container restart alone keeps its old environment. Preserve the original `MILL_SECRET` with encrypted backups of your configuration.
+For bundled PostgreSQL, set its password separately and use that same password in `DATABASE_URL`:
 
-## Public URL
+```dotenv
+POSTGRES_USER=mill
+POSTGRES_DB=mill
+POSTGRES_PASSWORD=your-database-password
+```
 
-Remote access requires HTTPS. Local HTTP OAuth is permitted automatically only for an exact loopback `MILL_API_URL`; there is no insecure-origin switch. For browser passkeys, use `localhost` locally or an HTTPS DNS hostname remotely. Browsers do not allow passkey registration with an IP address as the relying-party domain.
+Use HTTPS for remote installations. Keep the UI and API on the same site, such as `tasks.example.com` and `tasks-api.example.com`. Configure these URLs before creating passkeys or connecting MCP clients.
 
-The UI origin is used for passkeys and account links; the API origin is used for the session cookie, OAuth issuer and MCP resource. Both must be set before people register passkeys or connect clients. A UI-origin change can invalidate passkey origin checks; read [operations](/operations) before changing an established installation's URL.
+Keep `MILL_SECRET` private and preserve it across upgrades and restores. Never add database credentials or `MILL_SECRET` to the UI.
 
-## Optional: task attachments
+## S3 source
 
-Task attachments require a private S3-compatible bucket, such as Cloudflare R2. Leave the storage settings unset to use Mill without attachments; the task page hides the attachment area and upload button. PostgreSQL, API and UI remain the only required services.
+An S3-compatible bucket stores task images and PDFs. You can use a service such as Cloudflare R2 or another compatible provider. Without an S3 source, Mill works normally with the attachment controls hidden.
 
-Set these values on the API:
+Add these values to the API:
 
-| Variable                    | Purpose                                                                                                                       |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `MILL_S3_ENDPOINT`          | HTTPS S3 endpoint reachable by both the API and users' browsers. For R2, use `https://<account-id>.r2.cloudflarestorage.com`. |
-| `MILL_S3_BUCKET`            | Private bucket for this installation's attachments.                                                                           |
-| `MILL_S3_ACCESS_KEY_ID`     | Access key restricted to that bucket.                                                                                         |
-| `MILL_S3_SECRET_ACCESS_KEY` | Corresponding secret access key.                                                                                              |
-| `MILL_S3_REGION`            | Signing region; defaults to `auto` for R2. Use your provider's region when required.                                          |
+```dotenv
+MILL_S3_ENDPOINT=https://your-account.r2.cloudflarestorage.com
+MILL_S3_REGION=auto
+MILL_S3_BUCKET=mill-attachments
+MILL_S3_ACCESS_KEY_ID=your-bucket-access-key
+MILL_S3_SECRET_ACCESS_KEY=your-bucket-secret-key
+```
 
-The endpoint, bucket and both credential values must be configured together. Partial configuration prevents API startup. Mill uses path-style S3 requests. Configure the same `MILL_S3_ENDPOINT` on the UI service so its browser content policy allows direct uploads and previews at that origin. The UI receives the endpoint only, never storage credentials or the bucket secret.
+Add the endpoint to the UI as well:
 
-Set a bucket lifecycle rule to expire temporary objects under `mill/uploads/` after one day. Completed attachments live under `mill/objects/`; never apply that expiration rule to completed objects or the whole bucket.
+```dotenv
+MILL_S3_ENDPOINT=https://your-account.r2.cloudflarestorage.com
+```
 
-Grant the API credential object read, write and delete access to this bucket. Keep public bucket access disabled. Users upload through short-lived signed URLs; downloads and previews require Mill authorization before another signed URL is issued. A signed URL grants access to its object until it expires, so treat it as private.
+Use a private bucket and a credential with read, write and delete access to that bucket. Follow your provider’s instructions for the endpoint and region. The endpoint must be reachable by people using Mill, since uploads use signed URLs.
 
-Configure bucket CORS with the exact `MILL_WEB_URL` origin. For example:
+Allow your UI origin in the bucket’s CORS settings:
 
 ```json
 [
@@ -64,44 +73,27 @@ Configure bucket CORS with the exact `MILL_WEB_URL` origin. For example:
 ]
 ```
 
-Use `http://localhost:4322` only for a local installation. Avoid wildcard origins. The S3 endpoint must be accessible outside the API container; an internal Docker hostname cannot accept browser uploads. Remote installations require HTTPS. Recreate the API and UI after changing these settings.
+Use your exact UI origin rather than a wildcard. See [task attachments](/task-attachments) for supported files and [backup and recovery](/backup) for protecting the bucket alongside PostgreSQL.
 
-Mill accepts PNG, JPEG, WebP, GIF and PDF files up to 20 MiB each. The API checks the stored size, declared MIME type and file signature before publishing an attachment. SVG and other file types are unsupported. [Task attachments](/task-attachments) explains upload and preview behavior; [backup and recovery](/backup) covers the bucket alongside PostgreSQL.
+## SMTP
 
-## Notifications
+SMTP enables invitation, verification and password-reset email. Get the connection details from your email provider and add them to the API:
 
-Mill v1 uses in-app assignment and mention notifications; task email notifications are excluded. Identity and invitation email is optional. Configure `MILL_SMTP_HOST` and `MILL_SMTP_FROM` together to enable verification links, email changes, password reset links, and invitation email verification. `MILL_SMTP_FROM` accepts an email address or `Sender name <email@example.com>`. Bare addresses use Mill as the sender name; an explicit name is preserved. `MILL_SMTP_PORT` defaults to 587; `MILL_SMTP_SECURE=false` requires STARTTLS for remote hosts, while `true` uses implicit TLS (usually port 465). Configure `MILL_SMTP_USER` and `MILL_SMTP_PASSWORD` together when authentication is required. Certificate validation stays enabled; only exact loopback SMTP hosts may use a plaintext development fixture.
+```dotenv
+MILL_SMTP_HOST=smtp.example.com
+MILL_SMTP_PORT=587
+MILL_SMTP_SECURE=false
+MILL_SMTP_USER=your-smtp-username
+MILL_SMTP_PASSWORD=your-smtp-password
+MILL_SMTP_FROM=Mill <noreply@example.com>
+```
 
-Without SMTP, administrators share private invitation links and use the local account-recovery procedure described in [getting started](/getting-started). An invitation issued with email verification enabled keeps that requirement if SMTP is later disabled; reissue a private invitation explicitly instead of weakening an existing link. The first administrator created during installation is verified automatically and signed in immediately, without a verification email. Invited accounts and subsequent email changes retain their email-verification requirements. Existing verification records are preserved.
+Use `MILL_SMTP_SECURE=true` when your provider requires direct TLS, commonly on port 465. Leave the username and password unset if your SMTP service does not require authentication.
 
-The Node service drains a PostgreSQL outbox every five seconds. Sensitive message bodies, links, and codes are encrypted with an authenticated key derived from `MILL_SECRET`; preserve this secret across restart, backup, and restore. Delivery uses bounded SMTP deadlines, a two-minute lease, and at most five attempts with delayed retries. Account/inviter authority and lease ownership are checked under targeted locks immediately before sending starts; network I/O holds no database locks. Cancellation before initiation prevents sending. Cancellation after initiation cannot recall an email, but invalidates its proof and prevents another attempt. Delivered, cancelled, exhausted, and expired messages lose their encrypted payload. Maintenance still expires payloads when SMTP is disabled. SMTP handoff is asynchronous: a successful request means queued, and a process interruption after SMTP acceptance can cause a duplicate email. All copies retain the same single-use proof.
+Without SMTP, administrators can share invitation links privately. Server operators can also help with [account recovery](/authentication#recover-an-account). Task assignment and mention notifications appear inside Mill rather than in email.
 
-Verification and email-change links expire after one hour. Invitation codes expire after ten minutes and allow five failed attempts; a successful code produces a ten-minute proof bound to the invitation and submitted name before final account creation. Email changes require recent browser identity proof, including a passkey when configured. Confirmation invalidates sessions and owned API/MCP grants. Password resets preserve passkeys; operator recovery can explicitly remove lost factors. Public resend/reset endpoints return the same acknowledgment for unknown, disabled, verified, and unverified addresses; uniform persistent address/email throttles and a 500 ms response floor limit probing. No account state is returned.
+## Apply changes
 
-Environment files and full database backups need protected storage. Do not paste their contents into logs or screenshots.
+Recreate the affected services after changing their environment. A restart alone keeps the existing environment. With Towbar, save the runtime secrets and redeploy the affected workloads.
 
-## In the app
-
-### Team settings: General
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/team-light.png"
-      dark="/assets/screenshots/release-v1/team-dark.png"
-      alt="Team settings: General in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/team-mobile-light.png"
-      dark="/assets/screenshots/release-v1/team-mobile-dark.png"
-      alt="Team settings: General in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
+Store environment files and backup copies securely. Keep image versions and published ports in your installation’s Compose file or Towbar manifests.

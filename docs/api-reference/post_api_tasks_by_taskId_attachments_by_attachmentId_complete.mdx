@@ -1,0 +1,16 @@
+---
+title: "Complete an attachment upload"
+description: "Verify the uploaded image/PDF and attach it to the task. Invalid bytes, size or type are rejected; reuse the `Idempotency-Key` header on retries."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/tasks/{taskId}/attachments/{attachmentId}/complete"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Verify the uploaded image/PDF and attach it to the task. Invalid bytes, size or type are rejected; reuse the `Idempotency-Key` header on retries.
+
+Checks byte length, detected MIME/signature and optional SHA-256. Mill copies verified bytes to a final object. An expired upload returns 410 `UPLOAD_EXPIRED`; start a new upload.
+
+MCP clients can use [`complete_attachment`](/mcp-reference/complete_attachment) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

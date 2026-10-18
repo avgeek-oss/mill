@@ -1,0 +1,12 @@
+---
+title: "Begin MCP OAuth authorization"
+description: "Validates the client, exact redirect URI, MCP resource and S256 PKCE challenge, then redirects to Mill's human consent flow. The human chooses the access level."
+playground: simple
+openapi: "/api-reference/openapi.json GET /oauth/authorize"
+---
+
+No signed-in session is required. Endpoint-specific tokens, setup secrets or challenges may still be required.
+
+Validates the client, exact redirect URI, MCP resource and S256 PKCE challenge, then redirects to Mill's human consent flow. The human chooses the access level.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

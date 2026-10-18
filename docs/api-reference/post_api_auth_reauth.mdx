@@ -1,0 +1,12 @@
+---
+title: "Verify a recent session"
+description: "Reauthenticates the current session. A passkey-protected account receives a second-factor challenge before recent authentication is renewed."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/auth/reauth"
+---
+
+A signed-in human session is required. API keys and MCP bearer credentials cannot replace that session.
+
+Reauthenticates the current session. A passkey-protected account receives a second-factor challenge before recent authentication is renewed.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

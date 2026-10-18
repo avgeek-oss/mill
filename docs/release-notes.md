@@ -22,7 +22,7 @@ Mill 1.0.4 uses the shared MCP consent form. You choose Read-only, Write or Admi
 
 Optional image/PDF attachments use private S3-compatible storage. Files appear below the task description, and a secondary Upload attachment button opens a dialog with a file chooser and drop area. Dropping a file onto the task page opens the dialog and starts uploading. Cards show two files per row below desktop width and four on desktop, with compact preview, download and delete actions. Expanded PDF previews have page controls. Comments and Activity remain tabs.
 
-Members and administrators can upload, preview, download and delete files; viewers can read them. Files are limited to 20 MiB, and completion verifies their stored bytes before exposing them. PostgreSQL retains metadata and a durable cleanup queue; the bucket retains completed files. Enable the storage runtime values after upgrading both images. Without storage configuration, ordinary task management works as before. See [task attachments](task-attachments.md) and [storage configuration](configuration.md#optional-task-attachments).
+Members and administrators can upload, preview, download and delete files; viewers can read them. Files are limited to 20 MiB, and completion verifies their stored bytes before exposing them. PostgreSQL retains metadata and a durable cleanup queue; the bucket retains completed files. Enable the storage runtime values after upgrading both images. Without storage configuration, ordinary task management works as before. See [task attachments](task-attachments.md) and [storage configuration](configuration.md#s3-source).
 
 ## Task lists
 

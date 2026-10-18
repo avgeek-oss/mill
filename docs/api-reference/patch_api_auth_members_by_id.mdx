@@ -1,0 +1,12 @@
+---
+title: "Change a member's role"
+description: "Changes the current role while protecting the last active administrator. A role change revokes that human's MCP grants."
+playground: simple
+openapi: "/api-reference/openapi.json PATCH /api/auth/members/{id}"
+---
+
+A signed-in human administrator is required. API keys and MCP credentials cannot replace that session. Sensitive operations can also require recent authentication.
+
+Changes the current role while protecting the last active administrator. A role change revokes that human's MCP grants.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

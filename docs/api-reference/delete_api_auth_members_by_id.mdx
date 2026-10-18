@@ -1,0 +1,12 @@
+---
+title: "Remove a team member"
+description: "Disables the member, clears their task assignments with new versions and activity, and revokes sessions, human-owned credentials and pending authorizations. The last administrator is protected."
+playground: simple
+openapi: "/api-reference/openapi.json DELETE /api/auth/members/{id}"
+---
+
+A signed-in human administrator is required. API keys and MCP credentials cannot replace that session. Sensitive operations can also require recent authentication.
+
+Disables the member, clears their task assignments with new versions and activity, and revokes sessions, human-owned credentials and pending authorizations. The last administrator is protected.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

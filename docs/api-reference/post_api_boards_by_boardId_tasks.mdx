@@ -1,0 +1,16 @@
+---
+title: "Create a task"
+description: "Create a task with optional Markdown description and acceptance criteria, type task or bug, a fixed status, assignee, priority, start date and due date. Type defaults to task and status to todo. Reuse the `Idempotency-Key` header on retries."
+playground: simple
+openapi: "/api-reference/openapi.json POST /api/boards/{boardId}/tasks"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Create a task with optional Markdown description and acceptance criteria, type task or bug, a fixed status, assignee, priority, start date and due date. Type defaults to task and status to todo. Reuse the `Idempotency-Key` header on retries.
+
+Creation requires title and defaults type to task, status to todo, priority to none, assignee and dates to null, and Markdown fields to empty. Active human assignees only. Mentions and assignments respect in-app notification preferences.
+
+MCP clients can use [`create_task`](/mcp-reference/create_task) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

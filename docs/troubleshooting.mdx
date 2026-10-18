@@ -1,9 +1,8 @@
 ---
 title: "Troubleshooting"
-description: "Resolve common installation, sign-in, and client access errors."
+description: "Resolve installation, sign-in and client access errors."
+icon: "wrench"
 ---
-
-import { Screenshot } from "/snippets/oss/screenshot.jsx";
 
 ## Compose rejects a variable
 
@@ -31,7 +30,7 @@ Passkeys are bound to the registration origin. If you changed domains and cannot
 
 ## An invitation or reset email does not arrive
 
-Check whether `MILL_SMTP_HOST` and `MILL_SMTP_FROM` are configured together. Without SMTP, administrators copy and share private invitation links; a server operator uses [local account recovery](/operations#account-recovery) when a person loses access. With SMTP, a successful request queues an email but does not confirm delivery. Check the application's logs and the mail server, then use the resend action if the proof is still needed. Invitation verification codes expire after ten minutes; reset and verification links have their own expiry. Task assignment and mention notifications appear in Mill and are never sent by email.
+Check whether `MILL_SMTP_HOST` and `MILL_SMTP_FROM` are configured together. Without SMTP, administrators copy and share private invitation links; a server operator uses [local account recovery](/authentication#recover-an-account) when a person loses access. With SMTP, a successful request queues an email but does not confirm delivery. Check the application's logs and the mail server, then use the resend action if the proof is still needed. Invitation verification codes expire after ten minutes; reset and verification links have their own expiry. Task assignment and mention notifications appear in Mill and are never sent by email.
 
 ## A completed task disappeared from the board
 
@@ -45,7 +44,7 @@ Another person or client changed the task or its status after you opened it. Rev
 
 For a personal key on REST or MCP, check the owner's active membership and role, stored grant, expiry, and revocation state. A Viewer-owned key cannot write. For a team key, check its stored team grant, expiry, and revocation state. Neither key type can use browser-only identity, membership, account security, or credential-management routes.
 
-For MCP OAuth, check the connection owner's active membership, current role, approved scopes and current board access. An older board-restricted connection cannot create boards or list the team directory. If its last approved board is deleted, the connection is revoked; reconnect and review the new access request. See [the connection guide](/clients) and [access security](/authentication#external-credential-boundaries).
+For MCP OAuth, check the connection owner's active membership, current role, approved scopes and current board access. An older board-restricted connection cannot create boards or list the team directory. If its last approved board is deleted, the connection is revoked; reconnect and review the new access request. See [the connection guide](/api-keys) and [access security](/authentication#external-credential-boundaries).
 
 ## An MCP client cannot connect
 
@@ -61,58 +60,8 @@ Include the exact commit/version, failed action, HTTP status, and configuration 
 
 ## Attachments do not appear or uploads fail
 
-The attachment area and Upload attachment button below the task description are hidden when the API has no S3 storage configuration. Configure the endpoint, bucket and both keys together, and restart with the new environment. Check [configuration](/configuration#optional-task-attachments) for the full list.
+The attachment area and Upload attachment button below the task description are hidden when the API has no S3 storage configuration. Configure the endpoint, bucket and both keys together, and restart with the new environment. Check [configuration](/configuration#s3-source) for the full list.
 
 For a browser upload failure, check that bucket CORS allows the exact `MILL_WEB_URL` origin, PUT/GET/HEAD and Content-Type. The API and UI must use the same public S3 endpoint; recreate both services after a change. A private container hostname cannot be reached by the browser. Confirm the key can read, write and delete objects in the configured private bucket.
 
 Check file size and type after a completion failure. Files must be at most 20 MiB and contain PNG, JPEG, WebP, GIF or PDF bytes matching their MIME type. A renamed extension cannot make another format supported. Expired upload URLs require a new upload attempt. Reopen an expired preview to request a new URL.
-
-## In the app
-
-### A missing page
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/not-found-light.png"
-      dark="/assets/screenshots/release-v1/not-found-dark.png"
-      alt="A missing page in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/not-found-mobile-light.png"
-      dark="/assets/screenshots/release-v1/not-found-mobile-dark.png"
-      alt="A missing page in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
-
-### A page loading error
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/server-error-light.png"
-      dark="/assets/screenshots/release-v1/server-error-dark.png"
-      alt="A page loading error in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/server-error-mobile-light.png"
-      dark="/assets/screenshots/release-v1/server-error-mobile-dark.png"
-      alt="A page loading error in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>

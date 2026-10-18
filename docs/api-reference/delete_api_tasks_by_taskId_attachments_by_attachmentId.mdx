@@ -1,0 +1,16 @@
+---
+title: "Delete an attachment"
+description: "Remove a task attachment and queue its private file for permanent deletion. Confirm with the user before deleting their work."
+playground: simple
+openapi: "/api-reference/openapi.json DELETE /api/tasks/{taskId}/attachments/{attachmentId}"
+---
+
+Write access: a member/administrator with a write-enabled credential, or an authorized signed-in user.
+
+Remove a task attachment and queue its private file for permanent deletion. Confirm with the user before deleting their work.
+
+Removes the attachment immediately and queues private object deletion with durable retries. There is no attachment trash or restore endpoint.
+
+MCP clients can use [`delete_attachment`](/mcp-reference/delete_attachment) for this operation.
+
+[Request conventions](/api-reference/overview) · [API keys](/api-keys) · [MCP connections](/mcp-connections)

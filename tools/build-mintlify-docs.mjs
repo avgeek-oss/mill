@@ -1,6 +1,6 @@
 import { cp, mkdir, readFile, rm, writeFile, mkdtemp } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { posix, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { format } from "prettier";
 const { syncSite } = await import(
@@ -50,12 +50,10 @@ function screenshotFrame(entry, device) {
   const suffix = device === "mobile" ? "-mobile" : "";
   return `<Screenshot light="/assets/screenshots/release-v1/${entry.name}${suffix}-light.png" dark="/assets/screenshots/release-v1/${entry.name}${suffix}-dark.png" alt="${screenshotTitles[entry.name]} in Mill with sample data." width={${dimensions.width * scale}} height={${dimensions.height * scale}}${device === "mobile" ? " portrait" : ""} />`;
 }
-function guideScreenshots(route) {
-  const entries = screenshots.screenshots.filter((entry) =>
-    entry.guides.includes(route),
-  );
-  if (!entries.length) return "";
-  return `\n\n## In the app\n\n${entries.map((entry) => `### ${screenshotTitles[entry.name]}\n\n<Tabs>\n<Tab title="Desktop">\n${screenshotFrame(entry, "desktop")}\n</Tab>\n<Tab title="Mobile">\n${screenshotFrame(entry, "mobile")}\n</Tab>\n</Tabs>`).join("\n\n")}\n`;
+function guideScreenshot(name) {
+  const entry = screenshots.screenshots.find((entry) => entry.name === name);
+  if (!entry) throw new Error(`Unknown screenshot: ${name}`);
+  return `<Tabs>\n<Tab title="Desktop">\n${screenshotFrame(entry, "desktop")}\n</Tab>\n<Tab title="Mobile">\n${screenshotFrame(entry, "mobile")}\n</Tab>\n</Tabs>`;
 }
 async function emit(name, content, parser = "mdx") {
   const target = resolve(output, name);
@@ -69,139 +67,172 @@ async function emit(name, content, parser = "mdx") {
   }
 }
 const pages = [
+  ["overview", "About Mill", "Self-hosted task lists for teams.", "book-open"],
+  [
+    "boards",
+    "Boards",
+    "Organize work into boards with unique task prefixes.",
+    "clipboard-list",
+  ],
   [
     "task-lists",
     "Task lists",
-    "Search, filter and sort the work on your boards.",
+    "Search, filter, sort and update tasks in bulk.",
+    "list-checks",
   ],
   [
     "task-details",
     "Task details",
-    "Edit tasks, discuss work, attach files and inspect its history.",
+    "Edit tasks, discuss work and review changes.",
+    "file-text",
   ],
   [
     "task-attachments",
     "Task attachments",
-    "Upload, preview and download task images and PDFs.",
+    "Upload, preview and download images and PDFs.",
+    "paperclip",
   ],
   [
     "notifications",
     "Notifications",
-    "Review assignments, mentions and changes that need your attention.",
-  ],
-  [
-    "api-keys",
-    "API keys",
-    "Create personal and team keys with explicit permissions and expiry.",
-  ],
-  [
-    "mcp-connections",
-    "MCP connections",
-    "Approve and revoke scoped connections from MCP clients.",
-  ],
-  ["overview", "Mill", "A self-hosted task list for teams."],
-  [
-    "installation",
-    "Installation",
-    "Install Mill with Docker Compose and PostgreSQL.",
-  ],
-  [
-    "package-registry",
-    "Package registry",
-    "Install public npm dependencies for local and Docker source builds.",
-  ],
-  [
-    "towbar-deployment",
-    "Deploy with Towbar",
-    "Run Mill's API and UI images with private PostgreSQL and one public origin.",
-  ],
-  [
-    "getting-started",
-    "Your first board",
-    "Set up a workspace and make your first task.",
-  ],
-  [
-    "workflows",
-    "Everyday work",
-    "Boards, tasks, roles, comments, and notifications.",
+    "Follow assignments, mentions and task changes.",
+    "bell",
   ],
   [
     "authentication",
     "Accounts and team access",
-    "Invitations, sessions, passkeys, recovery, and access boundaries.",
+    "Manage invitations, sessions, passkeys and recovery.",
+    "users",
   ],
   [
-    "clients",
-    "REST and MCP clients",
-    "Connect external clients with personal API keys or OAuth.",
+    "api-keys",
+    "API keys",
+    "Connect REST clients with scoped personal or team keys.",
+    "key-round",
   ],
   [
-    "api",
-    "REST API",
-    "Fields, permissions, pagination, errors, and OAuth/MCP endpoints.",
+    "mcp-connections",
+    "MCP connections",
+    "Approve and revoke connections from MCP clients.",
+    "plug",
+  ],
+  [
+    "installation",
+    "Architecture overview",
+    "Understand Mill's services and choose an installation method.",
+    "network",
+    "Overview",
+  ],
+  [
+    "installation/docker-compose",
+    "Docker Compose",
+    "Install Mill with Docker Compose and PostgreSQL.",
+    "/assets/installation/docker-compose.png",
+  ],
+  [
+    "installation/towbar",
+    "Towbar",
+    "Deploy Mill through your existing Towbar installation.",
+    "/assets/installation/towbar.png",
   ],
   [
     "configuration",
     "Configuration",
-    "Required and optional environment settings.",
+    "Configure public origins, private storage and email.",
+    "settings",
   ],
   [
     "security",
     "Security",
-    "Protect an installation and report a vulnerability privately.",
-  ],
-  [
-    "operations",
-    "Operations",
-    "Health checks, migrations, recovery, and routine care.",
+    "Protect your installation and report vulnerabilities.",
+    "shield-check",
   ],
   [
     "backup",
     "Backup and recovery",
     "Back up PostgreSQL and test a full restore.",
+    "database-backup",
   ],
-  [
-    "upgrades",
-    "Upgrades",
-    "Migrate an existing installation with a tested backup.",
-  ],
+  ["upgrades", "Upgrades", "Upgrade Mill with a tested backup.", "package"],
   [
     "troubleshooting",
     "Troubleshooting",
-    "Resolve common installation, sign-in, and client access errors.",
-  ],
-  [
-    "release-notes",
-    "Release notes",
-    "Changes and upgrade notes for the proposed first release.",
+    "Resolve installation, sign-in and client access errors.",
+    "wrench",
   ],
 ];
-
-const slug = (name) => (name === "api" ? "rest-reference" : name);
+const aliases = {
+  "getting-started": "/boards",
+  workflows: "/task-details",
+  clients: "/api-keys",
+  api: "/api-reference/overview",
+  operations: "/troubleshooting",
+  "towbar-deployment": "/installation/towbar",
+  "package-registry":
+    "https://github.com/avgeek-oss/mill/blob/main/CONTRIBUTING.md",
+  "release-notes": "https://github.com/avgeek-oss/mill/releases",
+};
 const included = new Set(pages.map(([name]) => name));
+function rewriteLinks(body, name) {
+  return body.replace(/\]\(([^)]+)\)/g, (match, href) => {
+    if (/^(?:https?:|mailto:|#)/.test(href)) return match;
+    const [file, anchor = ""] = href.split("#", 2);
+    const route = file.startsWith("/")
+      ? file.slice(1).replace(/\.md$/, "")
+      : posix
+          .normalize(posix.join(posix.dirname(name), file))
+          .replace(/\.md$/, "");
+    if (route === "../SECURITY") return "](/security)";
+    if (route === "operations" && anchor === "account-recovery")
+      return "](/authentication#recover-an-account)";
+    const destination = included.has(route) ? `/${route}` : aliases[route];
+    if (!destination) return match;
+    return `](${destination}${anchor && !aliases[route] ? `#${anchor}` : ""})`;
+  });
+}
+const retired = [
+  "getting-started",
+  "workflows",
+  "clients",
+  "rest-reference",
+  "towbar-deployment",
+  "package-registry",
+  "operations",
+  "release-notes",
+];
+for (const name of retired) {
+  const target = resolve(output, `${name}.mdx`);
+  if (check) {
+    if (await readFile(target, "utf8").catch(() => null))
+      throw new Error(
+        `Retired public page still exists: ${name}; run pnpm docs:build`,
+      );
+  } else await rm(target, { force: true });
+}
 await emit("index.mdx", await readFile(resolve(source, "home.mdx"), "utf8"));
-for (const [name, title, description] of pages) {
-  let body = await readFile(resolve(source, `${name}.md`), "utf8");
-  body = body
-    .replace(/^# .+\n\n/, "")
-    .replaceAll("(../SECURITY.md)", "(/security)");
-  body = body.replace(
-    /\]\(([^)]+\.md)(#[^)]+)?\)/g,
-    (match, file, anchor = "") => {
-      const target = file.replace(/^\.\//, "").replace(/\.md$/, "");
-      return included.has(target) ? `](/${slug(target)}${anchor})` : match;
-    },
+for (const [name, title, description, icon, sidebarTitle] of pages) {
+  let body = rewriteLinks(
+    (await readFile(resolve(source, `${name}.md`), "utf8"))
+      .replace(/^# .+\n\n/, "")
+      .replace(
+        /<!-- installed-only:start -->[\s\S]*?<!-- installed-only:end -->\n*/g,
+        "",
+      ),
+    name,
   );
-  const images = guideScreenshots(slug(name));
-  const metadata = `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\n---\n\n`;
+  let hasScreenshots = false;
+  body = body.replace(/<!-- screenshot:([\w-]+) -->/g, (_match, capture) => {
+    hasScreenshots = true;
+    return guideScreenshot(capture);
+  });
+  const metadata = `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\nicon: ${JSON.stringify(icon)}\n${sidebarTitle ? `sidebarTitle: ${JSON.stringify(sidebarTitle)}\n` : ""}---\n\n`;
   await emit(
-    `${slug(name)}.mdx`,
+    `${name}.mdx`,
     metadata +
-      (images
+      (hasScreenshots
         ? 'import { Screenshot } from "/snippets/oss/screenshot.jsx";\n\n'
         : "") +
-      body +
-      images,
+      body,
   );
 }
 for (const name of ["mill-mark.png", "mill-favicon.png", "mill-social.png"]) {
@@ -219,6 +250,37 @@ const config = JSON.parse(
   (await readFile(resolve(source, "site.json"), "utf8")).replaceAll(
     "{version}",
     version,
+  ),
+);
+const references = JSON.parse(
+  await readFile(resolve(source, "reference-navigation.json"), "utf8"),
+);
+config.navigation.dropdowns
+  .find((item) => item.dropdown === "API & MCP")
+  .groups.push(
+    {
+      group: "MCP reference",
+      pages: ["mcp-reference/overview", ...references.mcp],
+    },
+    {
+      group: "API Reference",
+      pages: ["api-reference/overview", ...references.api],
+    },
+  );
+function validateNavigation(value) {
+  if (typeof value === "string")
+    return readFile(resolve(source, `${value}.mdx`));
+  return Promise.all(
+    value.map((item) =>
+      typeof item === "string"
+        ? validateNavigation(item)
+        : validateNavigation(item.pages),
+    ),
+  );
+}
+await Promise.all(
+  config.navigation.dropdowns.flatMap((item) =>
+    item.groups.map((group) => validateNavigation(group.pages)),
   ),
 );
 const temp = await mkdtemp(resolve(tmpdir(), "mill-docs-"));

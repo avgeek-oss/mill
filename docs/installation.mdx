@@ -1,158 +1,51 @@
 ---
-title: "Installation"
-description: "Install Mill with Docker Compose and PostgreSQL."
+title: "Architecture overview"
+description: "Understand Mill's services and choose an installation method."
+icon: "network"
+sidebarTitle: "Overview"
 ---
 
-import { Screenshot } from "/snippets/oss/screenshot.jsx";
+Mill runs an API and a UI connected to PostgreSQL. A private S3-compatible bucket is optional for task attachments.
 
-Mill needs **PostgreSQL, an API image and a UI image**. Use an existing PostgreSQL database or let Compose run one for you. The default Compose file runs only the API and UI; it needs four environment values. You do not need Git, Node.js, a package-registry token or a source build.
-
-Choose a version from [Mill releases](https://github.com/avgeek-oss/mill/releases), which include matching public API and UI images.
-
-## 1. Download the installation files
-
-Choose a version from [Mill releases](https://github.com/avgeek-oss/mill/releases). Download `docker-compose.yml` and `.env.example` from that release's source tag into an empty directory. You can use your browser or these commands:
-
-```sh
-mkdir mill
-cd mill
-release_tag=v1.0.6 # choose a published release
-curl --fail --location --output docker-compose.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.yml"
-curl --fail --location --output .env.example "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/.env.example"
-cp .env.example .env
-chmod 600 .env
+```mermaid
+flowchart TB
+  browser("Browser") -->|Load the app| ui("UI")
+  browser -->|Public API requests| api("API")
+  api <--> database[("PostgreSQL")]
+  api -.->|Manage attachment objects| s3[("Private S3 source")]
+  browser -.->|Signed uploads and previews| s3
 ```
 
-Keep these files together and run the remaining commands from this directory. Compose reads `.env` automatically; `--env-file /path/to/your.env` is available if you store it elsewhere. Image versions are already set in the release's Compose file.
+| Component  | What it does                                                                                    |
+| ---------- | ----------------------------------------------------------------------------------------------- |
+| UI         | Serves the web application for boards, tasks, comments and team settings.                       |
+| API        | Handles sign-in, permissions, task changes, attachments, REST and MCP clients.                  |
+| PostgreSQL | Stores accounts, boards, tasks, comments, attachment metadata and client credentials.           |
+| S3 source  | Stores uploaded images and PDFs in a private S3-compatible bucket when attachments are enabled. |
 
-## 2. Set four environment values
+Only the UI and API need public HTTPS routes. Browsers call the API directly at its public origin. PostgreSQL stays private; the UI never receives database or storage credentials.
 
-Edit `.env`:
+Each [Mill release](https://github.com/avgeek-oss/mill/releases) provides matching API and UI images for Linux AMD64 and ARM64. There is no separate worker or queue service to install.
 
-```dotenv
-DATABASE_URL=postgres://user:password@your-database-host:5432/mill
-MILL_SECRET=<a random secret of at least 32 characters>
-MILL_WEB_URL=http://localhost:4322
-MILL_API_URL=http://localhost:4321
-```
+## Choose an installation method
 
-Use a dedicated PostgreSQL database with a user that can create and modify its tables. Supply the provider's complete connection URL, including any required TLS parameters. Percent-encode special characters in a URL's username or password. The database host must be reachable from the API container; `localhost` inside that container refers to the container itself.
+<CardGroup cols={2}>
+  <Card
+    title="Docker Compose"
+    icon="/assets/installation/docker-compose.png"
+    href="/installation/docker-compose"
+  >
+    Run Mill with Docker Compose, using bundled PostgreSQL or your existing
+    database.
+  </Card>
+  <Card
+    title="Towbar"
+    icon="/assets/installation/towbar.png"
+    href="/installation/towbar"
+  >
+    Deploy Mill through your Towbar installation with a connected Git repository
+    and runtime settings.
+  </Card>
+</CardGroup>
 
-Generate `MILL_SECRET` with a password manager or `openssl rand -hex 32`. Keep it private and preserve it across upgrades and restores: Mill uses it to protect authentication data. Leave both origins as shown for local use, or set the final HTTPS UI and API origins for remote access.
-
-## 3. Start Mill
-
-```sh
-docker compose --project-name mill up --detach --wait
-```
-
-Compose pulls both versioned images and waits for the API and UI to become healthy. The API applies its packaged database migrations automatically.
-
-Run `docker compose --project-name mill logs api` and copy the line labelled `Mill installation setup secret`. Enter it in the shared setup form, then create your team and administrator. The secret is printed only while the database has no workspace and remains the same across restarts with the same `MILL_SECRET`. It is separate from `MILL_SECRET`; do not put the application secret in the form. Completing setup closes this endpoint permanently for that database. Existing installations keep their accounts and sign-in flow.
-
-Open [localhost:4322](http://localhost:4322) and enter the setup secret, workspace name and administrator details. The first account is email-verified automatically and signed in; there is no default login.
-
-Check the running services and the complete UI-to-API path:
-
-```sh
-docker compose --project-name mill ps
-curl --fail http://localhost:4321/health/ready
-curl --fail http://localhost:4322/health/ready
-```
-
-Continue with [your first board and task](/getting-started). No GitHub login or npm token is needed to pull public release images. Both services publish separate loopback ports. Browsers call the API directly at its configured public origin. The API holds the database URL and application secret; the UI has neither.
-
-## Optional: run PostgreSQL with Compose
-
-If you do not have a database, download `docker-compose.postgres.yml` from the same release:
-
-```sh
-curl --fail --location --output docker-compose.postgres.yml "https://raw.githubusercontent.com/avgeek-oss/mill/$release_tag/docker-compose.postgres.yml"
-```
-
-Generate a separate database password with `openssl rand -hex 32`. Add `POSTGRES_PASSWORD` to `.env` and use the same value in `DATABASE_URL`:
-
-```dotenv
-POSTGRES_PASSWORD=<your generated database password>
-DATABASE_URL=postgres://mill:<the same database password>@postgres:5432/mill
-```
-
-Keep the existing `MILL_SECRET`, `MILL_WEB_URL` and `MILL_API_URL` values. Start all three services with the optional overlay:
-
-```sh
-docker compose --project-name mill -f docker-compose.yml -f docker-compose.postgres.yml up --detach --wait
-```
-
-Use both `-f` options for subsequent commands on this installation. The overlay creates persistent PostgreSQL storage, waits for database readiness before starting the API, and publishes no database port. Use `--project-name mill` consistently so Compose reuses the same volume. `down` stops the containers and leaves the volume intact; `down --volumes` permanently removes it.
-
-## Host Mill with HTTPS
-
-Set `MILL_WEB_URL` and `MILL_API_URL` to separate public HTTPS origins, for example `https://tasks.example.com` and `https://tasks-api.example.com`. Keep both hosts under the same site so the browser can send the API's SameSite=Lax session cookie. Recreate both services after changing environment values. Expose the UI and API separately:
-
-```caddyfile
-tasks.example.com {
-    reverse_proxy 127.0.0.1:4322
-}
-tasks-api.example.com {
-    reverse_proxy 127.0.0.1:4321
-}
-```
-
-The API serves `/api`, `/mcp`, `/oauth`, `/.well-known`, and `/health`. Keep PostgreSQL private. Preserve streaming responses and do not cache API, OAuth, or MCP responses. The UI serves `/runtime-config.js` with no-store caching; it tells the browser which public API origin to use. The same UI image works at another installation by changing this runtime value.
-
-`MILL_WEB_URL` controls passkey origin checks, browser CSRF/CORS policy, invitation and recovery links, and OAuth consent pages. `MILL_API_URL` controls the host-only session cookie's Secure flag, OAuth issuer, discovery, MCP resource, and browser API requests. Set both before registering passkeys or connecting MCP clients; changing them later requires a recovery plan. Remote access requires HTTPS.
-
-## Use a deployment platform
-
-Images read runtime environment variables directly. Keep the API and UI at the same release version and expose each on its configured public HTTPS hostname:
-
-| Service | Image                                   | Runtime configuration                                                       |
-| ------- | --------------------------------------- | --------------------------------------------------------------------------- |
-| API     | `ghcr.io/avgeek-oss/mill-api:<version>` | `DATABASE_URL`, `MILL_SECRET`, `MILL_WEB_URL`, `MILL_API_URL`. Port `4321`. |
-| UI      | `ghcr.io/avgeek-oss/mill-web:<version>` | `MILL_API_URL` (the same public API origin). Port `4322`.                   |
-
-Optional email and [task attachment storage](/configuration#optional-task-attachments) settings are covered in configuration. Attachments need a private S3-compatible bucket and the five `MILL_S3_*` settings described there. Supply the endpoint, bucket and credentials to the API; supply only the same public `MILL_S3_ENDPOINT` to the UI. The packaged Compose file forwards these optional settings. Keep them unset to install without attachments.
-
-## Optional: pin images by digest
-
-If your deployment policy requires immutable references, download `mill-images.json` from the matching GitHub release. Replace the two services' `image` fields in Compose with its `images.api` and `images.web` values:
-
-```yaml
-services:
-  api:
-    image: ghcr.io/avgeek-oss/mill-api@sha256:<api digest from the manifest>
-  web:
-    image: ghcr.io/avgeek-oss/mill-web@sha256:<web digest from the manifest>
-```
-
-These are image references, not application environment variables. Keep both images from the same release and retain the manifest with your installation records.
-
-## Protect your installation
-
-Take a [first backup](/backup), keep an encrypted copy of the environment settings, and preserve the original `MILL_SECRET`. Before changing versions, read [upgrades](/upgrades). [Troubleshooting](/troubleshooting) covers startup, authentication and connectivity issues. Source builds are for contributors; see [package registry setup](/package-registry).
-
-## In the app
-
-### Team setup
-
-<Tabs>
-  <Tab title="Desktop">
-    <Screenshot
-      light="/assets/screenshots/release-v1/setup-light.png"
-      dark="/assets/screenshots/release-v1/setup-dark.png"
-      alt="Team setup in Mill with sample data."
-      width={2560}
-      height={1800}
-    />
-  </Tab>
-  <Tab title="Mobile">
-    <Screenshot
-      light="/assets/screenshots/release-v1/setup-mobile-light.png"
-      dark="/assets/screenshots/release-v1/setup-mobile-dark.png"
-      alt="Team setup in Mill with sample data."
-      width={780}
-      height={1688}
-      portrait
-    />
-  </Tab>
-</Tabs>
+After installation, create [your first board and task](/boards). See [Configuration](/configuration) for optional email and attachments, and set up [backups](/backup) before storing production data.

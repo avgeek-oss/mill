@@ -34,8 +34,27 @@
         "icon": "book-open",
         "groups": [
           {
-            "group": "Get started",
-            "pages": ["overview", "getting-started"]
+            "group": "Get Started",
+            "pages": ["overview"]
+          },
+          {
+            "group": "Self-hosting",
+            "pages": [
+              {
+                "group": "Installation",
+                "icon": "network",
+                "pages": [
+                  "installation",
+                  "installation/docker-compose",
+                  "installation/towbar"
+                ]
+              },
+              "configuration",
+              "security",
+              "backup",
+              "upgrades",
+              "troubleshooting"
+            ]
           }
         ]
       },
@@ -44,13 +63,13 @@
         "icon": "clipboard-list",
         "groups": [
           {
-            "group": "Tasks and collaboration",
+            "group": "Common Concepts",
             "pages": [
+              "boards",
               "task-lists",
               "task-details",
               "task-attachments",
-              "notifications",
-              "workflows"
+              "notifications"
             ]
           },
           {
@@ -60,43 +79,12 @@
         ]
       },
       {
-        "dropdown": "API and MCP",
+        "dropdown": "API & MCP",
         "icon": "plug",
         "groups": [
           {
             "group": "Connect a client",
-            "pages": [
-              "api-keys",
-              "mcp-connections",
-              "clients",
-              "rest-reference"
-            ]
-          }
-        ]
-      },
-      {
-        "dropdown": "Self-hosting",
-        "icon": "server",
-        "groups": [
-          {
-            "group": "Install and configure",
-            "pages": [
-              "installation",
-              "towbar-deployment",
-              "configuration",
-              "package-registry",
-              "security"
-            ]
-          },
-          {
-            "group": "Operate Mill",
-            "pages": [
-              "operations",
-              "backup",
-              "upgrades",
-              "troubleshooting",
-              "release-notes"
-            ]
+            "pages": ["api-keys", "mcp-connections"]
           }
         ]
       }
@@ -105,18 +93,14 @@
   "navbar": {
     "links": [
       {
-        "label": "v{version}",
-        "href": "/release-notes"
-      },
-      {
         "type": "github",
         "href": "https://github.com/avgeek-oss/mill"
       }
     ],
     "primary": {
       "type": "button",
-      "label": "Docs",
-      "href": "/getting-started"
+      "label": "Get started",
+      "href": "/overview"
     }
   },
   "footer": {
@@ -128,58 +112,67 @@
         "header": "Documentation",
         "items": [
           {
-            "label": "Get started",
-            "href": "/getting-started"
+            "label": "About Mill",
+            "href": "/overview"
           },
           {
-            "label": "Install Mill",
+            "label": "Self-hosting",
             "href": "/installation"
           },
           {
-            "label": "Tasks and collaboration",
-            "href": "/task-details"
+            "label": "Configuration",
+            "href": "/configuration"
           },
           {
-            "label": "API keys and MCP",
-            "href": "/api-keys"
-          },
-          {
-            "label": "Backup and recovery",
-            "href": "/backup"
+            "label": "Changelog",
+            "href": "https://github.com/avgeek-oss/mill/releases"
           }
         ]
       },
       {
-        "header": "Our OSS Philosophy",
+        "header": "Open Source",
         "items": [
           {
-            "label": "Why we build open source",
-            "href": "https://github.com/avgeek-oss/.github/blob/main/profile/README.md"
-          },
-          {
-            "label": "Source code",
+            "label": "GitHub Source",
             "href": "https://github.com/avgeek-oss/mill"
           },
           {
-            "label": "Report an issue",
-            "href": "https://github.com/avgeek-oss/mill/issues"
+            "label": "License Terms",
+            "href": "https://github.com/avgeek-oss/mill/blob/main/LICENSE"
+          },
+          {
+            "label": "OSS Philosophy",
+            "href": "https://github.com/avgeek-oss/.github/blob/main/profile/README.md"
           }
         ]
       },
       {
-        "header": "Other OSS Apps",
+        "header": "Other OSS Projects",
         "items": [
           {
-            "label": "Towbar \u00b7 Deploy your apps",
+            "label": "Towbar",
             "href": "https://www.towbar.dev"
           },
           {
-            "label": "Vitalog \u00b7 Your health ledger",
-            "href": "https://www.vitalog.dev"
+            "label": "Posted",
+            "href": "https://www.posted.cc"
           },
           {
-            "label": "All OSS projects",
-            "href": "https://github.com/avgeek-oss/.github/blob/main/profile/README.md#whats-in-the-list"
+            "label": "Rootset",
+            "href": "https://www.rootset.app"
+          }
+        ]
+      },
+      {
+        "header": "More links",
+        "items": [
+          {
+            "label": "Company website",
+            "href": "https://www.avgeek.ltd"
+          },
+          {
+            "label": "Write to us",
+            "href": "mailto:support@avgeek.ltd"
           }
         ]
       }
@@ -206,5 +199,39 @@
       "logo": "https://www.mill.fyi/assets/mill-mark.png",
       "sameAs": ["https://github.com/avgeek-oss/mill"]
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/getting-started",
+      "destination": "/boards"
+    },
+    {
+      "source": "/workflows",
+      "destination": "/task-details"
+    },
+    {
+      "source": "/clients",
+      "destination": "/api-keys"
+    },
+    {
+      "source": "/rest-reference",
+      "destination": "/api-reference/overview"
+    },
+    {
+      "source": "/towbar-deployment",
+      "destination": "/installation/towbar"
+    },
+    {
+      "source": "/package-registry",
+      "destination": "https://github.com/avgeek-oss/mill/blob/main/CONTRIBUTING.md"
+    },
+    {
+      "source": "/operations",
+      "destination": "/troubleshooting"
+    },
+    {
+      "source": "/release-notes",
+      "destination": "https://github.com/avgeek-oss/mill/releases"
+    }
+  ]
 }

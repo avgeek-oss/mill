@@ -1,0 +1,183 @@
+---
+title: "update_task"
+description: "Update a task with Mill MCP."
+icon: "plug"
+---
+
+Edit task fields, including separate Markdown description and acceptance criteria, type task or bug, or its fixed status using the current version. A stale version returns a conflict.
+
+## Workflow
+
+```mermaid
+flowchart LR
+  step0["Read current version"] --> step1
+  step1["Send changed fields"] --> step2
+  step2["Refresh on conflict"]
+```
+
+## Access and behavior
+
+Write or Administrator OAuth consent and a member/administrator team role are required. Tools are listed and callable only when the current grant and role permit them.
+
+Fields save atomically. Pass null to clear `assigneeId`, `startDate` or `dueDate`. Actual status changes reset `statusChangedAt`; unrelated edits preserve it. A stale version returns 409 without applying the edit.
+
+## Arguments
+
+| Argument             | Required | Type or meaning                                                                                              |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `taskId`             | Yes      | Task UUID, not its human identifier such as ENG-1.                                                           |
+| `version`            | Yes      | Latest row version; stale mutations return HTTP 409.                                                         |
+| `type`               | No       | task, bug                                                                                                    |
+| `title`              | No       | string                                                                                                       |
+| `description`        | No       | string                                                                                                       |
+| `acceptanceCriteria` | No       | Independent Markdown acceptance criteria, at most 100,000 characters.                                        |
+| `assigneeId`         | No       | Active member UUID; null clears an assignment on mutation, unassigned filters unassigned tasks when listing. |
+| `priority`           | No       | none, low, medium, high, urgent                                                                              |
+| `status`             | No       | backlog, todo, in_progress, in_review, done, wont_do                                                         |
+| `startDate`          | No       | Optional calendar date YYYY-MM-DD; null clears it.                                                           |
+| `dueDate`            | No       | Optional calendar date YYYY-MM-DD; null clears it.                                                           |
+| `idempotencyKey`     | No       | One logical mutation key, reused unchanged on retries. MCP forwards it as the REST Idempotency-Key header.   |
+
+<Accordion title="Complete input schema">
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "taskId": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+    },
+    "version": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "type": {
+      "type": "string",
+      "enum": ["task", "bug"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 300
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "acceptanceCriteria": {
+      "type": "string",
+      "maxLength": 100000
+    },
+    "assigneeId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["none", "low", "medium", "high", "urgent"]
+    },
+    "status": {
+      "type": "string",
+      "enum": ["backlog", "todo", "in_progress", "in_review", "done", "wont_do"]
+    },
+    "startDate": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "dueDate": {
+      "anyOf": [
+        {
+          "type": "string",
+          "format": "date",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 128
+    }
+  },
+  "required": ["taskId", "version"],
+  "additionalProperties": false
+}
+```
+
+</Accordion>
+
+## Example call
+
+The client initializes the MCP connection before sending this JSON-RPC call. Example records are fictional.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "update_task",
+    "arguments": {
+      "taskId": "22222222-2222-4222-8222-222222222222",
+      "version": 1,
+      "status": "in_review",
+      "acceptanceCriteria": "- Restore completed\n- Counts match",
+      "idempotencyKey": "restore-check-edit-001"
+    }
+  }
+}
+```
+
+## Example result
+
+Mill returns this object in `structuredContent` and normally a JSON text content block (large responses may shorten the text block). A tool failure sets `isError`; never treat an error as a completed mutation.
+
+```json
+{
+  "task": {
+    "id": "22222222-2222-4222-8222-222222222222",
+    "boardId": "11111111-1111-4111-8111-111111111111",
+    "identifier": "ENG-1",
+    "title": "Verify database restore",
+    "description": "Restore a recent backup into an isolated database.",
+    "acceptanceCriteria": "- Restore completed\n- Counts match",
+    "type": "task",
+    "status": "in_review",
+    "priority": "high",
+    "assigneeId": "66666666-6666-4666-8666-666666666666",
+    "startDate": "2027-01-18",
+    "dueDate": "2027-01-20",
+    "version": 2,
+    "statusChangedAt": "2027-01-18T09:30:00.000Z",
+    "createdAt": "2027-01-18T09:30:00.000Z",
+    "updatedAt": "2027-01-18T09:30:00.000Z",
+    "createdBy": "66666666-6666-4666-8666-666666666666"
+  }
+}
+```
+
+## Related reference
+
+[HTTP operation](/api-reference/patch_api_tasks_by_taskId) · [Connect an MCP client](/mcp-connections) · [Request conventions](/api-reference/overview)
