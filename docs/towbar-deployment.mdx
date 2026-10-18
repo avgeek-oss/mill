@@ -5,7 +5,7 @@ description: "Run Mill's API and UI images with private PostgreSQL and one publi
 
 Mill can run on [Towbar](https://www.towbar.dev) using the published API and UI images and a PostgreSQL datastore. There is no source build on the deployment server.
 
-The repository includes `towbar.yml` and three manifests under `.towbar/`: Mill API, Mill UI, and Mill PostgreSQL. The checked-in production mapping targets the Platform Services server at `13.206.149.158`, with `mill.avgeek.ltd` and `mill-api.avgeek.ltd` as the public hostnames. Change the server mapping and hostname before connecting the repository if you use another installation.
+The production workload manifests are maintained in the separate platform-services deployment repository: Mill API, Mill UI and Mill PostgreSQL. This source repository keeps an empty `towbar.yml` so Towbar can release its former workload declarations. For another installation, keep its manifests in a deployment repository and configure its own server and hostnames.
 
 ## Images and networking
 
@@ -36,7 +36,7 @@ SMTP is optional. To enable identity and invitation email, add the supported `MI
 
 ## Optional attachment storage
 
-The checked-in production manifests enable task attachments. Configure `MILL_S3_ENDPOINT`, `MILL_S3_REGION`, `MILL_S3_BUCKET`, `MILL_S3_ACCESS_KEY_ID` and `MILL_S3_SECRET_ACCESS_KEY` in the API’s Towbar runtime secrets. Configure only `MILL_S3_ENDPOINT` in the UI’s runtime secrets; credential values stay on the API. For Cloudflare R2, use the account’s S3 endpoint without a bucket path, region `auto`, and a private bucket with object read/write credentials restricted to that bucket. The production bucket is `mill-data`.
+The production deployment manifests enable task attachments. Configure `MILL_S3_ENDPOINT`, `MILL_S3_REGION`, `MILL_S3_BUCKET`, `MILL_S3_ACCESS_KEY_ID` and `MILL_S3_SECRET_ACCESS_KEY` in the API’s Towbar runtime secrets. Configure only `MILL_S3_ENDPOINT` in the UI’s runtime secrets; credential values stay on the API. For Cloudflare R2, use the account’s S3 endpoint without a bucket path, region `auto`, and a private bucket with object read/write credentials restricted to that bucket. The production bucket is `mill-data`.
 
 For an installation without attachments, remove the `MILL_S3_*` declarations from both manifests. The rest of Mill works without object storage.
 
@@ -46,7 +46,7 @@ The endpoint must accept browser requests from the exact configured `MILL_WEB_UR
 
 1. Publish and verify the chosen API and UI images, then pin their digests in the service manifests.
 2. Confirm both public hostnames, DNS, Cloudflare certificate credentials, and current server capacity in Towbar. The manifests cap PostgreSQL at 512 MiB, the API at 512 MiB, and the UI at 256 MiB; CPU limits are 0.25, 0.25, and 0.125 cores respectively. These are initial limits, not a capacity guarantee for a shared server.
-3. Connect the Mill repository to Towbar and map its deployment branch to `production`. Sync the manifests and set the runtime values above. `autoDeploy: false` keeps a repository sync from starting workloads.
+3. Connect the deployment repository to Towbar and map its deployment branch to `production`. Sync the manifests and set the runtime values above. `autoDeploy: false` keeps a repository sync from starting workloads.
 4. Deploy Mill PostgreSQL and wait for its readiness check. Towbar manages its persistent data volume; do not replace or remove that volume during an upgrade.
 5. Deploy Mill API. The image runs its packaged database migrations before accepting requests. No migration command override or separate migration container is needed.
 6. Deploy Mill UI. Its `/health/ready` check verifies the built UI is ready; check the API readiness separately for database health. Wait for readiness before opening the public app.
