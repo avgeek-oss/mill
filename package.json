@@ -41,7 +41,7 @@
     "@modelcontextprotocol/sdk": "1.31.0",
     "@simplewebauthn/server": "13.3.2",
     "file-type": "22.1.1",
-    "hono": "4.13.8",
+    "hono": "4.13.11",
     "jose": "6.2.12",
     "nodemailer": "10.0.15",
     "postgres": "3.4.9",
