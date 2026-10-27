@@ -74,18 +74,6 @@ jobs:
         env:
           NODE_ENV: production
 
-  verify:
-    if: always()
-    needs: [static, test]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require the static checks and the test suite to pass
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: |
-          node -e 'for (const [name, job] of Object.entries(JSON.parse(process.env.RESULTS))) { if (job.result !== "success") { console.error(name + ": " + job.result); process.exitCode = 1; } }'
-
   production:
     runs-on: ubuntu-latest
     timeout-minutes: 35
@@ -122,15 +110,23 @@ jobs:
           path: tmp/verification/
           retention-days: 14
 
-  required-ci:
-    name: Required CI
+  # The one check the main ruleset requires and Cut release reads. It needs
+  # every other CI job and fails unless all of them succeeded; always() makes
+  # a failed, cancelled or skipped job fail this check instead of skipping it,
+  # because a skipped required check counts as passing.
+  verify:
     if: always()
-    needs: [verify, production]
+    needs: [static, test, production]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every gate to pass
+      - name: Require every CI job to pass
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: |
-          node -e 'for (const [name, job] of Object.entries(JSON.parse(process.env.RESULTS))) { if (job.result !== "success") { console.error(name + ": " + job.result); process.exitCode = 1; } }'
+          printf '%s' "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          failed=$(printf '%s' "$RESULTS" | jq -r '[to_entries[] | select(.value.result != "success") | .key] | join(", ")')
+          if [ -n "$failed" ]; then
+            echo "::error::These CI jobs did not pass: $failed"
+            exit 1
+          fi

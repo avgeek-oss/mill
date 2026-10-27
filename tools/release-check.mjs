@@ -15,14 +15,14 @@ const checks = pages
   .flatMap((page) => page.check_runs)
   .filter(
     (check) =>
-      check.name === "Required CI" &&
+      check.name === "verify" &&
       check.head_sha === commit &&
       check.app?.slug === "github-actions",
   );
-assert.ok(checks.length, "The exact source commit needs a Required CI result");
+assert.ok(checks.length, "The exact source commit needs a verify result");
 assert.ok(
   checks.every((check) => check.status === "completed"),
-  "Required CI is still queued or running on this source commit",
+  "verify is still queued or running on this source commit",
 );
 checks.sort((left, right) => {
   const a = left.started_at ?? left.created_at ?? left.completed_at ?? "";
@@ -32,6 +32,6 @@ checks.sort((left, right) => {
 assert.equal(
   checks.at(-1).conclusion,
   "success",
-  "The latest Required CI run must succeed; an older success is insufficient",
+  "The latest verify run must succeed; an older success is insufficient",
 );
-console.log(`PASS Latest Required CI succeeded for ${commit}`);
+console.log(`PASS Latest verify succeeded for ${commit}`);

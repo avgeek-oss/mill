@@ -238,7 +238,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # amd64 is not repeated here: prepare requires the latest Required CI
+        # amd64 is not repeated here: prepare requires the latest verify
         # result for this exact commit to be a success, and that includes the
         # production job, which runs this same installation gate natively on
         # amd64. The manifest job still pulls the amd64 registry images and
