@@ -889,15 +889,10 @@ export function BoardPage({
                           className="flex items-center gap-2 text-sm font-normal tracking-normal"
                         >
                           {group.startContent}
-                          {group.name}
+                          <span className="tabular-nums">
+                            {group.name} ({group.tasks.length})
+                          </span>
                         </TypographyHeading>
-                        <Chip
-                          variant="soft"
-                          size="sm"
-                          aria-label={`${group.tasks.length} tasks on this page`}
-                        >
-                          {group.tasks.length}
-                        </Chip>
                       </div>
                     )}
                     <TaskTable

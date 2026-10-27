@@ -54,20 +54,6 @@ export function BulkTaskBar({
       className="task-bulk-bar shadow-lg"
       aria-label="Bulk task actions"
     >
-      <div className="task-bulk-selection flex items-center gap-3">
-        <span className="text-sm font-medium whitespace-nowrap" role="status">
-          {count} selected
-        </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="task-bulk-clear"
-          isDisabled={disabled}
-          onPress={onClear}
-        >
-          Clear selection
-        </Button>
-      </div>
       <div className="task-bulk-fields flex flex-wrap justify-center gap-2">
         {(Object.keys(labels) as BulkTaskField[]).map((field) => (
           <Button
@@ -81,6 +67,15 @@ export function BulkTaskBar({
           </Button>
         ))}
       </div>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="task-bulk-clear whitespace-nowrap tabular-nums"
+        isDisabled={disabled}
+        onPress={onClear}
+      >
+        Clear selection ({count})
+      </Button>
     </section>
   );
 }
