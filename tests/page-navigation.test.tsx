@@ -1,3 +1,4 @@
+import "./react-test-environment.js";
 import assert from "node:assert/strict";
 import { after, afterEach, beforeEach, test } from "node:test";
 import { Window } from "happy-dom";
