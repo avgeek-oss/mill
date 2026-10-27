@@ -135,9 +135,7 @@ jobs:
           outputs: type=image,name=ghcr.io/avgeek-oss/mill-${{ matrix.component }},push-by-digest=true,name-canonical=true,push=true
           provenance: mode=max
           sbom: true
-          cache-from: type=gha,scope=release-mill-${{ matrix.component }}-${{ matrix.architecture }}
           # mode=min exports only the final layers; mode=max exported every stage for 107 s per job with no hits to show for it.
-          cache-to: type=gha,mode=min,scope=release-mill-${{ matrix.component }}-${{ matrix.architecture }}
           build-args: |
             SOURCE_COMMIT=${{ needs.prepare.outputs.commit }}
             RELEASE_VERSION=${{ needs.prepare.outputs.version }}
