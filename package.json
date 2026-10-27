@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.5.3",
   "engines": {
-    "node": ">=24 <25"
+    "node": ">=26 <27"
   },
   "scripts": {
     "dev": "node --env-file=.env --import tsx --watch apps/api/src/index.ts",
@@ -52,7 +52,7 @@
   "devDependencies": {
     "@avgeek-oss/mintlify-docs": "0.1.6",
     "@eslint/js": "9.39.4",
-    "@types/node": "24.19.2",
+    "@types/node": "26.6.5",
     "@types/nodemailer": "8.0.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
