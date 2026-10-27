@@ -26,7 +26,7 @@ Use this checklist for the exact revision proposed for release. Record results i
 
 - Keep installation instructions, configuration, API/MCP contracts, security guidance, release notes, and screenshots aligned with the supported behavior.
 - The full source gate includes the documentation link check. Review the rendered documentation at desktop and phone widths in both themes. Use current, crisp screenshots without private data; the manual documentation capture tool is optional.
-- Require the `verify` and `production` CI gates for the reviewed commit. Review both architecture packages and validate `SHA256SUMS`, source revision, image architecture, and the packaged notices.
+- Require the `verify` and `production` CI gates for the reviewed commit.
 - Verify version/tag metadata, source and release manifests, download destinations, and beginner installation instructions before publishing.
 - Cut the release with the **Cut release** workflow on `main`. It checks the package and Compose versions, the changelog entry and the exact-commit Required CI result, creates the annotated `vX.Y.Z` tag on the head of `main`, and dispatches **Publish release images** with that tag. Creating the tag and dispatching by hand still works.
 - For the GHCR publisher, require a stable tag on the current `main` revision, the latest exact-commit Required CI result, native API and UI images for both platforms, registry labels, and the paired digest references in `mill-images.json`. Inspect both release installation evidence bundles: each must pull both registry images and pass installation, persistence, backup/restore, HTTPS proxy, and image security checks without rebuilding Mill.

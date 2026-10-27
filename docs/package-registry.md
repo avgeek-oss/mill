@@ -29,4 +29,4 @@ docker build --target web --tag mill-web:local .
 
 ## Continuous integration
 
-Dependency installation, review artifacts and release-image builds use npmjs.org without a registry token. GitHub authentication remains for publishing and pulling GHCR container images. The source and production verification gates remain required.
+Dependency installation and release-image builds use npmjs.org without a registry token. GitHub authentication remains for publishing and pulling GHCR container images. The source and production verification gates remain required.
