@@ -31,15 +31,32 @@ const images = {
   api: releaseApiImage ?? `mill-api:verify-${runId}`,
   web: releaseWebImage ?? `mill-web:verify-${runId}`,
 };
+// The release rehearsal verifies images it has just built and loaded into the
+// local Docker daemon. They are checked exactly like release images, except
+// that they are referenced by a local tag and not pulled from the registry.
+const localReleaseImages =
+  process.env.MILL_VERIFY_LOCAL_RELEASE_IMAGES === "true";
+if (localReleaseImages)
+  assert.ok(
+    releaseImages,
+    "MILL_VERIFY_LOCAL_RELEASE_IMAGES requires MILL_VERIFY_API_IMAGE and MILL_VERIFY_WEB_IMAGE",
+  );
 if (releaseImages)
   for (const [component, image] of Object.entries(images))
-    assert.match(
-      image,
-      new RegExp(
-        `^ghcr\\.io/avgeek-oss/mill-${component}@sha256:[0-9a-f]{64}$`,
-      ),
-      `Release verification requires the immutable Mill ${component} GHCR digest`,
-    );
+    if (localReleaseImages)
+      assert.match(
+        image,
+        new RegExp(`^mill-${component}:[a-z0-9][a-z0-9._-]*$`),
+        `Release rehearsal requires a local Mill ${component} image tag`,
+      );
+    else
+      assert.match(
+        image,
+        new RegExp(
+          `^ghcr\\.io/avgeek-oss/mill-${component}@sha256:[0-9a-f]{64}$`,
+        ),
+        `Release verification requires the immutable Mill ${component} GHCR digest`,
+      );
 const scannerCache = `${project}-scanner-cache`;
 // CI can keep the scanner database between runs in a host directory (an
 // absolute path) instead of the per-run volume that is removed afterwards.
@@ -328,13 +345,14 @@ try {
   scannerDatabase.catch(() => {});
   if (releaseImages) {
     for (const [component, image] of Object.entries(images)) {
-      await run(
-        `production-${component}-image-pull`,
-        "docker",
-        ["pull", image],
-        {},
-        600_000,
-      );
+      if (!localReleaseImages)
+        await run(
+          `production-${component}-image-pull`,
+          "docker",
+          ["pull", image],
+          {},
+          600_000,
+        );
       const metadata = JSON.parse(
         await run(`release-${component}-image-metadata`, "docker", [
           "image",

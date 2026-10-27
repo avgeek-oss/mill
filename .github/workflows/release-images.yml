@@ -4,16 +4,37 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: Stable release tag, for example v1.0.1
-        required: true
+        description: Stable release tag, for example v1.0.1. Required unless dry_run is set.
+        required: false
         type: string
+      dry_run:
+        description: Rehearse the build, scans and installation smoke on both architectures; nothing is pushed or published
+        required: false
+        type: boolean
+        default: false
+  # A pull request that changes what a release builds or runs rehearses it.
+  pull_request:
+    paths:
+      - .github/workflows/release-images.yml
+      - Dockerfile
+      - .dockerignore
+      - "**/docker-bake.*"
+      - "**/*.bake.json"
+      - "**/*.bake.hcl"
+      - tools/release-*
+      - tools/production-verify.mjs
 
 permissions:
   contents: read
 
+# Real runs (workflow_dispatch without dry_run) are the only path that can
+# push or publish. Every job that does is limited to them by its own `if`,
+# which reads the event, not an output another job could get wrong.
+# Rehearsals run in their own concurrency group, so they never queue behind
+# a release or replace one that is pending.
 concurrency:
-  group: mill-release-publication
-  cancel-in-progress: false
+  group: ${{ (github.event_name == 'pull_request' || inputs.dry_run) && format('mill-release-rehearsal-{0}', github.ref) || 'mill-release-publication' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   prepare:
@@ -22,16 +43,17 @@ jobs:
       contents: read
       checks: read
     outputs:
-      commit: ${{ steps.release.outputs.commit }}
-      created: ${{ steps.release.outputs.created }}
+      commit: ${{ steps.release.outputs.commit || steps.rehearsal.outputs.commit }}
+      created: ${{ steps.release.outputs.created || steps.rehearsal.outputs.created }}
       tag: ${{ steps.release.outputs.tag }}
-      version: ${{ steps.release.outputs.version }}
+      version: ${{ steps.release.outputs.version || steps.rehearsal.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - id: release
         name: Validate stable tag and current source
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         env:
           RELEASE_TAG: ${{ inputs.release_tag }}
           GH_TOKEN: ${{ github.token }}
@@ -61,6 +83,7 @@ jobs:
             echo "version=$version"
           } >> "$GITHUB_OUTPUT"
       - name: Require the latest exact-commit CI result
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -75,8 +98,35 @@ jobs:
             if [ "$attempt" -eq 12 ]; then exit 1; fi
             sleep 15
           done
+      # Rehearsals have no tag and do not come from Cut release, so they skip
+      # exactly the checks that need one: the main ref, the tag format and
+      # target, the draft release state and the exact-commit Required CI
+      # result. Every other check above runs unchanged.
+      - id: rehearsal
+        name: Validate current source for a rehearsal
+        if: github.event_name == 'pull_request' || inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO" --jq .private)" = "false"
+          version="$(jq -r .version package.json)"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$(jq -r .version apps/web/package.json)" = "$version"
+          test "$(jq -r .version apps/web-server/package.json)" = "$version"
+          for component in api web; do
+            image="$(sed -n "s/^    image: ghcr.io\/avgeek-oss\/mill-$component://p" docker-compose.yml)"
+            test "$image" = "$version"
+          done
+          {
+            echo "commit=$(git rev-parse 'HEAD^{commit}')"
+            echo "created=$(git show -s --format=%cI HEAD)"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
 
   build:
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
     needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
@@ -116,27 +166,11 @@ jobs:
           CREATED: ${{ needs.prepare.outputs.created }}
           SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
           BUILDER_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_OUTPUT: push
         run: |
           set -euo pipefail
           definition="$RUNNER_TEMP/release.bake.json"
-          jq -n '
-            def image($component): {
-              context: ".",
-              dockerfile: "Dockerfile",
-              target: $component,
-              platforms: ["linux/\(env.ARCHITECTURE)"],
-              args: {SOURCE_COMMIT: env.SOURCE_COMMIT, RELEASE_VERSION: env.RELEASE_VERSION},
-              labels: {
-                "org.opencontainers.image.created": env.CREATED,
-                "org.opencontainers.image.revision": env.SOURCE_COMMIT,
-                "org.opencontainers.image.source": env.SOURCE_URL,
-                "org.opencontainers.image.version": env.RELEASE_VERSION
-              },
-              attest: ["type=provenance,mode=max,builder-id=\(env.BUILDER_ID)", "type=sbom"],
-              output: ["type=image,name=ghcr.io/avgeek-oss/mill-\($component),push-by-digest=true,name-canonical=true,push=true"]
-            };
-            {group: {default: {targets: ["api", "web"]}}, target: {api: image("api"), web: image("web")}}
-          ' > "$definition"
+          bash tools/release-bake-definition.sh > "$definition"
           docker buildx bake --file "$definition" --metadata-file "$RUNNER_TEMP/release.metadata.json" --progress plain
           for component in api web; do
             digest="$(jq -r --arg component "$component" '.[$component]["containerimage.digest"]' "$RUNNER_TEMP/release.metadata.json")"
@@ -158,6 +192,7 @@ jobs:
           retention-days: 14
 
   manifest:
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
     needs: [prepare, build]
     runs-on: ubuntu-24.04
     permissions:
@@ -229,6 +264,7 @@ jobs:
           retention-days: 14
 
   local-installation-smoke:
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
     needs: [prepare, manifest]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
@@ -298,6 +334,7 @@ jobs:
           retention-days: 14
 
   publish:
+    if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
     needs: [prepare, manifest, local-installation-smoke]
     runs-on: ubuntu-24.04
     permissions:
@@ -323,3 +360,80 @@ jobs:
           fi
           gh release upload "$RELEASE_TAG" mill-images.json --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest
+
+  # The rehearsal path. It runs the same bake definition with local output,
+  # the image scans with the scanner cache, and the installation gate against
+  # the images it built, on both architectures. It holds no write permission
+  # and no registry login, and stops before manifest and publish.
+  rehearsal:
+    if: github.event_name == 'pull_request' || inputs.dry_run
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            runner: ubuntu-24.04
+          - architecture: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.16.0
+          package-manager-cache: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          cleanup: false
+      - name: Build both platform images locally
+        env:
+          ARCHITECTURE: ${{ matrix.architecture }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          CREATED: ${{ needs.prepare.outputs.created }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          BUILDER_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_OUTPUT: local
+        run: |
+          set -euo pipefail
+          definition="$RUNNER_TEMP/release.bake.json"
+          bash tools/release-bake-definition.sh > "$definition"
+          docker buildx bake --file "$definition" --metadata-file "$RUNNER_TEMP/release.metadata.json" --progress plain
+          for component in api web; do
+            test "$(docker image inspect "mill-$component:rehearsal-$ARCHITECTURE" --format '{{.Architecture}}')" = "$ARCHITECTURE"
+          done
+      - name: Date the scanner database cache
+        id: scanner-cache
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache/db
+          key: trivy-db-${{ runner.os }}-${{ runner.arch }}-${{ steps.scanner-cache.outputs.date }}
+          restore-keys: trivy-db-${{ runner.os }}-${{ runner.arch }}-
+      - name: Verify both local images through the production installation gate
+        env:
+          MILL_VERIFY_EXPECT_ARCH: ${{ matrix.architecture }}
+          MILL_VERIFY_SCANNER_CACHE: ${{ runner.temp }}/trivy-cache
+          MILL_VERIFY_LOCAL_RELEASE_IMAGES: "true"
+          MILL_VERIFY_API_IMAGE: mill-api:rehearsal-${{ matrix.architecture }}
+          MILL_VERIFY_WEB_IMAGE: mill-web:rehearsal-${{ matrix.architecture }}
+        run: |
+          mkdir -p "$MILL_VERIFY_SCANNER_CACHE"
+          node tools/production-verify.mjs
+      - name: Let the cache step read the scanner database
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/trivy-cache" || true
+      - name: Preserve rehearsal installation evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rehearsal-installation-${{ matrix.architecture }}
+          path: tmp/verification/
+          if-no-files-found: warn
+          retention-days: 14
