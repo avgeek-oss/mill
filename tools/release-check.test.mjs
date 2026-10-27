@@ -11,7 +11,7 @@ test("private packaging requires the latest exact-commit CI result, rejects fail
   const file = join(directory, "checks.json");
   const check = (id, conclusion, extra = {}) => ({
     id,
-    name: "Required CI",
+    name: "verify",
     head_sha: commit,
     app: { slug: "github-actions" },
     started_at: `2026-09-28T10:0${id}:00Z`,
