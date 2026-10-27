@@ -7,26 +7,6 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - "@avgeek-oss/mintlify-docs@0.1.6"
   - "@avgeek-oss/design-system@1.4.0"
-  - "@oxlint/binding-android-arm-eabi@1.90.0"
-  - "@oxlint/binding-android-arm64@1.90.0"
-  - "@oxlint/binding-darwin-arm64@1.90.0"
-  - "@oxlint/binding-darwin-x64@1.90.0"
-  - "@oxlint/binding-freebsd-x64@1.90.0"
-  - "@oxlint/binding-linux-arm-gnueabihf@1.90.0"
-  - "@oxlint/binding-linux-arm-musleabihf@1.90.0"
-  - "@oxlint/binding-linux-arm64-gnu@1.90.0"
-  - "@oxlint/binding-linux-arm64-musl@1.90.0"
-  - "@oxlint/binding-linux-ppc64-gnu@1.90.0"
-  - "@oxlint/binding-linux-riscv64-gnu@1.90.0"
-  - "@oxlint/binding-linux-riscv64-musl@1.90.0"
-  - "@oxlint/binding-linux-s390x-gnu@1.90.0"
-  - "@oxlint/binding-linux-x64-gnu@1.90.0"
-  - "@oxlint/binding-linux-x64-musl@1.90.0"
-  - "@oxlint/binding-openharmony-arm64@1.90.0"
-  - "@oxlint/binding-win32-arm64-msvc@1.90.0"
-  - "@oxlint/binding-win32-ia32-msvc@1.90.0"
-  - "@oxlint/binding-win32-x64-msvc@1.90.0"
-  - oxlint@1.90.0
 # Optional peers that no workspace package pins; keep them on patched releases.
 overrides:
   "next@>=16.0.0 <16.4.1": 16.4.3
