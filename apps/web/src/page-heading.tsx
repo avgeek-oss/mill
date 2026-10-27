@@ -34,7 +34,7 @@ export function PageHeading({
             {icon ? (
               <span
                 aria-hidden="true"
-                className="inline-flex shrink-0 [&_img]:size-6 [&_svg]:size-6"
+                className="inline-flex shrink-0 [&_img]:size-[19px] [&_svg]:size-[19px]"
               >
                 {icon}
               </span>
