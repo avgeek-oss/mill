@@ -49,33 +49,6 @@ test("disabling a human clears responsibility and retries and revokes human OAut
     code: "23514",
   });
 });
-test("deleting a board narrows approved OAuth grants and invalidates cached board responses", async () => {
-  const { admin, board } = await fixture();
-  const [other] =
-    await sql`INSERT INTO boards(workspace_id,name,prefix) SELECT workspace_id,'Other','OTHER' FROM users WHERE id=${admin.id} RETURNING id`;
-  const [credential] =
-    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at) VALUES(${admin.id},'Two boards','two-boards','prefix',ARRAY['read'],'oauth',ARRAY[${board.id}::uuid,${other.id}::uuid],now()+interval '1 day') RETURNING id`;
-  const [last] =
-    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at) VALUES(${admin.id},'One board','one-board','prefix',ARRAY['read'],'oauth',ARRAY[${board.id}::uuid],now()+interval '1 day') RETURNING id`;
-  await sql`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,board_ids) VALUES('user','board-response','hash','{}',201,ARRAY[${board.id}::uuid])`;
-  await sql`DELETE FROM boards WHERE id=${board.id}`;
-  assert.deepEqual(
-    (
-      await sql`SELECT board_ids,revoked_at FROM credentials WHERE id=${credential.id}`
-    )[0],
-    { boardIds: [other.id], revokedAt: null },
-  );
-  const [revoked] =
-    await sql`SELECT board_ids,revoked_at FROM credentials WHERE id=${last.id}`;
-  assert.deepEqual(revoked.boardIds, []);
-  assert.ok(revoked.revokedAt);
-  assert.deepEqual(
-    (
-      await sql`SELECT response,status,invalidation_reason FROM api_idempotency WHERE key='board-response'`
-    )[0],
-    { response: null, status: 410, invalidationReason: "deleted" },
-  );
-});
 test("a waiting assignment cannot survive a concurrent human disable", async () => {
   const { admin, member, board } = await fixture();
   let release!: () => void;

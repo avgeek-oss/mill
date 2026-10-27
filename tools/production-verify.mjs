@@ -41,6 +41,15 @@ if (releaseImages)
       `Release verification requires the immutable Mill ${component} GHCR digest`,
     );
 const scannerCache = `${project}-scanner-cache`;
+// CI can keep the scanner database between runs in a host directory (an
+// absolute path) instead of the per-run volume that is removed afterwards.
+const persistentScannerCache = process.env.MILL_VERIFY_SCANNER_CACHE;
+if (persistentScannerCache)
+  assert.ok(
+    resolve(persistentScannerCache) === persistentScannerCache,
+    "MILL_VERIFY_SCANNER_CACHE must be an absolute path",
+  );
+const scannerCacheMount = `${persistentScannerCache ?? scannerCache}:/root/.cache/trivy`;
 const scannerImage =
   "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969";
 const evidence = resolve(root, "tmp", "verification", project);
@@ -308,7 +317,7 @@ try {
       "--memory",
       "2g",
       "--volume",
-      `${scannerCache}:/root/.cache/trivy`,
+      scannerCacheMount,
       scannerImage,
       "image",
       "--download-db-only",
@@ -1053,7 +1062,7 @@ try {
         "--volume",
         "/var/run/docker.sock:/var/run/docker.sock",
         "--volume",
-        `${scannerCache}:/root/.cache/trivy`,
+        scannerCacheMount,
         scannerImage,
         "image",
         "--scanners",

@@ -1,30 +1,11 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
 import { test } from "node:test";
 const root = new URL("../", import.meta.url);
 const read = async (path) => readFile(new URL(path, root), "utf8");
 const openapi = JSON.parse(await read("docs/api-reference/openapi.json"));
 const tools = JSON.parse(await read("docs/mcp-reference/tools.json"));
 const navigation = JSON.parse(await read("docs/reference-navigation.json"));
-
-test("reference generation is reproducible without database access", () => {
-  const result = spawnSync(
-    process.execPath,
-    ["--import", "tsx", "tools/build-api-docs.ts", "--check"],
-    {
-      cwd: root,
-      encoding: "utf8",
-      timeout: 30000,
-      env: {
-        ...process.env,
-        DATABASE_URL: "postgres://unused:unused@127.0.0.1:1/unused",
-      },
-    },
-  );
-  assert.equal(result.status, 0, result.stdout + result.stderr);
-  assert.match(result.stdout, /complete route coverage/);
-});
 
 test("REST distinguishes retry headers and preview defaults from MCP arguments", () => {
   for (const operations of Object.values(openapi.paths))

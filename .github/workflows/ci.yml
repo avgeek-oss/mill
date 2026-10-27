@@ -94,10 +94,26 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24.16.0
+      - name: Date the scanner database cache
+        id: scanner-cache
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      # The vulnerability database is reused for the day (and refreshed by the
+      # scanner when stale) instead of being downloaded into a per-run volume.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ runner.temp }}/trivy-cache/db
+          key: trivy-db-${{ runner.os }}-${{ runner.arch }}-${{ steps.scanner-cache.outputs.date }}
+          restore-keys: trivy-db-${{ runner.os }}-${{ runner.arch }}-
       - name: Build and exercise a disposable production installation
         env:
           MILL_VERIFY_EXPECT_ARCH: amd64
-        run: node tools/production-verify.mjs
+          MILL_VERIFY_SCANNER_CACHE: ${{ runner.temp }}/trivy-cache
+        run: |
+          mkdir -p "$MILL_VERIFY_SCANNER_CACHE"
+          node tools/production-verify.mjs
+      - name: Let the cache step read the scanner database
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" "$RUNNER_TEMP/trivy-cache" || true
       - name: Preserve production evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

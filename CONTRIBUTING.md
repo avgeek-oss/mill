@@ -25,6 +25,8 @@ Use a disposable PostgreSQL database for `pnpm verify` and provide its `DATABASE
 
 The production runner builds the API and UI images, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
 
+CI sets `MILL_VERIFY_SCANNER_CACHE` for the production runner: an absolute host directory that keeps the scanner's vulnerability database between runs instead of a per-run volume that is removed afterwards. Leave it unset locally.
+
 The production runner builds from public npm dependencies without a registry credential. CI preserves the same installation, migration, backup and restore gates. See [package registry setup](docs/package-registry.md#continuous-integration).
 
 When editing UI, manually review the running routes in light and dark themes, on desktop and phone widths. Include long titles, empty states, permission errors, keyboard movement, and scrolled selects inside dialogs. Preserve the shared components' keyboard, focus, and touch behavior.
