@@ -550,6 +550,7 @@ async function capture(browser, origin, manifest, entry, fixture, receipt) {
         receipt.failedResponses = failedResponses;
         throw new Error(
           `${entry.name} ${device} ${theme}: ${error.message}; API failures: ${JSON.stringify(failedResponses)}`,
+          { cause: error },
         );
       } finally {
         await context.close();
