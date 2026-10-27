@@ -1,7 +1,7 @@
 import type { Member } from "../../../packages/contracts/src/index.js";
 import { ApiError, api, isResponseObject } from "./api.js";
 
-export async function loadMemberDirectory() {
+export async function loadMemberDirectory(signal?: AbortSignal) {
   for (let attempt = 0; attempt < 3; attempt++) {
     const members = new Map<string, Member>();
     const cursors = new Set<string>();
@@ -15,6 +15,7 @@ export async function loadMemberDirectory() {
           hasMore: boolean;
           nextCursor: string | null;
         }>(`/auth/members?${query}`, undefined, "GET", {
+          signal,
           validateResponse: (value) =>
             isResponseObject(value) &&
             Array.isArray(value.items) &&

@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -45,39 +46,93 @@ import { listenForAttachmentDrops } from "./attachment-drop.js";
 import { QueryFeedback } from "./query-feedback.js";
 import { RelativeDateTime } from "./relative-date-time.js";
 import { useSettingsMutation } from "./use-settings-mutation.js";
+import { usePageRead } from "./page-navigation.js";
 
 const PdfAttachmentPreview = lazy(() => import("./pdf-attachment-preview.js"));
 
 export function useAttachmentConfiguration(sessionRevision: number) {
+  const overlay = useOverlaySuspension();
+  const prepared = usePageRead(
+    overlay.isSuspended ? null : `attachment-configuration:${sessionRevision}`,
+    (signal) =>
+      api<AttachmentConfiguration>("/attachments/config", undefined, "GET", {
+        signal,
+        validateResponse: configurationResponse,
+      }),
+  );
   const [configuration, setConfiguration] =
-    useState<AttachmentConfiguration | null>(null);
-  const [error, setError] = useState("");
+    useState<AttachmentConfiguration | null>(() =>
+      prepared?.status === "fulfilled" ? prepared.value : null,
+    );
+  const [error, setError] = useState(() =>
+    prepared?.status === "rejected" ? errorText(prepared.reason) : "",
+  );
+  const preparedRevision = useRef(prepared ? sessionRevision : null);
+  const adoptedRead = useRef<typeof prepared>(undefined);
+  const readGeneration = useRef(0);
   const run = useSettingsMutation(`attachments:${sessionRevision}`);
+  useLayoutEffect(() => {
+    if (!prepared || overlay.isSuspended || adoptedRead.current === prepared)
+      return;
+    adoptedRead.current = prepared;
+    preparedRevision.current = sessionRevision;
+    readGeneration.current++;
+    setConfiguration(prepared.status === "fulfilled" ? prepared.value : null);
+    setError(prepared.status === "rejected" ? errorText(prepared.reason) : "");
+  }, [prepared, overlay.isSuspended, sessionRevision]);
   const load = useCallback(async () => {
+    const request = ++readGeneration.current;
     setError("");
     try {
       const result = await run((signal) =>
         api<AttachmentConfiguration>("/attachments/config", undefined, "GET", {
           signal,
-          validateResponse: (value) =>
-            isResponseObject(value) &&
-            typeof value.enabled === "boolean" &&
-            Number.isSafeInteger(value.maxBytes) &&
-            Number(value.maxBytes) > 0 &&
-            Array.isArray(value.contentTypes) &&
-            value.contentTypes.every((type) => typeof type === "string"),
+          validateResponse: configurationResponse,
         }),
       );
-      setConfiguration(result);
+      if (request === readGeneration.current) setConfiguration(result);
     } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError"))
+      if (
+        request === readGeneration.current &&
+        !(cause instanceof DOMException && cause.name === "AbortError")
+      )
         setError(errorText(cause));
     }
   }, [run]);
   useEffect(() => {
+    if (overlay.isSuspended) {
+      preparedRevision.current = null;
+      return;
+    }
+    if (preparedRevision.current === sessionRevision) return;
+    preparedRevision.current = null;
     void load();
-  }, [load, sessionRevision]);
-  return { configuration, error, retry: load };
+  }, [load, sessionRevision, overlay.isSuspended, prepared]);
+  const incoming = prepared && adoptedRead.current !== prepared;
+  return {
+    configuration: incoming
+      ? prepared.status === "fulfilled"
+        ? prepared.value
+        : null
+      : configuration,
+    error: incoming
+      ? prepared.status === "rejected"
+        ? errorText(prepared.reason)
+        : ""
+      : error,
+    retry: load,
+  };
+}
+
+function configurationResponse(value: unknown) {
+  return (
+    isResponseObject(value) &&
+    typeof value.enabled === "boolean" &&
+    Number.isSafeInteger(value.maxBytes) &&
+    Number(value.maxBytes) > 0 &&
+    Array.isArray(value.contentTypes) &&
+    value.contentTypes.every((type) => typeof type === "string")
+  );
 }
 
 function attachmentResponse(value: unknown): value is Attachment {
@@ -110,6 +165,33 @@ function signedResponse(value: unknown) {
     typeof value.expiresAt === "string"
   );
 }
+async function readAttachmentsPage(
+  taskId: string,
+  cursor: string | null,
+  signal: AbortSignal,
+) {
+  const result = await api<AttachmentPage>(
+    `/tasks/${taskId}/attachments?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+    undefined,
+    "GET",
+    { signal, validateResponse: pageResponse },
+  );
+  if (result.items.some((item) => item.taskId !== taskId))
+    throw new Error("The server returned attachments for a different task.");
+  return result;
+}
+type PreviewUrl = { url: string; expiresAt: string };
+function readPreviewUrl(
+  item: Pick<Attachment, "id" | "taskId">,
+  signal: AbortSignal,
+) {
+  return api<PreviewUrl>(
+    `/tasks/${item.taskId}/attachments/${item.id}/download?preview=true`,
+    undefined,
+    "GET",
+    { signal, validateResponse: signedResponse },
+  );
+}
 function validStorageUrl(value: string) {
   try {
     const url = new URL(value);
@@ -133,33 +215,63 @@ function fileSize(size: number) {
 function AttachmentPreview({
   item,
   expanded = false,
+  prepared,
 }: {
   item: Attachment;
   expanded?: boolean;
+  prepared?: PromiseSettledResult<PreviewUrl>;
 }) {
+  const overlay = useOverlaySuspension();
   const run = useSettingsMutation(`preview:${item.id}`);
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const initial =
+    prepared?.status === "fulfilled" &&
+    Date.parse(prepared.value.expiresAt) <= Date.now()
+      ? undefined
+      : prepared;
+  const [url, setUrl] = useState<string | null>(() =>
+    initial?.status === "fulfilled" ? initial.value.url : null,
+  );
+  const [error, setError] = useState(() =>
+    initial?.status === "rejected" ? errorText(initial.reason) : "",
+  );
+  const preparedItem = useRef(initial ? item.id : null);
+  const adoptedRead = useRef<typeof initial>(undefined);
+  const generation = useRef(0);
+  useLayoutEffect(() => {
+    if (!initial || overlay.isSuspended || adoptedRead.current === initial)
+      return;
+    adoptedRead.current = initial;
+    preparedItem.current = item.id;
+    generation.current++;
+    setUrl(initial.status === "fulfilled" ? initial.value.url : null);
+    setError(initial.status === "rejected" ? errorText(initial.reason) : "");
+  }, [initial, overlay.isSuspended, item.id]);
   const load = useCallback(async () => {
+    const request = ++generation.current;
     setError("");
     try {
       const result = await run((signal) =>
-        api<{ url: string; expiresAt: string }>(
-          `/tasks/${item.taskId}/attachments/${item.id}/download?preview=true`,
-          undefined,
-          "GET",
-          { signal, validateResponse: signedResponse },
-        ),
+        readPreviewUrl({ id: item.id, taskId: item.taskId }, signal),
       );
-      setUrl(result.url);
+      if (request === generation.current) setUrl(result.url);
     } catch (cause) {
-      if (!(cause instanceof DOMException && cause.name === "AbortError"))
+      if (
+        request === generation.current &&
+        !(cause instanceof DOMException && cause.name === "AbortError")
+      )
         setError(errorText(cause));
     }
   }, [run, item.id, item.taskId]);
   useEffect(() => {
+    if (overlay.isSuspended) {
+      preparedItem.current = null;
+      generation.current++;
+      return;
+    }
+    if (preparedItem.current === item.id) return;
+    preparedItem.current = null;
     void load();
-  }, [load]);
+  }, [load, item.id, overlay.isSuspended, initial]);
   return (
     <div
       className={`relative flex items-center justify-center overflow-hidden rounded-lg bg-default ${expanded ? "h-[min(65vh,48rem)]" : "h-24 sm:h-28"}`}
@@ -238,14 +350,40 @@ function TaskAttachments({
 }: AttachmentSectionProps & { configuration: AttachmentConfiguration }) {
   const overlay = useOverlaySuspension();
   const run = useSettingsMutation(`${taskId}:attachments:${user.id}`);
-  const [page, setPage] = useState<AttachmentPage>({
-    items: [],
-    hasMore: false,
-    nextCursor: null,
-  });
-  const [ready, setReady] = useState(false);
+  const prepared = usePageRead(
+    overlay.isSuspended ? null : `attachments:${taskId}:${sessionRevision}`,
+    (signal) => readAttachmentsPage(taskId, null, signal),
+  );
+  const previewItems =
+    prepared?.status === "fulfilled" &&
+    prepared.value.items.length <= 4 &&
+    !prepared.value.hasMore
+      ? prepared.value.items
+      : [];
+  const preparedPreviews = usePageRead(
+    !overlay.isSuspended && previewItems.length > 0
+      ? `attachment-previews:${taskId}:${sessionRevision}`
+      : null,
+    (signal) =>
+      Promise.allSettled(
+        previewItems.map((item) => readPreviewUrl(item, signal)),
+      ),
+  );
+  const [page, setPage] = useState<AttachmentPage>(() =>
+    prepared?.status === "fulfilled"
+      ? prepared.value
+      : { items: [], hasMore: false, nextCursor: null },
+  );
+  const preparedPage = useRef(
+    prepared ? { read: prepared, taskId, sessionRevision } : null,
+  );
+  const adoptedPage = useRef<typeof prepared>(undefined);
+  const readGeneration = useRef(0);
+  const [ready, setReady] = useState(prepared?.status === "fulfilled");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() =>
+    prepared?.status === "rejected" ? errorText(prepared.reason) : "",
+  );
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [droppedFile, setDroppedFile] = useState<File | undefined>();
@@ -257,7 +395,9 @@ function TaskAttachments({
   const [busy, setBusy] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
-  const nextCursor = useRef<string | null>(null);
+  const nextCursor = useRef<string | null>(
+    prepared?.status === "fulfilled" ? prepared.value.nextCursor : null,
+  );
   const uploadJob = useRef<{
     file: File;
     upload: Upload;
@@ -268,27 +408,36 @@ function TaskAttachments({
   const [completeKey] = useState(createRetryKey);
   const [deleteKey] = useState(createRetryKey);
   const writable = editable && user.role !== "viewer" && !overlay.isSuspended;
+  useLayoutEffect(() => {
+    if (!prepared || overlay.isSuspended || adoptedPage.current === prepared)
+      return;
+    adoptedPage.current = prepared;
+    preparedPage.current = { read: prepared, taskId, sessionRevision };
+    readGeneration.current++;
+    nextCursor.current =
+      prepared.status === "fulfilled" ? prepared.value.nextCursor : null;
+    setPage(
+      prepared.status === "fulfilled"
+        ? prepared.value
+        : { items: [], hasMore: false, nextCursor: null },
+    );
+    setReady(prepared.status === "fulfilled");
+    setLoading(false);
+    setError(prepared.status === "rejected" ? errorText(prepared.reason) : "");
+  }, [prepared, overlay.isSuspended, taskId, sessionRevision]);
 
   const load = useCallback(
     async (more = false) => {
+      const request = ++readGeneration.current;
       setLoading(true);
       setError("");
       const captured = overlay.capture();
       try {
         const cursor = more ? nextCursor.current : null;
         const result = await run((signal) =>
-          api<AttachmentPage>(
-            `/tasks/${taskId}/attachments?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
-            undefined,
-            "GET",
-            { signal, validateResponse: pageResponse },
-          ),
+          readAttachmentsPage(taskId, cursor, signal),
         );
-        if (!captured()) return;
-        if (result.items.some((item) => item.taskId !== taskId))
-          throw new Error(
-            "The server returned attachments for a different task.",
-          );
+        if (!captured() || request !== readGeneration.current) return;
         nextCursor.current = result.nextCursor;
         setPage((previous) => ({
           ...result,
@@ -307,18 +456,30 @@ function TaskAttachments({
       } catch (cause) {
         if (
           captured() &&
+          request === readGeneration.current &&
           !(cause instanceof DOMException && cause.name === "AbortError")
         )
           setError(errorText(cause));
       } finally {
-        if (captured()) setLoading(false);
+        if (captured() && request === readGeneration.current) setLoading(false);
       }
     },
     [run, taskId, overlay.capture],
   );
   useEffect(() => {
+    if (overlay.isSuspended) {
+      preparedPage.current = null;
+      return;
+    }
+    if (
+      preparedPage.current?.taskId === taskId &&
+      preparedPage.current.read === prepared &&
+      preparedPage.current.sessionRevision === sessionRevision
+    )
+      return;
+    preparedPage.current = null;
     void load();
-  }, [load, sessionRevision]);
+  }, [load, taskId, sessionRevision, overlay.isSuspended, prepared]);
 
   useEffect(
     () =>
@@ -592,7 +753,16 @@ function TaskAttachments({
               aria-label={`Attachment ${item.fileName}`}
               className="grid min-w-0 gap-3 rounded-xl border border-separator bg-surface p-2"
             >
-              <AttachmentPreview item={item} />
+              <AttachmentPreview
+                item={item}
+                prepared={
+                  preparedPreviews?.status === "fulfilled"
+                    ? preparedPreviews.value[
+                        previewItems.findIndex((entry) => entry.id === item.id)
+                      ]
+                    : preparedPreviews
+                }
+              />
               <div className="flex min-w-0 items-start gap-1">
                 <div className="min-w-0 flex-1">
                   <p

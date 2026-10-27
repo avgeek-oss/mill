@@ -4,16 +4,13 @@ import {
   useBackendReconnect,
 } from "@avgeek-oss/design-system/patterns/feedback/backend-unavailable";
 import {
-  Component,
   Suspense,
   lazy,
-  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import {
   AppLayout,
@@ -43,7 +40,6 @@ import { OverlaySuspensionScope } from "@avgeek-oss/design-system/overlays/overl
 import type {
   Board,
   BoardSummary,
-  Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
 import {
@@ -63,12 +59,15 @@ import {
   settingsHref,
 } from "./settings-navigation.js";
 import { MillMark, millBrand, millVersion } from "./brand.js";
-import {
-  isFrontendLoadError,
-  reloadOutdatedFrontend,
-} from "./frontend-load.js";
 import { hasBoardResponse, hasBoardSummariesResponse } from "./responses.js";
 import { BoardsPage } from "./boards-page.js";
+import {
+  PageNavigation,
+  PageReadScope,
+  usePageNavigationPending,
+} from "./page-navigation.js";
+import { useDirectoryPreparation } from "./directory-preparation.js";
+import { useMemberSnapshot } from "./use-member-snapshot.js";
 import { compareBoardNames } from "./board-directory.js";
 import { loadMemberDirectory } from "./member-directory.js";
 import { navigationCache } from "./navigation-cache.js";
@@ -124,7 +123,7 @@ function usePath() {
         window.location.search +
         window.location.hash;
       currentIndex = navigationIndex() ?? currentIndex;
-      startTransition(() => setPath(currentPath));
+      setPath(currentPath);
     };
     const pop = () => {
       const targetPath =
@@ -202,6 +201,15 @@ function usePath() {
 }
 export function App() {
   const location = usePath();
+  return (
+    <PageNavigation location={location}>
+      {(displayed) => <AppContent location={displayed} />}
+    </PageNavigation>
+  );
+}
+function AppContent({ location }: { location: string }) {
+  const navigationPending = usePageNavigationPending();
+  const search = new URL(location, window.location.origin).search;
   const path = location.split(/[?#]/)[0];
   const settingsSection = settingsRoute(path);
   const activeBoardId = path.match(/^\/boards\/([^/]+)/)?.[1];
@@ -212,6 +220,12 @@ export function App() {
         ? "delete"
         : undefined;
   const activeTaskId = path.match(/^\/boards\/[^/]+\/tasks\/([^/]+)\/?$/)?.[1];
+  const updatingBoardQuery =
+    navigationPending &&
+    activeBoardId &&
+    !activeTaskId &&
+    !boardSettings &&
+    path === window.location.pathname;
   const [session, setSession] = useState<Session | null>(null);
   const [setup, setSetup] = useState(false);
   const [emailDeliveryConfigured, setEmailDeliveryConfigured] = useState(false);
@@ -228,7 +242,6 @@ export function App() {
     Task,
     "id" | "identifier"
   > | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const sidebarState = usePersistentAppSidebar("mill:sidebar-open");
   const [newBoard, setNewBoard] = useState(false);
@@ -251,6 +264,42 @@ export function App() {
   const suspendedFocus = useRef<HTMLElement | null>(null);
   const suspensionActive = useRef(false);
   const logoutPending = useRef(false);
+  const readScope = session
+    ? `${session.user.id}:${session.workspace.id}:${session.user.role}:${sessionRevision}`
+    : "anonymous";
+  const { boards: directoryRead, members: memberRead } =
+    useDirectoryPreparation(
+      readScope,
+      path,
+      !!activeBoardId,
+      ready && !!session && !expired,
+    );
+  const {
+    members: viewMembers,
+    setMembers,
+    beginRefresh: beginMemberRefresh,
+  } = useMemberSnapshot(memberRead);
+  const adoptedDirectory = useRef<typeof directoryRead>(undefined);
+  // Prepared destinations publish shared data only when their render commits.
+  useLayoutEffect(() => {
+    if (!directoryRead) return;
+    ++lastBoardsRequest.current;
+    adoptedDirectory.current = directoryRead;
+    if (directoryRead.status === "fulfilled") {
+      setBoards(directoryRead.value);
+      setBoardsError("");
+    } else setBoardsError(errorText(directoryRead.reason));
+    setBoardsPending(false);
+  }, [directoryRead]);
+  useLayoutEffect(() => {
+    if (memberRead?.status === "rejected")
+      setError(errorText(memberRead.reason));
+  }, [memberRead]);
+  const viewBoards =
+    directoryRead?.status === "fulfilled" &&
+    adoptedDirectory.current !== directoryRead
+      ? directoryRead.value
+      : boards;
   const rememberLoadedBoard = useCallback((board: Board) => {
     const current = latestLoadedBoard.current;
     if (current?.id === board.id && current.version > board.version) return;
@@ -301,6 +350,7 @@ export function App() {
   );
   async function refresh() {
     const request = ++lastRefreshRequest.current;
+    const publishMembers = beginMemberRefresh();
     setError("");
     try {
       const [me, people, notification] = await Promise.all([
@@ -311,14 +361,14 @@ export function App() {
         api<{ unreadCount: number }>("/notifications?limit=1"),
       ]);
       if (request !== lastRefreshRequest.current) return;
-      if (
+      const identityChanged =
         session?.user.id !== me.user.id ||
         session?.workspace.id !== me.workspace.id ||
-        session?.user.role !== me.user.role
-      )
-        navigationCache.clear();
+        session?.user.role !== me.user.role;
+      if (identityChanged) navigationCache.clear();
       setSession(me);
-      setMembers(people);
+      if (identityChanged) setMembers(people);
+      else publishMembers(people);
       setNotificationCount(notification.unreadCount);
       setError("");
     } catch (e) {
@@ -484,7 +534,7 @@ export function App() {
   );
   const overview = path === "/boards" || path === "/" || canonicalizeToBoards;
   useEffect(() => {
-    if (session && !expired) void loadBoards();
+    if (session && !expired && !directoryRead) void loadBoards();
   }, [session?.user.id, expired, overview, sessionRevision]);
   useEffect(() => {
     if (canonicalizeToBoards) {
@@ -702,13 +752,7 @@ export function App() {
     return authView;
   }
   if (path === "/oauth/consent")
-    return expired ? (
-      authView
-    ) : (
-      <Suspense fallback={null}>
-        <AppConsent session={session} />
-      </Suspense>
-    );
+    return expired ? authView : <AppConsent session={session} />;
   const knownSettings = Object.keys(settingsTitles);
   function nav(
     label: string,
@@ -734,7 +778,7 @@ export function App() {
           {
             id: "tasks",
             label: "Tasks",
-            href: `/boards/${activeBoardId}${window.location.search}`,
+            href: `/boards/${activeBoardId}${search}`,
             icon: <HugeiconsIcon icon={ClipboardListIcon} aria-hidden />,
           },
         ]}
@@ -747,7 +791,7 @@ export function App() {
             {
               id: "general",
               label: "General",
-              href: `/boards/${activeBoardId}/settings${window.location.search}`,
+              href: `/boards/${activeBoardId}/settings${search}`,
               icon: <HugeiconsIcon icon={Settings01Icon} aria-hidden />,
             },
           ]}
@@ -761,7 +805,7 @@ export function App() {
             {
               id: "delete",
               label: "Delete board",
-              href: `/boards/${activeBoardId}/settings/delete${window.location.search}`,
+              href: `/boards/${activeBoardId}/settings/delete${search}`,
               destructive: true,
               icon: <HugeiconsIcon icon={Delete02Icon} aria-hidden />,
             },
@@ -835,7 +879,7 @@ export function App() {
   );
   const navbarTitle = activeBoardId
     ? (() => {
-        const directoryBoard = boards.find(
+        const directoryBoard = viewBoards.find(
           (board) => board.id === activeBoardId,
         );
         const loadedBoard =
@@ -853,7 +897,7 @@ export function App() {
           ? "Boards"
           : "Page not found";
   const breadcrumbProps = {
-    boards,
+    boards: viewBoards,
     boardsHref,
     boardId: activeBoardId,
     boardName: navbarTitle,
@@ -862,7 +906,7 @@ export function App() {
     taskIdentifier:
       routeTask?.id === activeTaskId ? routeTask?.identifier : undefined,
     settingsSection,
-    search: window.location.search,
+    search: search,
     fallback: navbarTitle,
   };
   return (
@@ -870,366 +914,354 @@ export function App() {
       {expired && authView}
       <OverlaySuspensionScope
         key={`${session.user.id}:${session.workspace.id}`}
-        isSuspended={expired}
+        isSuspended={expired || navigationPending}
       >
-        <SuspendedAppProvider value={expired}>
-          <div
-            ref={appContainer}
-            data-authenticated-app
-            hidden={expired}
-            inert={expired}
-            aria-hidden={expired}
-          >
-            <PortalProvider getContainer={() => appContainer.current}>
-              <RouteProvider
-                pathname={path.split("?")[0] ?? "/"}
-                navigate={navigate}
-              >
-                <AppShell
-                  contentWidth="broad"
-                  policy={{ kind: "product", toasts: false }}
+        <PageReadScope scope={readScope}>
+          <SuspendedAppProvider value={expired}>
+            <div
+              ref={appContainer}
+              data-authenticated-app
+              hidden={expired}
+              inert={expired}
+              aria-hidden={expired}
+            >
+              <PortalProvider getContainer={() => appContainer.current}>
+                <RouteProvider
+                  pathname={path.split("?")[0] ?? "/"}
+                  navigate={navigate}
                 >
-                  <AppBreadcrumbs {...breadcrumbProps}>
-                    <a
-                      href="#main-content"
-                      className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-background focus:px-4 focus:py-2 focus:ring-2 focus:ring-focus"
-                    >
-                      Skip to content
-                    </a>
-                    <AppLayout
-                      navigate={navigate}
-                      sidebar={sidebar}
-                      toggleShortcut
-                      {...sidebarState}
-                      sidebarOpen={expired ? false : sidebarState.sidebarOpen}
-                      navbar={
-                        <ApplicationNavbar
-                          config={{
-                            homeHref: "/boards",
-                            brand: {
-                              id: "mill",
-                              accessibleLabel: "Mill",
-                              title: "Mill",
-                              logo: <MillMark />,
-                            },
-                          }}
-                          hasSidebar
-                          sidebarOpen={sidebarState.sidebarOpen}
-                          onSidebarToggle={() =>
-                            sidebarState.onSidebarOpenChange(
-                              !sidebarState.sidebarOpen,
-                            )
-                          }
-                          actions={
+                  <AppShell
+                    contentWidth="broad"
+                    policy={{ kind: "product", toasts: false }}
+                  >
+                    <AppBreadcrumbs {...breadcrumbProps}>
+                      <a
+                        href="#main-content"
+                        className="sr-only focus:not-sr-only focus:fixed focus:start-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-background focus:px-4 focus:py-2 focus:ring-2 focus:ring-focus"
+                      >
+                        Skip to content
+                      </a>
+                      <AppLayout
+                        navigate={navigate}
+                        sidebar={sidebar}
+                        toggleShortcut
+                        {...sidebarState}
+                        sidebarOpen={expired ? false : sidebarState.sidebarOpen}
+                        navbar={
+                          <ApplicationNavbar
+                            config={{
+                              homeHref: "/boards",
+                              brand: {
+                                id: "mill",
+                                accessibleLabel: "Mill",
+                                title: "Mill",
+                                logo: <MillMark />,
+                              },
+                            }}
+                            hasSidebar
+                            sidebarOpen={sidebarState.sidebarOpen}
+                            onSidebarToggle={() =>
+                              sidebarState.onSidebarOpenChange(
+                                !sidebarState.sidebarOpen,
+                              )
+                            }
+                            actions={
+                              <>
+                                <Suspense fallback={null}>
+                                  <NotificationsPopover
+                                    key={session.user.id}
+                                    userId={session.user.id}
+                                    timeZone={session.user.timeZone}
+                                    unreadCount={notificationCount}
+                                    onRead={() => void refresh()}
+                                    suspended={expired}
+                                    sessionRevision={sessionRevision}
+                                  />
+                                </Suspense>
+                                <ThemeSwitcher />
+                              </>
+                            }
+                          />
+                        }
+                      >
+                        <SecondarySidebarLayout>
+                          {secondarySidebar}
+                          <AppShell.Content
+                            id="main-content"
+                            tabIndex={-1}
+                            variant="broad"
+                            inert={navigationPending && !updatingBoardQuery}
+                            aria-busy={navigationPending || undefined}
+                          >
                             <>
-                              <Suspense fallback={null}>
-                                <NotificationsPopover
-                                  key={session.user.id}
-                                  userId={session.user.id}
-                                  timeZone={session.user.timeZone}
-                                  unreadCount={notificationCount}
-                                  onRead={() => void refresh()}
-                                  suspended={expired}
+                              {error && <ErrorMessage>{error}</ErrorMessage>}
+                              {activeBoardId && activeTaskId ? (
+                                <TaskPage
+                                  key={activeTaskId}
+                                  boardId={activeBoardId}
+                                  taskId={activeTaskId}
+                                  user={session.user}
+                                  members={viewMembers}
+                                  returnHref={`/boards/${activeBoardId}${search}`}
+                                  onBoardLoaded={rememberLoadedBoard}
+                                  onTaskLoaded={setRouteTask}
                                   sessionRevision={sessionRevision}
                                 />
-                              </Suspense>
-                              <ThemeSwitcher />
-                            </>
-                          }
-                        />
-                      }
-                    >
-                      <SecondarySidebarLayout>
-                        {secondarySidebar}
-                        <AppShell.Content
-                          id="main-content"
-                          tabIndex={-1}
-                          variant="broad"
-                        >
-                          <Suspense fallback={null}>
-                            {error && <ErrorMessage>{error}</ErrorMessage>}
-                            {activeBoardId && activeTaskId ? (
-                              <TaskPage
-                                key={activeTaskId}
-                                boardId={activeBoardId}
-                                taskId={activeTaskId}
-                                user={session.user}
-                                members={members}
-                                returnHref={`/boards/${activeBoardId}${window.location.search}`}
-                                onBoardLoaded={rememberLoadedBoard}
-                                onTaskLoaded={setRouteTask}
-                                sessionRevision={sessionRevision}
-                              />
-                            ) : activeBoardId && boardSettings ? (
-                              <BoardSettingsPage
-                                key={`${activeBoardId}:${boardSettings}`}
-                                section={boardSettings}
-                                boardId={activeBoardId}
-                                user={session.user}
-                                boards={boards}
-                                sessionRevision={sessionRevision}
-                                onBoardLoaded={rememberLoadedBoard}
-                                onSaved={() => {
-                                  void loadBoards();
-                                }}
-                                onDeleted={(removedBoardId: string) => {
-                                  if (removedBoardId) {
-                                    navigationCache.forgetBoard(removedBoardId);
+                              ) : activeBoardId && boardSettings ? (
+                                <BoardSettingsPage
+                                  key={`${activeBoardId}:${boardSettings}`}
+                                  section={boardSettings}
+                                  boardId={activeBoardId}
+                                  user={session.user}
+                                  boards={viewBoards}
+                                  sessionRevision={sessionRevision}
+                                  onBoardLoaded={rememberLoadedBoard}
+                                  onSaved={() => {
+                                    void loadBoards();
+                                  }}
+                                  onDeleted={(removedBoardId: string) => {
+                                    if (removedBoardId) {
+                                      navigationCache.forgetBoard(
+                                        removedBoardId,
+                                      );
+                                      if (
+                                        recentlyCreatedBoard.current?.id ===
+                                        removedBoardId
+                                      )
+                                        recentlyCreatedBoard.current = null;
+                                      if (
+                                        latestLoadedBoard.current?.id ===
+                                        removedBoardId
+                                      )
+                                        latestLoadedBoard.current = null;
+                                      if (routeBoard?.id === removedBoardId)
+                                        setRouteBoard(null);
+                                      setBoards((previous) =>
+                                        previous.filter(
+                                          (board) =>
+                                            board.id !== removedBoardId,
+                                        ),
+                                      );
+                                    }
+                                    void loadBoards();
+                                    void refresh();
+                                  }}
+                                />
+                              ) : activeBoardId ? (
+                                <BoardPage
+                                  key={activeBoardId}
+                                  boardId={activeBoardId}
+                                  onBoardLoaded={(board) => {
+                                    rememberLoadedBoard(board);
                                     if (
                                       recentlyCreatedBoard.current?.id ===
-                                      removedBoardId
+                                      board.id
                                     )
-                                      recentlyCreatedBoard.current = null;
-                                    if (
-                                      latestLoadedBoard.current?.id ===
-                                      removedBoardId
-                                    )
-                                      latestLoadedBoard.current = null;
-                                    if (routeBoard?.id === removedBoardId)
-                                      setRouteBoard(null);
-                                    setBoards((previous) =>
-                                      previous.filter(
-                                        (board) => board.id !== removedBoardId,
-                                      ),
-                                    );
+                                      recentlyCreatedBoard.current = {
+                                        ...recentlyCreatedBoard.current,
+                                        ...board,
+                                      };
+                                  }}
+                                  boards={viewBoards}
+                                  user={session.user}
+                                  members={viewMembers}
+                                  sessionRevision={sessionRevision}
+                                  path={location}
+                                />
+                              ) : settingsSection &&
+                                knownSettings.includes(settingsSection) ? (
+                                <SettingsPage
+                                  key={`${session.user.id}:${session.workspace.id}:${settingsSection}`}
+                                  emailDeliveryConfigured={
+                                    emailDeliveryConfigured
                                   }
-                                  void loadBoards();
-                                  void refresh();
-                                }}
-                              />
-                            ) : activeBoardId ? (
-                              <BoardPage
-                                key={activeBoardId}
-                                boardId={activeBoardId}
-                                onBoardLoaded={(board) => {
-                                  rememberLoadedBoard(board);
-                                  if (
-                                    recentlyCreatedBoard.current?.id ===
-                                    board.id
-                                  )
-                                    recentlyCreatedBoard.current = {
-                                      ...recentlyCreatedBoard.current,
-                                      ...board,
-                                    };
-                                }}
-                                boards={boards}
-                                user={session.user}
-                                members={members}
-                                sessionRevision={sessionRevision}
-                                path={location}
-                              />
-                            ) : settingsSection &&
-                              knownSettings.includes(settingsSection) ? (
-                              <SettingsPage
-                                key={`${session.user.id}:${session.workspace.id}:${settingsSection}`}
-                                emailDeliveryConfigured={
-                                  emailDeliveryConfigured
-                                }
-                                section={settingsSection}
-                                session={session}
-                                members={members}
-                                boards={boards}
-                                onRefresh={() => {
-                                  void refresh();
-                                  void loadBoards();
-                                }}
-                              />
-                            ) : overview ? (
-                              <BoardsPage
-                                boards={boards}
-                                user={session.user}
-                                layout={
-                                  new URL(
-                                    location,
-                                    window.location.origin,
-                                  ).searchParams.get("layout") === "table"
-                                    ? "table"
-                                    : "grid"
-                                }
-                                onLayoutChange={(layout) => {
-                                  const url = new URL(window.location.href);
-                                  if (layout === "grid")
-                                    url.searchParams.delete("layout");
-                                  else url.searchParams.set("layout", layout);
-                                  const next = `${url.pathname}${url.search}${url.hash}`;
-                                  if (next !== location) navigate(next);
-                                }}
-                                pending={boardsPending}
-                                error={boardsError}
-                                canCreate={session.user.role !== "viewer"}
-                                onRetry={() => void loadBoards()}
-                                onCreate={() => {
-                                  setCreateError("");
-                                  setNewBoard(true);
-                                }}
-                              />
-                            ) : (
-                              <ErrorPage code="404" />
-                            )}
-                          </Suspense>
-                        </AppShell.Content>
-                      </SecondarySidebarLayout>
-                    </AppLayout>
-                    <Dialog
-                      isDismissDisabled={busy}
-                      open={newBoard}
-                      onClose={() => {
-                        boardCreateKey.reset();
-                        setNewBoard(false);
-                      }}
-                      title="Create a board"
-                      footer={
-                        <>
-                          <Button
-                            variant="secondary"
-                            onPress={() => {
-                              boardCreateKey.reset();
-                              setNewBoard(false);
-                            }}
-                            isDisabled={busy}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="submit"
-                            form="new-board"
-                            isDisabled={busy}
-                          >
-                            {busy ? "Creating…" : "Create board"}
-                          </Button>
-                        </>
-                      }
-                    >
-                      <form
-                        id="new-board"
-                        className="content-grid min-w-0"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          if (boardCreateRequest.current || expired) return;
-                          const generation = ++boardCreateGeneration.current;
-                          const request = new AbortController();
-                          boardCreateRequest.current = request;
-                          const current = () =>
-                            !request.signal.aborted &&
-                            generation === boardCreateGeneration.current;
-                          setBusy(true);
-                          setCreateError("");
-                          const payload = {
-                            name: boardName,
-                            description: boardDescription,
-                            ...(boardPrefix ? { prefix: boardPrefix } : {}),
-                          };
-                          void api<{ board: Board }>(
-                            "/boards",
-                            payload,
-                            "POST",
-                            {
-                              validateResponse: hasBoardResponse,
-                              signal: request.signal,
-                              headers: {
-                                "Idempotency-Key": boardCreateKey.forRequest(
-                                  "/boards",
-                                  payload,
-                                ),
-                              },
-                            },
-                          )
-                            .then((result) => {
-                              if (!current()) return;
-                              boardCreateKey.reset();
-                              recentlyCreatedBoard.current = {
-                                ...result.board,
-                                createdBy: {
-                                  id: session.user.id,
-                                  name: session.user.name,
-                                  email: session.user.email,
-                                  kind: "human",
-                                },
-                                lastActivityAt: new Date().toISOString(),
-                                backlogCount: 0,
-                                activeCount: 0,
-                                inProgressCount: 0,
-                                todoCount: 0,
-                              };
-                              setNewBoard(false);
-                              setBoardName("");
-                              setBoardDescription("");
-                              setBoardPrefix("");
-                              void loadBoards();
-                              navigate(`/boards/${result.board.id}`);
-                            })
-                            .catch((e) => {
-                              if (current()) setCreateError(errorText(e));
-                            })
-                            .finally(() => {
-                              if (boardCreateRequest.current === request) {
-                                boardCreateRequest.current = null;
-                                setBusy(false);
-                              }
-                            });
+                                  section={settingsSection}
+                                  session={session}
+                                  members={viewMembers}
+                                  boards={viewBoards}
+                                  onRefresh={() => {
+                                    void refresh();
+                                    void loadBoards();
+                                  }}
+                                />
+                              ) : overview ? (
+                                <BoardsPage
+                                  boards={viewBoards}
+                                  user={session.user}
+                                  layout={
+                                    new URL(
+                                      location,
+                                      window.location.origin,
+                                    ).searchParams.get("layout") === "table"
+                                      ? "table"
+                                      : "grid"
+                                  }
+                                  onLayoutChange={(layout) => {
+                                    const url = new URL(
+                                      location,
+                                      window.location.origin,
+                                    );
+                                    if (layout === "grid")
+                                      url.searchParams.delete("layout");
+                                    else url.searchParams.set("layout", layout);
+                                    const next = `${url.pathname}${url.search}${url.hash}`;
+                                    if (next !== location) navigate(next);
+                                  }}
+                                  pending={boardsPending}
+                                  error={boardsError}
+                                  canCreate={session.user.role !== "viewer"}
+                                  onRetry={() => void loadBoards()}
+                                  onCreate={() => {
+                                    setCreateError("");
+                                    setNewBoard(true);
+                                  }}
+                                />
+                              ) : (
+                                <ErrorPage code="404" />
+                              )}
+                            </>
+                          </AppShell.Content>
+                        </SecondarySidebarLayout>
+                      </AppLayout>
+                      <Dialog
+                        isDismissDisabled={busy}
+                        open={newBoard}
+                        onClose={() => {
+                          boardCreateKey.reset();
+                          setNewBoard(false);
                         }}
+                        title="Create a board"
+                        footer={
+                          <>
+                            <Button
+                              variant="secondary"
+                              onPress={() => {
+                                boardCreateKey.reset();
+                                setNewBoard(false);
+                              }}
+                              isDisabled={busy}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="submit"
+                              form="new-board"
+                              isDisabled={busy}
+                            >
+                              {busy ? "Creating…" : "Create board"}
+                            </Button>
+                          </>
+                        }
                       >
-                        <TextField
-                          label="Board name"
-                          value={boardName}
-                          onChange={(e) => setBoardName(e.target.value)}
-                          required
-                          autoFocus={
-                            !window.matchMedia("(pointer: coarse)").matches
-                          }
-                          maxLength={100}
-                        />
-                        <TextField
-                          label="Description"
-                          value={boardDescription}
-                          onChange={(e) => setBoardDescription(e.target.value)}
-                          multiline
-                          maxLength={10000}
-                          className="min-w-0 w-full"
-                        />
-                        <TextField
-                          label="Task prefix"
-                          value={boardPrefix}
-                          onChange={(e) =>
-                            setBoardPrefix(e.target.value.toUpperCase())
-                          }
-                          maxLength={12}
-                          placeholder="e.g. WEB"
-                        />
-                        <ErrorMessage>{createError}</ErrorMessage>
-                      </form>
-                    </Dialog>
-                  </AppBreadcrumbs>
-                </AppShell>
-              </RouteProvider>
-            </PortalProvider>
-          </div>
-        </SuspendedAppProvider>
+                        <form
+                          id="new-board"
+                          className="content-grid min-w-0"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (boardCreateRequest.current || expired) return;
+                            const generation = ++boardCreateGeneration.current;
+                            const request = new AbortController();
+                            boardCreateRequest.current = request;
+                            const current = () =>
+                              !request.signal.aborted &&
+                              generation === boardCreateGeneration.current;
+                            setBusy(true);
+                            setCreateError("");
+                            const payload = {
+                              name: boardName,
+                              description: boardDescription,
+                              ...(boardPrefix ? { prefix: boardPrefix } : {}),
+                            };
+                            void api<{ board: Board }>(
+                              "/boards",
+                              payload,
+                              "POST",
+                              {
+                                validateResponse: hasBoardResponse,
+                                signal: request.signal,
+                                headers: {
+                                  "Idempotency-Key": boardCreateKey.forRequest(
+                                    "/boards",
+                                    payload,
+                                  ),
+                                },
+                              },
+                            )
+                              .then((result) => {
+                                if (!current()) return;
+                                boardCreateKey.reset();
+                                recentlyCreatedBoard.current = {
+                                  ...result.board,
+                                  createdBy: {
+                                    id: session.user.id,
+                                    name: session.user.name,
+                                    email: session.user.email,
+                                    kind: "human",
+                                  },
+                                  lastActivityAt: new Date().toISOString(),
+                                  backlogCount: 0,
+                                  activeCount: 0,
+                                  inProgressCount: 0,
+                                  todoCount: 0,
+                                };
+                                setNewBoard(false);
+                                setBoardName("");
+                                setBoardDescription("");
+                                setBoardPrefix("");
+                                void loadBoards();
+                                navigate(`/boards/${result.board.id}`);
+                              })
+                              .catch((e) => {
+                                if (current()) setCreateError(errorText(e));
+                              })
+                              .finally(() => {
+                                if (boardCreateRequest.current === request) {
+                                  boardCreateRequest.current = null;
+                                  setBusy(false);
+                                }
+                              });
+                          }}
+                        >
+                          <TextField
+                            label="Board name"
+                            value={boardName}
+                            onChange={(e) => setBoardName(e.target.value)}
+                            required
+                            autoFocus={
+                              !window.matchMedia("(pointer: coarse)").matches
+                            }
+                            maxLength={100}
+                          />
+                          <TextField
+                            label="Description"
+                            value={boardDescription}
+                            onChange={(e) =>
+                              setBoardDescription(e.target.value)
+                            }
+                            multiline
+                            maxLength={10000}
+                            className="min-w-0 w-full"
+                          />
+                          <TextField
+                            label="Task prefix"
+                            value={boardPrefix}
+                            onChange={(e) =>
+                              setBoardPrefix(e.target.value.toUpperCase())
+                            }
+                            maxLength={12}
+                            placeholder="e.g. WEB"
+                          />
+                          <ErrorMessage>{createError}</ErrorMessage>
+                        </form>
+                      </Dialog>
+                    </AppBreadcrumbs>
+                  </AppShell>
+                </RouteProvider>
+              </PortalProvider>
+            </div>
+          </SuspendedAppProvider>
+        </PageReadScope>
       </OverlaySuspensionScope>
     </>
   );
-}
-export class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { failed: boolean; loadFailed: boolean }
-> {
-  state = { failed: false, loadFailed: false };
-  static getDerivedStateFromError(error: unknown) {
-    return { failed: true, loadFailed: isFrontendLoadError(error) };
-  }
-  componentDidCatch(error: unknown) {
-    if (isFrontendLoadError(error)) void reloadOutdatedFrontend();
-  }
-  render() {
-    if (!this.state.failed) return this.props.children;
-    return this.state.loadFailed ? (
-      <ErrorPage
-        code="Load error"
-        title="Unable to open this page"
-        description="This page could not finish loading. Reload to try again. If you had an unfinished edit, check it before continuing."
-      />
-    ) : (
-      <ErrorPage />
-    );
-  }
 }

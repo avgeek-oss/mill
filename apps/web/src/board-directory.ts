@@ -1,5 +1,9 @@
+import { hasBoardSummariesResponse } from "./responses.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Board } from "../../../packages/contracts/src/index.js";
+import type {
+  Board,
+  BoardSummary,
+} from "../../../packages/contracts/src/index.js";
 import { api, ApiError, errorText, isResponseObject } from "./api.js";
 
 type DirectoryPage = {
@@ -128,4 +132,35 @@ export function useBoardDirectory(requestKey: string | null = "boards") {
     error: current.error,
     reload,
   };
+}
+
+export async function loadBoardSummaries(signal?: AbortSignal) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const boards = new Map<string, BoardSummary>();
+      const seen = new Set<string>();
+      let cursor: string | null = null;
+      do {
+        const params = new URLSearchParams({ directory: "true", limit: "100" });
+        if (cursor) params.set("cursor", cursor);
+        const page = await api<{
+          items: BoardSummary[];
+          nextCursor: string | null;
+        }>(`/boards?${params}`, undefined, "GET", {
+          signal,
+          validateResponse: hasBoardSummariesResponse,
+        });
+        for (const board of page.items) boards.set(board.id, board);
+        cursor = page.nextCursor;
+        if (cursor && seen.has(cursor))
+          throw new Error("The board list could not be completed. Try again.");
+        if (cursor) seen.add(cursor);
+      } while (cursor);
+      return [...boards.values()].sort(compareBoardNames);
+    } catch (cause) {
+      if (!(cause instanceof ApiError && cause.status === 409 && attempt < 2))
+        throw cause;
+    }
+  }
+  throw new Error("The board list could not be completed. Try again.");
 }

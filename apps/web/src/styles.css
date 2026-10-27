@@ -82,9 +82,6 @@
     align-items: stretch;
     gap: 8px;
   }
-  .task-bulk-selection {
-    justify-content: space-between;
-  }
 }
 .board-card .widget,
 .board-card .widget__content {

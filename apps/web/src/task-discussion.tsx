@@ -54,6 +54,7 @@ import { RelativeDateTime } from "./relative-date-time.js";
 import { formatDate, formatDateTime } from "./date-time-preferences.js";
 import { hasCommentResponse, hasOkResponse } from "./responses.js";
 import { useSettingsMutation } from "./use-settings-mutation.js";
+import { usePageNavigationPending, usePageRead } from "./page-navigation.js";
 
 import { MAX_COMMENT_REPLY_DEPTH } from "../../../packages/contracts/src/index.js";
 
@@ -78,6 +79,7 @@ type Collection<T> = Page<T> & {
 };
 
 export type TaskDiscussionProps = {
+  confirmUnavailableDeparture?: () => Promise<boolean>;
   taskId: string;
   user: User;
   editable: boolean;
@@ -175,25 +177,69 @@ function hasDiscussionPage(value: unknown, kind: DiscussionKind) {
     : value.nextCursor === null;
 }
 
+async function readDiscussionPage<T extends DiscussionItem>(
+  taskId: string,
+  kind: DiscussionKind,
+  parentId: string | undefined,
+  cursor: string | null,
+  signal: AbortSignal,
+) {
+  const params = new URLSearchParams({ limit: "100" });
+  if (parentId) params.set("parentId", parentId);
+  if (cursor) params.set("cursor", cursor);
+  const page = await api<Page<T>>(
+    `/tasks/${taskId}/${kind}?${params}`,
+    undefined,
+    "GET",
+    { signal, validateResponse: (value) => hasDiscussionPage(value, kind) },
+  );
+  if (
+    page.items.some(
+      (item) =>
+        item.taskId !== taskId ||
+        (kind === "comments" &&
+          parentId &&
+          (item as Comment).parentId !==
+            (parentId === "root" ? null : parentId)),
+    )
+  )
+    throw new Error(
+      "The server returned discussion for a different task. Try again.",
+    );
+  return page;
+}
+
 function useDiscussionPages<T extends DiscussionItem>(
   taskId: string,
   kind: DiscussionKind,
   parentId?: string,
   enabled = true,
   refreshKey?: string,
+  prepared?: PromiseSettledResult<Page<T>>,
 ) {
   const overlay = useOverlaySuspension();
   const capture = useRef(overlay.capture);
   const runQuery = useSettingsMutation(`${taskId}:${kind}`);
-  const [collection, setCollection] = useState<Collection<T>>({
-    items: [],
-    hasMore: false,
-    nextCursor: null,
-    ready: false,
-    busy: true,
-    error: "",
-    boundary: null,
-  });
+  const [collection, setCollection] = useState<Collection<T>>(() => ({
+    items:
+      prepared?.status === "fulfilled"
+        ? mergeItems([], prepared.value.items)
+        : [],
+    hasMore: prepared?.status === "fulfilled" && prepared.value.hasMore,
+    nextCursor:
+      prepared?.status === "fulfilled" ? prepared.value.nextCursor : null,
+    ready: prepared?.status === "fulfilled",
+    busy: !prepared,
+    error: prepared?.status === "rejected" ? errorText(prepared.reason) : "",
+    boundary:
+      prepared?.status === "fulfilled"
+        ? (prepared.value.items.at(-1) ?? null)
+        : null,
+  }));
+  const preparedLoad = useRef(
+    prepared ? JSON.stringify([taskId, kind, parentId, refreshKey]) : null,
+  );
+  const adoptedRead = useRef<typeof prepared>(undefined);
   const current = useRef(collection);
   const mounted = useRef(true);
   const latestRequest = useRef(0);
@@ -209,6 +255,43 @@ function useDiscussionPages<T extends DiscussionItem>(
     },
     [],
   );
+  useLayoutEffect(() => {
+    if (
+      !prepared ||
+      !enabled ||
+      overlay.isSuspended ||
+      adoptedRead.current === prepared
+    )
+      return;
+    adoptedRead.current = prepared;
+    preparedLoad.current = JSON.stringify([taskId, kind, parentId, refreshKey]);
+    latestRequest.current++;
+    update(() => ({
+      items:
+        prepared.status === "fulfilled"
+          ? mergeItems([], prepared.value.items)
+          : [],
+      hasMore: prepared.status === "fulfilled" && prepared.value.hasMore,
+      nextCursor:
+        prepared.status === "fulfilled" ? prepared.value.nextCursor : null,
+      ready: prepared.status === "fulfilled",
+      busy: false,
+      error: prepared.status === "rejected" ? errorText(prepared.reason) : "",
+      boundary:
+        prepared.status === "fulfilled"
+          ? (prepared.value.items.at(-1) ?? null)
+          : null,
+    }));
+  }, [
+    prepared,
+    enabled,
+    overlay.isSuspended,
+    taskId,
+    kind,
+    parentId,
+    refreshKey,
+    update,
+  ]);
 
   const load = useCallback(
     async (more: boolean): Promise<T[] | null> => {
@@ -234,34 +317,10 @@ function useDiscussionPages<T extends DiscussionItem>(
         if (cursor) seenCursors.add(cursor);
         let page: Page<T>;
         do {
-          const params = new URLSearchParams({ limit: "100" });
-          if (parentId) params.set("parentId", parentId);
-          if (cursor) params.set("cursor", cursor);
           page = await runQuery((signal) =>
-            api<Page<T>>(
-              `/tasks/${taskId}/${kind}?${params}`,
-              undefined,
-              "GET",
-              {
-                signal,
-                validateResponse: (value) => hasDiscussionPage(value, kind),
-              },
-            ),
+            readDiscussionPage<T>(taskId, kind, parentId, cursor, signal),
           );
           if (!isCurrent()) return null;
-          if (
-            page.items.some(
-              (item) =>
-                item.taskId !== taskId ||
-                (kind === "comments" &&
-                  parentId &&
-                  (item as Comment).parentId !==
-                    (parentId === "root" ? null : parentId)),
-            )
-          )
-            throw new Error(
-              "The server returned discussion for a different task. Try again.",
-            );
           collected.push(...page.items);
           const last = page.items.at(-1);
           if (
@@ -320,8 +379,27 @@ function useDiscussionPages<T extends DiscussionItem>(
   }, [overlay.isSuspended, update]);
 
   useEffect(() => {
-    if (enabled) void load(false);
-  }, [load, enabled, refreshKey]);
+    if (!enabled || overlay.isSuspended) {
+      preparedLoad.current = null;
+      return;
+    }
+    if (
+      preparedLoad.current ===
+      JSON.stringify([taskId, kind, parentId, refreshKey])
+    )
+      return;
+    preparedLoad.current = null;
+    void load(false);
+  }, [
+    load,
+    enabled,
+    refreshKey,
+    taskId,
+    kind,
+    parentId,
+    overlay.isSuspended,
+    prepared,
+  ]);
 
   const refresh = useCallback(() => load(false), [load]);
   const loadMore = useCallback(() => load(true), [load]);
@@ -513,6 +591,7 @@ export function TaskDiscussion(props: TaskDiscussionProps) {
 }
 
 function TaskDiscussionContent({
+  confirmUnavailableDeparture,
   taskId,
   user,
   editable,
@@ -523,8 +602,36 @@ function TaskDiscussionContent({
   const appSuspended = useAppSuspended();
   const overlay = useOverlaySuspension();
   const runMutation = useSettingsMutation(`${taskId}:${user.id}`);
-  const comments = useDiscussionPages<Comment>(taskId, "comments", "root");
-  const activity = useDiscussionPages<Activity>(taskId, "activity");
+  const prepared = usePageRead(
+    appSuspended || overlay.isSuspended ? null : `discussion:${taskId}`,
+    (signal) =>
+      Promise.allSettled([
+        readDiscussionPage<Comment>(taskId, "comments", "root", null, signal),
+        readDiscussionPage<Activity>(
+          taskId,
+          "activity",
+          undefined,
+          null,
+          signal,
+        ),
+      ]),
+  );
+  const comments = useDiscussionPages<Comment>(
+    taskId,
+    "comments",
+    "root",
+    true,
+    undefined,
+    prepared?.status === "fulfilled" ? prepared.value[0] : prepared,
+  );
+  const activity = useDiscussionPages<Activity>(
+    taskId,
+    "activity",
+    undefined,
+    true,
+    undefined,
+    prepared?.status === "fulfilled" ? prepared.value[1] : prepared,
+  );
   const [tab, setTab] = useState("comments");
   const [draft, setDraft] = useState("");
   const [replying, setReplying] = useState<Comment | null>(null);
@@ -536,6 +643,13 @@ function TaskDiscussionContent({
   const [deleteError, setDeleteError] = useState("");
   const [deleteConflict, setDeleteConflict] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const navigationPending = usePageNavigationPending();
+  const approvedDeparture = useRef<{ draft: string; replyId?: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!navigationPending) approvedDeparture.current = null;
+  }, [navigationPending]);
   const navigationDecision = useRef<((leave: boolean) => void) | null>(null);
   const [mention, setMention] = useState<MentionMatch | null>(null);
   const [activeMention, setActiveMention] = useState(0);
@@ -559,6 +673,8 @@ function TaskDiscussionContent({
   const generation = useRef(0);
   const previousRefreshKey = useRef(refreshKey);
   const previousSessionRevision = useRef(sessionRevision);
+  const previousRefreshRead = useRef(prepared);
+  const previousSessionRead = useRef(prepared);
   const writable = editable && user.role !== "viewer" && !appSuspended;
   const canSubmitComment =
     writable && !!draft.trim() && !busy && !comments.busy && comments.ready;
@@ -663,10 +779,26 @@ function TaskDiscussionContent({
     const resolve = navigationDecision.current;
     navigationDecision.current = null;
     setConfirmLeave(false);
+    approvedDeparture.current = leave
+      ? { draft: currentDraft.current, replyId: replying?.id }
+      : null;
     resolve?.(leave);
   }
 
   const beforeNavigate = useEffectEvent((event: Event) => {
+    if (confirmUnavailableDeparture && hasUnsentDraft()) {
+      event.preventDefault();
+      (event as CustomEvent<NavigationRequest>).detail.waitUntil(
+        confirmUnavailableDeparture(),
+      );
+      return;
+    }
+    if (
+      navigationPending &&
+      approvedDeparture.current?.draft === currentDraft.current &&
+      approvedDeparture.current.replyId === replying?.id
+    )
+      return;
     const destination = (event as CustomEvent<NavigationRequest>).detail;
     const outcome = mutationOutcome.current;
     if (outcome) {
@@ -726,7 +858,8 @@ function TaskDiscussionContent({
     if (appSuspended || overlay.isSuspended) {
       ++generation.current;
       finishPendingMutation.current?.(false);
-      finishNavigationDecision(false);
+      if (navigationDecision.current) finishNavigationDecision(false);
+      if (appSuspended) approvedDeparture.current = null;
     }
     return () => {
       mounted.current = false;
@@ -738,17 +871,22 @@ function TaskDiscussionContent({
   }, [appSuspended, overlay.isSuspended]);
 
   useEffect(() => {
+    const newlyPrepared = prepared && previousRefreshRead.current !== prepared;
+    previousRefreshRead.current = prepared;
     if (previousRefreshKey.current === refreshKey) return;
     previousRefreshKey.current = refreshKey;
-    void activity.refresh();
-  }, [refreshKey, activity.refresh]);
+    if (!newlyPrepared) void activity.refresh();
+  }, [refreshKey, activity.refresh, prepared]);
 
   useEffect(() => {
     if (previousSessionRevision.current === sessionRevision) return;
     previousSessionRevision.current = sessionRevision;
+    const newlyPrepared = prepared && previousSessionRead.current !== prepared;
+    previousSessionRead.current = prepared;
+    if (newlyPrepared) return;
     void comments.refresh();
     void activity.refresh();
-  }, [sessionRevision, comments.refresh, activity.refresh]);
+  }, [sessionRevision, comments.refresh, activity.refresh, prepared]);
 
   useEffect(() => {
     if (!mention) return;

@@ -1,3 +1,5 @@
+import { usePageNavigationPending } from "./page-navigation.js";
+import { useTaskPagePreparation } from "./task-page-preparation.js";
 import { QueryFeedback } from "./query-feedback.js";
 import { AppShellBreadcrumb } from "@avgeek-oss/design-system/layouts/app-shell-breadcrumb";
 import { useMobileNavigation } from "@avgeek-oss/design-system/hooks/app-navigation";
@@ -66,6 +68,7 @@ import {
   useTaskEditor,
   type TaskEditor,
   type TaskField,
+  type EditableTaskValues,
 } from "./use-task-editor.js";
 
 function FieldFeedback({
@@ -114,8 +117,10 @@ export function TaskPage({
   onTaskLoaded: (task: Task) => void;
   sessionRevision: number;
 }) {
+  const prepared = useTaskPagePreparation(boardId, taskId, sessionRevision);
+  const preparedBoard = prepared.board;
   const breadcrumbs = usePageBreadcrumbs();
-  const editor = useTaskEditor(taskId);
+  const editor = useTaskEditor(taskId, sessionRevision, prepared.task);
   const { task, values } = editor;
   const writable = user.role !== "viewer";
   const [attachmentRevision, setAttachmentRevision] = useState(0);
@@ -123,8 +128,28 @@ export function TaskPage({
   const [duplicateSource, setDuplicateSource] =
     useState<DuplicateTaskSource | null>(null);
   const [closingDetails, setClosingDetails] = useState(false);
-  const [boardError, setBoardError] = useState("");
+  const [boardError, setBoardError] = useState(
+    preparedBoard?.status === "rejected" ? errorText(preparedBoard.reason) : "",
+  );
   const [boardRevision, setBoardRevision] = useState(0);
+  const initialBoard = useRef({
+    read: preparedBoard,
+    sessionRevision,
+    revision: boardRevision,
+  });
+  useLayoutEffect(() => {
+    if (!preparedBoard || initialBoard.current.read === preparedBoard) return;
+    initialBoard.current = {
+      read: preparedBoard,
+      sessionRevision,
+      revision: boardRevision,
+    };
+    setBoardError(
+      preparedBoard.status === "rejected"
+        ? errorText(preparedBoard.reason)
+        : "",
+    );
+  }, [preparedBoard, sessionRevision, boardRevision]);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -134,12 +159,19 @@ export function TaskPage({
   const deleteRequest = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const navigationPending = useRef(false);
+  const [confirmDeniedLeave, setConfirmDeniedLeave] = useState(false);
+  const deniedDecision = useRef<{
+    promise: Promise<boolean>;
+    resolve: (leave: boolean) => void;
+    values: EditableTaskValues | null;
+  } | null>(null);
+  const approvedDeparture = useRef<EditableTaskValues | null>(null);
   const focusedTask = useRef<string | null>(null);
   const taskContent = useRef<HTMLDivElement>(null);
   const appSuspended = useAppSuspended();
   const { capture } = useOverlaySuspension();
   const { isRestoringFocus } = useMobileNavigation();
-  const lastSessionRevision = useRef(sessionRevision);
+  const pageNavigationPending = usePageNavigationPending();
   useLayoutEffect(() => {
     deletePending.current = false;
     setDeleting(false);
@@ -147,13 +179,7 @@ export function TaskPage({
       deleteRequest.current?.abort();
       deleteRequest.current = null;
     };
-  }, [appSuspended, taskId]);
-
-  useEffect(() => {
-    if (lastSessionRevision.current === sessionRevision) return;
-    lastSessionRevision.current = sessionRevision;
-    void editor.reload();
-  }, [sessionRevision, editor.reload]);
+  }, [appSuspended, taskId, pageNavigationPending]);
 
   useEffect(() => {
     if (editor.accessDenied)
@@ -161,6 +187,18 @@ export function TaskPage({
   }, [editor.accessDenied]);
 
   useEffect(() => {
+    if (
+      initialBoard.current.read &&
+      initialBoard.current.revision === boardRevision &&
+      initialBoard.current.sessionRevision === sessionRevision
+    ) {
+      const prepared = initialBoard.current.read;
+      setBoardError(
+        prepared.status === "rejected" ? errorText(prepared.reason) : "",
+      );
+      if (prepared.status === "fulfilled") onBoardLoaded(prepared.value.board);
+      return;
+    }
     let current = true;
     setBoardError("");
     void api<{ board: Board }>(`/boards/${boardId}`, undefined, "GET", {
@@ -177,7 +215,7 @@ export function TaskPage({
     return () => {
       current = false;
     };
-  }, [boardId, onBoardLoaded, sessionRevision, boardRevision]);
+  }, [boardId, onBoardLoaded, sessionRevision, boardRevision, preparedBoard]);
 
   useEffect(() => {
     if (editor.accessDenied) {
@@ -198,11 +236,54 @@ export function TaskPage({
     }
   }, [task, onTaskLoaded, editor.accessDenied, isRestoringFocus]);
 
+  function finishDeniedDeparture(leave: boolean) {
+    const decision = deniedDecision.current;
+    if (!decision) return;
+    deniedDecision.current = null;
+    approvedDeparture.current = leave ? decision.values : null;
+    setConfirmDeniedLeave(false);
+    decision.resolve(leave);
+  }
+  function confirmDeniedDeparture() {
+    if (pageNavigationPending && approvedDeparture.current === editor.values)
+      return Promise.resolve(true);
+    if (!deniedDecision.current) {
+      let resolve!: (leave: boolean) => void;
+      const promise = new Promise<boolean>((settle) => {
+        resolve = settle;
+      });
+      deniedDecision.current = { promise, resolve, values: editor.values };
+      approvedDeparture.current = null;
+      setConfirmDeniedLeave(true);
+    }
+    return deniedDecision.current.promise;
+  }
+  useLayoutEffect(() => {
+    if (!pageNavigationPending) approvedDeparture.current = null;
+    if (appSuspended) finishDeniedDeparture(false);
+    return () => {
+      deniedDecision.current?.resolve(false);
+      deniedDecision.current = null;
+    };
+  }, [appSuspended, pageNavigationPending, taskId]);
+
   useEffect(() => {
     const beforeNavigate = (event: Event) => {
+      if (deleteRequest.current) {
+        deleteRequest.current.abort();
+        deleteRequest.current = null;
+        deletePending.current = false;
+        setDeleting(false);
+      }
       if (!editor.needsFlush()) return;
+      if (pageNavigationPending && approvedDeparture.current === editor.values)
+        return;
       event.preventDefault();
       const destination = (event as CustomEvent<NavigationRequest>).detail;
+      if (editor.accessDenied) {
+        destination.waitUntil(confirmDeniedDeparture());
+        return;
+      }
       if (navigationPending.current) {
         destination.waitUntil(Promise.resolve(false));
         return;
@@ -227,7 +308,13 @@ export function TaskPage({
       window.removeEventListener("mill:before-navigate", beforeNavigate);
       window.removeEventListener("beforeunload", beforeUnload);
     };
-  }, [editor.flushAll, editor.needsFlush]);
+  }, [
+    editor.flushAll,
+    editor.needsFlush,
+    editor.accessDenied,
+    editor.values,
+    pageNavigationPending,
+  ]);
 
   function changeAssignee(assigneeId: string | null) {
     if (!values || assigneeId === values.assigneeId) return;
@@ -243,7 +330,8 @@ export function TaskPage({
     }
   }
   async function removeTask() {
-    if (!task || appSuspended || deletePending.current) return;
+    if (!task || appSuspended || pageNavigationPending || deletePending.current)
+      return;
     const request = new AbortController();
     deleteRequest.current = request;
     const current = () =>
@@ -377,6 +465,23 @@ export function TaskPage({
 
   return (
     <>
+      <ActionConfirmation
+        isOpen={confirmDeniedLeave && !appSuspended}
+        onOpenChange={(open) => {
+          if (!open) finishDeniedDeparture(false);
+        }}
+        title="Unsaved changes"
+        description={
+          <TypographyParagraph className="text-sm">
+            You have unsaved changes. If you leave this task, your draft will be
+            lost.
+          </TypographyParagraph>
+        }
+        cancelLabel="Stay"
+        confirmLabel="Leave without saving"
+        variant="danger"
+        onConfirm={async () => finishDeniedDeparture(true)}
+      />
       {!editor.accessDenied && (
         <AppShellBreadcrumb items={breadcrumbs} title={task?.title ?? "Task"} />
       )}
@@ -596,6 +701,11 @@ export function TaskPage({
                     </div>
                     <section className="task-page-discussion col-start-1 row-start-4 min-w-0 pt-6">
                       <TaskDiscussion
+                        confirmUnavailableDeparture={
+                          editor.accessDenied
+                            ? confirmDeniedDeparture
+                            : undefined
+                        }
                         taskId={taskId}
                         user={user}
                         members={members}
@@ -788,7 +898,7 @@ export function TaskPage({
                   onCreated={(created) => {
                     setDuplicateSource(null);
                     navigate(
-                      `/boards/${boardId}/tasks/${created.id}${window.location.search}`,
+                      `/boards/${boardId}/tasks/${created.id}${new URL(returnHref, window.location.origin).search}`,
                     );
                   }}
                 />
