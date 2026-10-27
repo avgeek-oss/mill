@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { usePageRead } from "./page-navigation.js";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ActionConfirmation,
   Button,
@@ -45,15 +46,38 @@ export function BoardSettingsPage({
   onSaved: () => void;
   onDeleted: (boardId: string) => void;
 }) {
-  const [board, setBoard] = useState<Board | null>(null);
-  const [draft, setDraft] = useState({ name: "", description: "" });
-  const [prefix, setPrefix] = useState("");
-  const initializedDraft = useRef(false);
-  const [loading, setLoading] = useState(true);
+  const canAccess =
+    user.role !== "viewer" && (section !== "delete" || user.role === "admin");
+  const prepared = usePageRead(
+    canAccess ? `board-settings:${boardId}:${sessionRevision}` : null,
+    (signal) =>
+      api<{ board: Board }>(`/boards/${boardId}`, undefined, "GET", {
+        signal,
+        validateResponse: hasBoardResponse,
+      }),
+  );
+  const initial =
+    prepared?.status === "fulfilled" ? prepared.value.board : null;
+  const [board, setBoard] = useState<Board | null>(initial);
+  const [draft, setDraft] = useState({
+    name: initial?.name ?? "",
+    description: initial?.description ?? "",
+  });
+  const [prefix, setPrefix] = useState(initial?.prefix ?? "");
+  const initializedDraft = useRef(!!initial);
+  const [loading, setLoading] = useState(!prepared);
   const [loadError, setLoadError] = useState<{
     status: number;
     message: string;
-  } | null>(null);
+  } | null>(
+    prepared?.status === "rejected"
+      ? {
+          status:
+            prepared.reason instanceof ApiError ? prepared.reason.status : 0,
+          message: errorText(prepared.reason),
+        }
+      : null,
+  );
   const [saveError, setSaveError] = useState("");
   const [pending, setPending] = useState<
     "details" | "prefix" | "delete" | null
@@ -62,8 +86,6 @@ export function BoardSettingsPage({
   const [reload, setReload] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteKey] = useState(createRetryKey);
-  const canAccess =
-    user.role !== "viewer" && (section !== "delete" || user.role === "admin");
   const title = section === "delete" ? "Delete board" : "General settings";
   const appSuspended = useAppSuspended();
   const suspension = useOverlaySuspension();
@@ -109,9 +131,62 @@ export function BoardSettingsPage({
     setSaveError("");
   }, [appSuspended, sessionRevision, boardId, user.id, canAccess]);
 
+  const loadRequest = useRef<AbortController | null>(null);
+  const adoptedRead = useRef<{
+    read: typeof prepared;
+    sessionRevision: number;
+    reload: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    if (
+      !prepared ||
+      appSuspended ||
+      !canAccess ||
+      adoptedRead.current?.read === prepared
+    )
+      return;
+    loadRequest.current?.abort();
+    loadRequest.current = null;
+    adoptedRead.current = { read: prepared, sessionRevision, reload };
+    setLoading(false);
+    if (prepared.status === "rejected") {
+      const status =
+        prepared.reason instanceof ApiError ? prepared.reason.status : 0;
+      setLoadError({ status, message: errorText(prepared.reason) });
+      if ([403, 404].includes(status)) {
+        setBoard(null);
+        window.dispatchEvent(new Event("mill:route-access-denied"));
+      }
+      return;
+    }
+    const loaded = prepared.value.board;
+    setBoard(loaded);
+    setLoadError(null);
+    if (!initializedDraft.current) {
+      initializedDraft.current = true;
+      setDraft({ name: loaded.name, description: loaded.description });
+      setPrefix(loaded.prefix);
+    }
+    onBoardLoaded(loaded);
+  }, [
+    prepared,
+    appSuspended,
+    canAccess,
+    sessionRevision,
+    reload,
+    onBoardLoaded,
+  ]);
   useEffect(() => {
     if (appSuspended || !canAccess) return;
+    if (
+      prepared &&
+      adoptedRead.current?.read === prepared &&
+      adoptedRead.current.sessionRevision === sessionRevision &&
+      adoptedRead.current.reload === reload
+    )
+      return;
     const request = new AbortController();
+    loadRequest.current = request;
     setLoading(true);
     setLoadError(null);
     void api<{ board: Board }>(`/boards/${boardId}`, undefined, "GET", {
@@ -132,13 +207,18 @@ export function BoardSettingsPage({
       (cause: unknown) => {
         if (request.signal.aborted) return;
         const status = cause instanceof ApiError ? cause.status : 0;
-        if ([403, 404].includes(status))
+        if ([403, 404].includes(status)) {
+          setBoard(null);
           window.dispatchEvent(new Event("mill:route-access-denied"));
+        }
         setLoadError({ status, message: errorText(cause) });
         setLoading(false);
       },
     );
-    return () => request.abort();
+    return () => {
+      request.abort();
+      if (loadRequest.current === request) loadRequest.current = null;
+    };
   }, [
     boardId,
     canAccess,
@@ -146,6 +226,7 @@ export function BoardSettingsPage({
     sessionRevision,
     reload,
     onBoardLoaded,
+    prepared,
   ]);
 
   const boardName =

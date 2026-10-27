@@ -1,5 +1,6 @@
 import { RouterProvider } from "react-aria-components";
 import { ErrorPage as SharedErrorPage } from "@avgeek-oss/design-system/patterns/feedback/error-page";
+import { navigate } from "./api.js";
 
 export function errorPageCode(status: number) {
   if (status === 0) return "Connection";
@@ -31,7 +32,7 @@ export function ErrorPage({
           ? "unavailable"
           : "server-error";
   return (
-    <RouterProvider navigate={(href) => window.location.assign(href)}>
+    <RouterProvider navigate={navigate}>
       <SharedErrorPage
         status={status}
         title={title}

@@ -1,8 +1,15 @@
 import { useOverlaySuspension } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import { useIdentityConfirmation } from "./identity-confirmation.js";
 import { QueryFeedback } from "./query-feedback.js";
+import { usePageRead } from "./page-navigation.js";
 // Adapted from Towbar's public Apache-2.0 API/MCP settings composition.
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import type { Board } from "../../../packages/contracts/src/index.js";
 import { Button, QueryLoading, toast } from "@mill/web-design-system";
 import {
@@ -185,10 +192,26 @@ function CredentialSettings({
 }: CredentialSettingsProps & { kind: "api-key" | "team-api-key" | "oauth" }) {
   const path = kind === "team-api-key" ? "/team-credentials" : "/credentials";
   const overlay = useOverlaySuspension();
-  const [items, setItems] = useState<Credential[] | null>(null);
-  const [pending, setPending] = useState(true);
-  const [error, setError] = useState("");
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const prepared = usePageRead(
+    overlay.isSuspended
+      ? null
+      : `credentials:${kind}:${session.user.id}:${session.workspace.id}`,
+    (signal) => api<CredentialPage>(path, undefined, "GET", { signal }),
+  );
+  const [items, setItems] = useState<Credential[] | null>(() =>
+    prepared?.status === "fulfilled"
+      ? prepared.value.items.filter((credential) => !credential.revokedAt)
+      : null,
+  );
+  const [pending, setPending] = useState(!prepared);
+  const [error, setError] = useState(() =>
+    prepared?.status === "rejected" ? errorText(prepared.reason) : "",
+  );
+  const [nextCursor, setNextCursor] = useState<string | null>(() =>
+    prepared?.status === "fulfilled" ? prepared.value.nextCursor : null,
+  );
+  const preparedPath = useRef(prepared ? path : null);
+  const adoptedRead = useRef<typeof prepared>(undefined);
   const [morePending, setMorePending] = useState(false);
   const [moreError, setMoreError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -205,6 +228,25 @@ function CredentialSettings({
       ),
     [],
   );
+  useLayoutEffect(() => {
+    if (!prepared || overlay.isSuspended || adoptedRead.current === prepared)
+      return;
+    adoptedRead.current = prepared;
+    preparedPath.current = path;
+    generation.current++;
+    setItems(
+      prepared.status === "fulfilled"
+        ? visibleCredentials(prepared.value.items)
+        : null,
+    );
+    setPending(false);
+    setError(prepared.status === "rejected" ? errorText(prepared.reason) : "");
+    setNextCursor(
+      prepared.status === "fulfilled" ? prepared.value.nextCursor : null,
+    );
+    setMorePending(false);
+    setMoreError("");
+  }, [prepared, overlay.isSuspended, path, visibleCredentials]);
   const refresh = useCallback(async () => {
     const current = ++generation.current;
     setPending(true);
@@ -225,11 +267,12 @@ function CredentialSettings({
     }
   }, [visibleCredentials, path]);
   useEffect(() => {
-    void refresh();
+    if (overlay.isSuspended) preparedPath.current = null;
+    else if (preparedPath.current !== path) void refresh();
     return () => {
       generation.current++;
     };
-  }, [refresh]);
+  }, [path, refresh, overlay.isSuspended, prepared]);
   async function more() {
     if (!nextCursor || morePending) return;
     const current = generation.current;

@@ -1,8 +1,10 @@
 import { useOverlaySuspension } from "@avgeek-oss/design-system/overlays/overlay-suspension";
 import { QueryFeedback } from "./query-feedback.js";
+import { usePageRead } from "./page-navigation.js";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -54,17 +56,53 @@ type ListState<T> = {
   hasMore: boolean;
   nextCursor: string | null;
 };
+type PeoplePage<T> = {
+  items: T[];
+  hasMore?: boolean;
+  nextCursor?: string | null;
+};
 
-function usePeopleList<T>(path: string) {
-  const [state, setState] = useState<ListState<T>>({
-    items: [],
-    loading: true,
-    error: "",
-    hasMore: false,
-    nextCursor: null,
-  });
+function usePeopleList<T>(
+  path: string,
+  prepared?: PromiseSettledResult<PeoplePage<T>>,
+) {
+  const overlay = useOverlaySuspension();
+  const [state, setState] = useState<ListState<T>>(() => ({
+    items: prepared?.status === "fulfilled" ? prepared.value.items : [],
+    loading: !prepared,
+    error: prepared?.status === "rejected" ? errorText(prepared.reason) : "",
+    hasMore:
+      prepared?.status === "fulfilled"
+        ? (prepared.value.hasMore ?? false)
+        : false,
+    nextCursor:
+      prepared?.status === "fulfilled"
+        ? (prepared.value.nextCursor ?? null)
+        : null,
+  }));
+  const preparedPath = useRef(prepared ? path : null);
+  const adoptedRead = useRef<typeof prepared>(undefined);
   const sequence = useRef(0);
   const attemptedCursor = useRef<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!prepared || overlay.isSuspended || adoptedRead.current === prepared)
+      return;
+    adoptedRead.current = prepared;
+    preparedPath.current = path;
+    sequence.current++;
+    attemptedCursor.current = undefined;
+    setState({
+      items: prepared.status === "fulfilled" ? prepared.value.items : [],
+      loading: false,
+      error: prepared.status === "rejected" ? errorText(prepared.reason) : "",
+      hasMore:
+        prepared.status === "fulfilled" && (prepared.value.hasMore ?? false),
+      nextCursor:
+        prepared.status === "fulfilled"
+          ? (prepared.value.nextCursor ?? null)
+          : null,
+    });
+  }, [prepared, overlay.isSuspended, path]);
   const load = useCallback(
     async (cursor?: string) => {
       const request = ++sequence.current;
@@ -72,18 +110,10 @@ function usePeopleList<T>(path: string) {
       setState((previous) => ({ ...previous, loading: true, error: "" }));
       try {
         let activeCursor = cursor;
-        let result: {
-          items: T[];
-          hasMore?: boolean;
-          nextCursor?: string | null;
-        } | null = null;
+        let result: PeoplePage<T> | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            result = await api<{
-              items: T[];
-              hasMore?: boolean;
-              nextCursor?: string | null;
-            }>(
+            result = await api<PeoplePage<T>>(
               `${path}${activeCursor ? `?cursor=${encodeURIComponent(activeCursor)}` : ""}`,
             );
             break;
@@ -122,11 +152,12 @@ function usePeopleList<T>(path: string) {
     [path],
   );
   useEffect(() => {
-    void load();
+    if (overlay.isSuspended) preparedPath.current = null;
+    else if (preparedPath.current !== path) void load();
     return () => {
       sequence.current++;
     };
-  }, [load]);
+  }, [path, load, overlay.isSuspended, prepared]);
   return { ...state, load, retry: () => load(attemptedCursor.current) };
 }
 
@@ -216,8 +247,27 @@ export function PeopleSettings({
   session: Session;
   onRefresh: () => void;
 }) {
-  const members = usePeopleList<Member>("/auth/members");
-  const invitations = usePeopleList<Invitation>("/auth/invitations");
+  const overlay = useOverlaySuspension();
+  const prepared = usePageRead(
+    overlay.isSuspended
+      ? null
+      : `people:${session.user.id}:${session.workspace.id}`,
+    (signal) =>
+      Promise.allSettled([
+        api<PeoplePage<Member>>("/auth/members", undefined, "GET", { signal }),
+        api<PeoplePage<Invitation>>("/auth/invitations", undefined, "GET", {
+          signal,
+        }),
+      ]),
+  );
+  const members = usePeopleList<Member>(
+    "/auth/members",
+    prepared?.status === "fulfilled" ? prepared.value[0] : prepared,
+  );
+  const invitations = usePeopleList<Invitation>(
+    "/auth/invitations",
+    prepared?.status === "fulfilled" ? prepared.value[1] : prepared,
+  );
   const now = useCurrentTime();
   const visibleInvitations = invitations.items.filter(
     (invitation) => Date.parse(invitation.expiresAt) > now,

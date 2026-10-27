@@ -19,7 +19,7 @@
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --env-file-if-exists=.env --import tsx --test --test-concurrency=8 tests/*.test.ts",
+    "test": "node --env-file-if-exists=.env --import tsx --test --test-concurrency=8 tests/*.test.ts tests/*.test.tsx",
     "verify": "pnpm docs:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:operations && pnpm test && pnpm audit --prod --audit-level=moderate && pnpm build",
     "backup": "bash tools/backup.sh",
     "restore": "bash tools/restore.sh",
@@ -50,17 +50,18 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@avgeek-oss/mintlify-docs": "0.1.6",
     "@eslint/js": "9.39.4",
     "@types/node": "26.6.1",
     "@types/nodemailer": "8.0.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.4",
+    "happy-dom": "21.0.4",
     "playwright": "1.63.0",
     "prettier": "3.9.8",
     "tsx": "4.23.13",
     "typescript": "5.9.3",
-    "typescript-eslint": "8.57.0",
-    "@avgeek-oss/mintlify-docs": "0.1.6"
+    "typescript-eslint": "8.57.0"
   }
 }

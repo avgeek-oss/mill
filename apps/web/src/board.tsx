@@ -1,3 +1,5 @@
+import { usePageRead } from "./page-navigation.js";
+import { readBoardPage } from "./board-page-data.js";
 import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
 import {
   Suspense,
@@ -109,11 +111,28 @@ export function BoardPage({
   sessionRevision: number;
 }) {
   const listState = useMemo(() => parseBoardUrl(path), [path]);
+  const search = new URL(path, window.location.origin).search;
+  const prepared = usePageRead(
+    `board-list:${boardUrl(boardId, listState)}:${sessionRevision}`,
+    (signal) => readBoardPage(boardId, listState, signal),
+  );
+  const preparedError =
+    prepared?.status === "rejected" ? prepared.reason : null;
+  const preparedStatus =
+    preparedError instanceof ApiError
+      ? preparedError.status
+      : preparedError
+        ? -1
+        : 0;
   const q = listState.q;
   const filters = listState;
   const pageSize = listState.limit;
   const [initialPage] = useState(() =>
-    navigationCache.boardPage(boardId, listState),
+    prepared?.status === "fulfilled"
+      ? prepared.value
+      : preparedError
+        ? null
+        : navigationCache.boardPage(boardId, listState),
   );
   const [board, setBoard] = useState<Board | null>(
     initialPage?.board ?? boards.find((item) => item.id === boardId) ?? null,
@@ -125,11 +144,15 @@ export function BoardPage({
     initialPage?.tasks.total ?? null,
   );
   const [displayedSort, setDisplayedSort] = useState(filters.sort);
-  const [errorStatus, setErrorStatus] = useState(0);
-  const [accessDenied, setAccessDenied] = useState(false);
+  const [errorStatus, setErrorStatus] = useState(preparedStatus);
+  const [accessDenied, setAccessDenied] = useState(
+    [403, 404].includes(preparedStatus),
+  );
   const deniedRef = useRef(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(!prepared);
+  const [error, setError] = useState(
+    preparedError ? errorText(preparedError) : "",
+  );
   const [taskListChanged, setTaskListChanged] = useState(false);
   const [query, setQuery] = useState(q);
   const [creatingTask, setCreatingTask] = useState(false);
@@ -215,31 +238,40 @@ export function BoardPage({
     target.focus({ preventScroll: true });
   }, [board, loading, accessDenied]);
   function changeList(changes: Partial<BoardUrlState>, replace = false) {
-    if (window.location.pathname !== `/boards/${boardId}`) return;
+    if (
+      window.location.pathname +
+        window.location.search +
+        window.location.hash !==
+      path
+    )
+      return;
     const next = boardUrl(
       boardId,
       { ...listState, q: query, ...changes },
-      window.location.search,
+      search,
     );
-    if (next === `${window.location.pathname}${window.location.search}`) return;
+    if (next === `${window.location.pathname}${search}`) return;
     if (replace) {
       window.history.replaceState(window.history.state, "", next);
       window.dispatchEvent(new Event("mill:navigate"));
     } else navigate(next);
   }
-  useLayoutEffect(() => setQuery(q), [q]);
+  const displayedQuery = useRef(q);
+  useLayoutEffect(() => {
+    const previous = displayedQuery.current;
+    displayedQuery.current = q;
+    setQuery((current) => (current === previous ? q : current));
+  }, [q]);
   useEffect(() => {
-    const restoreSearch = () =>
-      setQuery(
-        parseBoardUrl(window.location.pathname + window.location.search).q,
-      );
-    window.addEventListener("popstate", restoreSearch);
-    return () => window.removeEventListener("popstate", restoreSearch);
-  }, []);
-  useEffect(() => {
-    if (window.location.pathname !== `/boards/${boardId}`) return;
-    const next = boardUrl(boardId, listState, window.location.search);
-    if (next !== `${window.location.pathname}${window.location.search}`) {
+    if (
+      window.location.pathname +
+        window.location.search +
+        window.location.hash !==
+      path
+    )
+      return;
+    const next = boardUrl(boardId, listState, search);
+    if (next !== `${window.location.pathname}${search}`) {
       window.history.replaceState(window.history.state, "", next);
       window.dispatchEvent(new Event("mill:navigate"));
     }
@@ -352,8 +384,72 @@ export function BoardPage({
     if (accessDenied) document.title = "Board unavailable · Mill";
     else if (board) document.title = `${board.name} · Mill`;
   }, [board?.name, path, accessDenied]);
+  const preparedRequest = useRef<{
+    read: typeof prepared;
+    path: string;
+    revision: number;
+  } | null>(null);
+  useLayoutEffect(() => {
+    if (!prepared || preparedRequest.current?.read === prepared) return;
+    ++latestLoad.current;
+    preparedRequest.current = {
+      read: prepared,
+      path,
+      revision: sessionRevision,
+    };
+    setLoading(false);
+    setTaskListChanged(false);
+    if (prepared.status === "rejected") {
+      setError(errorText(prepared.reason));
+      const status =
+        prepared.reason instanceof ApiError ? prepared.reason.status : -1;
+      setErrorStatus(status);
+      setAccessDenied([403, 404].includes(status));
+      if ([403, 404].includes(status)) {
+        navigationCache.forgetBoard(boardId);
+        if (!deniedRef.current)
+          window.dispatchEvent(new Event("mill:route-access-denied"));
+        deniedRef.current = true;
+      }
+      return;
+    }
+    const { board: info, tasks: page } = prepared.value;
+    navigationCache.rememberBoardPage(
+      info,
+      listState,
+      page,
+      navigationCache.generation,
+    );
+    setBoard(info);
+    onBoardLoaded(info);
+    setTasks(page.items);
+    setTaskPage(page.page);
+    setTaskTotal(page.total);
+    setDisplayedPageSize(pageSize);
+    setDisplayedSort(filters.sort);
+    setError("");
+    setErrorStatus(0);
+    setAccessDenied(false);
+    deniedRef.current = false;
+    requestedPage.current = page.page;
+    pageCollection.current = {
+      query: `${boardId}?${taskQuery()}`,
+      revision: page.revision,
+    };
+    loadedPage.current = {
+      query: `${boardId}?${taskQuery()}`,
+      page: page.page,
+    };
+    if (page.page !== listState.page) changeList({ page: page.page, q }, true);
+  }, [prepared]);
   useEffect(() => {
     const queryKey = `${boardId}?${taskQuery()}`;
+    if (
+      preparedRequest.current?.read === prepared &&
+      preparedRequest.current?.path === path &&
+      preparedRequest.current?.revision === sessionRevision
+    )
+      return;
     const resumed = lastSessionRevision.current !== sessionRevision;
     lastSessionRevision.current = sessionRevision;
     if (
@@ -826,7 +922,7 @@ export function BoardPage({
                             <div className="flex min-w-0 items-center gap-2">
                               <TaskTypeIndicator type={task.type} />
                               <Link
-                                href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                                href={`/boards/${boardId}/tasks/${task.id}${search}`}
                                 onNavigate={() =>
                                   navigationCache.rememberTask(
                                     task,
@@ -848,7 +944,7 @@ export function BoardPage({
                           isRowHeader: true,
                           cell: (task) => (
                             <Link
-                              href={`/boards/${boardId}/tasks/${task.id}${window.location.search}`}
+                              href={`/boards/${boardId}/tasks/${task.id}${search}`}
                               onNavigate={() =>
                                 navigationCache.rememberTask(
                                   task,
@@ -1005,9 +1101,7 @@ export function BoardPage({
                   onClose={() => setCreatingTask(false)}
                   onCreated={(task) => {
                     setCreatingTask(false);
-                    navigate(
-                      `/boards/${boardId}/tasks/${task.id}${window.location.search}`,
-                    );
+                    navigate(`/boards/${boardId}/tasks/${task.id}${search}`);
                   }}
                 />
               </Suspense>

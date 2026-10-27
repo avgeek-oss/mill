@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { usePageRead } from "./page-navigation.js";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import type { Task } from "../../../packages/contracts/src/index.js";
 import { ApiError, api, errorText, isResponseObject } from "./api.js";
 import { hasTaskResponse } from "./responses.js";
@@ -116,7 +123,10 @@ function validTask(value: unknown, taskId: string) {
   );
 }
 
+type PreparedTask = PromiseSettledResult<{ task: Task }>;
+
 class TaskEditorController {
+  private adoptedPrepared?: PreparedTask;
   private cacheGeneration = navigationCache.generation;
   private active = false;
   private generation = 0;
@@ -148,8 +158,20 @@ class TaskEditorController {
     hasUnsavedChanges: false,
   };
 
-  constructor(private taskId: string) {
-    const task = navigationCache.task(taskId);
+  constructor(
+    private taskId: string,
+    private prepared?: PreparedTask,
+  ) {
+    this.adoptedPrepared = prepared;
+    const saved = navigationCache.task(taskId);
+    const incoming =
+      prepared?.status === "fulfilled" ? prepared.value.task : null;
+    const task =
+      prepared?.status === "rejected"
+        ? null
+        : incoming && (!saved || incoming.version >= saved.version)
+          ? incoming
+          : saved;
     if (task) {
       this.task = task;
       this.values = editable(task);
@@ -161,6 +183,93 @@ class TaskEditorController {
         loading: false,
       };
     }
+    if (prepared?.status === "rejected") {
+      const status =
+        prepared.reason instanceof ApiError ? prepared.reason.status : -1;
+      this.loading = false;
+      this.loadError = errorText(prepared.reason);
+      this.loadErrorStatus = status;
+      this.accessDenied = [403, 404].includes(status);
+      this.snapshot = {
+        ...this.snapshot,
+        loading: false,
+        loadError: this.loadError,
+        loadErrorStatus: status,
+        accessDenied: this.accessDenied,
+      };
+    }
+  }
+  preparedSnapshot(prepared?: PreparedTask): EditorSnapshot | undefined {
+    if (!prepared || prepared === this.adoptedPrepared) return undefined;
+    if (prepared.status === "rejected") {
+      const status =
+        prepared.reason instanceof ApiError ? prepared.reason.status : -1;
+      return {
+        ...this.snapshot,
+        loading: false,
+        loadError: errorText(prepared.reason),
+        loadErrorStatus: status,
+        accessDenied: this.accessDenied || [403, 404].includes(status),
+      };
+    }
+    const incoming = prepared.value.task;
+    const task =
+      this.task && this.task.version > incoming.version ? this.task : incoming;
+    return {
+      ...this.snapshot,
+      task,
+      values: this.valuesFor(task),
+      loading: false,
+      loadError: "",
+      loadErrorStatus: 0,
+      accessDenied: false,
+    };
+  }
+  adoptPrepared(prepared?: PreparedTask) {
+    const next = this.preparedSnapshot(prepared);
+    if (!next || !prepared) return;
+    this.adoptedPrepared = prepared;
+    this.cacheGeneration = navigationCache.generation;
+    this.generation++;
+    this.loadSequence++;
+    this.loadPromise = null;
+    this.task = next.task;
+    this.values = next.values;
+    this.loading = false;
+    this.loadError = next.loadError;
+    this.loadErrorStatus = next.loadErrorStatus;
+    this.accessDenied = next.accessDenied;
+    if (this.accessDenied) {
+      if (next.loadErrorStatus === 403 && this.task)
+        navigationCache.forgetBoard(this.task.boardId);
+      else navigationCache.forgetTask(this.taskId);
+      this.queue.clear();
+      for (const [key, unit] of this.units) {
+        this.cancelTimer(key);
+        this.fail(
+          unit,
+          prepared.status === "rejected"
+            ? prepared.reason
+            : new Error(next.loadError),
+        );
+      }
+    } else {
+      if (prepared.status === "fulfilled" && this.task)
+        navigationCache.rememberTask(this.task, this.cacheGeneration);
+      for (const [key, unit] of this.units) {
+        if (
+          !unit.blocked &&
+          (unit.ready ||
+            unit.fields.some((field) => this.inFlight.includes(field)))
+        ) {
+          unit.ready = true;
+          this.queue.add(key);
+        }
+      }
+      if (this.running) void this.running.then(() => this.drain());
+      else void this.drain();
+    }
+    this.publish();
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -200,7 +309,11 @@ class TaskEditorController {
   }
   start() {
     this.active = true;
-    void this.reload();
+    if (this.prepared) {
+      this.prepared = undefined;
+      if (this.task)
+        navigationCache.rememberTask(this.task, this.cacheGeneration);
+    } else void this.reload();
   }
   stop() {
     this.active = false;
@@ -217,10 +330,8 @@ class TaskEditorController {
   private keyFor(field: TaskField): UnitKey {
     return field;
   }
-  private mergeTask(task: Task) {
-    navigationCache.rememberTask(task, this.cacheGeneration);
+  private valuesFor(task: Task) {
     const next = editable(task);
-    this.task = task;
     const values = this.values ? copyValues(this.values) : next;
     for (const field of editableFields) {
       if (
@@ -229,7 +340,12 @@ class TaskEditorController {
         Object.assign(values, { [field]: next[field] });
       }
     }
-    this.values = values;
+    return values;
+  }
+  private mergeTask(task: Task) {
+    navigationCache.rememberTask(task, this.cacheGeneration);
+    this.values = this.valuesFor(task);
+    this.task = task;
   }
   private fetchTask() {
     return api<{ task: Task }>(
@@ -611,19 +727,41 @@ class TaskEditorController {
   };
 }
 
-export function useTaskEditor(taskId: string): TaskEditor {
-  const controller = useMemo(() => new TaskEditorController(taskId), [taskId]);
+export function useTaskEditor(taskId: string, sessionRevision = 0): TaskEditor {
+  const prepared = usePageRead(`task:${taskId}:${sessionRevision}`, (signal) =>
+    api<{ task: Task }>(
+      `/tasks/${taskId}?commentLimit=0&activityLimit=0`,
+      undefined,
+      "GET",
+      { signal, validateResponse: (value) => validTask(value, taskId) },
+    ),
+  );
+  const controller = useMemo(
+    () => new TaskEditorController(taskId, prepared),
+    [taskId],
+  );
   const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
   );
+  const preparedSnapshot = controller.preparedSnapshot(prepared);
+  useLayoutEffect(
+    () => controller.adoptPrepared(prepared),
+    [controller, prepared],
+  );
+  const previousSessionRevision = useRef(sessionRevision);
+  useEffect(() => {
+    if (previousSessionRevision.current === sessionRevision) return;
+    previousSessionRevision.current = sessionRevision;
+    if (!prepared) void controller.reload();
+  }, [controller, sessionRevision, prepared]);
   useEffect(() => {
     controller.start();
     return () => controller.stop();
   }, [controller]);
   return {
-    ...snapshot,
+    ...(preparedSnapshot ?? snapshot),
     needsFlush: controller.needsFlush,
     updateField: controller.updateField,
     textChange: controller.textChange,

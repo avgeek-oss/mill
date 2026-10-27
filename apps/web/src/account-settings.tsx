@@ -4,11 +4,13 @@ import {
   useIdentityConfirmation,
 } from "./identity-confirmation.js";
 import { QueryFeedback } from "./query-feedback.js";
+import { usePageRead } from "./page-navigation.js";
 // Adapted from Towbar's public Apache-2.0 security-settings, passkey-settings,
 // reauthentication-dialog, and settings-pages compositions.
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -94,14 +96,37 @@ function AccountWidget({
 }
 function useAccountList<T>(path: string) {
   const appSuspended = useAppSuspended();
+  const prepared = usePageRead(
+    appSuspended ? null : `account-list:${path}`,
+    (signal) => api<{ items: T[] }>(path, undefined, "GET", { signal }),
+  );
   const [state, setState] = useState<{
     items: T[] | null;
     pending: boolean;
     error: string;
-  }>({ items: null, pending: true, error: "" });
+  }>(() => ({
+    items: prepared?.status === "fulfilled" ? prepared.value.items : null,
+    pending: !prepared,
+    error: prepared?.status === "rejected" ? errorText(prepared.reason) : "",
+  }));
+  const preparedPath = useRef(prepared ? path : null);
+  const adoptedRead = useRef<typeof prepared>(undefined);
   const generation = useRef(0);
   const active = useRef(!appSuspended);
   const controller = useRef<AbortController | null>(null);
+  useLayoutEffect(() => {
+    if (!prepared || appSuspended || adoptedRead.current === prepared) return;
+    adoptedRead.current = prepared;
+    preparedPath.current = path;
+    generation.current++;
+    controller.current?.abort();
+    controller.current = null;
+    setState({
+      items: prepared.status === "fulfilled" ? prepared.value.items : null,
+      pending: false,
+      error: prepared.status === "rejected" ? errorText(prepared.reason) : "",
+    });
+  }, [prepared, appSuspended, path]);
   const refresh = useCallback(async () => {
     if (!active.current) return;
     const current = ++generation.current;
@@ -136,16 +161,17 @@ function useAccountList<T>(path: string) {
   }, [path]);
   useEffect(() => {
     active.current = !appSuspended;
-    if (appSuspended)
+    if (appSuspended) {
+      preparedPath.current = null;
       setState((old) => ({ ...old, pending: false, error: "" }));
-    else void refresh();
+    } else if (preparedPath.current !== path) void refresh();
     return () => {
       active.current = false;
       generation.current++;
       controller.current?.abort();
       controller.current = null;
     };
-  }, [appSuspended, refresh]);
+  }, [appSuspended, path, refresh, prepared]);
   return { ...state, refresh };
 }
 function ListState({
@@ -435,10 +461,34 @@ function EmailPasswordSettings({
     [session.user.id],
   );
   const currentTime = useCurrentTime();
+  const preparedEmailChange = usePageRead(
+    emailDeliveryConfigured && !appSuspended
+      ? `email-change:${session.user.id}`
+      : null,
+    (signal) =>
+      api<EmailChangeResponse>("/auth/email-change", undefined, "GET", {
+        signal,
+        headers: emailIdentityHeaders,
+        validateResponse: isEmailChangeResponse,
+      }),
+  );
   const [emailChange, setEmailChange] = useState<{
     value: EmailChangeResponse | null;
     error: string;
-  }>({ value: null, error: "" });
+  }>(() => ({
+    value:
+      preparedEmailChange?.status === "fulfilled"
+        ? preparedEmailChange.value
+        : null,
+    error:
+      preparedEmailChange?.status === "rejected"
+        ? errorText(preparedEmailChange.reason)
+        : "",
+  }));
+  const preparedEmailIdentity = useRef(
+    preparedEmailChange ? session.user.id : null,
+  );
+  const adoptedEmailRead = useRef<typeof preparedEmailChange>(undefined);
   const [resendAvailableAt, setResendAvailableAt] = useState(0);
   const [pending, setPending] = useState<{
     action: () => Promise<void>;
@@ -450,6 +500,30 @@ function EmailPasswordSettings({
   const generation = useRef(0);
   const active = useRef(true);
   const controller = useRef<AbortController | null>(null);
+  const emailReadController = useRef<AbortController | null>(null);
+  useLayoutEffect(() => {
+    if (
+      !preparedEmailChange ||
+      appSuspended ||
+      adoptedEmailRead.current === preparedEmailChange
+    )
+      return;
+    adoptedEmailRead.current = preparedEmailChange;
+    preparedEmailIdentity.current = session.user.id;
+    generation.current++;
+    emailReadController.current?.abort();
+    emailReadController.current = null;
+    setEmailChange({
+      value:
+        preparedEmailChange.status === "fulfilled"
+          ? preparedEmailChange.value
+          : null,
+      error:
+        preparedEmailChange.status === "rejected"
+          ? errorText(preparedEmailChange.reason)
+          : "",
+    });
+  }, [preparedEmailChange, appSuspended, session.user.id]);
   useEffect(() => {
     active.current = !appSuspended;
     if (appSuspended) {
@@ -471,6 +545,9 @@ function EmailPasswordSettings({
   const loadEmailChange = useCallback(async () => {
     const isCurrent = captureSuspension.current();
     const request = ++generation.current;
+    emailReadController.current?.abort();
+    const read = new AbortController();
+    emailReadController.current = read;
     setEmailChange((old) => ({ ...old, error: "" }));
     try {
       const value = await api<EmailChangeResponse>(
@@ -478,23 +555,48 @@ function EmailPasswordSettings({
         undefined,
         "GET",
         {
+          signal: read.signal,
           headers: emailIdentityHeaders,
           validateResponse: isEmailChangeResponse,
         },
       );
-      if (isCurrent() && active.current && request === generation.current)
+      if (
+        isCurrent() &&
+        active.current &&
+        !read.signal.aborted &&
+        request === generation.current
+      )
         setEmailChange({ value, error: "" });
     } catch (cause) {
-      if (isCurrent() && active.current && request === generation.current)
+      if (
+        isCurrent() &&
+        active.current &&
+        !read.signal.aborted &&
+        request === generation.current
+      )
         setEmailChange((old) => ({ ...old, error: errorText(cause) }));
+    } finally {
+      if (emailReadController.current === read)
+        emailReadController.current = null;
     }
   }, [emailIdentityHeaders]);
   useEffect(() => {
-    if (emailDeliveryConfigured && !appSuspended) void loadEmailChange();
+    if (appSuspended || !emailDeliveryConfigured)
+      preparedEmailIdentity.current = null;
+    else if (preparedEmailIdentity.current !== session.user.id)
+      void loadEmailChange();
     return () => {
       generation.current++;
+      emailReadController.current?.abort();
+      emailReadController.current = null;
     };
-  }, [emailDeliveryConfigured, appSuspended, loadEmailChange]);
+  }, [
+    emailDeliveryConfigured,
+    appSuspended,
+    session.user.id,
+    loadEmailChange,
+    preparedEmailChange,
+  ]);
   function updateEmailChange(value: EmailChangeResponse) {
     generation.current++;
     if (active.current) setEmailChange({ value, error: "" });
