@@ -1,4 +1,5 @@
-import { usePageNavigationPending, usePageRead } from "./page-navigation.js";
+import { usePageNavigationPending } from "./page-navigation.js";
+import { useTaskPagePreparation } from "./task-page-preparation.js";
 import { QueryFeedback } from "./query-feedback.js";
 import { AppShellBreadcrumb } from "@avgeek-oss/design-system/layouts/app-shell-breadcrumb";
 import { useMobileNavigation } from "@avgeek-oss/design-system/hooks/app-navigation";
@@ -116,16 +117,10 @@ export function TaskPage({
   onTaskLoaded: (task: Task) => void;
   sessionRevision: number;
 }) {
-  const preparedBoard = usePageRead(
-    `task-board:${boardId}:${sessionRevision}`,
-    (signal) =>
-      api<{ board: Board }>(`/boards/${boardId}`, undefined, "GET", {
-        signal,
-        validateResponse: hasBoardResponse,
-      }),
-  );
+  const prepared = useTaskPagePreparation(boardId, taskId, sessionRevision);
+  const preparedBoard = prepared.board;
   const breadcrumbs = usePageBreadcrumbs();
-  const editor = useTaskEditor(taskId, sessionRevision);
+  const editor = useTaskEditor(taskId, sessionRevision, prepared.task);
   const { task, values } = editor;
   const writable = user.role !== "viewer";
   const [attachmentRevision, setAttachmentRevision] = useState(0);

@@ -125,6 +125,15 @@ function validTask(value: unknown, taskId: string) {
 
 type PreparedTask = PromiseSettledResult<{ task: Task }>;
 
+export function readTaskPreview(taskId: string, signal?: AbortSignal) {
+  return api<{ task: Task }>(
+    `/tasks/${taskId}?commentLimit=0&activityLimit=0`,
+    undefined,
+    "GET",
+    { signal, validateResponse: (value) => validTask(value, taskId) },
+  );
+}
+
 class TaskEditorController {
   private adoptedPrepared?: PreparedTask;
   private cacheGeneration = navigationCache.generation;
@@ -375,14 +384,7 @@ class TaskEditorController {
     this.task = task;
   }
   private fetchTask() {
-    return api<{ task: Task }>(
-      `/tasks/${this.taskId}?commentLimit=0&activityLimit=0`,
-      undefined,
-      "GET",
-      {
-        validateResponse: (value) => validTask(value, this.taskId),
-      },
-    );
+    return readTaskPreview(this.taskId);
   }
   reload = async () => {
     if (!this.active) return;
@@ -696,13 +698,22 @@ class TaskEditorController {
     this.running = work;
     return work;
   }
+  private async settleSaves() {
+    while (this.active) {
+      await this.loadPromise;
+      if (!this.active || this.loading || this.accessDenied || !this.task)
+        return;
+      await this.drain();
+      if (!this.running && !this.queue.size && !this.loadPromise) return;
+    }
+  }
   flushField = async (field: TaskField) => {
     await this.loadPromise;
     if (!this.active) return false;
     const key = this.keyFor(field);
     const unit = this.units.get(key);
     if (unit) this.enqueue(key, unit);
-    await this.drain();
+    await this.settleSaves();
     return (
       this.active &&
       !this.units.has(this.keyFor(field)) &&
@@ -713,7 +724,7 @@ class TaskEditorController {
     await this.loadPromise;
     if (!this.active || !this.task) return false;
     for (const [key, unit] of this.units) this.enqueue(key, unit);
-    await this.drain();
+    await this.settleSaves();
     return (
       this.active &&
       !this.units.size &&
@@ -757,15 +768,16 @@ class TaskEditorController {
   };
 }
 
-export function useTaskEditor(taskId: string, sessionRevision = 0): TaskEditor {
-  const prepared = usePageRead(`task:${taskId}:${sessionRevision}`, (signal) =>
-    api<{ task: Task }>(
-      `/tasks/${taskId}?commentLimit=0&activityLimit=0`,
-      undefined,
-      "GET",
-      { signal, validateResponse: (value) => validTask(value, taskId) },
-    ),
+export function useTaskEditor(
+  taskId: string,
+  sessionRevision = 0,
+  preparedTask?: PreparedTask,
+): TaskEditor {
+  const ownPrepared = usePageRead(
+    preparedTask ? null : `task:${taskId}:${sessionRevision}`,
+    (signal) => readTaskPreview(taskId, signal),
   );
+  const prepared = preparedTask ?? ownPrepared;
   const controller = useMemo(
     () => new TaskEditorController(taskId, prepared),
     [taskId],

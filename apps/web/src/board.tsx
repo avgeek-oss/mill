@@ -1,6 +1,7 @@
 import { usePageRead } from "./page-navigation.js";
 import { readBoardPage } from "./board-page-data.js";
 import { useBoardAccess } from "./use-board-access.js";
+import { publishBoardSearch, useBoardSearch } from "./use-board-search.js";
 import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
 import {
   Suspense,
@@ -113,9 +114,21 @@ export function BoardPage({
 }) {
   const listState = useMemo(() => parseBoardUrl(path), [path]);
   const search = new URL(path, window.location.origin).search;
+  const {
+    query,
+    setQuery,
+    prepare: prepareSearch,
+  } = useBoardSearch({
+    path,
+    urlQuery: listState.q,
+    onSearch: (value) => publishBoardSearch(boardId, value),
+  });
   const prepared = usePageRead(
     `board-list:${boardUrl(boardId, listState)}:${sessionRevision}`,
-    (signal) => readBoardPage(boardId, listState, signal),
+    (signal) => {
+      prepareSearch(path);
+      return readBoardPage(boardId, listState, signal);
+    },
   );
   const preparedError =
     prepared?.status === "rejected" ? prepared.reason : null;
@@ -152,7 +165,6 @@ export function BoardPage({
     preparedError ? errorText(preparedError) : "",
   );
   const [taskListChanged, setTaskListChanged] = useState(false);
-  const [query, setQuery] = useState(q);
   const [creatingTask, setCreatingTask] = useState(false);
   const latestLoad = useRef(0);
   const requestedPage = useRef(listState.page);
@@ -254,12 +266,6 @@ export function BoardPage({
       window.dispatchEvent(new Event("mill:navigate"));
     } else navigate(next);
   }
-  const displayedQuery = useRef(q);
-  useLayoutEffect(() => {
-    const previous = displayedQuery.current;
-    displayedQuery.current = q;
-    setQuery((current) => (current === previous ? q : current));
-  }, [q]);
   useEffect(() => {
     if (
       window.location.pathname +
@@ -274,14 +280,6 @@ export function BoardPage({
       window.dispatchEvent(new Event("mill:navigate"));
     }
   }, [boardId, path]);
-  useEffect(() => {
-    if (query === q) return;
-    const timer = setTimeout(
-      () => changeList({ q: query, page: 1 }, true),
-      250,
-    );
-    return () => clearTimeout(timer);
-  }, [query, q, path]);
   function taskQuery(page?: number, revision?: string) {
     const params = new URLSearchParams({
       limit: String(pageSize),

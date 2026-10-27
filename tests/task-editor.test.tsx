@@ -437,3 +437,82 @@ test("a pre-write GET cannot acknowledge a later edit back to the original value
     delayedSave.resolve(response({ ...task, priority: "urgent", version: 2 })),
   );
 });
+
+for (const method of ["flushAll", "flushField"] as const)
+  for (const succeeds of [true, false])
+    test(`${method} waits for a replacement drain and returns ${succeeds} after it settles`, async () => {
+      await mount();
+      const oldSave = nextWrite();
+      await act(async () => editor.updateField("priority", "urgent"));
+      const prepared = nextRead();
+      await act(async () => revise(1));
+      await act(async () =>
+        prepared.resolve(
+          response({ ...task, title: "Fresh remote title", version: 3 }),
+        ),
+      );
+      let settled = false;
+      let flushing!: Promise<boolean>;
+      await act(async () => {
+        flushing = (
+          method === "flushAll"
+            ? editor.flushAll()
+            : editor.flushField("priority")
+        ).then((result) => {
+          settled = true;
+          return result;
+        });
+      });
+      const replacement = nextWrite();
+      await act(async () =>
+        oldSave.resolve(response({ ...task, priority: "urgent", version: 2 })),
+      );
+      assert.equal(calls.filter((call) => call.method === "PATCH").length, 2);
+      assert.equal(
+        settled,
+        false,
+        "The navigation barrier must keep waiting for the replacement PATCH",
+      );
+      await act(async () => {
+        replacement.resolve(
+          succeeds
+            ? response({
+                ...task,
+                title: "Fresh remote title",
+                priority: "urgent",
+                version: 4,
+              })
+            : Response.json({ error: "Save failed" }, { status: 503 }),
+        );
+        assert.equal(await flushing, succeeds);
+      });
+      assert.equal(settled, true);
+      assert.equal(editor.values?.priority, "urgent");
+      assert.equal(editor.hasUnsavedChanges, !succeeds);
+      if (succeeds) assert.equal(editor.needsFlush(), false);
+      else assert.equal(editor.fields.priority?.status, 503);
+      assert.equal(calls.filter((call) => call.method === "PATCH").length, 2);
+    });
+
+test("stopping the editor releases a waiting flush as false without starting replacement work", async () => {
+  await mount();
+  const oldSave = nextWrite();
+  await act(async () => editor.updateField("priority", "urgent"));
+  const prepared = nextRead();
+  await act(async () => revise(1));
+  await act(async () =>
+    prepared.resolve(
+      response({ ...task, title: "Fresh remote title", version: 3 }),
+    ),
+  );
+  let flushing!: Promise<boolean>;
+  await act(async () => {
+    flushing = editor.flushAll();
+  });
+  await act(async () => root.unmount());
+  await act(async () => {
+    oldSave.resolve(response({ ...task, priority: "urgent", version: 2 }));
+    assert.equal(await flushing, false);
+  });
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 1);
+});
