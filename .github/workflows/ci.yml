@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Only pull request runs are superseded. A cancelled main run leaves the commit without the
+  # latest Required CI result that tools/release-check.mjs demands, so main runs always finish.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   verify:

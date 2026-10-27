@@ -4,9 +4,16 @@ FROM node:24.16.0-alpine@sha256:21f403ab171f2dc89bad4dd69d7721bfd15f084ccb46cdd2
 FROM base AS build
 WORKDIR /build
 RUN npm install --global pnpm@11.5.3
-COPY . .
+# Install from the manifests alone so the dependency layer survives source-only changes.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY apps/web/package.json apps/web/
+COPY apps/web-server/package.json apps/web-server/
+COPY packages/contracts/package.json packages/contracts/
+COPY packages/database/package.json packages/database/
+COPY packages/web-design-system/package.json packages/web-design-system/
 RUN --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
     pnpm install --frozen-lockfile --store-dir /pnpm/store
+COPY . .
 RUN pnpm build
 RUN --mount=type=cache,id=mill-pnpm,target=/pnpm/store,sharing=locked \
     pnpm --filter mill deploy --prod --offline --store-dir /pnpm/store /prod/mill \
