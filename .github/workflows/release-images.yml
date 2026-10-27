@@ -388,6 +388,20 @@ jobs:
         with:
           node-version: 24.16.0
           package-manager-cache: false
+      # The release definition attaches provenance and SBOM attestations, which
+      # make each image an index. The default image store cannot load an index,
+      # so the rehearsal runner switches to the containerd image store before
+      # the builder starts. Release jobs push instead and are not affected.
+      - name: Use the containerd image store
+        run: |
+          set -euo pipefail
+          config=/etc/docker/daemon.json
+          current="$(sudo cat "$config" 2>/dev/null || true)"
+          [ -n "$current" ] || current='{}'
+          jq -n --argjson current "$current" '$current + {features: (($current.features // {}) + {"containerd-snapshotter": true})}' | sudo tee "$config" > /dev/null
+          sudo systemctl restart docker
+          for attempt in {1..30}; do docker info > /dev/null 2>&1 && break; sleep 1; done
+          docker info --format '{{ .DriverStatus }}' | grep -q 'io.containerd.snapshotter'
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           cleanup: false
