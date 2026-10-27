@@ -26,7 +26,7 @@
     "recover-account": "node --env-file=.env --import tsx apps/api/src/auth/recovery-cli.ts",
     "docs:check": "node --import tsx tools/build-api-docs.ts --check && node tools/build-mintlify-docs.mjs --check && node tools/docs-check.mjs",
     "docs:build": "node --import tsx tools/build-api-docs.ts && node tools/build-mintlify-docs.mjs",
-    "docs:dev": "pnpm docs:build && cd docs && npx --yes mint@4.2.970 dev --port 4174",
+    "docs:dev": "pnpm docs:build && cd docs && npx --yes mint@4.2.986 dev --port 4174",
     "docs:screenshots": "node tools/capture-docs-screenshots.mjs",
     "docs:screenshots:check": "node tools/capture-docs-screenshots.mjs --check",
     "test:operations": "node --test tools/*.test.mjs",
