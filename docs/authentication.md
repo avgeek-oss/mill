@@ -100,7 +100,7 @@ When passkeys and their recovery codes have been lost, the operator can explicit
 docker compose --project-name mill --env-file .env exec -T api node dist/apps/api/src/auth/recovery-cli.js --email person@example.com --reset-mfa
 ```
 
-In a contributor checkout, `pnpm recover-account --email person@example.com` uses the development database configuration. Add `--reset-mfa` there only for the same explicit recovery case.
+In a development checkout, `pnpm recover-account --email person@example.com` uses the development database configuration. Add `--reset-mfa` there only for the same explicit recovery case.
 
 The owner follows the link, chooses a new password and signs in again. Completing recovery ends all browser sessions, invalidates pending challenges and recovery links, and revokes the owner's API keys and OAuth connections. `--reset-mfa` also removes passkeys and their recovery codes. Add new passkeys and issue new credentials afterward. Issuing a link alone does not change the account.
 

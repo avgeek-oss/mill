@@ -55,7 +55,7 @@ For Towbar, follow [the installation guide](docs/installation/towbar.md) for cop
 
 ## Develop
 
-The toolchain is Node.js 26 and pnpm 11.5.3. Dependencies are open source and available from npmjs.org; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.
+The toolchain is Node.js 26 and pnpm 11.5.3. Dependencies are open source and available from npmjs.org; there is no dependency on another Avgeek checkout. Follow the [package registry setup](docs/package-registry.md) before installing dependencies.
 
 ```sh
 npm install --global pnpm@11.5.3
@@ -78,7 +78,7 @@ This adds Product, Engineering, Website and an empty Ideas board, 44 tasks acros
 
 The command requires loopback database, API and UI hosts and refuses production mode. It runs in one transaction, preserves existing records and skips previously seeded boards on subsequent runs, including any edits you make to their tasks. Run it explicitly for each new local database; ordinary app startup does not insert sample data.
 
-Run `pnpm test:quick` for fast Node checks of frontend helpers, configuration and date formatting. See [contributing](CONTRIBUTING.md) for the complete `pnpm verify` and `pnpm verify:production` gates and manual UI review. CI requires the `verify` and `production` gates.
+Run `pnpm test:quick` for fast Node checks of frontend helpers, configuration and date formatting. See the [development notes](CONTRIBUTING.md) for the complete `pnpm verify` and `pnpm verify:production` gates and manual UI review. CI requires the `verify` and `production` gates.
 
 Run `pnpm docs:dev` to preview the documentation from the repository's `docs` root.
 
@@ -91,7 +91,7 @@ Read the [Mill website and documentation](https://www.mill.fyi) or use the guide
 - [Personal and team API keys](docs/api-keys.md), [MCP connections](docs/mcp-connections.md), [MCP tool reference](https://www.mill.fyi/mcp-reference/overview), [API reference](https://www.mill.fyi/api-reference/overview), and [access security](docs/authentication.md#external-credential-boundaries)
 - [Operations](docs/operations.md), [backup and recovery](docs/backup.md), and [upgrades](docs/upgrades.md)
 - [Troubleshooting](docs/troubleshooting.md), [security reporting](docs/security.md), and [changelog](https://github.com/avgeek-oss/mill/releases)
-- [Contributing](CONTRIBUTING.md), [security reports](SECURITY.md), and [code of conduct](CODE_OF_CONDUCT.md)
+- [Development notes](CONTRIBUTING.md), [security reports](SECURITY.md), and [code of conduct](CODE_OF_CONDUCT.md). Public contributions are not accepted; feedback and issues are welcome in this repository.
 
 ## License
 

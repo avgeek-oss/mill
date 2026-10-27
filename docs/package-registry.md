@@ -14,7 +14,7 @@ The repository maps the `@avgeek-oss` scope to `https://registry.npmjs.org`. Old
 
 ## Source Docker builds
 
-The default Compose file uses published images. Contributors can build the API and UI from the reviewed checkout with the source overlay:
+The default Compose file uses published images. You can build the API and UI from the reviewed checkout with the source overlay:
 
 ```bash
 docker compose --project-name mill --env-file .env --file docker-compose.yml --file docker-compose.postgres.yml --file tools/compose-source.yml up --build --detach --wait
