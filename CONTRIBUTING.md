@@ -1,4 +1,6 @@
-# Contributing
+# Development notes
+
+Mill does not accept contributions from public sources, to curb automated pull requests and because there are no dedicated resources to review and sign them off. Feedback and issues are welcome in this repository's issue tracker, and we strive to fix reported problems at the earliest. These notes are for the maintainers who develop and release Mill.
 
 Read [AGENTS.md](AGENTS.md) and [the architecture](docs/architecture.md) before changing Mill. The task board is the product. Changes should work for people and connected clients without requiring private packages or another checkout. Source builds use public npm packages and require no registry credentials.
 
@@ -14,7 +16,7 @@ For quick feedback on frontend helpers, configuration and date formatting, run:
 pnpm test:quick
 ```
 
-These selected Node tests do not need a running browser or database. Before submitting a change, run the complete source and production checks:
+These selected Node tests do not need a running browser or database. Before merging a change, run the complete source and production checks:
 
 ```sh
 pnpm verify
@@ -39,8 +41,8 @@ For documentation images after a visible application change, use the optional [m
 
 ## Changes and reviews
 
-Use a development branch and open a pull request with the problem, resulting behavior, and validation performed. Include a screenshot for a visible change and meaningful tests for new permissions, concurrency, persistence, or installation behavior. A test that repeats the implementation is not useful evidence.
+Maintainers work on a development branch and open a pull request with the problem, resulting behavior, and validation performed. Include a screenshot for a visible change and meaningful tests for new permissions, concurrency, persistence, or installation behavior. A test that repeats the implementation is not useful evidence.
 
 Database migrations are ordered SQL files in `packages/database/migrations`. Add a new migration; do not modify one that has been applied in a verified installation. The migration runner locks the migration sequence and checks file hashes. Test fresh installation and upgrade whenever the schema changes.
 
-Report security defects through [SECURITY.md](SECURITY.md), not a public issue. Contributors agree to the [code of conduct](CODE_OF_CONDUCT.md). Contributions are licensed under Apache-2.0.
+Report security defects through [SECURITY.md](SECURITY.md), not a public issue. Issues and discussions follow the [code of conduct](CODE_OF_CONDUCT.md). Mill is licensed under Apache-2.0.
