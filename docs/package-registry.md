@@ -4,7 +4,7 @@ Mill uses public npm packages, including `@avgeek-oss/design-system` and `@avgee
 
 ## Local installation
 
-Use Node.js 24 and pnpm 11.5.3:
+Use Node.js 26 and pnpm 11.5.3:
 
 ```bash
 pnpm install --frozen-lockfile

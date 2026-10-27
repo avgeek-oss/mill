@@ -55,7 +55,7 @@ For Towbar, follow [the installation guide](docs/installation/towbar.md) for cop
 
 ## Develop
 
-The toolchain is Node.js 24 and pnpm 11.5.3. Dependencies are open source and available from npmjs.org; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.
+The toolchain is Node.js 26 and pnpm 11.5.3. Dependencies are open source and available from npmjs.org; there is no dependency on another Avgeek checkout. Follow the [contributor package registry setup](docs/package-registry.md) before installing dependencies.
 
 ```sh
 npm install --global pnpm@11.5.3
