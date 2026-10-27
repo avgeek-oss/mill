@@ -10,5 +10,5 @@ minimumReleaseAgeExclude:
 # Optional peers that no workspace package pins; keep them on patched releases.
 overrides:
   "next@>=16.0.0 <16.4.1": 16.4.3
-  # Node 24 types everywhere, including transitive "*" and peer ranges.
-  "@types/node": 24.19.2
+  # Node 26 types everywhere, including transitive "*" and peer ranges.
+  "@types/node": 26.6.5
