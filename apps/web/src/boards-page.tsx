@@ -74,7 +74,7 @@ export function BoardsPage({
     <div className="grid min-w-0" aria-busy={pending}>
       <PageHeading
         title="Boards"
-        icon={<HugeiconsIcon icon={ClipboardListIcon} size={24} aria-hidden />}
+        icon={<HugeiconsIcon icon={ClipboardListIcon} size={19} aria-hidden />}
         actions={
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <ToggleButtonGroup
