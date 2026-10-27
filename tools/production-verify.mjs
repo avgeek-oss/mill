@@ -50,25 +50,6 @@ if (persistentScannerCache)
     "MILL_VERIFY_SCANNER_CACHE must be an absolute path",
   );
 const scannerCacheMount = `${persistentScannerCache ?? scannerCache}:/root/.cache/trivy`;
-// CI can read (and, where allowed, write) a BuildKit layer cache for the
-// source image build. Unset, the build is uncached as before.
-const buildCacheScope = process.env.MILL_VERIFY_BUILD_CACHE_SCOPE;
-const buildCacheWrite = process.env.MILL_VERIFY_BUILD_CACHE_WRITE === "true";
-if (buildCacheScope) assert.match(buildCacheScope, /^[a-z0-9-]+$/);
-function buildCache(component) {
-  if (!buildCacheScope) return [];
-  const cache = `type=gha,scope=${buildCacheScope}-${component}`;
-  return [
-    "      cache_from:",
-    `        - ${JSON.stringify(cache)}`,
-    ...(buildCacheWrite
-      ? [
-          "      cache_to:",
-          `        - ${JSON.stringify(`${cache},mode=max,ignore-error=true`)}`,
-        ]
-      : []),
-  ];
-}
 const scannerImage =
   "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969";
 const evidence = resolve(root, "tmp", "verification", project);
@@ -229,7 +210,6 @@ async function configuration(
             "    build:",
             "      args:",
             `        SOURCE_COMMIT: ${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
-            ...buildCache("api"),
           ]
         : []),
       "  web:",
@@ -241,7 +221,6 @@ async function configuration(
             "    build:",
             "      args:",
             `        SOURCE_COMMIT: ${sourceRevision}${sourceDirty ? "-dirty" : ""}`,
-            ...buildCache("web"),
           ]
         : []),
       ...(!bundledPostgres

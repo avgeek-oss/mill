@@ -104,24 +104,10 @@ jobs:
           path: ${{ runner.temp }}/trivy-cache/db
           key: trivy-db-${{ runner.os }}-${{ runner.arch }}-${{ steps.scanner-cache.outputs.date }}
           restore-keys: trivy-db-${{ runner.os }}-${{ runner.arch }}-
-      # A BuildKit builder with the Actions cache exposed lets the source
-      # image build read (and on main, write) a layer cache.
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          cleanup: false
-      - name: Expose the Actions cache to BuildKit
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
-        with:
-          script: |
-            for (const name of ["ACTIONS_RUNTIME_TOKEN", "ACTIONS_CACHE_URL", "ACTIONS_RESULTS_URL", "ACTIONS_CACHE_SERVICE_V2"])
-              if (process.env[name]) core.exportVariable(name, process.env[name]);
       - name: Build and exercise a disposable production installation
         env:
           MILL_VERIFY_EXPECT_ARCH: amd64
           MILL_VERIFY_SCANNER_CACHE: ${{ runner.temp }}/trivy-cache
-          MILL_VERIFY_BUILD_CACHE_SCOPE: ci-production
-          # Pull requests only read the cache; main writes it.
-          MILL_VERIFY_BUILD_CACHE_WRITE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           mkdir -p "$MILL_VERIFY_SCANNER_CACHE"
           node tools/production-verify.mjs

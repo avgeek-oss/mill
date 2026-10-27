@@ -25,7 +25,7 @@ Use a disposable PostgreSQL database for `pnpm verify` and provide its `DATABASE
 
 The production runner builds the API and UI images, creates an isolated Compose project, exercises setup and persistence, checks migrations and complete database restore, and rejects HIGH/CRITICAL image vulnerabilities with a pinned Trivy scanner. It removes only its own containers and volumes. CI requires the `verify` and `production` gates for the reviewed revision.
 
-CI sets two optional caches for the production runner. `MILL_VERIFY_SCANNER_CACHE` is an absolute host directory that keeps the scanner's vulnerability database between runs instead of a per-run volume. `MILL_VERIFY_BUILD_CACHE_SCOPE` reads a GitHub Actions layer cache for the image build, and `MILL_VERIFY_BUILD_CACHE_WRITE=true` also writes it; that needs a BuildKit builder and the Actions cache variables, so leave both unset locally.
+CI sets `MILL_VERIFY_SCANNER_CACHE` for the production runner: an absolute host directory that keeps the scanner's vulnerability database between runs instead of a per-run volume that is removed afterwards. Leave it unset locally.
 
 The production runner builds from public npm dependencies without a registry credential. CI preserves the same installation, migration, backup and restore gates. See [package registry setup](docs/package-registry.md#continuous-integration).
 
