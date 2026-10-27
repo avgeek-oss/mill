@@ -3,8 +3,8 @@
   const reloadKey = "mill:entry-reload";
   let recovering = false;
 
-  function entryScript(document) {
-    return document.querySelector('script[type="module"][src]');
+  function entryScript(doc) {
+    return doc.querySelector('script[type="module"][src]');
   }
 
   function showRecovery() {

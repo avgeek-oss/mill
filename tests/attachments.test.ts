@@ -504,7 +504,7 @@ test("completion replay respects a narrowed OAuth board grant", async () => {
   const completed = await callMcpTool(oauth.token, "complete_attachment", args);
   assert.equal(completed.result?.isError, false);
   assert.equal(
-    (completed.result?.structuredContent?.attachment as Attachment).id,
+    (completed.result?.structuredContent?.attachment as Attachment)?.id,
     upload.attachmentId,
   );
   const [saved] = await sql<{ boardIds: string[] }[]>`
@@ -820,7 +820,7 @@ test("REST and MCP grants, viewer role, board limits and revocation apply to att
   });
   assert.equal(listed.result?.isError, false);
   assert.equal(
-    (listed.result?.structuredContent?.items as Attachment[]).length,
+    (listed.result?.structuredContent?.items as Attachment[])?.length,
     1,
   );
   const denied = await callMcpTool(oauth.token, "delete_attachment", {
