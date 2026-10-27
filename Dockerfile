@@ -5,7 +5,7 @@ FROM base AS build
 WORKDIR /build
 RUN npm install --global pnpm@11.5.3
 # Install from the manifests alone so the dependency layer survives source-only changes.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc .pnpmfile.cjs ./
 COPY apps/web/package.json apps/web/
 COPY apps/web-server/package.json apps/web-server/
 COPY packages/contracts/package.json packages/contracts/

@@ -24,6 +24,13 @@ export default ts.config(
   js.configs.recommended,
   ...ts.configs.recommended,
   {
+    files: ["**/*.cjs"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: { module: "writable", require: "readonly" },
+    },
+  },
+  {
     files: ["apps/web/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
