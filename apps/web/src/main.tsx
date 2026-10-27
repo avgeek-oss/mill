@@ -1,7 +1,8 @@
 import { createRoot } from "react-dom/client";
 import { RouterProvider, Toast, Providers } from "@mill/web-design-system";
 import "./styles.css";
-import { App, ErrorBoundary } from "./app.js";
+import { App } from "./app.js";
+import { ErrorBoundary } from "./error-boundary.js";
 import { navigate } from "./api.js";
 import { trackFrontendLoadErrors } from "./frontend-load.js";
 import { FormFeedback } from "./form-feedback.js";

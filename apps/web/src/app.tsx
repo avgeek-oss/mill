@@ -4,7 +4,6 @@ import {
   useBackendReconnect,
 } from "@avgeek-oss/design-system/patterns/feedback/backend-unavailable";
 import {
-  Component,
   Suspense,
   lazy,
   useCallback,
@@ -12,7 +11,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import {
   AppLayout,
@@ -42,7 +40,6 @@ import { OverlaySuspensionScope } from "@avgeek-oss/design-system/overlays/overl
 import type {
   Board,
   BoardSummary,
-  Member,
   Task,
 } from "../../../packages/contracts/src/index.js";
 import {
@@ -62,19 +59,16 @@ import {
   settingsHref,
 } from "./settings-navigation.js";
 import { MillMark, millBrand, millVersion } from "./brand.js";
-import {
-  isFrontendLoadError,
-  reloadOutdatedFrontend,
-} from "./frontend-load.js";
 import { hasBoardResponse, hasBoardSummariesResponse } from "./responses.js";
 import { BoardsPage } from "./boards-page.js";
 import {
   PageNavigation,
   PageReadScope,
   usePageNavigationPending,
-  usePageRead,
 } from "./page-navigation.js";
-import { compareBoardNames, loadBoardSummaries } from "./board-directory.js";
+import { useDirectoryPreparation } from "./directory-preparation.js";
+import { useMemberSnapshot } from "./use-member-snapshot.js";
+import { compareBoardNames } from "./board-directory.js";
 import { loadMemberDirectory } from "./member-directory.js";
 import { navigationCache } from "./navigation-cache.js";
 import { loadTaskPage } from "./task-page-loader.js";
@@ -248,7 +242,6 @@ function AppContent({ location }: { location: string }) {
     Task,
     "id" | "identifier"
   > | null>(null);
-  const [members, setMembers] = useState<Member[]>([]);
   const [notificationCount, setNotificationCount] = useState(0);
   const sidebarState = usePersistentAppSidebar("mill:sidebar-open");
   const [newBoard, setNewBoard] = useState(false);
@@ -274,18 +267,19 @@ function AppContent({ location }: { location: string }) {
   const readScope = session
     ? `${session.user.id}:${session.workspace.id}:${session.user.role}:${sessionRevision}`
     : "anonymous";
-  const directoryRead = usePageRead(
-    ready && session && !expired ? `${readScope}:directory` : null,
-    (signal) => loadBoardSummaries(signal),
-  );
-  const memberRead = usePageRead(
-    ready && session && !expired && activeBoardId
-      ? `${readScope}:members`
-      : null,
-    (signal) => loadMemberDirectory(signal),
-  );
+  const { boards: directoryRead, members: memberRead } =
+    useDirectoryPreparation(
+      readScope,
+      path,
+      !!activeBoardId,
+      ready && !!session && !expired,
+    );
+  const {
+    members: viewMembers,
+    setMembers,
+    beginRefresh: beginMemberRefresh,
+  } = useMemberSnapshot(memberRead);
   const adoptedDirectory = useRef<typeof directoryRead>(undefined);
-  const adoptedMembers = useRef<typeof memberRead>(undefined);
   // Prepared destinations publish shared data only when their render commits.
   useLayoutEffect(() => {
     if (!directoryRead) return;
@@ -298,20 +292,14 @@ function AppContent({ location }: { location: string }) {
     setBoardsPending(false);
   }, [directoryRead]);
   useLayoutEffect(() => {
-    if (!memberRead) return;
-    adoptedMembers.current = memberRead;
-    if (memberRead.status === "fulfilled") setMembers(memberRead.value);
-    else setError(errorText(memberRead.reason));
+    if (memberRead?.status === "rejected")
+      setError(errorText(memberRead.reason));
   }, [memberRead]);
   const viewBoards =
     directoryRead?.status === "fulfilled" &&
     adoptedDirectory.current !== directoryRead
       ? directoryRead.value
       : boards;
-  const viewMembers =
-    memberRead?.status === "fulfilled" && adoptedMembers.current !== memberRead
-      ? memberRead.value
-      : members;
   const rememberLoadedBoard = useCallback((board: Board) => {
     const current = latestLoadedBoard.current;
     if (current?.id === board.id && current.version > board.version) return;
@@ -362,6 +350,7 @@ function AppContent({ location }: { location: string }) {
   );
   async function refresh() {
     const request = ++lastRefreshRequest.current;
+    const publishMembers = beginMemberRefresh();
     setError("");
     try {
       const [me, people, notification] = await Promise.all([
@@ -372,14 +361,14 @@ function AppContent({ location }: { location: string }) {
         api<{ unreadCount: number }>("/notifications?limit=1"),
       ]);
       if (request !== lastRefreshRequest.current) return;
-      if (
+      const identityChanged =
         session?.user.id !== me.user.id ||
         session?.workspace.id !== me.workspace.id ||
-        session?.user.role !== me.user.role
-      )
-        navigationCache.clear();
+        session?.user.role !== me.user.role;
+      if (identityChanged) navigationCache.clear();
       setSession(me);
-      setMembers(people);
+      if (identityChanged) setMembers(people);
+      else publishMembers(people);
       setNotificationCount(notification.unreadCount);
       setError("");
     } catch (e) {
@@ -1275,28 +1264,4 @@ function AppContent({ location }: { location: string }) {
       </OverlaySuspensionScope>
     </>
   );
-}
-export class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { failed: boolean; loadFailed: boolean }
-> {
-  state = { failed: false, loadFailed: false };
-  static getDerivedStateFromError(error: unknown) {
-    return { failed: true, loadFailed: isFrontendLoadError(error) };
-  }
-  componentDidCatch(error: unknown) {
-    if (isFrontendLoadError(error)) void reloadOutdatedFrontend();
-  }
-  render() {
-    if (!this.state.failed) return this.props.children;
-    return this.state.loadFailed ? (
-      <ErrorPage
-        code="Load error"
-        title="Unable to open this page"
-        description="This page could not finish loading. Reload to try again. If you had an unfinished edit, check it before continuing."
-      />
-    ) : (
-      <ErrorPage />
-    );
-  }
 }

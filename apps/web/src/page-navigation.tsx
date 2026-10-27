@@ -20,6 +20,7 @@ type Readiness = {
 type Destination = Readiness & {
   location: string;
   scopes: Map<string, Readiness>;
+  cancellation?: Promise<never>;
 };
 type ReadContext = {
   destination: Destination;
@@ -32,6 +33,7 @@ const abortReads = (readiness: Readiness) => {
   for (const read of readiness.reads.values()) read.controller.abort();
 };
 const abortDestination = (destination: Destination) => {
+  destination.cancellation ??= new Promise<never>(() => {});
   abortReads(destination);
   for (const scope of destination.scopes.values()) abortReads(scope);
 };
@@ -63,9 +65,8 @@ export function PageNavigation({
   }
   const displayed = useDeferredValue(destination);
   useLayoutEffect(() => {
-    if (destination !== displayed || !displayed.committed) return;
     for (const [location, item] of destinations.current) {
-      if (item === displayed) continue;
+      if (item === displayed || item === destination) continue;
       abortDestination(item);
       destinations.current.delete(location);
     }
@@ -114,6 +115,8 @@ function PageContent({
       destinations.delete(location);
     }
   }, [destination, destinations]);
+  // A queued retry of an abandoned destination must not commit its old reads.
+  if (destination.cancellation) throw destination.cancellation;
   return (
     <PageReadiness.Provider
       value={{ destination, readiness: destination, scope: [] }}

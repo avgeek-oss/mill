@@ -336,3 +336,104 @@ test("a failed subsequent preparation cannot reveal a task that was already deni
   assert.equal(editor.accessDenied, false);
   assert.equal(container.querySelector("h1")?.textContent, "Access restored");
 });
+
+test("a prepared GET acknowledges an already-applied PATCH before its delayed response arrives", async () => {
+  await mount();
+  const delayedSave = nextWrite();
+  await act(async () => editor.updateField("priority", "urgent"));
+  const prepared = nextRead();
+  await act(async () => revise(1));
+  const applied = { ...task, priority: "urgent" as const, version: 2 };
+  await act(async () => prepared.resolve(response(applied)));
+  assert.equal(editor.values?.priority, "urgent");
+  assert.equal(editor.hasUnsavedChanges, false);
+  assert.equal(editor.fields.priority?.conflict, undefined);
+  let flushed!: Promise<boolean>;
+  await act(async () => {
+    flushed = editor.flushAll();
+  });
+  await act(async () => {
+    delayedSave.resolve(response(applied));
+    assert.equal(await flushed, true);
+  });
+  assert.equal(editor.needsFlush(), false);
+  assert.equal(editor.fields.priority?.state, "saved");
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 1);
+  assert.equal(calls.filter((call) => call.method === "GET").length, 2);
+});
+
+test("acknowledging an applied PATCH preserves an edit made after it was sent and saves against the new baseline", async () => {
+  await mount();
+  const delayedSave = nextWrite();
+  await act(async () => editor.updateField("priority", "urgent"));
+  await act(async () => editor.updateField("priority", "low"));
+  const prepared = nextRead();
+  await act(async () => revise(1));
+  const applied = { ...task, priority: "urgent" as const, version: 2 };
+  await act(async () => prepared.resolve(response(applied)));
+  assert.equal(editor.task?.priority, "urgent");
+  assert.equal(editor.values?.priority, "low");
+  assert.equal(editor.hasUnsavedChanges, true);
+  const laterSave = nextWrite();
+  await act(async () => delayedSave.resolve(response(applied)));
+  const patches = calls.filter((call) => call.method === "PATCH");
+  assert.equal(patches.length, 2);
+  assert.deepEqual(JSON.parse(patches[1].body!), {
+    version: 2,
+    priority: "low",
+  });
+  let flushed!: Promise<boolean>;
+  await act(async () => {
+    flushed = editor.flushAll();
+  });
+  await act(async () => {
+    laterSave.resolve(response({ ...applied, priority: "low", version: 3 }));
+    assert.equal(await flushed, true);
+  });
+  assert.equal(editor.values?.priority, "low");
+  assert.equal(editor.task?.version, 3);
+  assert.equal(editor.fields.priority?.conflict, undefined);
+  assert.equal(editor.needsFlush(), false);
+});
+
+test("a prepared remote change that differs from the sent PATCH remains a real conflict", async () => {
+  await mount();
+  const delayedSave = nextWrite();
+  await act(async () => editor.updateField("priority", "urgent"));
+  await act(async () => editor.updateField("priority", "low"));
+  const prepared = nextRead();
+  await act(async () => revise(1));
+  await act(async () =>
+    prepared.resolve(response({ ...task, priority: "medium", version: 3 })),
+  );
+  await act(async () =>
+    delayedSave.resolve(response({ ...task, priority: "urgent", version: 2 })),
+  );
+  let flushed = true;
+  await act(async () => {
+    flushed = await editor.flushAll();
+  });
+  assert.equal(flushed, false);
+  assert.equal(editor.fields.priority?.conflict, true);
+  assert.equal(editor.values?.priority, "low");
+  assert.equal(editor.task?.priority, "medium");
+  assert.equal(editor.hasUnsavedChanges, true);
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 1);
+});
+
+test("a pre-write GET cannot acknowledge a later edit back to the original value", async () => {
+  await mount();
+  const delayedSave = nextWrite();
+  await act(async () => editor.updateField("priority", "urgent"));
+  await act(async () => editor.updateField("priority", "high"));
+  const prepared = nextRead();
+  await act(async () => revise(1));
+  await act(async () => prepared.resolve(response(task)));
+  assert.equal(editor.values?.priority, "high");
+  assert.equal(editor.hasUnsavedChanges, true);
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 1);
+  await act(async () => root.unmount());
+  await act(async () =>
+    delayedSave.resolve(response({ ...task, priority: "urgent", version: 2 })),
+  );
+});

@@ -1,5 +1,6 @@
 import { usePageRead } from "./page-navigation.js";
 import { readBoardPage } from "./board-page-data.js";
+import { useBoardAccess } from "./use-board-access.js";
 import { RouteLink as Link } from "@avgeek-oss/design-system/navigation/route-link";
 import {
   Suspense,
@@ -144,11 +145,8 @@ export function BoardPage({
     initialPage?.tasks.total ?? null,
   );
   const [displayedSort, setDisplayedSort] = useState(filters.sort);
-  const [errorStatus, setErrorStatus] = useState(preparedStatus);
-  const [accessDenied, setAccessDenied] = useState(
-    [403, 404].includes(preparedStatus),
-  );
-  const deniedRef = useRef(false);
+  const { errorStatus, accessDenied, failed, authorized, clearError } =
+    useBoardAccess(boardId, preparedStatus);
   const [loading, setLoading] = useState(!prepared);
   const [error, setError] = useState(
     preparedError ? errorText(preparedError) : "",
@@ -347,9 +345,7 @@ export function BoardPage({
         cacheGeneration,
       );
       setBoard(info.board);
-      deniedRef.current = false;
-      setAccessDenied(false);
-      setErrorStatus(0);
+      authorized();
       onBoardLoaded(info.board);
       setTasks(page.items);
       collection.revision = page.revision;
@@ -363,15 +359,8 @@ export function BoardPage({
     } catch (e) {
       if (request === latestLoad.current) {
         const changed = e instanceof ApiError && e.status === 409;
-        if (e instanceof ApiError && [403, 404].includes(e.status)) {
-          navigationCache.forgetBoard(boardId);
-          if (!deniedRef.current)
-            window.dispatchEvent(new Event("mill:route-access-denied"));
-          deniedRef.current = true;
-          setAccessDenied(true);
-        }
+        failed(e);
         setError(errorText(e));
-        setErrorStatus(e instanceof ApiError ? e.status : -1);
         setTaskListChanged(changed);
       }
     } finally {
@@ -401,16 +390,7 @@ export function BoardPage({
     setTaskListChanged(false);
     if (prepared.status === "rejected") {
       setError(errorText(prepared.reason));
-      const status =
-        prepared.reason instanceof ApiError ? prepared.reason.status : -1;
-      setErrorStatus(status);
-      setAccessDenied([403, 404].includes(status));
-      if ([403, 404].includes(status)) {
-        navigationCache.forgetBoard(boardId);
-        if (!deniedRef.current)
-          window.dispatchEvent(new Event("mill:route-access-denied"));
-        deniedRef.current = true;
-      }
+      failed(prepared.reason);
       return;
     }
     const { board: info, tasks: page } = prepared.value;
@@ -428,9 +408,7 @@ export function BoardPage({
     setDisplayedPageSize(pageSize);
     setDisplayedSort(filters.sort);
     setError("");
-    setErrorStatus(0);
-    setAccessDenied(false);
-    deniedRef.current = false;
+    authorized();
     requestedPage.current = page.page;
     pageCollection.current = {
       query: `${boardId}?${taskQuery()}`,
@@ -460,7 +438,7 @@ export function BoardPage({
       requestedPage.current = listState.page;
       setLoading(false);
       setError("");
-      setErrorStatus(0);
+      clearError();
       setTaskListChanged(false);
       return;
     }

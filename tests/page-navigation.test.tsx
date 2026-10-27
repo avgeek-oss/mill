@@ -189,6 +189,57 @@ test("only commits the latest destination and aborts an abandoned read", async (
   assert(!commits.includes(key("board")));
 });
 
+test("aborts a superseded target while its replacement is pending and starts a fresh returning target", async () => {
+  const abandoned = source("board");
+  source("settings");
+  await mount();
+  const before = page();
+  await act(async () => navigate("board"));
+  const oldSignal = signals.get(key("board"))![0];
+  assert.equal(oldSignal.aborted, false);
+  await act(async () => navigate("settings"));
+  assert.equal(oldSignal.aborted, true);
+  const settingsSignal = signals.get(key("settings"))![0];
+  assert.equal(settingsSignal.aborted, false);
+  assert.equal(page(), before);
+  assert.equal(page()?.dataset.pending, "true");
+
+  const returning = source("board");
+  await act(async () => navigate("board"));
+  assert.equal(settingsSignal.aborted, true);
+  assert.equal(signals.get(key("board"))?.length, 2);
+  assert.equal(signals.get(key("board"))![1].aborted, false);
+  assert.equal(page(), before);
+  await act(async () => abandoned.resolve("Ignored abandoned board"));
+  assert.equal(page(), before);
+  assert(!commits.includes(key("board")));
+  await act(async () => returning.resolve("Fresh returning board"));
+  assert.equal(page()?.dataset.page, "board");
+  assert(container.textContent?.includes("Fresh returning board"));
+  assert(!container.textContent?.includes("Ignored abandoned board"));
+});
+
+test("a resolved background read queued before a replacement cannot commit after abandonment", async () => {
+  const abandoned = source("board");
+  source("settings");
+  await mount();
+  const before = page();
+  await act(async () => navigate("board"));
+  await act(async () => {
+    abandoned.resolve("Already queued board");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    navigate("settings");
+  });
+  assert.equal(signals.get(key("board"))![0].aborted, true);
+  assert.equal(page(), before);
+  assert(!commits.includes(key("board")));
+  await act(async () => {});
+  assert.equal(page(), before);
+  assert(!container.textContent?.includes("Already queued board"));
+});
+
 test("returning to the displayed route cancels its pending destination and allows a fresh later visit", async () => {
   const abandoned = source("task");
   await mount();

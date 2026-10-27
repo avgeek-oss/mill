@@ -145,6 +145,12 @@ class TaskEditorController {
   private running: Promise<void> | null = null;
   private loadPromise: Promise<void> | null = null;
   private inFlight: TaskField[] = [];
+  private inFlightAttempt: {
+    unit: SaveUnit;
+    sequence: number;
+    values: EditableTaskValues;
+    version: number;
+  } | null = null;
   private listeners = new Set<() => void>();
   private snapshot: EditorSnapshot = {
     task: null,
@@ -254,8 +260,29 @@ class TaskEditorController {
         );
       }
     } else {
-      if (prepared.status === "fulfilled" && this.task)
+      if (prepared.status === "fulfilled" && this.task) {
         navigationCache.rememberTask(this.task, this.cacheGeneration);
+        const actual = editable(this.task);
+        const attempt = this.inFlightAttempt;
+        for (const [key, unit] of this.units) {
+          if (
+            (attempt?.unit !== unit || this.task.version > attempt.version) &&
+            unit.fields.every((field) =>
+              same(this.values![field], actual[field]),
+            )
+          ) {
+            this.finish(key, unit, unit.sequence, this.task);
+          } else if (
+            attempt?.unit === unit &&
+            this.task.version > attempt.version &&
+            unit.fields.every((field) =>
+              same(attempt.values[field], actual[field]),
+            )
+          ) {
+            this.finish(key, unit, attempt.sequence, this.task);
+          }
+        }
+      }
       for (const [key, unit] of this.units) {
         if (
           !unit.blocked &&
@@ -568,11 +595,13 @@ class TaskEditorController {
       const payload = Object.fromEntries(
         unit.fields.map((field) => [field, sent[field]]),
       );
+      const version = this.task.version;
+      this.inFlightAttempt = { unit, sequence, values: sent, version };
       try {
         const result = await api<{ task: Task }>(
           `/tasks/${this.taskId}`,
           {
-            version: this.task.version,
+            version,
             ...payload,
           },
           "PATCH",
@@ -657,6 +686,7 @@ class TaskEditorController {
         this.publish();
         await this.save(key, unit, generation);
         this.inFlight = [];
+        this.inFlightAttempt = null;
         this.publish();
       }
     })().finally(() => {
