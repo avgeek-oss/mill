@@ -1,17 +1,19 @@
-# Security
+# Security policy
 
-## Report a vulnerability
+## Reporting a vulnerability
 
-Use [GitHub private vulnerability reporting](https://github.com/avgeek-oss/mill/security/advisories/new) when it is enabled for the repository. If the reporting form is unavailable, contact an owner listed in [MAINTAINERS.md](MAINTAINERS.md) through their GitHub profile and request a private reporting channel. Do not post passwords, tokens, account recovery links, backups, or exploit details in an issue.
+Please do not report security vulnerabilities in public issues, discussions or pull requests.
 
-Include the affected version or commit, deployment configuration with secrets removed, reproduction steps, and impact. A disposable test workspace is enough; do not send real customer data. Maintainers will confirm receipt, investigate, and coordinate a fix and disclosure with the reporter.
+Report them privately through GitHub's private vulnerability reporting: open this repository's **Security** tab and choose **Report a vulnerability**. If that is unavailable, email [support@avgeek.ltd](mailto:support@avgeek.ltd) and we will arrange a private channel.
+
+Include the affected version or commit, the steps to reproduce, and the impact. Use test data only: do not include real credentials, personal data or production backups, and do not test against systems you do not own or operate.
+
+We will acknowledge your report, investigate it, and coordinate a fix and its disclosure with you.
 
 ## Supported versions
 
-During v1 review, security fixes target the reviewed development branch. After publication, the latest release is supported. Operators should read upgrade notes and keep tested backups before upgrading.
+Security fixes are released for the latest version. Keep installations and dependencies up to date.
 
-## Operator responsibilities
+## Product guidance
 
-Use HTTPS for every remote installation. Protect `.env` and database backups, restrict access to the Docker host, update the reverse proxy and host, and grant members and client credentials only the access they need. Revoke credentials and sessions when access ends. Backups include account hashes, encrypted authenticators, and tokens; treat them as private account data.
-
-Mill does not execute external code or connect to an LLM provider. Clients call the permissioned API or MCP server. UI visibility is not an authorization boundary; the server checks each request.
+Each project's documentation describes its own security boundaries and operator responsibilities.

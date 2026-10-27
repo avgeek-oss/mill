@@ -1,6 +1,6 @@
 # Code of conduct
 
-Mill welcomes contributors and users of different backgrounds and experience levels. Be considerate, make room for others, and keep technical disagreements focused on the work.
+Mill welcomes users and people who report feedback and issues, of different backgrounds and experience levels. Be considerate, make room for others, and keep technical disagreements focused on the work.
 
 Harassment, threats, discriminatory language, unwanted sexual attention, disclosure of private information, and repeated disruption are not acceptable. This applies to repository issues, pull requests, discussions, and other community spaces managed by the maintainers.
 

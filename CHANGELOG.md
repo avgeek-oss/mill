@@ -36,7 +36,7 @@
 - Use design system 1.2.14 for the shared upload control.
 - Enable private attachment storage in the Towbar production manifests and keep API and UI images on version 1.0.2.
 
-## 1.0.1
+## 1.0.1 (2026-10-10)
 
 - Show the shared backend-unavailable screen during startup outages and retry read-only startup checks automatically. Keep authentication failures separate from backend failures.
 - Use design system 1.2.9 for the recovery screen and keep the brand, readiness response and MCP server version aligned with the release manifest.

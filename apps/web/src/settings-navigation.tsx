@@ -9,7 +9,6 @@ import {
   UserGroupIcon,
 } from "@hugeicons/core-free-icons";
 import { settingsPageLabels } from "@avgeek-oss/design-system";
-import { navigate } from "./api.js";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { SecondaryItems } from "@avgeek-oss/design-system/navigation/secondary-sidebar";
 
@@ -150,9 +149,9 @@ export function SettingsNavigation({ section }: { section: string }) {
           key={group.title}
           title={group.title}
           selected={canonicalSettingsSection(section)}
-          onSelect={(id) => navigate(settingsHref(id))}
           items={group.items.map((item) => ({
             id: item.id,
+            href: settingsHref(item.id),
             label: item.label,
             icon: <HugeiconsIcon aria-hidden icon={item.icon} />,
           }))}

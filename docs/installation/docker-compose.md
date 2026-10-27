@@ -120,4 +120,4 @@ Continue with domain routing and team setup above. Use the same command without 
 
 For immutable image references, use the API and UI image digests published with your chosen release. Replace both Compose `image` values with those digest-pinned references. Keep the pair from the same release and record them with your installation settings.
 
-Read [Upgrades](../upgrades.md) before changing versions. [Troubleshooting](../troubleshooting.md) covers startup, sign-in and connectivity problems; contributors can use the source-build instructions in [Package registry setup](../package-registry.md).
+Read [Upgrades](../upgrades.md) before changing versions. [Troubleshooting](../troubleshooting.md) covers startup, sign-in and connectivity problems; [Package registry setup](../package-registry.md) describes building from source.
