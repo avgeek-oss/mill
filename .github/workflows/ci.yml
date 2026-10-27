@@ -120,8 +120,8 @@ jobs:
           MILL_VERIFY_EXPECT_ARCH: amd64
           MILL_VERIFY_SCANNER_CACHE: ${{ runner.temp }}/trivy-cache
           MILL_VERIFY_BUILD_CACHE_SCOPE: ci-production
-          # Measurement commit: this PR also writes the cache.
-          MILL_VERIFY_BUILD_CACHE_WRITE: "true"
+          # Pull requests only read the cache; main writes it.
+          MILL_VERIFY_BUILD_CACHE_WRITE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         run: |
           mkdir -p "$MILL_VERIFY_SCANNER_CACHE"
           node tools/production-verify.mjs
