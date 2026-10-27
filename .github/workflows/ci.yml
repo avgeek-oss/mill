@@ -18,7 +18,34 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  verify:
+  # The former verify job ran every check in one serial chain. The checks
+  # that need no database run in static, the Node suite runs in test, and
+  # verify keeps its name and meaning (all of them passed) because branch
+  # protection requires that check.
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        env:
+          NODE_ENV: test
+      - run: pnpm docs:check
+      - run: pnpm format:check
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test:operations
+      - run: pnpm audit --prod --audit-level=moderate
+      - run: bash -n tools/backup.sh tools/restore.sh
+
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -43,10 +70,21 @@ jobs:
           node-version: 24.16.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm verify
+      - run: pnpm test
         env:
           NODE_ENV: production
-      - run: bash -n tools/backup.sh tools/restore.sh
+
+  verify:
+    if: always()
+    needs: [static, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the static checks and the test suite to pass
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'for (const [name, job] of Object.entries(JSON.parse(process.env.RESULTS))) { if (job.result !== "success") { console.error(name + ": " + job.result); process.exitCode = 1; } }'
 
   production:
     runs-on: ubuntu-latest

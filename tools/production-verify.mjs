@@ -41,6 +41,8 @@ if (releaseImages)
       `Release verification requires the immutable Mill ${component} GHCR digest`,
     );
 const scannerCache = `${project}-scanner-cache`;
+const scannerImage =
+  "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969";
 const evidence = resolve(root, "tmp", "verification", project);
 const privateDirectory = await mkdtemp(join(tmpdir(), "mill-verify-"));
 const controller = new AbortController();
@@ -57,6 +59,8 @@ const setupSecret = createHmac("sha256", secrets[1])
 secrets.push(setupSecret);
 const results = [];
 const projects = [];
+// Steps can run concurrently, so results.json is rewritten one write at a time.
+let resultsWritten = Promise.resolve();
 await mkdir(evidence, { recursive: true, mode: 0o700 });
 function redact(value) {
   for (const secret of secrets) value = value.replaceAll(secret, "[redacted]");
@@ -109,11 +113,15 @@ async function run(
       exitCode: exitCode ?? null,
       elapsedMs: Date.now() - started,
     });
-    await writeFile(
-      join(evidence, "results.json"),
-      JSON.stringify({ project, images, results }, null, 2),
-      { mode: 0o600 },
+    const written = resultsWritten.then(() =>
+      writeFile(
+        join(evidence, "results.json"),
+        JSON.stringify({ project, images, results }, null, 2),
+        { mode: 0o600 },
+      ),
     );
+    resultsWritten = written.catch(() => {});
+    await written;
   }
 }
 async function port() {
@@ -250,6 +258,7 @@ let secureProxy;
 let secureApiProxy;
 let sourceRevision;
 let sourceDirty;
+let scannerDatabase;
 try {
   sourceRevision = await run("source-revision", "git", ["rev-parse", "HEAD"]);
   sourceDirty = Boolean(
@@ -281,6 +290,33 @@ try {
     "config",
     "--quiet",
   ]);
+  // The first image scan spent most of its time fetching the scanner and its
+  // vulnerability database. Fetch both into the scan cache while the images
+  // are built or pulled; the scans below are unchanged and reuse that cache.
+  scannerDatabase = run(
+    "production-image-security-database",
+    "docker",
+    [
+      "run",
+      "--rm",
+      "--name",
+      `${project}-scanner-database`,
+      "--label",
+      `mill.verification=${project}`,
+      "--cpus",
+      "2",
+      "--memory",
+      "2g",
+      "--volume",
+      `${scannerCache}:/root/.cache/trivy`,
+      scannerImage,
+      "image",
+      "--download-db-only",
+    ],
+    {},
+    600_000,
+  );
+  scannerDatabase.catch(() => {});
   if (releaseImages) {
     for (const [component, image] of Object.entries(images)) {
       await run(
@@ -998,6 +1034,7 @@ try {
     },
     240_000,
   );
+  await scannerDatabase;
   for (const [component, image] of Object.entries(images)) {
     const scan = await run(
       `production-${component}-image-security`,
@@ -1017,7 +1054,7 @@ try {
         "/var/run/docker.sock:/var/run/docker.sock",
         "--volume",
         `${scannerCache}:/root/.cache/trivy`,
-        "aquasec/trivy:0.74.0@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969",
+        scannerImage,
         "image",
         "--scanners",
         "vuln",
@@ -1101,6 +1138,7 @@ try {
     ).catch(() => {});
   }
 } finally {
+  await scannerDatabase?.catch(() => {});
   if (secureApiProxy?.listening) {
     secureApiProxy.closeAllConnections();
     await new Promise((resolveClose) => secureApiProxy.close(resolveClose));
@@ -1163,7 +1201,7 @@ try {
     await run(
       "cleanup-scanner",
       "docker",
-      ["container", "rm", "--force", scannerId],
+      ["container", "rm", "--force", ...scannerId.split(/\s+/)],
       {},
       30_000,
       true,

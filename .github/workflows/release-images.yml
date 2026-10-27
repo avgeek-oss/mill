@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      checks: read
     outputs:
       commit: ${{ steps.release.outputs.commit }}
       created: ${{ steps.release.outputs.created }}
@@ -59,22 +60,11 @@ jobs:
             echo "tag=$RELEASE_TAG"
             echo "version=$version"
           } >> "$GITHUB_OUTPUT"
-
-  verify:
-    needs: prepare
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      checks: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
       - name: Require the latest exact-commit CI result
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
         run: |
           set -euo pipefail
           for attempt in {1..12}; do
@@ -87,7 +77,7 @@ jobs:
           done
 
   build:
-    needs: [prepare, verify]
+    needs: prepare
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 35
     permissions:
@@ -97,17 +87,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - component: api
-            architecture: amd64
+          - architecture: amd64
             runner: ubuntu-24.04
-          - component: api
-            architecture: arm64
-            runner: ubuntu-24.04-arm
-          - component: web
-            architecture: amd64
-            runner: ubuntu-24.04
-          - component: web
-            architecture: arm64
+          - architecture: arm64
             runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -122,40 +104,56 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - id: build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      # Both images share the Dockerfile build stage. One bake invocation
+      # builds that stage once and the api and web targets concurrently on the
+      # same builder, with the same arguments, labels and attestations the
+      # per-image build-push-action steps used.
+      - name: Build and push both platform images by digest
         env:
-          # The build record artifact and job summary cost time per job and hold nothing the release needs.
-          DOCKER_BUILD_RECORD_UPLOAD: false
-          DOCKER_BUILD_SUMMARY: false
-        with:
-          context: .
-          target: ${{ matrix.component }}
-          platforms: linux/${{ matrix.architecture }}
-          outputs: type=image,name=ghcr.io/avgeek-oss/mill-${{ matrix.component }},push-by-digest=true,name-canonical=true,push=true
-          provenance: mode=max
-          sbom: true
-          # mode=min exports only the final layers; mode=max exported every stage for 107 s per job with no hits to show for it.
-          build-args: |
-            SOURCE_COMMIT=${{ needs.prepare.outputs.commit }}
-            RELEASE_VERSION=${{ needs.prepare.outputs.version }}
-          labels: |
-            org.opencontainers.image.created=${{ needs.prepare.outputs.created }}
-            org.opencontainers.image.revision=${{ needs.prepare.outputs.commit }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
-      - name: Record immutable platform digest
-        env:
-          DIGEST: ${{ steps.build.outputs.digest }}
+          ARCHITECTURE: ${{ matrix.architecture }}
+          SOURCE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+          CREATED: ${{ needs.prepare.outputs.created }}
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}
+          BUILDER_ID: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          mkdir -p digests
-          touch "digests/${DIGEST#sha256:}"
+          definition="$RUNNER_TEMP/release.bake.json"
+          jq -n '
+            def image($component): {
+              context: ".",
+              dockerfile: "Dockerfile",
+              target: $component,
+              platforms: ["linux/\(env.ARCHITECTURE)"],
+              args: {SOURCE_COMMIT: env.SOURCE_COMMIT, RELEASE_VERSION: env.RELEASE_VERSION},
+              labels: {
+                "org.opencontainers.image.created": env.CREATED,
+                "org.opencontainers.image.revision": env.SOURCE_COMMIT,
+                "org.opencontainers.image.source": env.SOURCE_URL,
+                "org.opencontainers.image.version": env.RELEASE_VERSION
+              },
+              attest: ["type=provenance,mode=max,builder-id=\(env.BUILDER_ID)", "type=sbom"],
+              output: ["type=image,name=ghcr.io/avgeek-oss/mill-\($component),push-by-digest=true,name-canonical=true,push=true"]
+            };
+            {group: {default: {targets: ["api", "web"]}}, target: {api: image("api"), web: image("web")}}
+          ' > "$definition"
+          docker buildx bake --file "$definition" --metadata-file "$RUNNER_TEMP/release.metadata.json" --progress plain
+          for component in api web; do
+            digest="$(jq -r --arg component "$component" '.[$component]["containerimage.digest"]' "$RUNNER_TEMP/release.metadata.json")"
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            mkdir -p "digests/$component"
+            touch "digests/$component/${digest#sha256:}"
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: digest-${{ matrix.component }}-${{ matrix.architecture }}
-          path: digests/*
+          name: digest-api-${{ matrix.architecture }}
+          path: digests/api/*
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-web-${{ matrix.architecture }}
+          path: digests/web/*
           if-no-files-found: error
           retention-days: 14
 
@@ -240,9 +238,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # amd64 is not repeated here: prepare requires the latest Required CI
+        # result for this exact commit to be a success, and that includes the
+        # production job, which runs this same installation gate natively on
+        # amd64. The manifest job still pulls the amd64 registry images and
+        # checks their platform, revision, version and source labels.
         include:
-          - architecture: amd64
-            runner: ubuntu-24.04
           - architecture: arm64
             runner: ubuntu-24.04-arm
     steps:
