@@ -864,7 +864,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
         201,
       );
       const authorization = await fetch(
-        `${origin}/oauth/authorize?${new URLSearchParams({ client_id: client.client_id, redirect_uri: redirect, resource, response_type: "code", scope: "read write", state: oauthState, code_challenge_method: "S256", code_challenge: createHash("sha256").update(verifier).digest("base64url") })}`,
+        `${origin}/oauth/authorize?${new URLSearchParams({ client_id: client.client_id, redirect_uri: redirect, resource, response_type: "code", scope: "viewer member", state: oauthState, code_challenge_method: "S256", code_challenge: createHash("sha256").update(verifier).digest("base64url") })}`,
         { redirect: "manual", signal: AbortSignal.timeout(15000) },
       );
       assert.equal(authorization.status, 302);
@@ -880,7 +880,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
       assert.equal("requiresAgent" in details, false);
       assert.equal("agents" in details, false);
       assert.equal(details.clientName, "Installation OAuth client");
-      assert.equal(details.scope, "read write");
+      assert.equal(details.scope, "viewer member");
       assert.equal(details.canApprove, true);
       assert.ok(
         (await request("/api/boards?limit=100")).items.some(
@@ -966,7 +966,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
       );
       assert.equal(metadata?.tokenType, "oauth");
       assert.equal(metadata?.boardIds, null);
-      assert.deepEqual(metadata?.scopes, ["read", "write"]);
+      assert.deepEqual(metadata?.scopes, ["viewer", "member"]);
       assert.equal("agentId" in metadata, false);
       assert.equal("agentName" in metadata, false);
       mcpToken = issued.access_token;
@@ -1138,7 +1138,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
         redirect_uri: readonlyRedirect,
         resource: `${origin}/mcp`,
         response_type: "code",
-        scope: "read",
+        scope: "viewer",
         state: "readonly-install",
         code_challenge_method: "S256",
         code_challenge: createHash("sha256")
@@ -1174,7 +1174,7 @@ if (process.env.MILL_VERIFY_MODE === "fresh") {
     const readonlyMetadata = (await request("/api/credentials")).items.find(
       (item) => item.oauthClientId === readonlyClient.client_id,
     );
-    assert.deepEqual(readonlyMetadata.scopes, ["read"]);
+    assert.deepEqual(readonlyMetadata.scopes, ["viewer"]);
     const readonlyTransport = { id: 0, protocolVersion: undefined };
     try {
       const initializedReadonly = await mcpRequest(

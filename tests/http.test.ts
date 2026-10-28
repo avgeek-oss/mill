@@ -98,7 +98,7 @@ test("successful empty DELETE responses replay as 204 with an empty body", async
       name: user.name,
       role: "admin",
       kind: "human",
-      scopes: ["read", "write"],
+      scopes: ["viewer", "member"],
     });
     await next();
   });

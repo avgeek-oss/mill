@@ -3118,7 +3118,7 @@
       "get": {
         "operationId": "get_well_known_oauth_authorization_server",
         "summary": "OAuth authorization-server metadata",
-        "description": "Advertises authorization, token, registration, revocation, S256 PKCE and user-selected read/write/admin capabilities.\n\nNo signed-in session is required. Endpoint-specific tokens, setup secrets or challenges may still be required.",
+        "description": "Advertises authorization, token, registration, revocation, S256 PKCE and viewer/member/admin OAuth scopes.\n\nNo signed-in session is required. Endpoint-specific tokens, setup secrets or challenges may still be required.",
         "tags": ["OAuth and MCP transport"],
         "security": [],
         "responses": {
@@ -3191,7 +3191,7 @@
                 "example": {
                   "resource": "https://mill-api.example.test/mcp",
                   "authorization_servers": ["https://mill-api.example.test"],
-                  "scopes_supported": ["read", "write", "admin"],
+                  "scopes_supported": ["viewer", "member", "admin"],
                   "bearer_methods_supported": ["header"],
                   "resource_name": "Mill MCP"
                 }
@@ -3245,7 +3245,7 @@
                 "example": {
                   "resource": "https://mill-api.example.test/mcp",
                   "authorization_servers": ["https://mill-api.example.test"],
-                  "scopes_supported": ["read", "write", "admin"],
+                  "scopes_supported": ["viewer", "member", "admin"],
                   "bearer_methods_supported": ["header"],
                   "resource_name": "Mill MCP"
                 }
@@ -3510,7 +3510,7 @@
                   "clientId": "example-client-id",
                   "clientTrust": "unverified",
                   "redirectUri": "https://client.example.test/callback",
-                  "scope": "read",
+                  "scope": "viewer",
                   "expiresIn": 2592000,
                   "user": { "name": "Alex Morgan", "role": "member" },
                   "availableAccessLevels": ["read", "write"],
@@ -3678,7 +3678,7 @@
                   "access_token": "example-private-oauth-token",
                   "token_type": "Bearer",
                   "expires_in": 2592000,
-                  "scope": "read"
+                  "scope": "viewer"
                 }
               }
             }

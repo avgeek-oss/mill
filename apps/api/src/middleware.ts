@@ -441,7 +441,7 @@ async function currentAuthority(c: Context<Env>) {
     current.kind === "oauth" &&
     c.req.method === "PATCH" &&
     c.req.path === "/api/notifications" &&
-    !current.scopes.includes("write")
+    !current.scopes.includes("member")
   )
     throw new HTTPException(403, {
       message: "This credential does not permit notification changes",

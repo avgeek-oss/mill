@@ -15,7 +15,7 @@ const { digest, secret } = await import("../apps/api/src/external/protocol.js");
 beforeEach(resetDatabase);
 after(cleanupDatabase);
 
-async function fixture(scopes: string[] = ["read", "write"]) {
+async function fixture(scopes: string[] = ["viewer", "member"]) {
   const { cookie, user } = await setupUser();
   const first = await (
     await request("/api/boards", {
@@ -30,7 +30,7 @@ async function fixture(scopes: string[] = ["read", "write"]) {
     })
   ).json();
   const oauth = await setupOAuth(cookie, {
-    scopes: scopes as ("read" | "write")[],
+    scopes: scopes as ("viewer" | "member")[],
     boardIds: [second.board.id],
   });
   const created = await request("/api/credentials", {
@@ -236,7 +236,7 @@ test("OAuth tokens must match the canonical MCP resource and cannot call REST di
   const restUrl = new URL("/api/boards", baseUrl);
   const token = `mill_${secret()}`;
   const [credential] =
-    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,resource,expires_at) VALUES(${user.id},'Wrong audience',${digest(token)},${token.slice(0, 12)},${["read"]},'oauth','https://old.example.test/mcp',now()+interval '1 day') RETURNING id`;
+    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,resource,expires_at) VALUES(${user.id},'Wrong audience',${digest(token)},${token.slice(0, 12)},${["viewer"]},'oauth','https://old.example.test/mcp',now()+interval '1 day') RETURNING id`;
   const { credentialActor } =
     await import("../apps/api/src/external/credentials.js");
   const headers = { authorization: `Bearer ${token}` };
@@ -267,7 +267,7 @@ test("idempotency remains atomic when a late response failure follows a domain m
       name: user.name,
       role: "admin",
       kind: "human",
-      scopes: ["read", "write"],
+      scopes: ["viewer", "member"],
     });
     await next();
   });
@@ -582,7 +582,7 @@ test("retrying credential creation returns the same secret while encrypting stor
 });
 
 test("MCP can read a task with a valid long description and a long discussion", async () => {
-  const { cookie, user, token, allowedBoard } = await fixture(["read"]);
+  const { cookie, user, token, allowedBoard } = await fixture(["viewer"]);
   const createdResponse = await request(
     `/api/boards/${allowedBoard.id}/tasks`,
     {

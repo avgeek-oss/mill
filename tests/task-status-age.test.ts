@@ -104,7 +104,7 @@ test("default pages exclude only terminal tasks older than 24 hours; explicit st
     201,
   );
   const oauth = await setupOAuth(cookie, {
-    scopes: ["read"],
+    scopes: ["viewer"],
     boardIds: [board.id],
   });
   const rest = await json(

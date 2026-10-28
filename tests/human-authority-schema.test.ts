@@ -30,7 +30,7 @@ test("disabling a human clears responsibility and retries and revokes human OAut
   const task = await insertTask(board.id, admin.id, member.id);
   await sql`INSERT INTO api_idempotency(actor_key,key,request_hash,response,status,task_ids) VALUES('other-user','disabled-assignee','hash','{}',201,ARRAY[${task.id}::uuid])`;
   const [credential] =
-    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at) VALUES(${member.id},'Approved connection','hash','prefix',ARRAY['read'],'oauth',ARRAY[${board.id}::uuid],now()+interval '1 day') RETURNING id`;
+    await sql`INSERT INTO credentials(user_id,name,token_hash,token_prefix,scopes,token_type,board_ids,expires_at) VALUES(${member.id},'Approved connection','hash','prefix',ARRAY['viewer'],'oauth',ARRAY[${board.id}::uuid],now()+interval '1 day') RETURNING id`;
   await sql`UPDATE users SET disabled_at=now() WHERE id=${member.id}`;
   const [cleared] =
     await sql`SELECT assignee_id,version FROM tasks WHERE id=${task.id}`;

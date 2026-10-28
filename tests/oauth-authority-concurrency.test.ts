@@ -326,7 +326,7 @@ for (const operation of ["create_task", "update_task"] as const) {
     try {
       narrowed = sql.begin(async (tx) => {
         await tx`SELECT id FROM workspace FOR UPDATE`;
-        await tx`UPDATE credentials SET scopes=ARRAY['read'] WHERE id=${oauth.credential.id}`;
+        await tx`UPDATE credentials SET scopes=ARRAY['viewer'] WHERE id=${oauth.credential.id}`;
       });
       await waitForBlocked(gate.pid, 1);
       pending = callMcpTool(oauth.token, operation, args);
@@ -434,7 +434,7 @@ for (const changedAccess of ["scope", "boards"] as const) {
       changed = sql.begin(async (tx) => {
         await tx`SELECT id FROM workspace FOR UPDATE`;
         if (changedAccess === "scope")
-          await tx`UPDATE credentials SET scopes=ARRAY['read'] WHERE id=${oauth.credential.id}`;
+          await tx`UPDATE credentials SET scopes=ARRAY['viewer'] WHERE id=${oauth.credential.id}`;
         else
           await tx`UPDATE credentials SET board_ids=ARRAY[${first.id}::uuid] WHERE id=${oauth.credential.id}`;
       });

@@ -240,6 +240,6 @@ export async function sessionActor(request: Request): Promise<Actor | null> {
     name: user.name,
     role: user.role,
     kind: "human",
-    scopes: ["read", "write"],
+    scopes: ["viewer", "member"],
   };
 }

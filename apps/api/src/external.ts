@@ -26,7 +26,7 @@ import {
   uniqueParameters,
 } from "./external/protocol.js";
 import { serveMcp } from "./external/mcp.js";
-import { supportedScopes } from "./external/access.js";
+import { consentAccessLevels, supportedScopes } from "./external/access.js";
 import { recentSession } from "./auth/model.js";
 import { appOrigin } from "./auth/security.js";
 export { credentialActor } from "./external/credentials.js";
@@ -221,7 +221,7 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
   const parsed = z
     .object({
       allow: z.boolean(),
-      accessLevel: z.enum(supportedScopes).optional(),
+      accessLevel: z.enum(consentAccessLevels).optional(),
     })
     .strict()
     .safeParse(await c.req.json());

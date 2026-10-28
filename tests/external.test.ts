@@ -124,7 +124,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
           (
             await request("/api/credentials", {
               token: write.token,
-              body: { name: "Escalate", scopes: ["read", "write"] },
+              body: { name: "Escalate", scopes: ["viewer", "member"] },
             })
           ).status,
           403,
@@ -135,7 +135,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
               cookie,
               body: {
                 name: "Invalid boards",
-                scopes: ["read"],
+                scopes: ["viewer"],
                 boardIds: [randomUUID()],
               },
             })
@@ -148,7 +148,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
               cookie,
               body: {
                 name: "Unbounded",
-                scopes: ["read"],
+                scopes: ["viewer"],
                 expiresInDays: 366,
               },
             })
@@ -227,11 +227,11 @@ test("External credentials and actual MCP task workflows enforce current permiss
         const previous = process.env.MILL_API_URL;
         process.env.MILL_API_URL = `http://127.0.0.1:${address.port}`;
         const write = await setupOAuth(cookie, {
-          scopes: ["read", "write"],
+          scopes: ["viewer", "member"],
           boardIds: [first.board.id],
         });
         const read = await setupOAuth(cookie, {
-          scopes: ["read"],
+          scopes: ["viewer"],
           boardIds: [first.board.id],
         });
         const client = new Client({
@@ -889,7 +889,7 @@ test("External credentials and actual MCP task workflows enforce current permiss
               cookie,
               body: {
                 name: "Cannot choose scopes",
-                scopes: ["read", "write"],
+                scopes: ["viewer", "member"],
               },
             })
           ).status,

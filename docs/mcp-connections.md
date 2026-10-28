@@ -10,6 +10,8 @@ Open **Account Settings → MCP Guide** and choose your client: Codex, Claude Co
 
 Start the connection in your client. It opens Mill's consent page. Sign in, check the application name, then choose Read-only, Write, or Administrator access. Mill offers only levels allowed by your current role. Client-requested scopes do not choose your grant. A dynamically registered client name is unverified; an HTTPS metadata document describes a client but does not verify who started the request. Approve only a connection you started.
 
+OAuth clients request `viewer`, `member`, or `admin` scopes. Read-only approval grants `viewer`; Write grants `viewer member`; Administrator grants `viewer member admin`. Existing connections retain their approved level and board limits after the scope-name migration.
+
 Choose Administrator on Mill's consent screen if you need administrative access and your Mill role permits it. Mill currently has no admin-only MCP tools, so this grant does not add tools to the catalog. Ordinary task and board tools follow the connection owner's current role and board access.
 
 New connections use your current role and board access. A Viewer can grant Read-only access; Members can also grant Write, and Administrators can also grant Administrator. Choose **Approve** to finish the connection or **Deny** to refuse it. **Back to the client** also denies the request and returns through its callback. If Mill asks you to confirm your identity again, complete that step before approving. Any role change revokes your existing OAuth connections, including a promotion, so reconnect and choose access again.

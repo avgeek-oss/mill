@@ -159,7 +159,7 @@ test("OAuth consent is tied directly to the signed-in human and rejects retired 
       redirect_uri: redirect,
       resource: `${process.env.MILL_API_URL}/mcp`,
       response_type: "code",
-      scope: "read write",
+      scope: "viewer member",
       code_challenge_method: "S256",
       code_challenge: digest(secret()),
     })}`,

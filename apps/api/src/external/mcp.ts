@@ -29,8 +29,8 @@ export async function serveMcp(c: Context<Env>) {
   const allowed = tools.filter(
     (tool) =>
       (tool.readOnly
-        ? principal.scopes.includes("read")
-        : principal.role !== "viewer" && principal.scopes.includes("write")) &&
+        ? principal.scopes.includes("viewer")
+        : principal.role !== "viewer" && principal.scopes.includes("member")) &&
       (!tool.workspaceWide || !principal.boardIds) &&
       (!tool.admin || (principal.role === "admin" && principal.includeAdmin)),
   );

@@ -685,7 +685,7 @@ supplementalEndpoints.push(
     "OAuth authorization-server metadata",
     "OAuth and MCP transport",
     "public",
-    "Advertises authorization, token, registration, revocation, S256 PKCE and user-selected read/write/admin capabilities.",
+    "Advertises authorization, token, registration, revocation, S256 PKCE and viewer/member/admin OAuth scopes.",
     {
       result: {
         issuer: "https://mill-api.example.test",
@@ -711,7 +711,7 @@ supplementalEndpoints.push(
         result: {
           resource: "https://mill-api.example.test/mcp",
           authorization_servers: ["https://mill-api.example.test"],
-          scopes_supported: ["read", "write", "admin"],
+          scopes_supported: ["viewer", "member", "admin"],
           bearer_methods_supported: ["header"],
           resource_name: "Mill MCP",
         },
@@ -770,7 +770,7 @@ supplementalEndpoints.push(
         clientId: "example-client-id",
         clientTrust: "unverified",
         redirectUri: "https://client.example.test/callback",
-        scope: "read",
+        scope: "viewer",
         expiresIn: tokenLifetimeSeconds,
         user: { name: "Alex Morgan", role: "member" },
         availableAccessLevels: ["read", "write"],
@@ -818,7 +818,7 @@ supplementalEndpoints.push(
         access_token: "example-private-oauth-token",
         token_type: "Bearer",
         expires_in: tokenLifetimeSeconds,
-        scope: "read",
+        scope: "viewer",
       },
     },
   ),

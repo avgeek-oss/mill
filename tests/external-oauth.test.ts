@@ -61,7 +61,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         client_id: client.client_id,
         redirect_uri: redirect,
         resource: resource(),
-        scope: "read",
+        scope: "viewer",
         state: secret(),
         code_challenge: digest(verifier),
         code_challenge_method: "S256",
@@ -86,7 +86,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
     extra: Record<string, string> = {},
     accessLevel: "read" | "write" | "admin" = extra.scope?.includes("admin")
       ? "admin"
-      : extra.scope?.includes("write")
+      : extra.scope?.includes("member")
         ? "write"
         : "read",
   ) => {
@@ -159,8 +159,8 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           "authorization_code",
         ]);
         assert.deepEqual(discovery.scopes_supported, [
-          "read",
-          "write",
+          "viewer",
+          "member",
           "admin",
         ]);
         assert.equal(discovery.client_id_metadata_document_supported, true);
@@ -411,6 +411,8 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         for (const extra of [
           { redirect_uri: "https://attacker.example/cb" },
           { resource: "https://other.example/mcp" },
+          { scope: "read" },
+          { scope: "write" },
           { scope: "superuser" },
           { code_challenge_method: "plain" },
           { code_challenge: "short" },
@@ -620,10 +622,10 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
     await t.test(
       "current membership caps consent/exchange; expiring and disabled tokens stop immediately",
       async () => {
-        const pending = await consent({ scope: "read write" });
+        const pending = await consent({ scope: "viewer member" });
         await sql`UPDATE users SET role='viewer' WHERE id=${user.id}`;
         assert.equal((await token(pending)).status, 400);
-        const begun = await start({ scope: "read write" });
+        const begun = await start({ scope: "viewer member" });
         assert.equal(
           (
             await request(`/api/oauth/consent/${begun.id}`, {
@@ -663,8 +665,8 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
     await t.test(
       "administrative consent is explicit and loses authority after demotion",
       async () => {
-        const normal = await issue({ scope: "read write" });
-        assert.equal(normal.scope, "read write");
+        const normal = await issue({ scope: "viewer member" });
+        assert.equal(normal.scope, "viewer member");
         assert.equal(
           (
             await credentialActor(
@@ -676,7 +678,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           false,
         );
         const granted = await issue({ scope: "admin" });
-        assert.equal(granted.scope, "read write admin");
+        assert.equal(granted.scope, "viewer member admin");
         const created = await ok<{ board: { id: string; version: number } }>(
           await request("/api/boards", {
             cookie,
@@ -714,7 +716,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         assert.equal(
           (
             await request(
-              `/api/oauth/consent/${(await start({ scope: "read write" })).id}`,
+              `/api/oauth/consent/${(await start({ scope: "viewer member" })).id}`,
               {
                 cookie,
                 body: { allow: true, accessLevel: "write" },
@@ -734,15 +736,15 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         const readToken = await ok<{ access_token: string; scope: string }>(
           await token(limited),
         );
-        assert.equal(readToken.scope, "read");
-        const expanded = await consent({ scope: "read" }, "admin");
+        assert.equal(readToken.scope, "viewer");
+        const expanded = await consent({ scope: "viewer" }, "admin");
         const adminToken = await ok<{ access_token: string; scope: string }>(
           await token(expanded),
         );
-        assert.equal(adminToken.scope, "read write admin");
+        assert.equal(adminToken.scope, "viewer member admin");
 
         await sql`UPDATE users SET role='member' WHERE id=${user.id}`;
-        const pending = await consent({ scope: "read" }, "read");
+        const pending = await consent({ scope: "viewer" }, "read");
         const reviewed = await start();
         await ok(
           await request(`/api/oauth/consent/${reviewed.id}`, { cookie }),
@@ -787,7 +789,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
             body: { name: "OAuth second board", prefix: "SECOND" },
           }),
         );
-        const rejected = await start({ scope: "read write" });
+        const rejected = await start({ scope: "viewer member" });
         const restrictedDecision = await request(
           `/api/oauth/consent/${rejected.id}`,
           {
@@ -800,7 +802,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           },
         );
         assert.equal(restrictedDecision.status, 400);
-        const grant = await consent({ scope: "read write" });
+        const grant = await consent({ scope: "viewer member" });
         const [pending] = await sql<
           { boardIds: string[] | null }[]
         >`SELECT board_ids FROM oauth_requests WHERE id=${grant.id}`;
@@ -813,7 +815,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
         );
         assert(principal);
         assert.equal(principal.boardIds, undefined);
-        assert.deepEqual(principal.scopes, ["read", "write"]);
+        assert.deepEqual(principal.scopes, ["viewer", "member"]);
         const readAs = (accessToken: string, boardId: string) =>
           mcpDispatchTokens.run(digest(accessToken), () =>
             request(`/api/boards/${boardId}`, { token: accessToken }),
@@ -822,7 +824,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
           (await readAs(issued.access_token, second.board.id)).status,
           200,
         );
-        const legacyGrant = await consent({ scope: "read write" });
+        const legacyGrant = await consent({ scope: "viewer member" });
         await sql`UPDATE oauth_requests SET board_ids=ARRAY[${first.board.id}::uuid] WHERE id=${legacyGrant.id}`;
         const legacy = await ok<{ access_token: string }>(
           await token(legacyGrant),
@@ -872,7 +874,7 @@ test("OAuth discovery, SDK flow, grant attacks and token lifecycle", async (t) =
             token_endpoint_auth_method: "none",
             grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],
-            scope: "read write",
+            scope: "viewer member",
           },
           clientInformation: () => information,
           saveClientInformation: (value) => {

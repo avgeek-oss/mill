@@ -103,6 +103,16 @@ const acceptanceCriteriaSource = await readFile(
 const acceptanceCriteriaChecksum = createHash("sha256")
   .update(acceptanceCriteriaSource)
   .digest("hex");
+const roleScopesSource = await readFile(
+  new URL(
+    "../packages/database/migrations/009_role_named_oauth_scopes.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const roleScopesChecksum = createHash("sha256")
+  .update(roleScopesSource)
+  .digest("hex");
 const previousBaseline = baseline
   .replace(
     "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
@@ -297,13 +307,13 @@ test("prelaunch conversion accepts the real historical retry-column order, prese
       (
         await sql`SELECT board_ids,scopes FROM credentials WHERE id=${personalCredential}`
       )[0],
-      { board_ids: null, scopes: ["read"] },
+      { board_ids: null, scopes: ["viewer"] },
     );
     assert.deepEqual(
       (
         await sql`SELECT board_ids,scopes FROM credentials WHERE id=${teamCredential}`
       )[0],
-      { board_ids: [ids.board], scopes: ["read"] },
+      { board_ids: [ids.board], scopes: ["viewer"] },
     );
     assert.ok(
       (
@@ -709,9 +719,12 @@ for (const source of [
               .map((key) => [key, row[key]]),
           ),
         ),
-        credentials.map(
-          ({ revoked_at: _revokedAt, ...credential }) => credential,
-        ),
+        credentials.map(({ revoked_at: _revokedAt, ...credential }) => ({
+          ...credential,
+          scopes: credential.scopes.map((scope: string) =>
+            scope === "read" ? "viewer" : scope === "write" ? "member" : scope,
+          ),
+        })),
       );
       assert.ok(
         (
@@ -775,6 +788,10 @@ for (const source of [
           {
             name: "008_task_acceptance_criteria.sql",
             checksum: acceptanceCriteriaChecksum,
+          },
+          {
+            name: "009_role_named_oauth_scopes.sql",
+            checksum: roleScopesChecksum,
           },
         ],
       );

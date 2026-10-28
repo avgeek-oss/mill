@@ -1,24 +1,37 @@
 import type { Role } from "../../../../packages/contracts/src/index.js";
 
-export const supportedScopes = ["read", "write", "admin"] as const;
+export const supportedScopes = ["viewer", "member", "admin"] as const;
 export type Scope = (typeof supportedScopes)[number];
+export const consentAccessLevels = ["read", "write", "admin"] as const;
+export type ConsentAccess = (typeof consentAccessLevels)[number];
 
 const accessByRole = {
   viewer: ["read"],
   member: ["read", "write"],
-  admin: supportedScopes,
-} as const satisfies Record<Role, readonly Scope[]>;
+  admin: consentAccessLevels,
+} as const satisfies Record<Role, readonly ConsentAccess[]>;
 
-export const allowedAccess = (role: Role): readonly Scope[] =>
+export const allowedAccess = (role: Role): readonly ConsentAccess[] =>
   accessByRole[role];
 
-export const scopeForAccess = (level: Scope) =>
-  supportedScopes.slice(0, supportedScopes.indexOf(level) + 1).join(" ");
+const scopeByAccess: Record<ConsentAccess, Scope> = {
+  read: "viewer",
+  write: "member",
+  admin: "admin",
+};
+
+export const scopeForAccess = (level: ConsentAccess) =>
+  supportedScopes
+    .slice(0, supportedScopes.indexOf(scopeByAccess[level]) + 1)
+    .join(" ");
+
+export const isCanonicalScope = (value: string) =>
+  consentAccessLevels.some((level) => scopeForAccess(level) === value);
 
 type ApiKeyAccess = "read" | "edit";
 
 export const apiKeyScopes = (access: ApiKeyAccess): Scope[] =>
-  access === "edit" ? ["read", "write"] : ["read"];
+  access === "edit" ? ["viewer", "member"] : ["viewer"];
 
 export const apiKeyRole = (
   access: ApiKeyAccess,

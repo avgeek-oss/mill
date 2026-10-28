@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { scopeForAccess, supportedScopes } from "./access.js";
+import { supportedScopes } from "./access.js";
 
 export const tokenLifetimeSeconds = 30 * 86400;
 export const secret = () => randomBytes(32).toString("base64url");
@@ -84,17 +84,15 @@ export const clientMetadataSchema = z.object({
     .default(["authorization_code"]),
   response_types: z.array(z.literal("code")).length(1).default(["code"]),
 });
-export function parseScope(value = "read") {
+export function parseScope(value = "viewer") {
   const scopes = [...new Set(value.split(" "))];
   if (scopes.some((scope) => !supportedScopes.some((valid) => valid === scope)))
     throw new OAuthError(
       "invalid_scope",
-      "Supported scopes are read, write and admin",
+      "Supported scopes are viewer, member and admin",
     );
-  if (scopes.includes("admin")) return scopeForAccess("admin");
-  return scopes.includes("write")
-    ? scopeForAccess("write")
-    : scopeForAccess("read");
+  if (scopes.includes("admin")) return "viewer member admin";
+  return scopes.includes("member") ? "viewer member" : "viewer";
 }
 export function requireResource(value?: string) {
   if (value !== mcpResource())
