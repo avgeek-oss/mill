@@ -5,6 +5,7 @@ import {
 } from "@avgeek-oss/design-system/patterns/agent-chat/agent-chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
+import { toast } from "@mill/web-design-system";
 import { navigate } from "./api.js";
 import { apiOrigin } from "./runtime-config.js";
 
@@ -114,10 +115,12 @@ export function Assistant({
   const [conversations, setConversations] = useState<
     AgentConversationSummary[]
   >([]);
+  const historyErrorShown = useRef(false);
   const { listConversations } = chat;
   const refreshConversations = useCallback(() => {
     listConversations()
-      .then((list) =>
+      .then((list) => {
+        historyErrorShown.current = false;
         setConversations(
           list.map((item) => ({
             id: item.id,
@@ -125,9 +128,13 @@ export function Assistant({
             time: relativeTime(item.updatedAt),
             dateTime: item.updatedAt,
           })),
-        ),
-      )
-      .catch(() => {});
+        );
+      })
+      .catch(() => {
+        if (historyErrorShown.current) return;
+        historyErrorShown.current = true;
+        toast.danger("Could not load assistant conversations. Try again.");
+      });
   }, [listConversations]);
   const { status } = chat.state;
   useEffect(() => {
