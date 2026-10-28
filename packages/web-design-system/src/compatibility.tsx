@@ -136,7 +136,9 @@ export function Choice({
         <ListBox.Item
           key={item.id}
           id={item.id}
-          aria-label={item.name}
+          aria-label={[item.name, item.description, item.endContent]
+            .filter(Boolean)
+            .join(" ")}
           textValue={[item.name, item.description, item.endContent]
             .filter(Boolean)
             .join(" ")}
@@ -247,7 +249,7 @@ export type DialogProps = Omit<
 > & {
   open: boolean;
   onClose: () => void;
-  title: string;
+  title: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
