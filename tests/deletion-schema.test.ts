@@ -224,7 +224,7 @@ for (const callerPath of ["public", "pg_catalog"] as const) {
     assert.equal(keptRead.response.status, 200);
     assert.equal(keptRead.result?.isError, false);
     assert.equal(
-      (keptRead.result?.structuredContent?.task as { id: string }).id,
+      (keptRead.result?.structuredContent?.task as { id: string })?.id,
       outside.id,
     );
     assert.equal(

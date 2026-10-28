@@ -101,7 +101,7 @@ test("a board-restricted OAuth connection cannot gain administration while perso
   const list = await callMcpTool(token, "list_boards");
   assert.equal(list.result?.isError, false);
   assert.deepEqual(
-    (list.result?.structuredContent?.items as { id: string }[]).map(
+    (list.result?.structuredContent?.items as { id: string }[])?.map(
       (board) => board.id,
     ),
     [allowedBoard.id],
@@ -141,7 +141,7 @@ test("a board-restricted OAuth connection cannot gain administration while perso
   });
   assert.equal(oauthTask.result?.isError, false);
   const [oauthEvent] =
-    await sql`SELECT actor_id,actor_name,actor_kind FROM activity WHERE task_id=${(oauthTask.result?.structuredContent?.task as { id: string }).id} AND action='task.created'`;
+    await sql`SELECT actor_id,actor_name,actor_kind FROM activity WHERE task_id=${(oauthTask.result?.structuredContent?.task as { id: string })?.id} AND action='task.created'`;
   assert.equal(oauthEvent.actorId, user.id);
   assert.equal(oauthEvent.actorName, user.name);
   assert.equal(oauthEvent.actorKind, "oauth");
@@ -221,7 +221,7 @@ test("mixed accessible and inaccessible notification IDs fail without any update
   const listing = await callMcpTool(token, "list_notifications");
   assert.equal(listing.result?.isError, false);
   assert.deepEqual(
-    (listing.result?.structuredContent?.items as { id: string }[]).map(
+    (listing.result?.structuredContent?.items as { id: string }[])?.map(
       (item) => item.id,
     ),
     [accessible],

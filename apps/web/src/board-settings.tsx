@@ -336,6 +336,7 @@ export function BoardSettingsPage({
         setReload((value) => value + 1);
         throw new Error(
           "This board changed elsewhere. Review it before confirming deletion again.",
+          { cause },
         );
       }
       throw cause;

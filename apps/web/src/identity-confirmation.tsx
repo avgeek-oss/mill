@@ -117,7 +117,7 @@ export function ReauthenticationDialog({
       });
     } catch (cause) {
       if (!active.current || controller.signal.aborted) return;
-      throw new Error(passkeyError(cause));
+      throw new Error(passkeyError(cause), { cause });
     } finally {
       if (active.current) setPasskeyBusy(false);
     }

@@ -131,7 +131,7 @@ test("task detail, comments and activity resolve permissions through the owning 
   assert.equal(permitted.response.status, 200);
   assert.equal(permitted.result?.isError, false);
   assert.equal(
-    (permitted.result?.structuredContent?.board as { id: string }).id,
+    (permitted.result?.structuredContent?.board as { id: string })?.id,
     allowed.id,
   );
   for (const [name, arguments_] of [
