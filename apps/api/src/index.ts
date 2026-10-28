@@ -19,16 +19,21 @@ const server = serve(
       `Mill API ready at ${configuration.MILL_API_URL} (port ${info.port})`,
     ),
 );
+async function shutdown() {
+  await stopEmailWorker();
+  await stopAttachmentCleanup();
+  await closeDatabase();
+}
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () =>
+    // close() takes a plain callback, so the shutdown promise is settled here.
     server.close(() => {
-      // server.close ignores its callback's result, so the shutdown runs
-      // fire-and-forget. A failure still ends the process with an error.
-      void (async () => {
-        await stopEmailWorker();
-        await stopAttachmentCleanup();
-        await closeDatabase();
-        process.exit(0);
-      })();
+      shutdown().then(
+        () => process.exit(0),
+        (error: unknown) => {
+          console.error("Mill API could not shut down cleanly", error);
+          process.exit(1);
+        },
+      );
     }),
   );
