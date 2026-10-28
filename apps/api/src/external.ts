@@ -26,6 +26,7 @@ import {
   uniqueParameters,
 } from "./external/protocol.js";
 import { serveMcp } from "./external/mcp.js";
+import { supportedScopes } from "./external/access.js";
 import { recentSession } from "./auth/model.js";
 import { appOrigin } from "./auth/security.js";
 export { credentialActor } from "./external/credentials.js";
@@ -153,7 +154,7 @@ externalRoutes.get("/.well-known/oauth-authorization-server", (c) =>
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code"],
     code_challenge_methods_supported: ["S256"],
-    scopes_supported: ["read", "write", "admin"],
+    scopes_supported: supportedScopes,
     token_endpoint_auth_methods_supported: [
       "none",
       "client_secret_basic",
@@ -176,7 +177,7 @@ for (const path of [
     c.json({
       resource: mcpResource(),
       authorization_servers: [issuer()],
-      scopes_supported: ["read", "write", "admin"],
+      scopes_supported: supportedScopes,
       bearer_methods_supported: ["header"],
       resource_name: "Mill MCP",
     }),
@@ -220,7 +221,7 @@ externalRoutes.post("/api/oauth/consent/:id", async (c) => {
   const parsed = z
     .object({
       allow: z.boolean(),
-      accessLevel: z.enum(["read", "write", "admin"]).optional(),
+      accessLevel: z.enum(supportedScopes).optional(),
     })
     .strict()
     .safeParse(await c.req.json());

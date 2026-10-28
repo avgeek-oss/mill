@@ -15,6 +15,7 @@ import { clientAddress, requireRole, type Env } from "./http.js";
 import { config } from "./config.js";
 import { lockAuthority } from "./authority.js";
 import { mcpResource } from "./external/protocol.js";
+import { apiKeyRole, apiKeyScopes } from "./external/access.js";
 import { recentSession } from "./auth/model.js";
 class RetryTransactionRollback extends Error {}
 function encryptResponse(value: unknown) {
@@ -377,13 +378,9 @@ async function currentAuthority(c: Context<Env>) {
         ...a,
         role:
           a.kind === "team"
-            ? row.includeAdmin
-              ? "admin"
-              : row.accessLevel === "edit"
-                ? "member"
-                : "viewer"
+            ? apiKeyRole(row.accessLevel, row.includeAdmin)
             : row.role,
-        scopes: row.accessLevel === "edit" ? ["read", "write"] : ["read"],
+        scopes: apiKeyScopes(row.accessLevel),
         includeAdmin: row.includeAdmin,
       });
     }

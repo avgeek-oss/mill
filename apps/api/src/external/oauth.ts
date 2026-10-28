@@ -2,6 +2,7 @@ import { sql } from "../../../../packages/database/src/index.js";
 import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
 import { resolveClient } from "./clients.js";
 import { lockAuthority } from "../authority.js";
+import { allowedAccess, scopeForAccess, type Scope } from "./access.js";
 import {
   authorizationResponse,
   digest,
@@ -34,19 +35,6 @@ type Grant = {
   expiresAt: Date;
   consumedAt: Date | null;
 };
-export type OAuthAccessLevel = "read" | "write" | "admin";
-const scopeForAccess = (level: OAuthAccessLevel) =>
-  level === "admin"
-    ? "read write admin"
-    : level === "write"
-      ? "read write"
-      : "read";
-const allowedAccess = (role: Role): OAuthAccessLevel[] =>
-  role === "admin"
-    ? ["read", "write", "admin"]
-    : role === "member"
-      ? ["read", "write"]
-      : ["read"];
 export async function beginAuthorization(params: Record<string, string>) {
   const client = await resolveClient(params.client_id ?? "");
   if (
@@ -123,7 +111,7 @@ export async function decideConsent(
   id: string,
   a: Actor,
   allow: boolean,
-  accessLevel?: OAuthAccessLevel,
+  accessLevel?: Scope,
 ) {
   if (a.kind !== "human" || a.credentialId)
     throw new OAuthError(
