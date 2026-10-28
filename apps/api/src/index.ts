@@ -21,10 +21,14 @@ const server = serve(
 );
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () =>
-    server.close(async () => {
-      await stopEmailWorker();
-      await stopAttachmentCleanup();
-      await closeDatabase();
-      process.exit(0);
+    server.close(() => {
+      // server.close ignores its callback's result, so the shutdown runs
+      // fire-and-forget. A failure still ends the process with an error.
+      void (async () => {
+        await stopEmailWorker();
+        await stopAttachmentCleanup();
+        await closeDatabase();
+        process.exit(0);
+      })();
     }),
   );
