@@ -2,6 +2,7 @@ import {
   cleanupDatabase,
   request,
   resetDatabase,
+  setupOAuth,
   setupUser,
   sql,
 } from "./support.js";
@@ -273,6 +274,109 @@ test("API key policies constrain REST while every MCP protocol entry requires OA
   assert.equal(
     (await request("/api/boards", { token: adminFull.token })).status,
     401,
+  );
+});
+
+test("an administrator's limited credentials act as viewer or member for comment ownership", async () => {
+  await resetDatabase();
+  const admin = await setupUser();
+  const author = await member(
+    admin.cookie,
+    "key-comment-author@example.test",
+    "member",
+  );
+  const board = await json<{ board: { id: string } }>(
+    await request("/api/boards", {
+      cookie: admin.cookie,
+      body: { name: "Ownership board", prefix: "OWN" },
+    }),
+    201,
+  );
+  const task = await json<{ task: { id: string } }>(
+    await request(`/api/boards/${board.board.id}/tasks`, {
+      cookie: admin.cookie,
+      body: { title: "Comment ownership" },
+    }),
+    201,
+  );
+  const otherComment = await json<{
+    comment: { id: string; version: number };
+  }>(
+    await request(`/api/tasks/${task.task.id}/comments`, {
+      cookie: author.cookie,
+      body: { body: "Member's comment" },
+    }),
+    201,
+  );
+  const readKey = await json<Issued>(
+    await issue(admin.cookie, "personal", "read", false),
+    201,
+  );
+  const editKey = await json<Issued>(
+    await issue(admin.cookie, "personal", "edit", false),
+    201,
+  );
+  const adminKey = await json<Issued>(
+    await issue(admin.cookie, "personal", "edit", true),
+    201,
+  );
+  const oauth = await setupOAuth(admin.cookie, { accessLevel: "write" });
+  const { credentialActor } =
+    await import("../apps/api/src/external/credentials.js");
+  for (const [token, role, path] of [
+    [readKey.token, "viewer", "/api/boards"],
+    [editKey.token, "member", "/api/boards"],
+    [adminKey.token, "admin", "/api/boards"],
+    [oauth.token, "member", "/mcp"],
+  ] as const)
+    assert.equal(
+      (
+        await credentialActor(
+          new Request(`http://localhost:4321${path}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        )
+      )?.role,
+      role,
+    );
+
+  assert.equal(
+    (
+      await request(`/api/tasks/${task.task.id}/comments`, {
+        token: readKey.token,
+        body: { body: "Read key cannot comment" },
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(`/api/tasks/${task.task.id}/comments`, {
+        token: editKey.token,
+        body: { body: "Member key can comment" },
+      })
+    ).status,
+    201,
+  );
+  assert.equal(
+    (
+      await request(`/api/comments/${otherComment.comment.id}`, {
+        token: editKey.token,
+        method: "DELETE",
+        body: { version: otherComment.comment.version },
+      })
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await request(`/api/comments/${otherComment.comment.id}`, {
+        token: adminKey.token,
+        method: "DELETE",
+        body: { version: otherComment.comment.version },
+      })
+    ).status,
+    200,
   );
 });
 

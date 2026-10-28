@@ -24,6 +24,11 @@ import { sessionToken } from "../auth/model.js";
 import { hashToken } from "../auth/security.js";
 import { lockAuthority } from "../authority.js";
 import { mcpResource } from "../external/protocol.js";
+import {
+  apiKeyRole,
+  apiKeyScopes,
+  credentialRole,
+} from "../external/access.js";
 
 export type Tx = postgres.TransactionSql;
 export type BoardRow = Board & { workspaceId: string; nextNumber: number };
@@ -128,15 +133,14 @@ export async function revalidateAuthority(
         name: member.name,
         role:
           existing.kind === "team"
-            ? credential.includeAdmin
-              ? "admin"
-              : credential.accessLevel === "edit"
-                ? "member"
-                : "viewer"
-            : member.role,
+            ? apiKeyRole(credential.accessLevel, credential.includeAdmin)
+            : credentialRole(
+                member.role,
+                credential.accessLevel,
+                credential.includeAdmin,
+              ),
         credentialType: "api-key",
-        scopes:
-          credential.accessLevel === "edit" ? ["read", "write"] : ["read"],
+        scopes: apiKeyScopes(credential.accessLevel),
         includeAdmin: credential.includeAdmin,
         boardIds: undefined,
       });
@@ -148,7 +152,11 @@ export async function revalidateAuthority(
       c.set("actor", {
         ...existing,
         name: member.name,
-        role: member.role,
+        role: credentialRole(
+          member.role,
+          credential.accessLevel,
+          credential.includeAdmin,
+        ),
         credentialType: "oauth",
         scopes: credential.scopes,
         includeAdmin: credential.includeAdmin,

@@ -247,7 +247,7 @@ test("MCP board summaries expose counts only for the credential's accessible boa
   await addTasks(hidden.id, user.id, "backlog", 61);
   await addTasks(hidden.id, user.id, "in_review", 73);
   const scoped = await setupOAuth(cookie, {
-    scopes: ["read"],
+    scopes: ["viewer"],
     boardIds: [allowed.id, allowedEmpty.id],
   });
   async function mcpPage(args: Record<string, unknown>): Promise<BoardPage> {

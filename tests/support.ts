@@ -76,7 +76,7 @@ export async function setupUser(overrides: Record<string, unknown> = {}) {
 export async function setupOAuth(
   cookie: string,
   input: {
-    scopes?: ("read" | "write")[];
+    scopes?: ("viewer" | "member")[];
     accessLevel?: "read" | "write" | "admin";
     boardIds?: string[];
     idempotencyKey?: string;
@@ -105,7 +105,7 @@ export async function setupOAuth(
       client_id: client.client_id,
       redirect_uri: redirectUri,
       resource,
-      scope: (input.scopes ?? ["read", "write"]).join(" "),
+      scope: (input.scopes ?? ["viewer", "member"]).join(" "),
       state,
       code_challenge: digest(verifier),
       code_challenge_method: "S256",
@@ -127,7 +127,7 @@ export async function setupOAuth(
       allow: true,
       accessLevel:
         input.accessLevel ??
-        (input.scopes?.includes("write") === false ? "read" : "write"),
+        (input.scopes?.includes("member") === false ? "read" : "write"),
     },
   });
   if (!approval.ok)

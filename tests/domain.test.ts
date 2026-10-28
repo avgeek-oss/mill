@@ -514,7 +514,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
       path,
     );
   const credential = await setupOAuth(cookie, {
-    scopes: ["read", "write"],
+    scopes: ["viewer", "member"],
     boardIds: [board.id],
   });
   const token = credential.token;
@@ -575,7 +575,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
   );
   assert.equal((await request(`/api/tasks/${item.id}`, { token })).status, 403);
   const readCredential = await setupOAuth(cookie, {
-    scopes: ["read"],
+    scopes: ["viewer"],
     boardIds: [board.id],
   });
   const before = await sql`SELECT * FROM tasks WHERE id=${item.id}`;
@@ -589,7 +589,7 @@ test("personal REST keys inherit human roles while OAuth MCP enforces board rest
   assert.equal(readDenied.result, undefined);
   assert.match(
     readDenied.response.headers.get("WWW-Authenticate") ?? "",
-    /Bearer error="insufficient_scope".*scope="read write"/,
+    /Bearer error="insufficient_scope".*scope="viewer member"/,
   );
   assert.deepEqual(await sql`SELECT * FROM tasks WHERE id=${item.id}`, before);
   assert.deepEqual(
@@ -837,7 +837,7 @@ test("assignments and mentions respect preferences and notifications remain priv
     assigneeId: user.id,
   });
   const credential = await setupOAuth(cookie, {
-    scopes: ["read", "write"],
+    scopes: ["viewer", "member"],
     boardIds: [board.id],
   });
   const limited = await mcpJson<{

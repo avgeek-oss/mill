@@ -103,7 +103,7 @@ export function requireRole(
   if (
     a.credentialId &&
     ((min === "admin" && !a.includeAdmin) ||
-      !a.scopes.includes(min === "viewer" ? "read" : "write") ||
+      !a.scopes.includes(min === "viewer" ? "viewer" : "member") ||
       (boardId && a.boardIds && !a.boardIds.includes(boardId)))
   )
     throw new HTTPException(403, {

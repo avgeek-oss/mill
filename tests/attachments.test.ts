@@ -812,7 +812,7 @@ test("REST and MCP grants, viewer role, board limits and revocation apply to att
     403,
   );
   const oauth = await setupOAuth(f.cookie, {
-    scopes: ["read"],
+    scopes: ["viewer"],
     boardIds: [f.board.id],
   });
   const listed = await callMcpTool(oauth.token, "list_attachments", {

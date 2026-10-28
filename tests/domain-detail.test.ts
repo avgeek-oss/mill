@@ -122,7 +122,7 @@ test("task detail, comments and activity resolve permissions through the owning 
     201,
   );
   const { token } = await setupOAuth(cookie, {
-    scopes: ["read"],
+    scopes: ["viewer"],
     boardIds: [allowed.id],
   });
   const permitted = await callMcpTool(token, "get_board", {

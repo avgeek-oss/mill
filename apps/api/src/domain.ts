@@ -132,7 +132,7 @@ function administrative(c: Parameters<typeof actor>[0], write = false): Actor {
   const a = requireRole(c, "admin");
   if (
     (a.kind === "oauth" && !a.includeAdmin) ||
-    (write && !a.scopes.includes("write"))
+    (write && !a.scopes.includes("member"))
   )
     badRequest("This action requires administrative permission");
   return a;
@@ -855,7 +855,7 @@ domainRoutes.patch("/notifications", async (c) => {
       { error: "Team API keys cannot access personal notifications" },
       403,
     );
-  if (a.credentialId && !a.scopes.includes("write"))
+  if (a.credentialId && !a.scopes.includes("member"))
     return c.json(
       { error: "This credential does not permit notification changes" },
       403,
@@ -877,7 +877,7 @@ domainRoutes.patch("/notifications", async (c) => {
   const updated = await sql.begin(async (tx) => {
     await revalidateAuthority(c, tx, "viewer");
     const current = actor(c);
-    if (current.credentialId && !current.scopes.includes("write")) return null;
+    if (current.credentialId && !current.scopes.includes("member")) return null;
     const scope = current.boardIds
       ? current.boardIds.length
         ? tx`AND tasks.board_id IN ${tx(current.boardIds)}`

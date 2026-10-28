@@ -14,6 +14,7 @@ const reauthorizationName = "005_oauth_role_change_reauthorization.sql";
 const boardMetadataName = "006_board_metadata.sql";
 const commentRepliesName = "007_comment_replies.sql";
 const acceptanceCriteriaName = "008_task_acceptance_criteria.sql";
+const roleScopesName = "009_role_named_oauth_scopes.sql";
 const reviewedBaselineChecksum =
   "e82748c4b57ade74641a6d6ab051016daa3df5eef0ea05aac6c39c6b7ddd1466";
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -490,6 +491,15 @@ export async function rebasePrelaunch(
       `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
       [acceptanceCriteriaName, digest(acceptanceCriteria)],
     );
+    const roleScopes = await readFile(
+      path.join(root, "packages/database/migrations", roleScopesName),
+      "utf8",
+    );
+    await tx.unsafe(roleScopes);
+    await tx.unsafe(
+      `INSERT INTO mill_migrations(name,checksum) VALUES ($1,$2)`,
+      [roleScopesName, digest(roleScopes)],
+    );
     await requireStopped(tx);
     await tx.unsafe(
       `ALTER SCHEMA ${quote(schema)} RENAME TO ${quote(archived)}`,
@@ -530,7 +540,7 @@ async function main(args) {
     await readdir(path.join(root, "packages/database/migrations"))
   ).filter((name) => name.endsWith(".sql"));
   if (
-    files.length !== 8 ||
+    files.length !== 9 ||
     !files.includes(baselineName) ||
     !files.includes(policyName) ||
     !files.includes(attachmentName) ||
@@ -538,7 +548,8 @@ async function main(args) {
     !files.includes(reauthorizationName) ||
     !files.includes(boardMetadataName) ||
     !files.includes(commentRepliesName) ||
-    !files.includes(acceptanceCriteriaName)
+    !files.includes(acceptanceCriteriaName) ||
+    !files.includes(roleScopesName)
   )
     throw new Error(
       "The rebase requires the reviewed baseline and forward migrations",

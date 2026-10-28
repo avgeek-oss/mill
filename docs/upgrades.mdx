@@ -30,6 +30,8 @@ Update both image references in your deployment manifests to the same published 
 
 The API applies new database migrations at startup. Wait for both services to become ready, then check sign-in, a board and a task. Test any REST or MCP clients you use.
 
+Migration `009_role_named_oauth_scopes.sql` preserves issued OAuth connections and their board limits while changing stored `read`/`write`/`admin` scopes to `viewer`/`member`/`admin`. Clients must request the new scope names when authorizing a new connection. The existing REST API key fields are unchanged.
+
 If an update fails, inspect its logs before retrying. Do not edit migration files or database migration records to bypass an error. Existing task links remain available, including tasks hidden by the default completed-task filter.
 
 ## Roll back

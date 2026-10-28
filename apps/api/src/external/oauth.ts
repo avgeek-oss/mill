@@ -3,6 +3,12 @@ import type { Actor, Role } from "../../../../packages/contracts/src/index.js";
 import { resolveClient } from "./clients.js";
 import { lockAuthority } from "../authority.js";
 import {
+  allowedAccess,
+  isCanonicalScope,
+  scopeForAccess,
+  type ConsentAccess,
+} from "./access.js";
+import {
   authorizationResponse,
   digest,
   equalHash,
@@ -34,19 +40,6 @@ type Grant = {
   expiresAt: Date;
   consumedAt: Date | null;
 };
-export type OAuthAccessLevel = "read" | "write" | "admin";
-const scopeForAccess = (level: OAuthAccessLevel) =>
-  level === "admin"
-    ? "read write admin"
-    : level === "write"
-      ? "read write"
-      : "read";
-const allowedAccess = (role: Role): OAuthAccessLevel[] =>
-  role === "admin"
-    ? ["read", "write", "admin"]
-    : role === "member"
-      ? ["read", "write"]
-      : ["read"];
 export async function beginAuthorization(params: Record<string, string>) {
   const client = await resolveClient(params.client_id ?? "");
   if (
@@ -123,7 +116,7 @@ export async function decideConsent(
   id: string,
   a: Actor,
   allow: boolean,
-  accessLevel?: OAuthAccessLevel,
+  accessLevel?: ConsentAccess,
 ) {
   if (a.kind !== "human" || a.credentialId)
     throw new OAuthError(
@@ -191,6 +184,7 @@ export async function exchangeCode(
       grant.clientId !== clientId ||
       grant.redirectUri !== params.redirect_uri ||
       grant.resource !== mcpResource() ||
+      !isCanonicalScope(grant.scope) ||
       !equalHash(digest(params.code_verifier!), grant.challenge)
     )
       return null;
@@ -207,7 +201,7 @@ export async function exchangeCode(
     if (
       !user ||
       grant.approvedRole !== user.role ||
-      (user.role === "viewer" && grant.scope.includes("write")) ||
+      (user.role === "viewer" && grant.scope.includes("member")) ||
       (grant.scope.includes("admin") && user.role !== "admin")
     )
       return null;
@@ -221,7 +215,7 @@ export async function exchangeCode(
     }
     const token = `mill_${secret()}`;
     const [credential] =
-      await tx`INSERT INTO credentials(user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${grant.userId},${grant.userId},${grant.clientName},${digest(token)},${token.slice(0, 12)},${grant.scope.split(" ")},${grant.boardIds},'oauth',${clientId},${mcpResource()},${new Date(Date.now() + tokenLifetimeSeconds * 1000)},${grant.scope.includes("write") ? "edit" : "read"},${grant.scope.includes("admin")}) RETURNING id`;
+      await tx`INSERT INTO credentials(user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${grant.userId},${grant.userId},${grant.clientName},${digest(token)},${token.slice(0, 12)},${grant.scope.split(" ")},${grant.boardIds},'oauth',${clientId},${mcpResource()},${new Date(Date.now() + tokenLifetimeSeconds * 1000)},${grant.scope.includes("member") ? "edit" : "read"},${grant.scope.includes("admin")}) RETURNING id`;
     await tx`UPDATE oauth_requests SET consumed_at=now(),credential_id=${credential!.id} WHERE id=${grant.id}`;
 
     return {

@@ -14,6 +14,7 @@ import {
   mcpDispatchTokens,
 } from "./credentials.js";
 import { digest, issuer, resourceMetadataUrl } from "./protocol.js";
+import { scopeForAccess } from "./access.js";
 import { tools } from "./tools.js";
 let dispatcher: ((request: Request) => Promise<Response>) | undefined;
 export function setApiDispatcher(
@@ -28,8 +29,8 @@ export async function serveMcp(c: Context<Env>) {
   const allowed = tools.filter(
     (tool) =>
       (tool.readOnly
-        ? principal.scopes.includes("read")
-        : principal.role !== "viewer" && principal.scopes.includes("write")) &&
+        ? principal.scopes.includes("viewer")
+        : principal.role !== "viewer" && principal.scopes.includes("member")) &&
       (!tool.workspaceWide || !principal.boardIds) &&
       (!tool.admin || (principal.role === "admin" && principal.includeAdmin)),
   );
@@ -198,7 +199,7 @@ export async function serveMcp(c: Context<Env>) {
     if (requested && !allowed.some((tool) => tool.name === requested.name)) {
       c.header(
         "WWW-Authenticate",
-        `Bearer error="insufficient_scope", resource_metadata="${resourceMetadataUrl()}", scope="${requested.admin ? "read write admin" : requested.readOnly ? "read" : "read write"}"`,
+        `Bearer error="insufficient_scope", resource_metadata="${resourceMetadataUrl()}", scope="${scopeForAccess(requested.admin ? "admin" : requested.readOnly ? "read" : "write")}"`,
       );
       return c.json(
         {

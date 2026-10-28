@@ -363,7 +363,7 @@ function CredentialSettings({
       .filter((name): name is string => !!name);
     const permissions = credential.includeAdmin
       ? "Administrative permissions"
-      : credential.scopes.includes("write")
+      : credential.scopes.includes("member")
         ? "Read and edit"
         : "Read only";
     return {

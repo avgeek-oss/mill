@@ -155,7 +155,7 @@ test("OAuth board pagination keeps restrictions on every page", async () => {
     boards[6]!.id,
   ];
   const credential = await setupOAuth(cookie, {
-    scopes: ["read"],
+    scopes: ["viewer"],
     boardIds: allowedIds,
   });
   const first = await json(await request("/api/boards?limit=1", { cookie }));
@@ -460,10 +460,10 @@ test("initialized MCP clients traverse more than 100 boards and preserve board r
   ];
   try {
     const read = await setupOAuth(cookie, {
-      scopes: ["read"],
+      scopes: ["viewer"],
     });
     const restricted = await setupOAuth(cookie, {
-      scopes: ["read"],
+      scopes: ["viewer"],
       boardIds: restrictedIds,
     });
     for (const [index, credential] of [read, restricted].entries()) {

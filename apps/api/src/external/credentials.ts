@@ -5,6 +5,7 @@ import { badRequest } from "../http.js";
 import { HTTPException } from "hono/http-exception";
 import { lockAuthority } from "../authority.js";
 import { digest, mcpResource, secret } from "./protocol.js";
+import { apiKeyRole, apiKeyScopes, credentialRole } from "./access.js";
 
 export type Credential = {
   id: string;
@@ -148,15 +149,15 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
     result = {
       userId: principal.userId,
       name: principal.userName,
-      role:
-        principal.role ??
-        (principal.includeAdmin
-          ? "admin"
-          : principal.accessLevel === "edit"
-            ? "member"
-            : "viewer"),
+      role: principal.role
+        ? credentialRole(
+            principal.role,
+            principal.accessLevel,
+            principal.includeAdmin,
+          )
+        : apiKeyRole(principal.accessLevel, principal.includeAdmin),
       kind: principal.role ? "human" : "team",
-      scopes: principal.accessLevel === "edit" ? ["read", "write"] : ["read"],
+      scopes: apiKeyScopes(principal.accessLevel),
       includeAdmin: principal.includeAdmin,
       credentialId: principal.id,
       credentialType: "api-key",
@@ -174,7 +175,11 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
     result = {
       userId: principal.userId,
       name: principal.userName,
-      role: principal.role!,
+      role: credentialRole(
+        principal.role!,
+        principal.accessLevel,
+        principal.includeAdmin,
+      ),
       kind: "oauth",
       scopes: principal.scopes,
       includeAdmin: principal.includeAdmin,
@@ -183,7 +188,6 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
       boardIds: principal.boardIds ?? undefined,
     };
   } else return null;
-  // A token never holds permissions beyond its owner's current membership.
   if (
     !principal.lastUsedAt ||
     principal.lastUsedAt.getTime() < Date.now() - 300000

@@ -15,6 +15,7 @@ import { clientAddress, requireRole, type Env } from "./http.js";
 import { config } from "./config.js";
 import { lockAuthority } from "./authority.js";
 import { mcpResource } from "./external/protocol.js";
+import { apiKeyRole, apiKeyScopes, credentialRole } from "./external/access.js";
 import { recentSession } from "./auth/model.js";
 class RetryTransactionRollback extends Error {}
 function encryptResponse(value: unknown) {
@@ -359,6 +360,7 @@ async function currentAuthority(c: Context<Env>) {
     ) {
       c.set("actor", {
         ...a,
+        role: credentialRole(row.role, row.accessLevel, row.includeAdmin),
         boardIds: row.boardIds ?? undefined,
         scopes: row.scopes,
         includeAdmin: row.includeAdmin,
@@ -377,17 +379,13 @@ async function currentAuthority(c: Context<Env>) {
         ...a,
         role:
           a.kind === "team"
-            ? row.includeAdmin
-              ? "admin"
-              : row.accessLevel === "edit"
-                ? "member"
-                : "viewer"
-            : row.role,
-        scopes: row.accessLevel === "edit" ? ["read", "write"] : ["read"],
+            ? apiKeyRole(row.accessLevel, row.includeAdmin)
+            : credentialRole(row.role, row.accessLevel, row.includeAdmin),
+        scopes: apiKeyScopes(row.accessLevel),
         includeAdmin: row.includeAdmin,
       });
     }
-    if (a.kind !== "team" && row.role !== a.role)
+    if (a.kind !== "team" && c.get("actor").role !== a.role)
       throw new HTTPException(403, {
         message: "Your permissions changed. Reload Mill before trying again.",
       });
@@ -444,7 +442,7 @@ async function currentAuthority(c: Context<Env>) {
     current.kind === "oauth" &&
     c.req.method === "PATCH" &&
     c.req.path === "/api/notifications" &&
-    !current.scopes.includes("write")
+    !current.scopes.includes("member")
   )
     throw new HTTPException(403, {
       message: "This credential does not permit notification changes",

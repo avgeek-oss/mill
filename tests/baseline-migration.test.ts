@@ -83,6 +83,16 @@ const acceptanceCriteriaSource = await readFile(
 const acceptanceCriteriaChecksum = createHash("sha256")
   .update(acceptanceCriteriaSource)
   .digest("hex");
+const roleScopesSource = await readFile(
+  new URL(
+    "../packages/database/migrations/009_role_named_oauth_scopes.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const roleScopesChecksum = createHash("sha256")
+  .update(roleScopesSource)
+  .digest("hex");
 function runMigration(schema: string, directory?: string) {
   return new Promise<{ code: number | null; output: string }>(
     (resolve, reject) => {
@@ -145,6 +155,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       "006_board_metadata.sql",
       "007_comment_replies.sql",
       "008_task_acceptance_criteria.sql",
+      "009_role_named_oauth_scopes.sql",
     ],
   );
   const schema = `baseline_${randomUUID().replaceAll("-", "")}`;
@@ -177,6 +188,10 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
           {
             name: "008_task_acceptance_criteria.sql",
             checksum: acceptanceCriteriaChecksum,
+          },
+          {
+            name: "009_role_named_oauth_scopes.sql",
+            checksum: roleScopesChecksum,
           },
         ],
       );
@@ -246,6 +261,10 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
     await writeFile(
       join(directory, "008_task_acceptance_criteria.sql"),
       acceptanceCriteriaSource,
+    );
+    await writeFile(
+      join(directory, "009_role_named_oauth_scopes.sql"),
+      roleScopesSource,
     );
     const changed = await runMigration(schema, directory);
     assert.equal(changed.code, 1);
@@ -360,6 +379,121 @@ test("forward OAuth migration preserves restricted tokens and invalidates unsnap
         ],
       );
     });
+  } finally {
+    await sql.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("role-named OAuth migration preserves grants and board limits, then rejects old wire scopes", async () => {
+  const schema = `oauth_scopes_${randomUUID().replaceAll("-", "")}`;
+  const directory = await mkdtemp(join(tmpdir(), "mill-oauth-scopes-"));
+  const ownerId = randomUUID();
+  const boardId = randomUUID();
+  const adminCredentialId = randomUUID();
+  const readCredentialId = randomUUID();
+  const teamKeyId = randomUUID();
+  const approvedId = randomUUID();
+  const pendingId = randomUUID();
+  const unknownId = randomUUID();
+  await sql.unsafe(`CREATE SCHEMA "${schema}"`);
+  try {
+    for (const [name, content] of [
+      ["001_initial.sql", source],
+      ["002_key_policies.sql", policySource],
+      ["003_task_attachments.sql", attachmentSource],
+      ["004_oauth_admin_consent.sql", permissionMigrationSource],
+      ["005_oauth_role_change_reauthorization.sql", reauthorizationSource],
+      ["006_board_metadata.sql", boardMetadataSource],
+      ["007_comment_replies.sql", commentRepliesSource],
+      ["008_task_acceptance_criteria.sql", acceptanceCriteriaSource],
+    ])
+      await writeFile(join(directory, name), content);
+    assert.equal((await runMigration(schema, directory)).code, 0);
+    await inSchema(schema, async (tx) => {
+      const workspaceId = randomUUID();
+      await tx`INSERT INTO workspace(id,name) VALUES(${workspaceId},'Scope upgrade')`;
+      await tx`INSERT INTO users(id,workspace_id,name,email,password_hash,role) VALUES(${ownerId},${workspaceId},'Owner','owner@example.test','hash','admin')`;
+      await tx`INSERT INTO boards(id,workspace_id,name,prefix) VALUES(${boardId},${workspaceId},'Restricted board','RESTRICT')`;
+      await tx`INSERT INTO credentials(id,user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${adminCredentialId},${ownerId},${ownerId},'Admin connection','admin-token','prefix',ARRAY['read','write','admin'],ARRAY[${boardId}::uuid],'oauth','client','https://example.test/mcp',now()+interval '1 day','edit',true)`;
+      await tx`INSERT INTO credentials(id,user_id,created_by,name,token_hash,token_prefix,scopes,board_ids,token_type,oauth_client_id,resource,expires_at,access_level,include_admin) VALUES(${readCredentialId},${ownerId},${ownerId},'Read connection','read-token','prefix',ARRAY['read'],NULL,'oauth','read-client','https://example.test/mcp',now()+interval '1 day','read',false)`;
+      await tx`INSERT INTO credentials(id,user_id,created_by,name,token_hash,token_prefix,scopes,token_type,expires_at,access_level,include_admin) VALUES(${teamKeyId},NULL,${ownerId},'Team key','team-token','prefix','{}'::text[],'api-key',now()+interval '1 day','edit',false)`;
+      await tx`INSERT INTO oauth_requests(id,client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,user_id,approved_role,board_ids,code_hash,expires_at) VALUES(${approvedId},'client','Admin connection','unverified','https://example.test/callback','https://example.test/mcp','read write admin','challenge',${ownerId},'admin',ARRAY[${boardId}::uuid],'approved-code',now()+interval '1 day')`;
+      await tx`INSERT INTO oauth_requests(id,client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,expires_at) VALUES(${pendingId},'client','Pending connection','unverified','https://example.test/callback','https://example.test/mcp','read','challenge',now()+interval '1 day')`;
+      await tx`INSERT INTO oauth_requests(id,client_id,client_name,client_trust,redirect_uri,resource,scope,challenge,expires_at) VALUES(${unknownId},'client','Unknown scope','unverified','https://example.test/callback','https://example.test/mcp','read export','challenge',now()+interval '1 day')`;
+    });
+    await writeFile(
+      join(directory, "009_role_named_oauth_scopes.sql"),
+      roleScopesSource,
+    );
+    const rejected = await runMigration(schema, directory);
+    assert.equal(rejected.code, 1);
+    assert.match(rejected.output, /Unknown OAuth scope/);
+    await inSchema(schema, async (tx) => {
+      assert.deepEqual(
+        (
+          await tx`SELECT scopes FROM credentials WHERE id=${adminCredentialId}`
+        )[0]?.scopes,
+        ["read", "write", "admin"],
+      );
+      assert.equal(
+        (
+          await tx`SELECT count(*)::int AS count FROM mill_migrations WHERE name='009_role_named_oauth_scopes.sql'`
+        )[0]?.count,
+        0,
+      );
+      await tx`DELETE FROM oauth_requests WHERE id=${unknownId}`;
+    });
+    const upgraded = await runMigration(schema, directory);
+    assert.equal(upgraded.code, 0, upgraded.output);
+    await inSchema(schema, async (tx) => {
+      const [adminCredential] =
+        await tx`SELECT scopes,board_ids,revoked_at,include_admin FROM credentials WHERE id=${adminCredentialId}`;
+      assert.deepEqual(adminCredential.scopes, ["viewer", "member", "admin"]);
+      assert.deepEqual(adminCredential.boardIds, [boardId]);
+      assert.equal(adminCredential.revokedAt, null);
+      assert.equal(adminCredential.includeAdmin, true);
+      assert.deepEqual(
+        (
+          await tx`SELECT scopes FROM credentials WHERE id=${readCredentialId}`
+        )[0]?.scopes,
+        ["viewer"],
+      );
+      assert.deepEqual(
+        (await tx`SELECT scopes FROM credentials WHERE id=${teamKeyId}`)[0]
+          ?.scopes,
+        [],
+      );
+      assert.deepEqual(
+        (
+          await tx`SELECT scope,board_ids FROM oauth_requests WHERE id=${approvedId}`
+        )[0],
+        { scope: "viewer member admin", boardIds: [boardId] },
+      );
+      assert.equal(
+        (await tx`SELECT scope FROM oauth_requests WHERE id=${pendingId}`)[0]
+          ?.scope,
+        "viewer",
+      );
+      assert.equal(
+        (
+          await tx`SELECT checksum FROM mill_migrations WHERE name='009_role_named_oauth_scopes.sql'`
+        )[0]?.checksum,
+        roleScopesChecksum,
+      );
+    });
+    await assert.rejects(
+      inSchema(schema, async (tx) => {
+        await tx`UPDATE credentials SET scopes=ARRAY['read'] WHERE id=${readCredentialId}`;
+      }),
+      /credentials_access_shape/,
+    );
+    await assert.rejects(
+      inSchema(schema, async (tx) => {
+        await tx`UPDATE oauth_requests SET scope='read' WHERE id=${pendingId}`;
+      }),
+      /oauth_requests_scope_shape/,
+    );
   } finally {
     await sql.unsafe(`DROP SCHEMA "${schema}" CASCADE`);
     await rm(directory, { recursive: true, force: true });
