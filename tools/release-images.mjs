@@ -51,14 +51,15 @@ function docker(...args) {
   }).trim();
 }
 
-function verifyRegistryImage(component, tag, commit) {
+// `run` defaults to the Docker CLI; the tests pass a fake registry.
+export function verifyRegistryImage(component, tag, commit, run = docker) {
   const repository = repositories[component];
   const tagged = `${repository}:${tag}`;
-  const description = docker("buildx", "imagetools", "inspect", tagged);
+  const description = run("buildx", "imagetools", "inspect", tagged);
   const digest = /^Digest:\s+(sha256:[0-9a-f]{64})$/m.exec(description)?.[1];
   assert.ok(digest, "The registry must return an immutable index digest");
   for (const alias of [tag.slice(1), commit]) {
-    const aliasDescription = docker(
+    const aliasDescription = run(
       "buildx",
       "imagetools",
       "inspect",
@@ -74,7 +75,7 @@ function verifyRegistryImage(component, tag, commit) {
     );
   }
   const index = JSON.parse(
-    docker("buildx", "imagetools", "inspect", "--raw", tagged),
+    run("buildx", "imagetools", "inspect", "--raw", tagged),
   );
   assert.ok(
     Array.isArray(index.manifests),
@@ -93,23 +94,26 @@ function verifyRegistryImage(component, tag, commit) {
     );
     const platformDigest = matches[0].digest;
     assert.match(platformDigest, digestPattern);
-    const reference = `${repository}@${platformDigest}`;
-    docker("pull", "--platform", `linux/${architecture}`, reference);
+    // Read the platform image configuration from the registry instead of
+    // pulling every layer. The arm64 installation smoke test pulls and runs
+    // its platform image before the release is published.
     const image = JSON.parse(
-      docker("image", "inspect", reference, "--format", "{{json .}}"),
+      run(
+        "buildx",
+        "imagetools",
+        "inspect",
+        `${repository}@${platformDigest}`,
+        "--format",
+        "{{json .Image}}",
+      ),
     );
-    assert.equal(image.Os, "linux");
-    assert.equal(image.Architecture, architecture);
+    assert.equal(image.os, "linux");
+    assert.equal(image.architecture, architecture);
+    const labels = image.config?.Labels ?? {};
+    assert.equal(labels["org.opencontainers.image.revision"], commit);
+    assert.equal(labels["org.opencontainers.image.version"], tag.slice(1));
     assert.equal(
-      image.Config.Labels["org.opencontainers.image.revision"],
-      commit,
-    );
-    assert.equal(
-      image.Config.Labels["org.opencontainers.image.version"],
-      tag.slice(1),
-    );
-    assert.equal(
-      image.Config.Labels["org.opencontainers.image.source"],
+      labels["org.opencontainers.image.source"],
       "https://github.com/avgeek-oss/mill",
     );
   }
