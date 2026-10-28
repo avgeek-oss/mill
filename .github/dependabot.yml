@@ -22,6 +22,20 @@ updates:
     ignore:
       - dependency-name: "node"
         update-types: ["version-update:semver-major"]
+  # The bundled PostgreSQL Compose file pins its image by tag and digest.
+  # Mill's own images follow the release version, which a release bump sets,
+  # and are never bumped here. Dependabot does not read workflow service
+  # images or documentation, so when it bumps this file, update the CI
+  # postgres service and the Towbar guide's copy of the image to match.
+  - package-ecosystem: docker-compose
+    directories:
+      - /
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "ghcr.io/avgeek-oss/mill-*"
   - package-ecosystem: github-actions
     directory: /
     patterns: ["*"]

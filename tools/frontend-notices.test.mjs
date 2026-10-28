@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
@@ -12,6 +13,26 @@ import {
 } from "./frontend-notices.mjs";
 
 const mit = `MIT License\r\nCopyright (c) Example Authors\r\n\r\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software.\r\nTHE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.\r\n`;
+
+// The package a workspace actually resolves: the nearest package.json above
+// the resolved entry, so dependency updates need no matching edit here.
+function installedPackage(require, name) {
+  let directory = dirname(require.resolve(name));
+  for (;;) {
+    try {
+      const manifest = JSON.parse(
+        readFileSync(join(directory, "package.json"), "utf8"),
+      );
+      if (manifest.name === name)
+        return { directory, version: manifest.version };
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    const parent = dirname(directory);
+    assert.notEqual(parent, directory, `No package.json found for ${name}`);
+    directory = parent;
+  }
+}
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "mill-frontend-notices-"));
@@ -473,13 +494,35 @@ test("installed frontend licenses, Adobe source copyright, and reviewed Hugeicon
     );
   }
   assert.ok(notices.includes("Copyright 2022 Adobe. All rights reserved."));
-  assert.ok(notices.includes("@hugeicons/core-free-icons@4.3.0"));
+  const hugeicons = installedPackage(web, "@hugeicons/core-free-icons");
   assert.ok(
-    notices.includes("9c48f3723dfb243909fa83501aa7c6423ab972c0/LICENSE.md"),
+    notices.includes(`@hugeicons/core-free-icons@${hugeicons.version}`),
   );
+  // Releases that ship no license file carry a reviewed upstream supplement
+  // for that exact version; later releases ship LICENSE.md themselves.
+  const supplement = JSON.parse(
+    await readFile(
+      new URL("./frontend-license-supplements.json", import.meta.url),
+      "utf8",
+    ),
+  ).find(
+    (entry) =>
+      entry.package === "@hugeicons/core-free-icons" &&
+      entry.version === hugeicons.version,
+  );
+  if (supplement) assert.ok(notices.includes(`Source: ${supplement.source}`));
+  else
+    assert.ok(
+      notices.includes(
+        await readFile(join(hugeicons.directory, "LICENSE.md"), "utf8"),
+      ),
+      "@hugeicons/core-free-icons complete license bytes",
+    );
   assert.ok(notices.includes("Copyright (c) 2025 Hugeicons"));
   assert.ok(
-    notices.includes("@heroui/react@3.2.6\nPackage metadata license: MIT"),
+    notices.includes(
+      `@heroui/react@${installedPackage(designSystem, "@heroui/react").version}\nPackage metadata license: MIT`,
+    ),
   );
   assert.ok(notices.includes("Apache License"));
 });

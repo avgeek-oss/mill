@@ -4,7 +4,7 @@ Copyright 2026 Avgeek, Inc.
 This product includes design-system components, style patterns, and
 authentication, API, and OAuth security patterns adapted from
 Towbar, Copyright Avgeek, Inc., licensed under the Apache License, Version 2.0.
-Source: https://github.com/avgeek-inc/towbar
+Source: https://github.com/avgeek-oss/towbar
 
 Third-party dependencies keep their own license notices in the installed
 packages. HeroUI, React, Hono, Lucide, and Hugeicons free icons use permissive
