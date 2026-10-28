@@ -10,7 +10,20 @@ import { config } from "../config.js";
 import { HttpError } from "../http.js";
 import { runPasswordOperation } from "./password.js";
 
+type PasswordCost = { N: number; r: number; p: number };
+// Every stored hash records its cost, and verification accepts only the
+// current cost. Production always uses this one.
+let passwordCost: PasswordCost = { N: 32768, r: 8, p: 3 };
+const legacyPasswordCost: PasswordCost = { N: 16384, r: 8, p: 1 };
+/** Lowers the scrypt cost so test suites can hash quickly. Production never calls this. */
+export function setPasswordCostForTests(cost: PasswordCost) {
+  passwordCost = cost;
+}
+const passwordScheme = () =>
+  `scrypt:${passwordCost.N}:${passwordCost.r}:${passwordCost.p}`;
+
 function derivePassword(password: string, salt: string, legacy = false) {
+  const cost = legacy ? legacyPasswordCost : passwordCost;
   return runPasswordOperation(
     () =>
       new Promise<Buffer>((resolve, reject) =>
@@ -19,9 +32,9 @@ function derivePassword(password: string, salt: string, legacy = false) {
           salt,
           64,
           {
-            N: legacy ? 16384 : 32768,
-            r: 8,
-            p: legacy ? 1 : 3,
+            N: cost.N,
+            r: cost.r,
+            p: cost.p,
             maxmem: 64 * 1024 * 1024,
           },
           (error, key) => (error ? reject(error) : resolve(key)),
@@ -42,7 +55,7 @@ export function rpId() {
 export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const derived = await derivePassword(password, salt);
-  return `scrypt:32768:8:3:${salt}:${derived.toString("hex")}`;
+  return `${passwordScheme()}:${salt}:${derived.toString("hex")}`;
 }
 export async function verifyPassword(password: string, stored: string) {
   const parts = stored.split(":");
@@ -50,7 +63,7 @@ export async function verifyPassword(password: string, stored: string) {
   const salt = legacy ? parts[1] : parts[4];
   const encoded = legacy ? parts[2] : parts[5];
   if (
-    (!legacy && parts.slice(0, 4).join(":") !== "scrypt:32768:8:3") ||
+    (!legacy && parts.slice(0, 4).join(":") !== passwordScheme()) ||
     !/^[a-f0-9]{32}$/.test(salt ?? "") ||
     !/^[a-f0-9]{128}$/.test(encoded ?? "")
   ) {

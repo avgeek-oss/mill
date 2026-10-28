@@ -17,6 +17,11 @@ const { sql } = await import("../packages/database/src/index.js");
 const { migrate } = await import("../packages/database/src/migrate.js");
 await migrate();
 export { sql };
+// Test passwords hash at a low scrypt cost so setup and sign-in stay fast;
+// tests/passwords.test.ts covers the production cost without this override.
+const { setPasswordCostForTests } =
+  await import("../apps/api/src/auth/security.js");
+setPasswordCostForTests({ N: 1024, r: 8, p: 1 });
 const { installationSetupSecret } =
   await import("../apps/api/src/auth/setup-secret.js");
 export const setupSecret = installationSetupSecret();
