@@ -1,5 +1,8 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "options": {
+    "typeAware": true
+  },
   "plugins": ["typescript"],
   "categories": {
     "correctness": "off"
@@ -189,6 +192,38 @@
             ]
           }
         ]
+      }
+    },
+    {
+      "files": [
+        "apps/**/*.{ts,tsx}",
+        "packages/**/*.{ts,tsx}",
+        "tests/**/*.{ts,tsx}",
+        "tools/**/*.ts"
+      ],
+      "rules": {
+        "typescript/no-floating-promises": [
+          "error",
+          {
+            "allowForKnownSafeCalls": [
+              {
+                "from": "package",
+                "package": "node:test",
+                "name": [
+                  "test",
+                  "it",
+                  "describe",
+                  "suite",
+                  "before",
+                  "after",
+                  "beforeEach",
+                  "afterEach"
+                ]
+              }
+            ]
+          }
+        ],
+        "typescript/no-misused-promises": "error"
       }
     }
   ]

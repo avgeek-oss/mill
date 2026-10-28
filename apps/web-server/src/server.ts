@@ -93,5 +93,10 @@ export function createWebServer(
   ])
     app.all(path, (c) => c.notFound());
   registerStaticRoutes(app, root);
-  return createServer(getRequestListener(app.fetch));
+  const listener = getRequestListener(app.fetch);
+  // Node's http server ignores the listener's promise. Hono's listener
+  // handles request and response errors itself, as serve() does for the API.
+  return createServer((request, response) => {
+    void listener(request, response);
+  });
 }
