@@ -17,7 +17,7 @@ import {
 } from "@heroui/react";
 import { Field, FieldDescription } from "@avgeek-oss/design-system/forms/field";
 import { OverlaySuspensionScope } from "@avgeek-oss/design-system/overlays/overlay-suspension";
-import { cn } from "./utils.js";
+import { cn } from "@avgeek-oss/design-system/lib/utils";
 import { useErrorToast } from "./feedback/toast-feedback.js";
 
 const SuspendedAppContext = createContext(false);
@@ -302,32 +302,4 @@ export function Dialog({
 export function ErrorMessage({ children }: ComponentProps<"div">) {
   useErrorToast(children);
   return null;
-}
-
-export function Drawer({
-  open,
-  onClose,
-  children,
-}: {
-  open: boolean;
-  onClose: () => void;
-  children: ReactNode;
-}) {
-  const suspended = useContext(SuspendedAppContext);
-  return (
-    <Modal.Backdrop
-      isOpen={open && !suspended}
-      onOpenChange={(value) => !value && !suspended && onClose()}
-      className="drawer-backdrop"
-    >
-      <Modal.Container className="drawer-container" placement="top">
-        <Modal.Dialog
-          aria-label="Workspace navigation"
-          className="drawer-dialog"
-        >
-          {children}
-        </Modal.Dialog>
-      </Modal.Container>
-    </Modal.Backdrop>
-  );
 }

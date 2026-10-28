@@ -49,4 +49,3 @@ export {
 export { FieldError } from "./forms/field.js";
 export * from "./compatibility.js";
 export { Link, SearchField, Separator } from "@heroui/react";
-export * from "./navigation/new-tab-indicator.js";

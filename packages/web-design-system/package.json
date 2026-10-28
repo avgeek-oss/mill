@@ -18,12 +18,10 @@
     "@hugeicons/core-free-icons": "4.3.0",
     "@hugeicons/react": "1.1.10",
     "@internationalized/date": "3.12.4",
-    "clsx": "2.1.1",
     "react": "19.3.0",
     "react-aria": "3.52.1",
     "react-aria-components": "1.21.1",
     "react-dom": "19.3.0",
-    "tailwind-merge": "3.7.0",
     "tailwindcss": "4.2.4"
   }
 }
