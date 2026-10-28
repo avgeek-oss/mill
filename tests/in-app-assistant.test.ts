@@ -56,6 +56,17 @@ async function invite(cookie: string, role: "viewer" | "member") {
 
 test("assistant is absent without a provider and rejects anonymous, bearer and expired browser sessions", async () => {
   assert.equal(agentConfiguration({}), undefined);
+  assert.throws(
+    () =>
+      agentConfiguration({
+        AGENT_API_KEY: "disposable-local-key",
+        AGENT_HEADERS: '{"Authorization":"Bearer secret-value',
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message === "Invalid assistant provider configuration." &&
+      !error.message.includes("secret-value"),
+  );
   const admin = await setupUser();
   const status = await request("/api/auth/status");
   assert.equal(

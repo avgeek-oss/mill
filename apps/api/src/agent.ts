@@ -33,7 +33,12 @@ export function agentConfiguration(
 ): ProviderConfig | undefined {
   if (!env.AGENT_API_KEY && !env.AGENT_AUTH_TOKEN && !env.ANTHROPIC_API_KEY)
     return undefined;
-  const provider = providerFromEnv(env);
+  let provider: ProviderConfig;
+  try {
+    provider = providerFromEnv(env);
+  } catch {
+    throw new Error("Invalid assistant provider configuration.");
+  }
   if (!provider.apiKey && !provider.authToken)
     provider.apiKey = env.ANTHROPIC_API_KEY;
   return provider;
@@ -64,9 +69,11 @@ export async function callAgentTool(
   principal: AgentPrincipal,
   tool: Tool,
   input: unknown,
+  signal?: AbortSignal,
 ) {
   const authRequest = new Request(config().MILL_API_URL, {
     headers: { cookie: principal.cookie },
+    signal,
   });
   const actor = await sessionActor(authRequest);
   const [user] =
@@ -108,7 +115,7 @@ export async function callAgentTool(
       "content-type": "application/json",
     });
     if (typeof retryKey === "string") headers.set("Idempotency-Key", retryKey);
-    const init: RequestInit = { method: tool.method, headers };
+    const init: RequestInit = { method: tool.method, headers, signal };
     if (tool.method === "GET") {
       for (const [key, value] of Object.entries(args))
         if (value !== undefined) url.searchParams.set(key, String(value));
@@ -182,7 +189,7 @@ export function agentMcpServer(principal: AgentPrincipal) {
       })),
     };
   });
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const tool = tools.find(
       (item) => item.name === request.params.name && assistantTool(item),
     );
@@ -196,7 +203,12 @@ export function agentMcpServer(principal: AgentPrincipal) {
           },
         ],
       };
-    return callAgentTool(principal, tool, request.params.arguments);
+    return callAgentTool(
+      principal,
+      tool,
+      request.params.arguments,
+      extra.signal,
+    );
   });
   return server;
 }
@@ -215,6 +227,9 @@ export function millAgent() {
       max: 2,
       connectionTimeoutMillis: 5000,
       ...(schema ? { options: `-c search_path=${schema}` } : {}),
+    });
+    pool.on("error", () => {
+      console.error("Assistant database connection failed.");
     });
     assistant = createAgent<AgentPrincipal>({
       appName: "Mill",
