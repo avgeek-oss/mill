@@ -37,3 +37,13 @@ export const apiKeyRole = (
   access: ApiKeyAccess,
   includeAdmin: boolean,
 ): Role => (includeAdmin ? "admin" : access === "edit" ? "member" : "viewer");
+
+export const credentialRole = (
+  liveRole: Role,
+  access: ApiKeyAccess,
+  includeAdmin: boolean,
+): Role => {
+  const ceiling = apiKeyRole(access, includeAdmin);
+  const rank = { viewer: 0, member: 1, admin: 2 };
+  return rank[liveRole] <= rank[ceiling] ? liveRole : ceiling;
+};

@@ -5,7 +5,7 @@ import { badRequest } from "../http.js";
 import { HTTPException } from "hono/http-exception";
 import { lockAuthority } from "../authority.js";
 import { digest, mcpResource, secret } from "./protocol.js";
-import { apiKeyRole, apiKeyScopes } from "./access.js";
+import { apiKeyRole, apiKeyScopes, credentialRole } from "./access.js";
 
 export type Credential = {
   id: string;
@@ -149,9 +149,13 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
     result = {
       userId: principal.userId,
       name: principal.userName,
-      role:
-        principal.role ??
-        apiKeyRole(principal.accessLevel, principal.includeAdmin),
+      role: principal.role
+        ? credentialRole(
+            principal.role,
+            principal.accessLevel,
+            principal.includeAdmin,
+          )
+        : apiKeyRole(principal.accessLevel, principal.includeAdmin),
       kind: principal.role ? "human" : "team",
       scopes: apiKeyScopes(principal.accessLevel),
       includeAdmin: principal.includeAdmin,
@@ -171,7 +175,11 @@ export async function credentialActor(request: Request): Promise<Actor | null> {
     result = {
       userId: principal.userId,
       name: principal.userName,
-      role: principal.role!,
+      role: credentialRole(
+        principal.role!,
+        principal.accessLevel,
+        principal.includeAdmin,
+      ),
       kind: "oauth",
       scopes: principal.scopes,
       includeAdmin: principal.includeAdmin,
