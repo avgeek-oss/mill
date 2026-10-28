@@ -47,6 +47,7 @@ import {
   SecondarySidebarLayout,
 } from "@avgeek-oss/design-system/navigation/secondary-sidebar";
 import { usePersistentAppSidebar } from "@avgeek-oss/design-system/layouts/app-shell";
+import { AgentChatTrigger } from "@avgeek-oss/design-system/patterns/agent-chat/agent-chat-trigger";
 import type { SidebarLinkConfig } from "@avgeek-oss/design-system/layouts/application-shell-types";
 import { ErrorPage } from "./error-page.js";
 import { AppBreadcrumbs } from "./app-breadcrumbs.js";
@@ -101,6 +102,9 @@ const SettingsPage = lazy(() =>
 );
 const NotificationsPopover = lazy(() =>
   import("./inbox.js").then((m) => ({ default: m.NotificationsPopover })),
+);
+const Assistant = lazy(() =>
+  import("./assistant.js").then((m) => ({ default: m.Assistant })),
 );
 const AppConsent = lazy(() =>
   import("./app-consent.js").then((m) => ({ default: m.AppConsent })),
@@ -229,6 +233,8 @@ function AppContent({ location }: { location: string }) {
   const [session, setSession] = useState<Session | null>(null);
   const [setup, setSetup] = useState(false);
   const [emailDeliveryConfigured, setEmailDeliveryConfigured] = useState(false);
+  const [assistantEnabled, setAssistantEnabled] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [backendUnavailable, setBackendUnavailable] = useState(false);
@@ -330,6 +336,7 @@ function AppContent({ location }: { location: string }) {
       if (signal.aborted) return false;
       navigationCache.clear();
       setEmailDeliveryConfigured(status.emailDeliveryConfigured);
+      setAssistantEnabled(status.assistantEnabled);
       setSetup(status.setupRequired);
       setSession(nextSession);
       setError("");
@@ -582,8 +589,10 @@ function AppContent({ location }: { location: string }) {
       session.user.id !== next.user.id ||
       session.workspace.id !== next.workspace.id ||
       session.user.role !== next.user.role
-    )
+    ) {
       navigationCache.clear();
+      setAssistantOpen(false);
+    }
     const changedPerson =
       !!session &&
       (session.user.id !== next.user.id ||
@@ -647,6 +656,7 @@ function AppContent({ location }: { location: string }) {
           suspensionActive.current = false;
           navigationCache.clear();
           setSession(null);
+          setAssistantOpen(false);
           setExpired(false);
           setBoards([]);
           setMembers([]);
@@ -683,6 +693,7 @@ function AppContent({ location }: { location: string }) {
     suspendedFocus.current = null;
     suspensionActive.current = false;
     setSession(null);
+    setAssistantOpen(false);
     setExpired(false);
     setBoards([]);
     setMembers([]);
@@ -913,7 +924,7 @@ function AppContent({ location }: { location: string }) {
     <>
       {expired && authView}
       <OverlaySuspensionScope
-        key={`${session.user.id}:${session.workspace.id}`}
+        key={`${session.user.id}:${session.workspace.id}:${session.user.role}`}
         isSuspended={expired || navigationPending}
       >
         <PageReadScope scope={readScope}>
@@ -945,6 +956,27 @@ function AppContent({ location }: { location: string }) {
                         navigate={navigate}
                         sidebar={sidebar}
                         toggleShortcut
+                        {...(assistantEnabled
+                          ? {
+                              aside: (
+                                <Suspense fallback={null}>
+                                  <Assistant
+                                    onClose={() => setAssistantOpen(false)}
+                                    boards={viewBoards}
+                                    onRefresh={() => {
+                                      navigationCache.clear();
+                                      setSessionRevision(
+                                        (revision) => revision + 1,
+                                      );
+                                      void refresh();
+                                    }}
+                                  />
+                                </Suspense>
+                              ),
+                              asideOpen: assistantOpen,
+                              onAsideOpenChange: setAssistantOpen,
+                            }
+                          : {})}
                         {...sidebarState}
                         sidebarOpen={expired ? false : sidebarState.sidebarOpen}
                         navbar={
@@ -967,6 +999,12 @@ function AppContent({ location }: { location: string }) {
                             }
                             actions={
                               <>
+                                {assistantEnabled && (
+                                  <AgentChatTrigger
+                                    isOpen={assistantOpen}
+                                    onOpenChange={setAssistantOpen}
+                                  />
+                                )}
                                 <Suspense fallback={null}>
                                   <NotificationsPopover
                                     key={session.user.id}

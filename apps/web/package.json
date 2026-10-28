@@ -8,6 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@avgeek-oss/agent-react": "0.1.1",
     "@avgeek-oss/design-system": "1.4.0",
     "@heroui/react": "3.2.6",
     "@hugeicons/core-free-icons": "4.3.0",

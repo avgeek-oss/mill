@@ -38,6 +38,7 @@ import { securityRoutes } from "./auth/factors.js";
 import { teamRoutes } from "./auth/team.js";
 import { emailRoutes } from "./auth/email.js";
 import { emailDeliveryConfigured } from "./auth/email-outbox.js";
+import { agentConfiguration } from "./agent.js";
 import { recoveryRoutes } from "./auth/recovery.js";
 
 export { sessionActor } from "./auth/model.js";
@@ -48,6 +49,7 @@ authRoutes.get("/status", async (c) => {
   return c.json({
     setupRequired: !state.configured,
     emailDeliveryConfigured: emailDeliveryConfigured(),
+    assistantEnabled: !!agentConfiguration(),
   } satisfies AuthStatus);
 });
 authRoutes.post("/setup", async (c) => {

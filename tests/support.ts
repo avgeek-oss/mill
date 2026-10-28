@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import postgres from "postgres";
+for (const key of ["AGENT_API_KEY", "AGENT_AUTH_TOKEN", "ANTHROPIC_API_KEY"])
+  delete process.env[key];
 process.env.DATABASE_URL ??=
   "postgres://mill:mill-test-disposable@127.0.0.1:55432/mill";
 process.env.MILL_WEB_URL ??= "http://localhost:4322";

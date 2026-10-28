@@ -17,12 +17,14 @@ export async function readStartup(signal: AbortSignal) {
   const status = await api<{
     setupRequired: boolean;
     emailDeliveryConfigured: boolean;
+    assistantEnabled: boolean;
   }>("/auth/status", undefined, "GET", {
     signal,
     validateResponse: (value) =>
       isResponseObject(value) &&
       typeof value.setupRequired === "boolean" &&
-      typeof value.emailDeliveryConfigured === "boolean",
+      typeof value.emailDeliveryConfigured === "boolean" &&
+      typeof value.assistantEnabled === "boolean",
   });
   let session: Session | null = null;
   if (!status.setupRequired) {

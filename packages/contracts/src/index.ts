@@ -120,6 +120,7 @@ export type NotificationPage = {
 export type AuthStatus = {
   setupRequired: boolean;
   emailDeliveryConfigured: boolean;
+  assistantEnabled: boolean;
 };
 export type UserEmailState = {
   email: string;

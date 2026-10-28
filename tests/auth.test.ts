@@ -87,6 +87,7 @@ test("first setup is atomic, has no default account, and stores only password/se
   assert.deepEqual(await (await request("/api/auth/status")).json(), {
     setupRequired: true,
     emailDeliveryConfigured: false,
+    assistantEnabled: false,
   });
   const input = {
     setupSecret,
@@ -122,6 +123,7 @@ test("first setup is atomic, has no default account, and stores only password/se
   assert.deepEqual(await (await request("/api/auth/status")).json(), {
     setupRequired: false,
     emailDeliveryConfigured: false,
+    assistantEnabled: false,
   });
 });
 test("setup rejects invalid preferences before creating any account and defaults omitted formats", async () => {

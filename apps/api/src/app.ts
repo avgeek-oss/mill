@@ -8,6 +8,8 @@ export { httpSecurity } from "../../shared/security.js";
 import { sql } from "../../../packages/database/src/index.js";
 import { config } from "./config.js";
 import { authRoutes, sessionActor } from "./auth.js";
+import { agentPrincipal, millAgent, setAgentDispatcher } from "./agent.js";
+import { agentRoutes } from "@avgeek-oss/agent-core/hono";
 import { domainRoutes } from "./domain.js";
 import { attachmentRoutes } from "./attachments/routes.js";
 import {
@@ -85,6 +87,16 @@ app.use(
     exposeHeaders: ["X-Request-Id", "Idempotency-Replayed"],
   }),
 );
+app.use(
+  "/agent/*",
+  cors({
+    origin: (origin) =>
+      origin === new URL(config().MILL_WEB_URL).origin ? origin : "",
+    credentials: true,
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+    allowHeaders: ["Content-Type"],
+  }),
+);
 const standardBodyLimit = bodyLimit({
   maxSize: 2 * 1024 * 1024,
   onError: (c) => errorResponse(c, 413, "Request is too large"),
@@ -117,6 +129,7 @@ app.get("/health/ready", async (c) => {
 app.use("*", async (c, next) => {
   if (
     c.req.path.startsWith("/api/") ||
+    c.req.path.startsWith("/agent/") ||
     c.req.path === "/mcp" ||
     c.req.path.startsWith("/oauth/")
   ) {
@@ -141,10 +154,21 @@ app.use(
   mutationAuthority,
 );
 app.use("/mcp", rateLimit);
+app.use("/agent/*", trustedOrigin, rateLimit);
 app.use("/oauth/*", rateLimit);
 app.route("/api/auth", authRoutes);
 app.route("/api", domainRoutes);
 app.route("/api", attachmentRoutes);
 app.route("/", externalRoutes);
+const assistant = millAgent();
+if (assistant)
+  app.route(
+    "/agent",
+    agentRoutes({
+      agent: assistant,
+      principal: (c) => agentPrincipal(c.req.raw),
+    }),
+  );
 app.notFound((c) => errorResponse(c, 404, "This route does not exist"));
 setApiDispatcher(async (request) => app.fetch(request));
+setAgentDispatcher(async (request) => app.fetch(request));

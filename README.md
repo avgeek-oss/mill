@@ -51,6 +51,8 @@ Images and PDFs appear below the task description. **Upload attachment** opens a
 
 Keep `.env` private and preserve `MILL_SECRET` with your database backups. See [installation](docs/installation.md) for HTTPS hosting and deployment-platform configuration.
 
+An optional in-app assistant can read boards and tasks and propose changes for approval. Configure a model credential only on the API to enable it; see [configuration](docs/configuration.md#optional-in-app-assistant). Human task ownership and permissions remain the same.
+
 For Towbar, follow [the installation guide](docs/installation/towbar.md) for copyable API, UI and PostgreSQL manifests. The examples use packaged images with separate public UI and API origins.
 
 ## Develop

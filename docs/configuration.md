@@ -33,6 +33,17 @@ Use HTTPS for remote installations. Keep the UI and API on the same site, such a
 
 Keep `MILL_SECRET` private and preserve it across upgrades and restores. Never add database credentials or `MILL_SECRET` to the UI.
 
+## Optional in-app assistant
+
+Set a model credential on the API to show the assistant in Mill's header. Without one, the assistant is absent and task management works normally. The credential stays on the API; do not put it in the UI environment.
+
+```dotenv
+ANTHROPIC_API_KEY=your-provider-key
+# Optional: AGENT_MODEL=claude-opus-5-5
+```
+
+For another Messages-compatible endpoint, set `AGENT_PROFILE=compatible`, `AGENT_BASE_URL`, `AGENT_MODEL`, and either `AGENT_API_KEY` or `AGENT_AUTH_TOKEN`. Optional `AGENT_MAX_TOKENS`, `AGENT_EFFORT`, and `AGENT_HEADERS` follow the provider's requirements. Use one credential method. The assistant uses the signed-in person's live role and board access, and asks for approval before every action that changes data. Conversations are stored in the same PostgreSQL database and belong to that person within the team. Model requests send the conversation and relevant tool results to the configured provider; choose a provider whose data terms fit your team.
+
 ## S3 source
 
 An S3-compatible bucket stores task images and PDFs. You can use a service such as Cloudflare R2 or another compatible provider. Without an S3 source, Mill works normally with the attachment controls hidden.

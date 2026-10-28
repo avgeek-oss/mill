@@ -83,6 +83,16 @@ const acceptanceCriteriaSource = await readFile(
 const acceptanceCriteriaChecksum = createHash("sha256")
   .update(acceptanceCriteriaSource)
   .digest("hex");
+const agentChatSource = await readFile(
+  new URL(
+    "../packages/database/migrations/009_agent_chat.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const agentChatChecksum = createHash("sha256")
+  .update(agentChatSource)
+  .digest("hex");
 function runMigration(schema: string, directory?: string) {
   return new Promise<{ code: number | null; output: string }>(
     (resolve, reject) => {
@@ -145,6 +155,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       "006_board_metadata.sql",
       "007_comment_replies.sql",
       "008_task_acceptance_criteria.sql",
+      "009_agent_chat.sql",
     ],
   );
   const schema = `baseline_${randomUUID().replaceAll("-", "")}`;
@@ -178,6 +189,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
             name: "008_task_acceptance_criteria.sql",
             checksum: acceptanceCriteriaChecksum,
           },
+          { name: "009_agent_chat.sql", checksum: agentChatChecksum },
         ],
       );
       const tables = (
@@ -186,6 +198,8 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       assert.deepEqual(tables, [
         "account_recovery",
         "activity",
+        "agent_conversations",
+        "agent_messages",
         "api_idempotency",
         "attachment_cleanup",
         "auth_challenges",
@@ -247,6 +261,7 @@ test("single clean baseline supports concurrent fresh startup, repeat startup an
       join(directory, "008_task_acceptance_criteria.sql"),
       acceptanceCriteriaSource,
     );
+    await writeFile(join(directory, "009_agent_chat.sql"), agentChatSource);
     const changed = await runMigration(schema, directory);
     assert.equal(changed.code, 1);
     assert.match(changed.output, /Migration changed: 001_initial.sql/);

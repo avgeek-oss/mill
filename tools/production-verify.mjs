@@ -763,6 +763,13 @@ try {
   const acceptanceCriteriaChecksum = createHash("sha256")
     .update(acceptanceCriteriaSource)
     .digest("hex");
+  const agentChatSource = await readFile(
+    join(root, "packages/database/migrations/009_agent_chat.sql"),
+    "utf8",
+  );
+  const agentChatChecksum = createHash("sha256")
+    .update(agentChatSource)
+    .digest("hex");
   const installedMigrations = JSON.parse(
     await run(
       "baseline-migration-record",
@@ -791,6 +798,7 @@ try {
       name: "008_task_acceptance_criteria.sql",
       checksum: acceptanceCriteriaChecksum,
     },
+    { name: "009_agent_chat.sql", checksum: agentChatChecksum },
   ]);
   const schemaShape = JSON.parse(
     await run(
@@ -827,7 +835,7 @@ try {
     "node",
     "--input-type=module",
     "-e",
-    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await writeFile(join(directory,'003_task_attachments.sql'),await readFile('/app/packages/database/migrations/003_task_attachments.sql'));await writeFile(join(directory,'004_oauth_admin_consent.sql'),await readFile('/app/packages/database/migrations/004_oauth_admin_consent.sql'));await writeFile(join(directory,'005_oauth_role_change_reauthorization.sql'),await readFile('/app/packages/database/migrations/005_oauth_role_change_reauthorization.sql'));await writeFile(join(directory,'006_board_metadata.sql'),await readFile('/app/packages/database/migrations/006_board_metadata.sql'));await writeFile(join(directory,'007_comment_replies.sql'),await readFile('/app/packages/database/migrations/007_comment_replies.sql'));await writeFile(join(directory,'008_task_acceptance_criteria.sql'),await readFile('/app/packages/database/migrations/008_task_acceptance_criteria.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
+    `import assert from 'node:assert/strict';import{mkdtemp,readFile,writeFile,rm}from'node:fs/promises';import{tmpdir}from'node:os';import{join}from'node:path';const directory=await mkdtemp(join(tmpdir(),'mill-checksum-'));process.env.MILL_MIGRATIONS_DIR=directory;const{migrate}=await import('/app/dist/packages/database/src/migrate.js');const{closeDatabase}=await import('/app/dist/packages/database/src/index.js');try{await writeFile(join(directory,'001_initial.sql'),(await readFile('/app/packages/database/migrations/001_initial.sql','utf8'))+'\\n-- altered checksum\\n');await writeFile(join(directory,'002_key_policies.sql'),await readFile('/app/packages/database/migrations/002_key_policies.sql'));await writeFile(join(directory,'003_task_attachments.sql'),await readFile('/app/packages/database/migrations/003_task_attachments.sql'));await writeFile(join(directory,'004_oauth_admin_consent.sql'),await readFile('/app/packages/database/migrations/004_oauth_admin_consent.sql'));await writeFile(join(directory,'005_oauth_role_change_reauthorization.sql'),await readFile('/app/packages/database/migrations/005_oauth_role_change_reauthorization.sql'));await writeFile(join(directory,'006_board_metadata.sql'),await readFile('/app/packages/database/migrations/006_board_metadata.sql'));await writeFile(join(directory,'007_comment_replies.sql'),await readFile('/app/packages/database/migrations/007_comment_replies.sql'));await writeFile(join(directory,'008_task_acceptance_criteria.sql'),await readFile('/app/packages/database/migrations/008_task_acceptance_criteria.sql'));await writeFile(join(directory,'009_agent_chat.sql'),await readFile('/app/packages/database/migrations/009_agent_chat.sql'));await assert.rejects(migrate(),/Migration changed: 001_initial.sql/)}finally{await closeDatabase();await rm(directory,{recursive:true,force:true})}`,
   ]);
   await run("backup-quiesce-application", "docker", [
     ...primary.compose,
@@ -854,9 +862,18 @@ try {
     attachmentSource.matchAll(/^CREATE TABLE ([a-z_]+) \(/gm),
     (match) => match[1],
   );
+  const agentChatTables = Array.from(
+    agentChatSource.matchAll(/^CREATE TABLE ([a-z_]+) \(/gm),
+    (match) => match[1],
+  );
   assert.deepEqual(
     tables,
-    [...baselineTables, ...attachmentTables, "mill_migrations"].sort(),
+    [
+      ...baselineTables,
+      ...attachmentTables,
+      ...agentChatTables,
+      "mill_migrations",
+    ].sort(),
   );
   for (const table of tables) assert.match(table, /^[a-z_]+$/);
   const contentQuery = `SELECT jsonb_build_object(${tables.map((table) => `'${table}',(SELECT COALESCE(jsonb_agg(content ORDER BY content::text),'[]'::jsonb) FROM (SELECT to_jsonb(record) AS content FROM ${table} record) rows)`).join(",")})::text`;

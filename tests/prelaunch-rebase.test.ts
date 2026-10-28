@@ -103,6 +103,16 @@ const acceptanceCriteriaSource = await readFile(
 const acceptanceCriteriaChecksum = createHash("sha256")
   .update(acceptanceCriteriaSource)
   .digest("hex");
+const agentChatSource = await readFile(
+  new URL(
+    "../packages/database/migrations/009_agent_chat.sql",
+    import.meta.url,
+  ),
+  "utf8",
+);
+const agentChatChecksum = createHash("sha256")
+  .update(agentChatSource)
+  .digest("hex");
 const previousBaseline = baseline
   .replace(
     "CHECK (date_format IN ('day-short-month-year','short-month-day-year','year-month-day','day-month-year','month-day-year'))",
@@ -361,7 +371,7 @@ test("prelaunch conversion accepts the real historical retry-column order, prese
     );
     assert.equal(
       (
-        await sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name LIKE 'agent%'`
+        await sql`SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('agents','agent_boards','agent_members')`
       ).length,
       0,
     );
@@ -776,6 +786,7 @@ for (const source of [
             name: "008_task_acceptance_criteria.sql",
             checksum: acceptanceCriteriaChecksum,
           },
+          { name: "009_agent_chat.sql", checksum: agentChatChecksum },
         ],
       );
     } finally {

@@ -4,6 +4,7 @@ import { validateConfiguration } from "./config.js";
 import { migrate } from "../../../packages/database/src/migrate.js";
 import { closeDatabase } from "../../../packages/database/src/index.js";
 import { app } from "./app.js";
+import { closeAgent } from "./agent.js";
 import { startEmailWorker } from "./auth/email-outbox.js";
 import { startAttachmentCleanup } from "./attachments/cleanup.js";
 
@@ -23,6 +24,7 @@ async function shutdown() {
   await stopEmailWorker();
   await stopAttachmentCleanup();
   await closeDatabase();
+  await closeAgent();
 }
 for (const signal of ["SIGTERM", "SIGINT"] as const)
   process.once(signal, () =>

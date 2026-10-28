@@ -112,7 +112,11 @@ test("startup distinguishes an expired session from an unreachable backend", asy
   let status = 401;
   mock.method(globalThis, "fetch", async (path: string) =>
     path.endsWith("/auth/status")
-      ? Response.json({ setupRequired: false, emailDeliveryConfigured: true })
+      ? Response.json({
+          setupRequired: false,
+          emailDeliveryConfigured: true,
+          assistantEnabled: false,
+        })
       : Response.json({ error: { message: "Request failed" } }, { status }),
   );
   const state = await readStartup(new AbortController().signal);
